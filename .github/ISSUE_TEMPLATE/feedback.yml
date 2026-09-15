@@ -1,0 +1,45 @@
+name: Product feedback
+description: A bug, feature request, improvement, or question filed from inside Dimension via /feedback.
+title: "[feedback]: "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for helping make Dimension better. Most reports arrive through
+        the in-app `/feedback` command, which fills this form in for you —
+        including a private transcript link the team (and only the team) can open.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Kind
+      options:
+        - Bug
+        - Feature request
+        - Improvement
+        - Question
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: What happened, what you expected, and any error text. Filed-from-app reports carry the agent's write-up here.
+    validations:
+      required: true
+  - type: input
+    id: appVersion
+    attributes:
+      label: App version
+      description: Dimension → Settings → About, e.g. 0.10.8.
+  - type: textarea
+    id: transcript
+    attributes:
+      label: Session transcript
+      description: Never pasted here. The filing command stores it privately and links it below for the team.
+      value: "_Withheld — see the linked private transcript._"
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images filed with the report here. They are public — crop out anything private.

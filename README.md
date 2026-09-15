@@ -1,6 +1,6 @@
 # dimension-marketplace
 
-The public marketplace for the **Dimension** platform: community components,
+**Dimension Community** — the public shelf for the **Dimension** platform: community components,
 layouts, instruments and spaces.
 
 Dimension's UI is assembled from **slots**. The slot set is **open and
