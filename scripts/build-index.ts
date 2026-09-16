@@ -48,7 +48,7 @@ const packsDir = join(root, "packs");
  *  pack here lives in this git repo and ships under its license unless it says
  *  otherwise (vendored packs do — `impeccable` is Apache-2.0). A pack that
  *  declares either field wins. */
-const SHELF_REPOSITORY = "https://github.com/insodimension/dimension-marketplace";
+const SHELF_REPOSITORY = "https://github.com/insodimension/dimension-community";
 const SHELF_LICENSE = "MIT";
 
 type Json = Record<string, unknown>;

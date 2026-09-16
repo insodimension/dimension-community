@@ -1,4 +1,4 @@
-# dimension-marketplace
+# dimension-community
 
 **Dimension Community** — the public shelf for the **Dimension** platform: community components,
 layouts, instruments and spaces.
@@ -134,7 +134,7 @@ companion, which first ships in Dimension 0.10.5).
 From a Dimension session:
 
 ```
-plugins op:add-marketplace name:dimension-marketplace source:insodimension/dimension-marketplace
-plugins op:catalog marketplace:dimension-marketplace
-plugins op:install name:independent-thread marketplace:dimension-marketplace
+plugins op:add-marketplace name:dimension-community source:insodimension/dimension-community
+plugins op:catalog marketplace:dimension-community
+plugins op:install name:independent-thread marketplace:dimension-community
 ```

@@ -1,5 +1,5 @@
 {
-	"name": "dimension-marketplace",
+	"name": "dimension-community",
 	"owner": {
 		"name": "Dimension"
 	},
@@ -19,7 +19,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "skills",
 			"tags": [
@@ -45,7 +45,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "layout",
 			"tags": [
@@ -82,7 +82,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "artifactory",
 			"tags": [
@@ -103,7 +103,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "artifactory",
 			"tags": [
@@ -124,7 +124,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "layout",
 			"tags": [
@@ -174,7 +174,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "layout",
 			"tags": [
@@ -226,7 +226,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -246,7 +246,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -266,7 +266,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -286,7 +286,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -306,7 +306,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -326,7 +326,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -346,7 +346,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -368,7 +368,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -392,7 +392,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -415,7 +415,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -438,7 +438,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -460,7 +460,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -484,7 +484,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -509,7 +509,7 @@
 			"author": {
 				"name": "Paul Bakaus (upstream) / Dimension (port)"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "Apache-2.0",
 			"category": "skills",
 			"tags": [
@@ -535,7 +535,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -555,7 +555,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -575,7 +575,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -595,7 +595,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "skills",
 			"tags": [
@@ -621,7 +621,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -641,7 +641,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "layout",
 			"tags": [
@@ -685,7 +685,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -705,7 +705,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "skills",
 			"tags": [
@@ -731,7 +731,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "component",
 			"tags": [
@@ -752,7 +752,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -774,7 +774,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -796,7 +796,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "skills",
 			"tags": [
@@ -822,7 +822,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -845,7 +845,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -866,7 +866,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "layout",
 			"tags": [
@@ -900,7 +900,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "skills",
 			"tags": [
@@ -928,7 +928,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -952,7 +952,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -974,7 +974,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
@@ -997,7 +997,7 @@
 			"author": {
 				"name": "Dimension"
 			},
-			"repository": "https://github.com/insodimension/dimension-marketplace",
+			"repository": "https://github.com/insodimension/dimension-community",
 			"license": "MIT",
 			"category": "connector",
 			"tags": [
