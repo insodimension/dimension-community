@@ -1,0 +1,98 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "watch",
+	"version": "0.2.2",
+	"description": "Watch a video by URL or local path: ffmpeg frame sampling plus a timestamped transcript (captions, local Whisper, or a consent-gated cloud API)",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"video",
+		"youtube",
+		"transcription",
+		"multimodal",
+		"ffmpeg",
+		"yt-dlp",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Watch",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"toolLoading": "eager",
+			"examples": [
+				"Watch https://youtu.be/dQw4w9WgXcQ and tell me what happens at the 30 second mark",
+				"Watch this screen recording and find where the error appears",
+				"Summarize this talk and read the numbers off the slides"
+			],
+			"connect": {
+				"kind": [
+					"cli"
+				],
+				"requires": {
+					"commands": [
+						"ffmpeg",
+						"yt-dlp"
+					],
+					"install": {
+						"ffmpeg": {
+							"win32": [
+								"winget install Gyan.FFmpeg"
+							],
+							"darwin": [
+								"brew install ffmpeg"
+							],
+							"linux": [
+								"sudo apt-get install -y ffmpeg"
+							]
+						},
+						"yt-dlp": {
+							"win32": [
+								"pip install yt-dlp",
+								"winget install yt-dlp.yt-dlp"
+							],
+							"darwin": [
+								"brew install yt-dlp"
+							],
+							"linux": [
+								"pipx install yt-dlp",
+								"sudo apt-get install -y yt-dlp"
+							]
+						}
+					}
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "watch",
+					"use": "keyValue",
+					"icon": "eye",
+					"title": "Watch",
+					"titleBy": {
+						"field": "op",
+						"titles": {
+							"watch": "Watching video",
+							"cleanup": "Clearing watch cache"
+						}
+					},
+					"badges": [
+						"detail",
+						"engine",
+						"transcriptSource"
+					],
+					"payload": "details"
+				}
+			],
+			"skillCard": {
+				"skill": "watch",
+				"use": "steps",
+				"icon": "eye",
+				"title": "Watch a video"
+			}
+		}
+	}
+}

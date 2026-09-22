@@ -1,7 +1,7 @@
 {
 	"name": "@inso/google-calendar",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Google Calendar connector — read agenda, check availability, and manage events via OAuth (bring-your-own Google Cloud client)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,28 +10,17 @@
 	},
 	"dimension": {
 		"name": "google-calendar",
-		"description": "Manage Google Calendar events and schedules",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"google-calendar",
-			"calendar",
-			"agenda",
-			"daily-brief",
-			"scheduling",
-			"productivity"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"assets/",
 		"index.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

@@ -1,20 +1,12 @@
 {
 	"name": "@dimension/independent-thread",
 	"author": "Dimension",
-	"version": "0.1.0",
-	"description": "Independent thread \u2014 built from the published PARTS (Thread, SectionSessionScope, PresenceSurface, OpeningThreadSkeleton), not from the shipped section.",
+	"version": "0.1.1",
+	"description": "Independent thread — built from the published PARTS (Thread, SectionSessionScope, PresenceSurface, OpeningThreadSkeleton), not from the shipped section.",
 	"type": "module",
 	"main": "./src/index.tsx",
 	"dimension": {
-		"name": "independent-thread",
-		"description": "Independent thread section assembled from the published PARTS (Thread, SectionSessionScope, PresenceSurface, OpeningThreadSkeleton) — no shipped implementation imported.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"thread",
-			"independent"
-		]
+		"name": "independent-thread"
 	},
 	"private": true,
 	"scripts": {

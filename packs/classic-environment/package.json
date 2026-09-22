@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/classic-environment",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Classic Environment - the environment card as Dimension ships it, delivered as a marketplace component (re-exports the shipped implementation from @fraym/ui; no reimplementation).",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -20,15 +20,7 @@
 		"assembly"
 	],
 	"dimension": {
-		"name": "classic-environment",
-		"description": "The shipped environment card, installable: re-exports ENVIRONMENT_CLASSIC from @fraym/ui - live SCM scan, submodule pins, worktree verbs, Push.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"workspace-surface",
-			"classic"
-		]
+		"name": "classic-environment"
 	},
 	"devDependencies": {
 		"vite": "8.1.5"

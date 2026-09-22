@@ -1,0 +1,26 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "classic-dock",
+	"version": "0.1.1",
+	"description": "The shipped dock COLUMN as a pack — tab strip, resize handle, panel body. Fills the `dock-column` contract (a `dock` component is an instrument, i.e. one tab).",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"dock",
+		"classic"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Classic Dock",
+			"icon": "layers",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "dock-column"
+		}
+	}
+}

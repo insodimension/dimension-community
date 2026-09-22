@@ -1,7 +1,7 @@
 {
 	"name": "@inso/google-meet",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Google Meet connector — create meetings, read post-call conference records/recordings/transcripts via OAuth, and join a live call to transcribe it (bring-your-own Google Cloud client)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,18 +10,6 @@
 	},
 	"dimension": {
 		"name": "google-meet",
-		"description": "Create Google Meet spaces, read conference records/recordings/transcripts, and live-transcribe a call",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"google-meet",
-			"meet",
-			"meetings",
-			"transcription",
-			"conference-records",
-			"recordings",
-			"productivity"
-		],
 		"extensions": [
 			"index.ts"
 		]
@@ -38,7 +26,7 @@
 		"index.ts",
 		"rest.ts",
 		"bot.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

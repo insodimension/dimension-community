@@ -1,0 +1,209 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "youtube",
+	"version": "0.1.3",
+	"description": "Search YouTube, inspect videos and channels, manage playlists, and read/post comments",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"youtube",
+		"video",
+		"channel",
+		"playlist",
+		"comments",
+		"media"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "YouTube",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Search YouTube for the three most-viewed talks about Rust async and summarize each",
+				"Pull the stats and description for this video id and tell me its like-to-view ratio",
+				"Add this video to my \"Watch later on desktop\" playlist"
+			],
+			"connect": {
+				"kind": [
+					"oauth"
+				],
+				"setup": [
+					{
+						"title": "Reuse (or create) your Google Cloud OAuth client",
+						"detail": "If you set up Google Drive or Google Calendar you already have one — the same Desktop-app OAuth client works here. If not, create a free Google Cloud project and a Desktop-app OAuth client (no billing, no redirect URI to register).",
+						"url": "https://console.cloud.google.com/apis/credentials",
+						"urlLabel": "Open Credentials"
+					},
+					{
+						"title": "Enable the YouTube Data API v3",
+						"detail": "APIs & Services → Library → \"YouTube Data API v3\" → Enable. Creating the client is NOT enough — without this step the connection succeeds but every YouTube call fails.",
+						"url": "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+						"urlLabel": "Open the API Library"
+					},
+					{
+						"title": "Copy the Client ID and Client Secret into the form below",
+						"detail": "Same values as your Drive or Calendar connector — they stay on this machine."
+					}
+				],
+				"form": [
+					{
+						"id": "clientId",
+						"label": "OAuth Client ID",
+						"help": "Reuse the SAME OAuth client you created for Google Drive/Calendar — no new Cloud project needed; just also enable the YouTube Data API v3. If you don't have one yet, follow the steps above.",
+						"helpUrl": "https://console.cloud.google.com/apis/credentials",
+						"helpUrlLabel": "Open Google Cloud Console"
+					},
+					{
+						"id": "clientSecret",
+						"label": "OAuth Client Secret",
+						"secret": true,
+						"help": "The same Client Secret as your Drive/Calendar connector. Google issues one for Desktop app clients even though it isn't treated as secret for installed apps (RFC 8252). Copy it from the same credential page."
+					}
+				],
+				"oauth": {
+					"provider": "google",
+					"authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+					"tokenUrl": "https://oauth2.googleapis.com/token",
+					"scopes": [
+						"https://www.googleapis.com/auth/youtube",
+						"https://www.googleapis.com/auth/youtube.force-ssl"
+					],
+					"usePkce": true,
+					"extraAuthParams": {
+						"access_type": "offline",
+						"prompt": "consent"
+					}
+				},
+				"configTarget": "~/.config/dimension-youtube/token.json",
+				"verify": {
+					"http": "https://www.googleapis.com/youtube/v3/channels?part=id&mine=true",
+					"failures": [
+						{
+							"match": "quotaExceeded|dailyLimitExceeded|quota",
+							"title": "YouTube API quota exhausted for today",
+							"detail": "Your Google Cloud project has used its daily YouTube Data API quota. It resets at midnight Pacific — try again then, or request a higher quota in the Cloud console.",
+							"url": "https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas",
+							"urlLabel": "Open YouTube API quotas"
+						},
+						{
+							"match": "has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured",
+							"title": "Enable the YouTube Data API v3",
+							"detail": "Your account connected, but the Google Cloud project has the YouTube Data API turned off. Enable it, wait a minute, then connect again.",
+							"url": "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+							"urlLabel": "Open the API Library"
+						},
+						{
+							"match": "invalid_grant|UNAUTHENTICATED|Invalid Credentials|invalid_token",
+							"title": "Reconnect your Google account",
+							"detail": "The stored token is no longer valid — run Connect again to re-authorize."
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "youtube_search",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Search"
+				},
+				{
+					"match": "youtube_get_video",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Video"
+				},
+				{
+					"match": "youtube_list_playlists",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Playlists"
+				},
+				{
+					"match": "youtube_list_playlist_items",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Playlist items"
+				},
+				{
+					"match": "youtube_playlist_add",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Add to playlist"
+				},
+				{
+					"match": "youtube_list_comments",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Comments"
+				},
+				{
+					"match": "youtube_post_comment",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Post comment"
+				},
+				{
+					"match": "youtube_get_captions",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Captions"
+				},
+				{
+					"match": "youtube_channel_stats",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Channel stats"
+				}
+			],
+			"skillCard": {
+				"skill": "youtube",
+				"use": "summary",
+				"icon": "youtube",
+				"title": "YouTube"
+			},
+			"tools": [
+				{
+					"name": "youtube_search",
+					"description": "Search YouTube for videos, channels, or playlists by keyword. Returns each result's id, title, kind, channel, and published date."
+				},
+				{
+					"name": "youtube_get_video",
+					"description": "Read one video's full detail by id — title, channel, description, duration, and statistics (views, likes, comments)."
+				},
+				{
+					"name": "youtube_list_playlists",
+					"description": "List the connected account's own playlists — id, title, item count, and privacy status."
+				},
+				{
+					"name": "youtube_list_playlist_items",
+					"description": "List the videos inside a playlist — position, video id, title, and channel."
+				},
+				{
+					"name": "youtube_playlist_add",
+					"description": "Add a video to one of your playlists. Mutating — confirm the playlist and video first."
+				},
+				{
+					"name": "youtube_list_comments",
+					"description": "Read the top-level comment threads on a video (plain text, most-relevant first) — comment id, author, like count, and reply count."
+				},
+				{
+					"name": "youtube_post_comment",
+					"description": "Post a public comment on a video or a public reply to an existing comment. Mutating and PUBLIC — confirm the exact target and text first; it cannot be silently undone."
+				},
+				{
+					"name": "youtube_get_captions",
+					"description": "List the caption tracks available for a video (language, name, kind). Note: the official API only lets you DOWNLOAD caption text for videos you own."
+				},
+				{
+					"name": "youtube_channel_stats",
+					"description": "Read a channel's public statistics — subscribers, total views, video count — for your own channel (mine) or any channel by id."
+				}
+			]
+		}
+	}
+}

@@ -1,8 +1,0 @@
-{
-	"mcpServers": {
-		"system-monitor": {
-			"command": "node",
-			"args": ["server.mjs"]
-		}
-	}
-}

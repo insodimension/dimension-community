@@ -1,0 +1,42 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "last30days",
+	"version": "0.1.1",
+	"description": "last30days — research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News, and the web",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"research",
+		"trends",
+		"reddit",
+		"x",
+		"youtube",
+		"tiktok",
+		"hackernews",
+		"news",
+		"social",
+		"skill"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "last30days",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": true,
+			"examples": [
+				"last30days nvidia earnings reaction",
+				"What are people saying about AI video tools in the last 30 days?",
+				"last30days what users want in react"
+			],
+			"skillCard": {
+				"skill": "last30days",
+				"use": "summary",
+				"icon": "assets/icon.svg",
+				"title": "last30days"
+			}
+		}
+	}
+}

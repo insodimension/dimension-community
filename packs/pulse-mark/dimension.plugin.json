@@ -1,8 +1,0 @@
-{
-	"plugin": "pulse-mark",
-	"contractVersion": 1,
-	"title": "Pulse Mark",
-	"type": "component",
-	"entry": "dist/index.mjs",
-	"slot": "mark"
-}

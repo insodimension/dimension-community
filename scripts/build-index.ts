@@ -8,12 +8,19 @@
 // the drift only ever shows up as a wrong card in a shipped store.
 //
 // The pack files are the source of truth, per pack directory `packs/<name>/`:
-//   name / source / pluginId  ← the directory name + `dimension.plugin.json.plugin`
-//   title / icon / requires / channel / spaces  ← `dimension.plugin.json`
-//   version / description / author / license / repository / category / tags
-//                             ← `package.json` (its `dimension` block first,
-//                               then top-level fields; `omp` is read as the
-//                               pre-rename spelling of that block)
+//   name / source / pluginId  ← the directory name + the manifest's plugin id
+//   title / icon / requires / channel / spaces  ← the pack MANIFEST
+//   version / author / license / repository  ← `package.json`
+//   description / category / tags  ← the merged metadata block
+//
+// Manifest and metadata block are both read through `scripts/pack-manifest.mjs`,
+// which is also what the validator reads them through — one reader, so the
+// gate and the generator can never disagree about what a pack declares. Since
+// Agent Plugins specification 1.0.0 a pack declares itself in `plugin.json`
+// (portable metadata at the top level, Dimension's own fields under
+// `extensions["ai.insodimension.dimension"]`); a third-party pack published
+// before the spec still ships only `dimension.plugin.json`, which that reader
+// falls back to, exactly like the engine's one-release read fallback.
 //
 // Asset paths are rewritten CATALOG-ROOT-RELATIVE (`packs/x/assets/…`): the
 // origin that serves the catalog serves its images, and a not-yet-installed
@@ -36,6 +43,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPackBlock, readPackManifest } from "./pack-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -104,7 +112,7 @@ function catalogIcon(icon: string, packDir: string, name: string): string {
 	return looksLikePath ? catalogAsset(icon, packDir, `${name}: icon`) : icon;
 }
 
-/** The listing projection of one `dimension.plugin.json` space declaration.
+/** The listing projection of one manifest `spaces` declaration.
  *  Deliberately NOT the whole space: a listing answers "what is this and what
  *  does it look like", never "how does it mount". Field order is fixed (and is
  *  exactly what the engine's `readSpaceListings` parses) so a no-change run is
@@ -170,11 +178,12 @@ function entryFor(dir: string): Json {
 	const packDir = posix.join("packs", dir);
 	const pkg = readJson(join(packRoot, "package.json"));
 	if (!pkg) throw new Error(`packs/${dir}: package.json is missing or not parseable JSON`);
-	const manifest = readJson(join(packRoot, "dimension.plugin.json")) ?? {};
-	// `dimension` is the current spelling of the pack's store block; `omp` is
-	// the pre-rename one, still on disk in older packs and still read here so
-	// renaming a block is never a prerequisite for regenerating the index.
-	const block = asObject(pkg.dimension) ?? asObject(pkg.omp) ?? {};
+	const manifest = readPackManifest(packRoot) ?? {};
+	// `description` / `category` / `keywords` are layered by the shared reader:
+	// `package.json`'s `dimension` block (or the pre-rename `omp` spelling) is
+	// the weakest layer, then `plugin.json`'s portable top-level metadata, then
+	// its Dimension namespace — the engine's own order.
+	const block = readPackBlock(packRoot, pkg);
 
 	const description = asString(block.description) ?? asString(pkg.description);
 	if (!description) throw new Error(`packs/${dir}: a description is required (package.json dimension.description)`);

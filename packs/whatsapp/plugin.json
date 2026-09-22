@@ -1,0 +1,134 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "whatsapp",
+	"version": "0.1.2",
+	"description": "WhatsApp connector — send text messages and templates via the Meta WhatsApp Cloud API",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"whatsapp",
+		"meta",
+		"messaging",
+		"cloud-api",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "WhatsApp",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Text me on WhatsApp when the build finishes",
+				"Send the hello_world template to +14155552671 on WhatsApp",
+				"Message +44 7700 900123 on WhatsApp: running 10 minutes late"
+			],
+			"connect": {
+				"kind": [
+					"form"
+				],
+				"setup": [
+					{
+						"title": "Create a Meta app (type Business)",
+						"detail": "Sign in at Meta for Developers → My Apps → Create App → choose the \"Business\" type. Any name works, e.g. \"Dimension WhatsApp\".",
+						"url": "https://developers.facebook.com/apps",
+						"urlLabel": "Open Meta for Developers"
+					},
+					{
+						"title": "Add the WhatsApp product to the app",
+						"detail": "On the app dashboard, find \"WhatsApp\" and click Set up. Meta gives you a FREE test phone number to send from — no billing or approved business number required to start."
+					},
+					{
+						"title": "Copy the Phone number ID and an access token",
+						"detail": "Open WhatsApp → API Setup. Copy the \"Phone number ID\" and the temporary access token shown there. The temporary token expires after 24 hours — for permanent use, create a System User token in Business Settings → Users → System Users (assign it the whatsapp_business_messaging permission)."
+					},
+					{
+						"title": "Add your own phone as a test recipient",
+						"detail": "Still on API Setup, add the phone number you want to message under \"To\". Test numbers can only send to up to 5 recipients you register here, and each must reply once to open the messaging window."
+					},
+					{
+						"title": "Paste the access token and Phone number ID below",
+						"detail": "Both stay on this machine — nothing is sent to Dimension's servers."
+					}
+				],
+				"form": [
+					{
+						"id": "accessToken",
+						"label": "Access token",
+						"secret": true,
+						"help": "From WhatsApp → API Setup. The temporary token dies after 24 hours — for permanent use paste a System User token created in Meta Business Settings instead.",
+						"helpUrl": "https://developers.facebook.com/apps",
+						"helpUrlLabel": "Open Meta for Developers"
+					},
+					{
+						"id": "phoneNumberId",
+						"label": "Phone number ID",
+						"placeholder": "1234567890",
+						"help": "The numeric Phone number ID from WhatsApp → API Setup — NOT the display phone number itself."
+					}
+				],
+				"configTemplate": "connect/token.template.json",
+				"configTarget": "~/.config/dimension-whatsapp/token.json",
+				"verify": {
+					"http": "https://graph.facebook.com/v23.0/me",
+					"failures": [
+						{
+							"match": "OAuthException|Error validating access token|Session has expired|expired",
+							"title": "Reconnect WhatsApp — the access token is invalid or expired",
+							"detail": "Temporary tokens die after 24 hours. Create a permanent System User token in Meta Business Settings, or copy a fresh temporary one from API Setup.",
+							"url": "https://developers.facebook.com/apps",
+							"urlLabel": "Open Meta for Developers"
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "whatsapp_send_message",
+					"use": "summary",
+					"icon": "whatsapp",
+					"title": "WhatsApp message"
+				},
+				{
+					"match": "whatsapp_send_template",
+					"use": "summary",
+					"icon": "whatsapp",
+					"title": "WhatsApp template"
+				},
+				{
+					"match": "whatsapp_send_image",
+					"use": "summary",
+					"icon": "whatsapp",
+					"title": "WhatsApp image"
+				},
+				{
+					"match": "whatsapp_send_document",
+					"use": "summary",
+					"icon": "whatsapp",
+					"title": "WhatsApp document"
+				}
+			],
+			"tools": [
+				{
+					"name": "whatsapp_send_message",
+					"description": "Send a free-form text WhatsApp message. Only reaches people who messaged your number in the last 24h; otherwise use a template."
+				},
+				{
+					"name": "whatsapp_send_template",
+					"description": "Send a pre-approved WhatsApp template — required for first contact or outside the 24-hour customer-service window."
+				},
+				{
+					"name": "whatsapp_send_image",
+					"description": "Send an image from a public HTTPS URL (with optional caption). Like text, media only reaches people who messaged your number in the last 24h."
+				},
+				{
+					"name": "whatsapp_send_document",
+					"description": "Send a document/file from a public HTTPS URL (with optional filename + caption). Like text, media only reaches people who messaged your number in the last 24h."
+				}
+			]
+		}
+	}
+}

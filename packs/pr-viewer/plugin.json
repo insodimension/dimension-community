@@ -1,0 +1,35 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "pr-viewer",
+	"version": "0.1.1",
+	"description": "PR Viewer — reviews in the dock, from the Store's review keys. Installable and removable like any pack: with it a rail chip opens the review here, without it the browser.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"dock",
+		"reviews",
+		"pull-request",
+		"store"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "PR Viewer",
+			"icon": "branch",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "dock",
+			"grants": [
+				"scm:review"
+			],
+			"opens": [
+				"review"
+			],
+			"order": 60
+		}
+	}
+}

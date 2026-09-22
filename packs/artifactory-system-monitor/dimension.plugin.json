@@ -1,9 +1,0 @@
-{
-	"plugin": "artifactory-system-monitor",
-	"contractVersion": 1,
-	"title": "System Monitor",
-	"icon": "monitor",
-	"artifactories": [
-		{ "mcpServer": "system-monitor", "label": "System monitor", "icon": "monitor", "modelSpaces": ["code"] }
-	]
-}

@@ -1,0 +1,34 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "artifactory-system-monitor",
+	"version": "0.1.1",
+	"description": "System Monitor as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified. A model-facing tool plus an app-only tool the View polls through the consent gate: the second Phase 4 pilot.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"artifactory",
+		"mcp-apps",
+		"system",
+		"example"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "System Monitor",
+			"icon": "monitor",
+			"category": "artifactory",
+			"defaultEnabled": false,
+			"artifactories": [
+				{
+					"mcpServer": "system-monitor",
+					"label": "System monitor",
+					"icon": "monitor",
+					"modelSpaces": [
+						"code"
+					]
+				}
+			]
+		}
+	}
+}

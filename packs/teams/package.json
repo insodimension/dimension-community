@@ -1,7 +1,7 @@
 {
 	"name": "@inso/teams",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Microsoft Teams connector — list teams/channels and post channel messages over Microsoft Graph (Azure AD app, client-credentials)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,21 +10,10 @@
 	},
 	"dimension": {
 		"name": "teams",
-		"description": "Microsoft Teams connector — list teams/channels and post channel messages via Microsoft Graph",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"microsoft",
-			"teams",
-			"graph",
-			"azure",
-			"channel",
-			"connector"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
@@ -32,7 +21,7 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

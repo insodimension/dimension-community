@@ -1,20 +1,12 @@
 {
 	"name": "@dimension/independent-rail",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Independent rail — built from the published PARTS (SessionRail, the rail chrome pieces, and the three assembly hooks), not from the shipped rail implementation.",
 	"type": "module",
 	"main": "./src/index.tsx",
 	"dimension": {
-		"name": "independent-rail",
-		"description": "Independent session rail assembled from the published PARTS (SessionRail, the rail chrome, and the three assembly hooks) - imports no shipped rail implementation. Speaks the rail slot's specVersion 2 channel contract.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"rail",
-			"independent"
-		]
+		"name": "independent-rail"
 	},
 	"private": true,
 	"scripts": {

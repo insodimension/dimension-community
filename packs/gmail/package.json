@@ -1,32 +1,21 @@
 {
 	"name": "@inso/gmail",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Email connector — read/search/compose/reply over IMAP/SMTP (Gmail) via the himalaya CLI",
 	"type": "module",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "gmail",
-		"description": "Email connector — read/search/compose/reply over IMAP/SMTP via himalaya",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"email",
-			"gmail",
-			"imap",
-			"smtp",
-			"himalaya",
-			"connector"
-		]
+		"name": "gmail"
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"connect/",
 		"assets/",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"license": "MIT"
 }

@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/mochi-mark",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Mochi Mark — a demo COMPONENT plugin filling the well-known `mark` slot contract (doc 68 §4.4). The assembly-spine thesis pack: a stranger's component in a declared slot.",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -11,16 +11,7 @@
 		"react": ">=19"
 	},
 	"dimension": {
-		"name": "mochi-mark",
-		"description": "A mark component drawn in a declared slot of a plugin layout — the import-surface FLOOR: react only, zero @fraym/ui.",
-		"defaultEnabled": false,
-		"category": "component",
-		"keywords": [
-			"component",
-			"mark",
-			"demo",
-			"assembly"
-		]
+		"name": "mochi-mark"
 	},
 	"scripts": {
 		"build": "vite build"

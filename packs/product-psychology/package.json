@@ -1,35 +1,20 @@
 {
 	"name": "@inso/product-psychology",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Product Psychology — audit conversion & comprehension, map remembered journeys, research users, and ethics-gate persuasion",
 	"type": "module",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "product-psychology",
-		"description": "Product Psychology — audit conversion & comprehension, map remembered journeys, research users, and ethics-gate persuasion",
-		"defaultEnabled": false,
-		"category": "skills",
-		"keywords": [
-			"psychology",
-			"conversion",
-			"ux",
-			"ethics",
-			"persuasion",
-			"friction",
-			"journey",
-			"empathy",
-			"design",
-			"skill"
-		]
+		"name": "product-psychology"
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"assets/",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"license": "MIT"
 }

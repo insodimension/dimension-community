@@ -1,0 +1,153 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "teams",
+	"version": "0.1.3",
+	"description": "Microsoft Teams connector — list teams/channels and post channel messages via Microsoft Graph",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"microsoft",
+		"teams",
+		"graph",
+		"azure",
+		"channel",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Microsoft Teams",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Post the release notes to the #general channel in the Engineering team",
+				"List my Microsoft Teams",
+				"Which channels does the Marketing team have?"
+			],
+			"connect": {
+				"kind": [
+					"form"
+				],
+				"setup": [
+					{
+						"title": "Register an app in Microsoft Entra (Azure AD)",
+						"detail": "Azure Portal → App registrations → New registration. Name it \"Dimension Teams\", leave the default single-tenant option, and register — no redirect URI is needed for app-only access.",
+						"url": "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+						"urlLabel": "Open App registrations"
+					},
+					{
+						"title": "Copy the tenant and client IDs",
+						"detail": "On the app's Overview page, copy the Directory (tenant) ID and the Application (client) ID — you'll paste both into the form below."
+					},
+					{
+						"title": "Create a client secret",
+						"detail": "Certificates & secrets → New client secret → set an expiry → Add. Copy the secret VALUE immediately — Azure shows it only once and it disappears after you leave the page."
+					},
+					{
+						"title": "Grant Graph application permissions + admin consent",
+						"detail": "API permissions → Add a permission → Microsoft Graph → Application permissions. Add Group.Read.All, Channel.ReadBasic.All, and ChannelMessage.Send, then click \"Grant admin consent for <tenant>\" (requires a tenant admin). Without admin consent every tool call fails with a 401.",
+						"url": "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+						"urlLabel": "Open App registrations"
+					},
+					{
+						"title": "Paste your credentials below",
+						"detail": "Enter the Directory (tenant) ID, Application (client) ID, and the client secret value. They stay on this machine."
+					}
+				],
+				"form": [
+					{
+						"id": "tenantId",
+						"label": "Directory (tenant) ID",
+						"help": "From your app registration's Overview page in the Azure Portal — a GUID like 00000000-0000-0000-0000-000000000000.",
+						"helpUrl": "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+						"helpUrlLabel": "Open App registrations"
+					},
+					{
+						"id": "clientId",
+						"label": "Application (client) ID",
+						"help": "Also on the app's Overview page — identifies your Azure AD application.",
+						"helpUrl": "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+						"helpUrlLabel": "Open App registrations"
+					},
+					{
+						"id": "clientSecret",
+						"label": "Client secret value",
+						"secret": true,
+						"help": "The VALUE (not the Secret ID) created under Certificates & secrets. Azure shows it once — if you lost it, create a new client secret. Stored only on this machine.",
+						"helpUrl": "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+						"helpUrlLabel": "Open App registrations"
+					}
+				],
+				"configTemplate": "connect/token.template.json",
+				"configTarget": "~/.config/dimension-teams/token.json"
+			},
+			"toolRenderer": [
+				{
+					"match": "teams_list_teams",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Teams"
+				},
+				{
+					"match": "teams_list_channels",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Channels"
+				},
+				{
+					"match": "teams_send_channel_message",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Post to channel"
+				},
+				{
+					"match": "teams_read_channel_messages",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Read messages"
+				},
+				{
+					"match": "teams_reply_channel_message",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Reply"
+				},
+				{
+					"match": "teams_list_members",
+					"use": "summary",
+					"icon": "teams",
+					"title": "Members"
+				}
+			],
+			"tools": [
+				{
+					"name": "teams_list_teams",
+					"description": "List the Microsoft Teams in the connected Azure AD tenant. Returns id/name/description per line."
+				},
+				{
+					"name": "teams_list_channels",
+					"description": "List the channels of a Microsoft Team (by team id). Returns id/displayName per line."
+				},
+				{
+					"name": "teams_send_channel_message",
+					"description": "Post a message to a Teams channel. DESTRUCTIVE — confirm team, channel, and text first. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
+				},
+				{
+					"name": "teams_read_channel_messages",
+					"description": "Read recent messages in a Teams channel. Returns sender · timestamp · text (HTML stripped, truncated) per message. App-only reading needs ChannelMessage.Read.All with admin consent (else 403)."
+				},
+				{
+					"name": "teams_reply_channel_message",
+					"description": "Reply to a message in a Teams channel. DESTRUCTIVE — confirm team, channel, target message, and text first. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
+				},
+				{
+					"name": "teams_list_members",
+					"description": "List the members of a Microsoft Team. Returns displayName · roles per line. Needs TeamMember.Read.All with admin consent (else 403)."
+				}
+			]
+		}
+	}
+}

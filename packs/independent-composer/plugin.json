@@ -1,0 +1,25 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "independent-composer",
+	"version": "0.1.1",
+	"description": "A composer built independently on the bricks tier — Fraym primitives + tokens + the store channels. Ships no shipped-implementation import.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"composer",
+		"independent"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Independent Composer",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "composer"
+		}
+	}
+}

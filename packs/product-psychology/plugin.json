@@ -1,0 +1,36 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "product-psychology",
+	"version": "0.1.2",
+	"description": "Product Psychology — audit conversion & comprehension, map remembered journeys, research users, and ethics-gate persuasion",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"psychology",
+		"conversion",
+		"ux",
+		"ethics",
+		"persuasion",
+		"friction",
+		"journey",
+		"empathy",
+		"design",
+		"skill"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Product Psychology",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": false,
+			"examples": [
+				"Audit this screen for conversion and friction (Imprint Loop + Charge)",
+				"Map this onboarding journey to its Peak/Pit moments and improve the end",
+				"Ethics-gate this persuasive campaign before we ship it"
+			]
+		}
+	}
+}

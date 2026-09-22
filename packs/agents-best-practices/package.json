@@ -1,34 +1,19 @@
 {
 	"name": "@inso/agents-best-practices",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Agents Best Practices — provider-neutral agent-harness architecture: loops, tools, permissions, planning, memory, compaction, evals, safety",
 	"type": "module",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "agents-best-practices",
-		"description": "Agents Best Practices — provider-neutral agent-harness architecture: loops, tools, permissions, planning, memory, compaction, evals, safety",
-		"defaultEnabled": false,
-		"category": "skills",
-		"keywords": [
-			"agents",
-			"harness",
-			"architecture",
-			"tools",
-			"mcp",
-			"evals",
-			"prompt-caching",
-			"memory",
-			"compaction",
-			"skill"
-		]
+		"name": "agents-best-practices"
 	},
 	"files": [
 		"skills/",
 		"assets/",
-		"dimension.plugin.json",
+		"plugin.json",
 		"LICENSE"
 	],
 	"license": "MIT"

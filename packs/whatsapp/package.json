@@ -1,7 +1,7 @@
 {
 	"name": "@inso/whatsapp",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "WhatsApp connector — send text messages and templates via the Meta WhatsApp Cloud API",
 	"type": "module",
 	"main": "index.ts",
@@ -10,20 +10,10 @@
 	},
 	"dimension": {
 		"name": "whatsapp",
-		"description": "WhatsApp connector — send text messages and templates via the Meta WhatsApp Cloud API",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"whatsapp",
-			"meta",
-			"messaging",
-			"cloud-api",
-			"connector"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
@@ -31,7 +21,7 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

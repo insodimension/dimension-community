@@ -1,7 +1,7 @@
 {
 	"name": "@inso/x",
 	"author": "Dimension",
-	"version": "0.2.3",
+	"version": "0.2.4",
 	"description": "X (Twitter) connector — research free via x.com web GraphQL with your browser cookies; post/reply/thread/DM via the official X API v2 (OAuth 2.0 PKCE, bring-your-own developer app)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,17 +10,6 @@
 	},
 	"dimension": {
 		"name": "x",
-		"description": "X (Twitter) connector — mentions, timelines, search, threads, and posting via the official X API v2",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"x",
-			"twitter",
-			"social",
-			"posts",
-			"mentions",
-			"connector"
-		],
 		"extensions": [
 			"index.ts"
 		]
@@ -35,7 +24,7 @@
 		"vendor/",
 		"index.ts",
 		"x-reads.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

@@ -1,22 +1,13 @@
 {
 	"name": "@dimension/phone",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Phone - the Code session surface laid out for a 360-430px phone: a layout with no switcher column, plus a space binding the same shared components Code (Assembled) uses.",
 	"type": "module",
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
 	"private": true,
 	"omp": {
-		"name": "phone",
-		"description": "Phone - the Code session surface laid out for a 360-430px phone. The same shared components as Code (Assembled), bound to a layout with no switcher column (phone-switcher mounts in the rail drawer's head). The space Inso Mobile lands in; on a desktop, the honest preview of what a phone sees.",
-		"defaultEnabled": true,
-		"category": "layout",
-		"keywords": [
-			"layout",
-			"space",
-			"phone",
-			"mobile"
-		]
+		"name": "phone"
 	}
 }

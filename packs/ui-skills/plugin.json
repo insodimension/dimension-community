@@ -1,0 +1,37 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "ui-skills",
+	"version": "0.1.1",
+	"description": "UI Skills — opinionated interface-polish skills: baseline UI discipline, accessibility fixes, metadata audits, motion performance",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"ui",
+		"design",
+		"accessibility",
+		"a11y",
+		"motion",
+		"animation",
+		"metadata",
+		"seo",
+		"tailwind",
+		"polish",
+		"skill"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "UI Skills",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": false,
+			"examples": [
+				"Polish this component to the baseline — fix durations, type scale, and layout smells",
+				"Audit this form for accessibility: ARIA, keyboard nav, focus, contrast",
+				"My page transitions stutter — find and fix the animation jank"
+			]
+		}
+	}
+}

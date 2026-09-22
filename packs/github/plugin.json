@@ -1,0 +1,75 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "github",
+	"version": "0.1.1",
+	"description": "GitHub connector — issues, PRs, releases, repos, and search via the gh CLI",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"github",
+		"git",
+		"gh",
+		"issues",
+		"pull-requests",
+		"releases",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "GitHub",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Open a pull request for my current branch against main",
+				"Summarize the open issues on this repo grouped by label",
+				"Review PR #123 and leave a comment with my feedback"
+			],
+			"connect": {
+				"kind": [
+					"cli"
+				],
+				"requires": {
+					"commands": [
+						"gh"
+					],
+					"install": {
+						"gh": {
+							"win32": [
+								"winget install --id GitHub.cli",
+								"scoop install gh"
+							],
+							"darwin": [
+								"brew install gh"
+							],
+							"linux": [
+								"sudo apt-get install -y gh",
+								"brew install gh"
+							]
+						}
+					}
+				},
+				"setup": [
+					{
+						"title": "Install the GitHub CLI",
+						"detail": "The Install button below can do this for you. Or grab the installer for your platform from the official site.",
+						"url": "https://cli.github.com",
+						"urlLabel": "Open cli.github.com"
+					},
+					{
+						"title": "Authenticate",
+						"detail": "Run `gh auth login` in a terminal and follow the browser prompt (choose GitHub.com → HTTPS → \"Login with a web browser\"). This stores your token securely in the OS keychain — no token to paste here."
+					},
+					{
+						"title": "Set a default repo (optional)",
+						"detail": "Run `gh repo set-default` inside a cloned repo so issue/PR commands target it without a `--repo` flag. Skip this if you'll always pass `--repo owner/name`."
+					}
+				],
+				"verify": "gh auth status"
+			}
+		}
+	}
+}

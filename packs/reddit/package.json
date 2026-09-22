@@ -1,7 +1,7 @@
 {
 	"name": "@inso/reddit",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Reddit connector — browse feeds, read posts/comments, search, submit, comment, vote, and read your inbox via the Reddit OAuth API (script app)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,20 +10,10 @@
 	},
 	"dimension": {
 		"name": "reddit",
-		"description": "Reddit connector — feeds, posts, comments, search, submit, vote, and inbox via the Reddit OAuth API",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"reddit",
-			"social",
-			"forum",
-			"news",
-			"connector"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
@@ -31,7 +21,7 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

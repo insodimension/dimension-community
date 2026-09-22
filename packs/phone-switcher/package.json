@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/phone-switcher",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Phone Switcher — the space switcher as a rail-head menu, for layouts that cannot afford a column (a 390px phone).",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -17,14 +17,6 @@
 		"vite": "8.1.5"
 	},
 	"omp": {
-		"name": "phone-switcher",
-		"description": "The space switcher as a rail-head menu: re-exports SWITCHER_DROPDOWN from @fraym/ui. For layouts that cannot afford a 56px switcher column — the `phone` layout.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"switcher",
-			"phone"
-		]
+		"name": "phone-switcher"
 	}
 }

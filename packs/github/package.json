@@ -1,32 +1,20 @@
 {
 	"name": "@inso/github",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "GitHub connector — issues, PRs, releases, repos, and search via the gh CLI",
 	"type": "module",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "github",
-		"description": "GitHub connector — issues, PRs, releases, repos, and search via the gh CLI",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"github",
-			"git",
-			"gh",
-			"issues",
-			"pull-requests",
-			"releases",
-			"connector"
-		]
+		"name": "github"
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"assets/",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"license": "MIT"
 }

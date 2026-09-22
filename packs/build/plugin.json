@@ -1,0 +1,156 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "build",
+	"version": "0.1.3",
+	"description": "Build - the assembled workspace. The Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts. Install it beside Code and swap any one of them without touching the app.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"layout",
+		"space",
+		"assembly",
+		"build"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Build",
+			"category": "layout",
+			"defaultEnabled": true,
+			"requires": {
+				"dimension": ">=0.10.5"
+			},
+			"channel": "canary",
+			"spaces": [
+				{
+					"specVersion": 1,
+					"id": "build",
+					"label": "Build",
+					"icon": "hammer",
+					"order": 31,
+					"description": "The assembled workspace — the Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts.",
+					"preview": {
+						"screenshots": [
+							"assets/preview/start.webp",
+							"assets/preview/session.webp"
+						],
+						"tagline": "Every part of this workspace is a pack you can swap."
+					},
+					"mark": {
+						"accent": "#f59e0b"
+					},
+					"layout": "build",
+					"components": {
+						"ca-switcher": "classic-switcher",
+						"ca-rail": "independent-rail",
+						"ca-workspace": "classic-workspace",
+						"ca-dock": "classic-dock"
+					},
+					"rail": {
+						"actions": [
+							{
+								"id": "new-session",
+								"label": "New session",
+								"icon": "plus",
+								"target": "new-session",
+								"kbd": "Cmd+N",
+								"primary": true
+							},
+							{
+								"id": "models",
+								"label": "Models",
+								"icon": "bot",
+								"target": "models"
+							},
+							{
+								"id": "plugins",
+								"label": "Capabilities",
+								"icon": "box",
+								"target": "plugins"
+							}
+						]
+					},
+					"workspace": {
+						"surfaces": [
+							"session",
+							"autonomy",
+							"models"
+						],
+						"start": "session",
+						"session": "session",
+						"actions": [
+							"jobs",
+							"environment",
+							"dock",
+							"sound"
+						],
+						"sections": {
+							"thread": "independent-thread",
+							"composer": "independent-composer",
+							"start": "classic-start"
+						},
+						"startCopy": {
+							"heading": "What are we building in {workspace}?"
+						}
+					},
+					"generalAgents": {
+						"list": "discoverable",
+						"default": "coding"
+					},
+					"requires": {
+						"plugins": [
+							"classic-switcher",
+							"independent-rail",
+							"classic-workspace",
+							"classic-dock",
+							"independent-thread",
+							"independent-composer",
+							"classic-start",
+							"classic-environment",
+							"board",
+							"analytics",
+							"workbench",
+							"session-tools",
+							"general-chat"
+						]
+					},
+					"widgets": {
+						"pinned": [
+							{
+								"fill": "classic-environment",
+								"post": "top-right",
+								"station": "environment"
+							},
+							{
+								"fill": "general-chat",
+								"post": "bottom-right",
+								"agent": "aether"
+							}
+						]
+					}
+				}
+			],
+			"type": "layout",
+			"slots": [
+				{
+					"id": "ca-switcher",
+					"contract": "switcher"
+				},
+				{
+					"id": "ca-rail",
+					"contract": "rail",
+					"items": "sessions"
+				},
+				{
+					"id": "ca-workspace",
+					"contract": "workspace"
+				},
+				{
+					"id": "ca-dock",
+					"contract": "dock"
+				}
+			]
+		}
+	}
+}

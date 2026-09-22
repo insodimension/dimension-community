@@ -1,0 +1,212 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "google-workspace",
+	"version": "0.1.2",
+	"description": "Google Workspace connector — read/write Sheets, Docs, and Slides via OAuth",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"google",
+		"workspace",
+		"sheets",
+		"docs",
+		"slides",
+		"oauth",
+		"connector",
+		"productivity"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Google Workspace",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Read the 'Q3' tab of my budget sheet and total column D",
+				"Append these three rows to the tracker spreadsheet",
+				"Add a title slide to my roadmap deck and a bullet slide summarizing the plan"
+			],
+			"connect": {
+				"kind": [
+					"oauth"
+				],
+				"setup": [
+					{
+						"title": "Reuse (or create) your Google Cloud OAuth client",
+						"detail": "If you set up Google Drive or Calendar you already have one — the SAME Desktop-app OAuth client works here. If not, create a free Google Cloud project and a Desktop-app OAuth client (no billing, no redirect URI to register).",
+						"url": "https://console.cloud.google.com/apis/credentials",
+						"urlLabel": "Open Credentials"
+					},
+					{
+						"title": "Enable the Google Sheets API",
+						"detail": "APIs & Services → Library → \"Google Sheets API\" → Enable. Creating the client is NOT enough — without this step the connection succeeds but every Sheets call fails.",
+						"url": "https://console.cloud.google.com/apis/library/sheets.googleapis.com",
+						"urlLabel": "Enable Sheets API"
+					},
+					{
+						"title": "Enable the Google Docs API",
+						"detail": "APIs & Services → Library → \"Google Docs API\" → Enable. Required for the docs_* tools.",
+						"url": "https://console.cloud.google.com/apis/library/docs.googleapis.com",
+						"urlLabel": "Enable Docs API"
+					},
+					{
+						"title": "Enable the Google Slides API",
+						"detail": "APIs & Services → Library → \"Google Slides API\" → Enable. Required for the slides_* tools.",
+						"url": "https://console.cloud.google.com/apis/library/slides.googleapis.com",
+						"urlLabel": "Enable Slides API"
+					},
+					{
+						"title": "Copy the Client ID and Client Secret into the form below",
+						"detail": "Same values as your Drive/Calendar connector — they stay on this machine. Already connected Drive or Calendar? You must still RECONNECT here so Google grants the new Sheets/Docs/Slides scopes."
+					}
+				],
+				"form": [
+					{
+						"id": "clientId",
+						"label": "OAuth Client ID",
+						"help": "Reuse the SAME OAuth client you created for Google Drive/Calendar — no new Cloud project needed; just also enable the Sheets, Docs, and Slides APIs. If you don't have one yet, follow the steps above.",
+						"helpUrl": "https://console.cloud.google.com/apis/credentials",
+						"helpUrlLabel": "Open Google Cloud Console"
+					},
+					{
+						"id": "clientSecret",
+						"label": "OAuth Client Secret",
+						"secret": true,
+						"help": "The same Client Secret as your Drive/Calendar connector. Google issues one for Desktop app clients even though it isn't treated as secret for installed apps (RFC 8252). Copy it from the same credential page."
+					}
+				],
+				"oauth": {
+					"provider": "google",
+					"authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+					"tokenUrl": "https://oauth2.googleapis.com/token",
+					"scopes": [
+						"https://www.googleapis.com/auth/spreadsheets",
+						"https://www.googleapis.com/auth/documents",
+						"https://www.googleapis.com/auth/presentations"
+					],
+					"usePkce": true,
+					"extraAuthParams": {
+						"access_type": "offline",
+						"prompt": "consent"
+					}
+				},
+				"configTarget": "~/.config/dimension-google-workspace/token.json",
+				"verify": {
+					"http": "https://sheets.googleapis.com/v4/spreadsheets/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms?fields=spreadsheetId",
+					"failures": [
+						{
+							"match": "has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured",
+							"title": "Enable the Google Sheets, Docs, and Slides APIs",
+							"detail": "Your account connected, but the Google Cloud project has one of the Workspace APIs turned off. Enable Sheets, Docs, AND Slides, wait a minute for it to propagate, then connect again.",
+							"url": "https://console.cloud.google.com/apis/library/sheets.googleapis.com",
+							"urlLabel": "Enable Sheets API"
+						},
+						{
+							"match": "ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficient authentication scopes|insufficientPermissions|PERMISSION_DENIED",
+							"title": "Reconnect to grant the Workspace scopes",
+							"detail": "The token is missing the Sheets/Docs/Slides scopes — common if you first connected Drive or Calendar with a narrower scope. Run Connect again and approve the new permissions."
+						},
+						{
+							"match": "invalid_grant|UNAUTHENTICATED|Invalid Credentials|invalid_token",
+							"title": "Reconnect your Google account",
+							"detail": "The stored token is no longer valid — run Connect again to re-authorize."
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "sheets_read_range",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Sheet range"
+				},
+				{
+					"match": "sheets_append_rows",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Append rows"
+				},
+				{
+					"match": "sheets_update_range",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Update range"
+				},
+				{
+					"match": "sheets_list_tabs",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Sheet tabs"
+				},
+				{
+					"match": "docs_read",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Doc"
+				},
+				{
+					"match": "docs_append",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Append to doc"
+				},
+				{
+					"match": "slides_list",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Slides"
+				},
+				{
+					"match": "slides_add_slide",
+					"use": "summary",
+					"icon": "google-workspace",
+					"title": "Add slide"
+				}
+			],
+			"skillCard": {
+				"skill": "google-workspace",
+				"use": "summary",
+				"icon": "google-workspace",
+				"title": "Google Workspace"
+			},
+			"tools": [
+				{
+					"name": "sheets_read_range",
+					"description": "Read cell values from a spreadsheet by spreadsheetId and A1 range (e.g. 'Sheet1!A1:D20'). Returns the value grid."
+				},
+				{
+					"name": "sheets_list_tabs",
+					"description": "List the sheet (tab) titles, ids, and grid sizes in a spreadsheet — use to discover tab names before reading a range."
+				},
+				{
+					"name": "sheets_append_rows",
+					"description": "Append rows after the last row of a table via values:append. Mutating — confirm the target and row count first. Returns the range that was written."
+				},
+				{
+					"name": "sheets_update_range",
+					"description": "Overwrite the cells in an A1 range with new values. DESTRUCTIVE — this replaces whatever was in those cells. Confirm the exact range and values first."
+				},
+				{
+					"name": "docs_read",
+					"description": "Read a Google Doc by documentId, flattened to plain text."
+				},
+				{
+					"name": "docs_append",
+					"description": "Append text to the end of a Google Doc via batchUpdate insertText. Mutating — confirm the text first."
+				},
+				{
+					"name": "slides_list",
+					"description": "List the slides in a presentation — object id, index, and title text per slide."
+				},
+				{
+					"name": "slides_add_slide",
+					"description": "Add a slide (title + optional body) to a presentation via batchUpdate. Mutating — confirm the content first."
+				}
+			]
+		}
+	}
+}

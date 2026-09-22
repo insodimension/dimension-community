@@ -4,10 +4,17 @@
 //
 // `--check` additionally runs the index generator's drift gate, which is a
 // TypeScript file — that mode needs bun (plain node runs every other check).
+//
+// What a pack declares is read through `scripts/pack-manifest.mjs` — the SAME
+// reader the index generator uses, so this gate and that projection can never
+// disagree about a pack. It reads the Agent Plugins spec `plugin.json` first
+// and falls back to the legacy `dimension.plugin.json` a pre-spec third-party
+// pack still ships.
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -74,84 +81,93 @@ for (const plugin of catalog.plugins ?? []) {
 			// delivery path (the app holds no static pack imports), so a missing
 			// or empty committed bundle must fail HERE, not as a dropped
 			// component at runtime.
-			const manifestPath = join(packDir, "dimension.plugin.json");
-			if (existsSync(manifestPath)) {
-				try {
-					const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-					if (manifest.entry !== undefined) {
-						if (typeof manifest.entry !== "string" || manifest.entry.length === 0) {
-							errors.push(`plugin "${label}": entry must be a non-empty relative path`);
-						} else if (manifest.entry.startsWith("/") || manifest.entry.split(/[\\/]/).includes("..")) {
-							errors.push(`plugin "${label}": entry must be relative with no ".." segment`);
-						} else {
-							const bundlePath = join(packDir, manifest.entry);
-							if (!existsSync(bundlePath) || !statSync(bundlePath).isFile()) {
-								errors.push(`plugin "${label}": declared entry ${manifest.entry} does not exist — run \`bun run build\` in ${plugin.source} and commit dist/`);
-							} else if (statSync(bundlePath).size === 0) {
-								errors.push(`plugin "${label}": declared entry ${manifest.entry} is empty`);
-							}
+			// Read through the shared reader (`scripts/pack-manifest.mjs`), the
+			// same one the index generator uses: `plugin.json` first (Agent
+			// Plugins spec 1.0.0, Dimension's fields under
+			// `extensions["ai.insodimension.dimension"]`), then the legacy
+			// `dimension.plugin.json` a pre-spec third-party pack still ships.
+			// The field names below are unchanged — the source moved, the shape
+			// did not.
+			const { manifest, source: manifestFile, error: manifestError } = readPackManifestResult(packDir);
+			if (manifestError) {
+				errors.push(`plugin "${label}": ${manifestFile} ${manifestError}`);
+			} else if (manifest) {
+				if (manifest.entry !== undefined) {
+					if (typeof manifest.entry !== "string" || manifest.entry.length === 0) {
+						errors.push(`plugin "${label}": entry must be a non-empty relative path`);
+					} else if (manifest.entry.startsWith("/") || manifest.entry.split(/[\\/]/).includes("..")) {
+						errors.push(`plugin "${label}": entry must be relative with no ".." segment`);
+					} else {
+						const bundlePath = join(packDir, manifest.entry);
+						if (!existsSync(bundlePath) || !statSync(bundlePath).isFile()) {
+							errors.push(`plugin "${label}": declared entry ${manifest.entry} does not exist — run \`bun run build\` in ${plugin.source} and commit dist/`);
+						} else if (statSync(bundlePath).size === 0) {
+							errors.push(`plugin "${label}": declared entry ${manifest.entry} is empty`);
 						}
 					}
-					// `opens` is a RESOLUTION PROMISE, and a disabled pack breaks it
-					// in silence. The host resolves an open-request by asking the
-					// registry which mounted component declares the kind
-					// (`instrumentOpening(kind)`); a pack that ships
-					// `defaultEnabled: false` contributes no component, so the
-					// lookup answers undefined and the host quietly does the OTHER
-					// thing — for `review`, it opens the system browser. Nothing is
-					// missing on screen and no error is logged, which is why
-					// `pr-viewer` shipped in #58 and stayed invisible until it was
-					// reported as "where is the PR viewer?" a month later.
-					//
-					// This is the twin of the unlisted-pack check at the bottom of
-					// this file: there a pack exists and the store cannot see it,
-					// here a pack installs and the APP cannot see it. Both are
-					// green under every other check.
-					//
-					// Scoped to `opens` on purpose. A pack may legitimately ship
-					// off (the decorative `*-mark` packs do, and an opt-in overlay
-					// is the right default for a mark), but a pack that has told
-					// the host "route this kind to me" has no such defence.
-					//
-					// The TYPE check is not pedantry, and it is not separable from
-					// the rule: the engine parses this field with `parseStringArray`
-					// (packages/engine/src/assembly-contributions.ts:241), which
-					// rejects a non-array or a non-string member and then drops the
-					// WHOLE component declaration with only a warn. So a typo'd
-					// `"opens": "review"` fails in exactly the invisible way this
-					// rule exists to prevent — and it would also slip past the
-					// enabled check below, which is why presence, not array-ness,
-					// is what branches here.
-					if (
-						manifest.opens !== undefined &&
-						(!Array.isArray(manifest.opens) || manifest.opens.some(k => typeof k !== "string" || k.length === 0))
-					) {
+				}
+				// `opens` is a RESOLUTION PROMISE, and a disabled pack breaks it
+				// in silence. The host resolves an open-request by asking the
+				// registry which mounted component declares the kind
+				// (`instrumentOpening(kind)`); a pack that ships
+				// `defaultEnabled: false` contributes no component, so the
+				// lookup answers undefined and the host quietly does the OTHER
+				// thing — for `review`, it opens the system browser. Nothing is
+				// missing on screen and no error is logged, which is why
+				// `pr-viewer` shipped in #58 and stayed invisible until it was
+				// reported as "where is the PR viewer?" a month later.
+				//
+				// This is the twin of the unlisted-pack check at the bottom of
+				// this file: there a pack exists and the store cannot see it,
+				// here a pack installs and the APP cannot see it. Both are
+				// green under every other check.
+				//
+				// Scoped to `opens` on purpose. A pack may legitimately ship
+				// off (the decorative `*-mark` packs do, and an opt-in overlay
+				// is the right default for a mark), but a pack that has told
+				// the host "route this kind to me" has no such defence.
+				//
+				// The TYPE check is not pedantry, and it is not separable from
+				// the rule: the engine parses this field with `parseStringArray`
+				// (packages/engine/src/assembly-contributions.ts:241), which
+				// rejects a non-array or a non-string member and then drops the
+				// WHOLE component declaration with only a warn. So a typo'd
+				// `"opens": "review"` fails in exactly the invisible way this
+				// rule exists to prevent — and it would also slip past the
+				// enabled check below, which is why presence, not array-ness,
+				// is what branches here.
+				if (
+					manifest.opens !== undefined &&
+					(!Array.isArray(manifest.opens) || manifest.opens.some(k => typeof k !== "string" || k.length === 0))
+				) {
+					errors.push(
+						`plugin "${label}": opens must be an array of non-empty strings (the engine drops the whole component declaration otherwise)`,
+					);
+				} else if (Array.isArray(manifest.opens) && manifest.opens.length > 0) {
+					const pkgPath = join(packDir, "package.json");
+					let pkg;
+					try {
+						pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+					} catch {
+						// Only the MISSING case is reported above (the existsSync
+						// check on package.json). Nothing in this validator parsed
+						// a pack's package.json before this rule existed, so an
+						// UNREADABLE one was never reported by anyone — and
+						// swallowing it here would leave this gate silently inert
+						// for the one pack whose manifest is broken.
+						if (existsSync(pkgPath)) errors.push(`plugin "${label}": package.json is not parseable JSON`);
+					}
+					// Through the shared reader, NOT `pkg.dimension`:
+					// `defaultEnabled` moved into `plugin.json`'s Dimension
+					// namespace, so a direct package.json read would find
+					// nothing and leave this gate inert — the exact silent
+					// failure the comment above says it exists to prevent.
+					const block = readPackBlock(packDir, pkg);
+					if (block.defaultEnabled === false) {
 						errors.push(
-							`plugin "${label}": opens must be an array of non-empty strings (the engine drops the whole component declaration otherwise)`,
+							`plugin "${label}": declares opens: [${manifest.opens.map(k => JSON.stringify(k)).join(", ")}] but ships defaultEnabled: false — a disabled pack contributes no component, so the host's open-request resolves to nothing and silently falls back. Remove defaultEnabled, or drop the opens declaration.`,
 						);
-					} else if (Array.isArray(manifest.opens) && manifest.opens.length > 0) {
-						const pkgPath = join(packDir, "package.json");
-						let pkg;
-						try {
-							pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-						} catch {
-							// Only the MISSING case is reported above (the existsSync
-							// check on package.json). Nothing in this validator parsed
-							// a pack's package.json before this rule existed, so an
-							// UNREADABLE one was never reported by anyone — and
-							// swallowing it here would leave this gate silently inert
-							// for the one pack whose manifest is broken.
-							if (existsSync(pkgPath)) errors.push(`plugin "${label}": package.json is not parseable JSON`);
-						}
-						const block = pkg?.dimension ?? pkg?.omp;
-						if (block?.defaultEnabled === false) {
-							errors.push(
-								`plugin "${label}": declares opens: [${manifest.opens.map(k => JSON.stringify(k)).join(", ")}] but ships defaultEnabled: false — a disabled pack contributes no component, so the host's open-request resolves to nothing and silently falls back. Remove defaultEnabled, or drop the opens declaration.`,
-							);
-						}
 					}
-				} catch {
-					errors.push(`plugin "${label}": dimension.plugin.json is not parseable JSON`);
 				}
 			}
 		}

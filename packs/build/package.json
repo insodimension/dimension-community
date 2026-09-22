@@ -1,22 +1,13 @@
 {
 	"name": "@dimension/build",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Build - the assembled workspace: a layout declaring its own slots, plus a space whose every filling is a marketplace pack shipping the real component.",
 	"type": "module",
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
 	"private": true,
 	"dimension": {
-		"name": "build",
-		"description": "Build - the assembled workspace. The Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts. Install it beside Code and swap any one of them without touching the app.",
-		"defaultEnabled": true,
-		"category": "layout",
-		"keywords": [
-			"layout",
-			"space",
-			"assembly",
-			"build"
-		]
+		"name": "build"
 	}
 }

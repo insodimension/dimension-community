@@ -1,0 +1,151 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "google-drive",
+	"version": "0.1.2",
+	"description": "Google Drive connector — list/search/read files via OAuth",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"google",
+		"drive",
+		"oauth",
+		"files",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Google Drive",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"List the 10 most recently modified files in my Drive",
+				"Find my Drive doc about the Q3 roadmap and summarize it",
+				"Search my Drive for spreadsheets named 'budget' and read the newest"
+			],
+			"connect": {
+				"kind": [
+					"oauth"
+				],
+				"setup": [
+					{
+						"title": "Create (or pick) a Google Cloud project",
+						"detail": "Free — no billing account required. Any name works, e.g. \"My Dimension Drive\".",
+						"url": "https://console.cloud.google.com/projectcreate",
+						"urlLabel": "Open Google Cloud"
+					},
+					{
+						"title": "Enable the Google Drive API",
+						"detail": "APIs & Services → Library → search \"Google Drive API\" → Enable. Creating an OAuth client is NOT enough — without this step the connection succeeds but every Drive call fails.",
+						"url": "https://console.cloud.google.com/apis/library/drive.googleapis.com",
+						"urlLabel": "Open the API Library"
+					},
+					{
+						"title": "Set up the OAuth consent screen",
+						"detail": "First time only. Name the app \"Dimension Google Drive\" — Google shows it as \"<name> wants access\" on the approval screen. User type External; leave it in Testing and add your own Google account under Test users.",
+						"url": "https://console.cloud.google.com/apis/credentials/consent",
+						"urlLabel": "Open consent screen"
+					},
+					{
+						"title": "Create an OAuth client",
+						"detail": "Credentials → Create Credentials → OAuth client ID → Application type \"Desktop app\". No redirect URI to register — Desktop clients accept any loopback port.",
+						"url": "https://console.cloud.google.com/apis/credentials",
+						"urlLabel": "Open Credentials"
+					},
+					{
+						"title": "Copy the Client ID and Client Secret",
+						"detail": "From the credential you just created — paste both into the form below. They stay on this machine."
+					}
+				],
+				"form": [
+					{
+						"id": "clientId",
+						"label": "OAuth Client ID",
+						"help": "From your own Google Cloud project (the steps above) — Dimension never ships or shares a client across users.",
+						"helpUrl": "https://console.cloud.google.com/apis/credentials",
+						"helpUrlLabel": "Open Google Cloud Console"
+					},
+					{
+						"id": "clientSecret",
+						"label": "OAuth Client Secret",
+						"secret": true,
+						"help": "Google issues one for Desktop app clients even though it isn't treated as secret for installed apps (RFC 8252). Copy it from the same credential page."
+					}
+				],
+				"oauth": {
+					"provider": "google",
+					"authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+					"tokenUrl": "https://oauth2.googleapis.com/token",
+					"scopes": [
+						"https://www.googleapis.com/auth/drive.readonly"
+					],
+					"scopeOptions": [
+						{
+							"id": "readonly",
+							"label": "Read-only",
+							"detail": "List, search, and read files. The agent cannot change anything in your Drive.",
+							"scopes": [
+								"https://www.googleapis.com/auth/drive.readonly"
+							],
+							"default": true
+						},
+						{
+							"id": "write",
+							"label": "Full access",
+							"detail": "Also upload, create folders, move/rename, and share files — every mutation asks you first.",
+							"scopes": [
+								"https://www.googleapis.com/auth/drive"
+							]
+						}
+					],
+					"usePkce": true,
+					"extraAuthParams": {
+						"access_type": "offline",
+						"prompt": "consent"
+					}
+				},
+				"configTarget": "~/.config/dimension-google-drive/token.json",
+				"verify": {
+					"http": "https://www.googleapis.com/drive/v3/about?fields=user",
+					"failures": [
+						{
+							"match": "has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured",
+							"title": "Enable the Google Drive API",
+							"detail": "Your account connected, but the Google Cloud project has the Drive API turned off. Enable it, wait a minute for it to propagate, then connect again.",
+							"url": "https://console.cloud.google.com/apis/library/drive.googleapis.com",
+							"urlLabel": "Open the API Library"
+						},
+						{
+							"match": "invalid_grant|UNAUTHENTICATED|Invalid Credentials|invalid_token",
+							"title": "Reconnect your Google account",
+							"detail": "The stored token is no longer valid — run Connect again to re-authorize."
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "google_drive_list_files",
+					"use": "summary",
+					"icon": "google-drive",
+					"title": "Drive files"
+				},
+				{
+					"match": "google_drive_read_file",
+					"use": "summary",
+					"icon": "google-drive",
+					"title": "Drive file"
+				}
+			],
+			"skillCard": {
+				"skill": "google-drive",
+				"use": "summary",
+				"icon": "google-drive",
+				"title": "Google Drive"
+			}
+		}
+	}
+}

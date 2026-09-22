@@ -1,0 +1,41 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "taste",
+	"version": "0.1.1",
+	"description": "Taste — anti-slop frontend skill: brief-first design reads, real design systems, no templated AI aesthetics",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"design",
+		"frontend",
+		"taste",
+		"anti-slop",
+		"landing-page",
+		"portfolio",
+		"redesign",
+		"ui",
+		"skill"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Taste",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": true,
+			"examples": [
+				"Build me a landing page for my SaaS — make it feel like Linear, not like AI made it",
+				"Redesign my portfolio site; keep my brand colors but kill the template look",
+				"Audit this page's design and tell me what screams 'AI-generated'"
+			],
+			"skillCard": {
+				"skill": "taste",
+				"use": "summary",
+				"icon": "assets/icon.svg",
+				"title": "Taste"
+			}
+		}
+	}
+}

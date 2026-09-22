@@ -15,7 +15,7 @@
 			"title": "Agents Best Practices",
 			"icon": "packs/agents-best-practices/assets/icon.svg",
 			"description": "Agents Best Practices — provider-neutral agent-harness architecture: loops, tools, permissions, planning, memory, compaction, evals, safety",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -42,7 +42,7 @@
 			"title": "System Monitor",
 			"icon": "monitor",
 			"description": "System Monitor as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified. A model-facing tool plus an app-only tool the View polls through the consent gate: the second Phase 4 pilot.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -63,7 +63,7 @@
 			"title": "Three.js",
 			"icon": "box",
 			"description": "Three.js scenes as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified, hosted by the Dimension engine and rendered in the artifact-view seat. The Phase 4 pilot: zero code of its own, just packaging.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -84,7 +84,7 @@
 			"pluginId": "build",
 			"title": "Build",
 			"description": "Build - the assembled workspace. The Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts. Install it beside Code and swap any one of them without touching the app.",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -137,7 +137,7 @@
 			"title": "Classic Dock",
 			"icon": "layers",
 			"description": "The shipped dock COLUMN as a pack — tab strip, resize handle, panel body. Fills the `dock-column` contract (a `dock` component is an instrument, i.e. one tab).",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -157,7 +157,7 @@
 			"title": "Classic Environment",
 			"icon": "layers",
 			"description": "The shipped environment card, installable: re-exports ENVIRONMENT_CLASSIC from @fraym/ui - live SCM scan, submodule pins, worktree verbs, Push.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -177,7 +177,7 @@
 			"title": "Classic Rail",
 			"icon": "list",
 			"description": "The shipped session rail, installable: re-exports RAIL_CLASSIC from @fraym/ui - project grouping, rail actions, search, the full row model.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -197,7 +197,7 @@
 			"title": "Classic Start",
 			"icon": "plus",
 			"description": "The shipped START SURFACE as a pack — the session surface's front door: hero composer, Project · Work strip, popover menus. Fills the `start` contract (a SECTION like `thread`/`composer`, resolved inside the session surface). The hero sentence comes from the space's `workspace.startCopy`, never from the kit.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -217,7 +217,7 @@
 			"title": "Classic Switcher",
 			"icon": "layers",
 			"description": "The shipped switcher rail as a pack — the far-left column of space marks.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -237,7 +237,7 @@
 			"title": "Classic Workspace Host",
 			"icon": "columns",
 			"description": "The shipped workspace host as a pack — the center pane's splits, tiling and overlays. The first marketplace part to ever fill the `workspace` contract.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -257,7 +257,7 @@
 			"title": "Discord",
 			"icon": "packs/discord/assets/icon.svg",
 			"description": "Discord connector — list servers/channels, read and send messages via a bot token",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -279,7 +279,7 @@
 			"title": "GitHub",
 			"icon": "packs/github/assets/icon.svg",
 			"description": "GitHub connector — issues, PRs, releases, repos, and search via the gh CLI",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -303,7 +303,7 @@
 			"title": "Gmail",
 			"icon": "packs/gmail/assets/icon.svg",
 			"description": "Email connector — read/search/compose/reply over IMAP/SMTP via himalaya",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -326,7 +326,7 @@
 			"title": "Google Calendar",
 			"icon": "packs/google-calendar/assets/icon.png",
 			"description": "Manage Google Calendar events and schedules",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -349,7 +349,7 @@
 			"title": "Google Drive",
 			"icon": "packs/google-drive/assets/icon.svg",
 			"description": "Google Drive connector — list/search/read files via OAuth",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -371,7 +371,7 @@
 			"title": "Google Meet",
 			"icon": "packs/google-meet/assets/icon.svg",
 			"description": "Create Google Meet spaces, read conference records/recordings/transcripts, and live-transcribe a call",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -395,7 +395,7 @@
 			"title": "Google Workspace",
 			"icon": "packs/google-workspace/assets/icon.svg",
 			"description": "Google Workspace connector — read/write Sheets, Docs, and Slides via OAuth",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -420,7 +420,7 @@
 			"title": "Impeccable",
 			"icon": "packs/impeccable/assets/icon.svg",
 			"description": "Impeccable — design guidance for AI agents: 23 design commands (craft, polish, audit, critique, bolder, quieter, distill…), anti-slop rules, and a deterministic anti-pattern detector",
-			"version": "3.9.1",
+			"version": "3.9.2",
 			"author": {
 				"name": "Paul Bakaus (upstream) / Dimension (port)"
 			},
@@ -446,7 +446,7 @@
 			"pluginId": "independent-composer",
 			"title": "Independent Composer",
 			"description": "A composer built independently on the bricks tier — Fraym primitives + tokens + the store channels. Ships no shipped-implementation import.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -466,7 +466,7 @@
 			"title": "Independent Rail",
 			"icon": "panel",
 			"description": "Independent session rail assembled from the published PARTS (SessionRail, the rail chrome, and the three assembly hooks) - imports no shipped rail implementation. Speaks the rail slot's specVersion 2 channel contract.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -486,7 +486,7 @@
 			"title": "Independent Thread",
 			"icon": "messageSquare",
 			"description": "Independent thread section assembled from the published PARTS (Thread, SectionSessionScope, PresenceSurface, OpeningThreadSkeleton) — no shipped implementation imported.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -506,7 +506,7 @@
 			"title": "last30days",
 			"icon": "packs/last30days/assets/icon.svg",
 			"description": "last30days — research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News, and the web",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -532,7 +532,7 @@
 			"pluginId": "mochi-mark",
 			"title": "Mochi Mark",
 			"description": "A mark component drawn in a declared slot of a plugin layout — the import-surface FLOOR: react only, zero @fraym/ui.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -552,7 +552,7 @@
 			"pluginId": "phone",
 			"title": "Phone",
 			"description": "Phone - the Code session surface laid out for a 360-430px phone. The same shared components as Code (Assembled), bound to a layout with no switcher column (phone-switcher mounts in the rail drawer's head). The space Inso Mobile lands in; on a desktop, the honest preview of what a phone sees.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -597,7 +597,7 @@
 			"title": "Phone Switcher",
 			"icon": "layers",
 			"description": "The space switcher as a rail-head menu: re-exports SWITCHER_DROPDOWN from @fraym/ui. For layouts that cannot afford a 56px switcher column — the `phone` layout.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -617,7 +617,7 @@
 			"title": "PR Viewer",
 			"icon": "branch",
 			"description": "PR Viewer — reviews in the dock, from the Store's review keys. Installable and removable like any pack: with it a rail chip opens the review here, without it the browser.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -639,7 +639,7 @@
 			"title": "Product Psychology",
 			"icon": "packs/product-psychology/assets/icon.svg",
 			"description": "Product Psychology — audit conversion & comprehension, map remembered journeys, research users, and ethics-gate persuasion",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -665,7 +665,7 @@
 			"pluginId": "pulse-mark",
 			"title": "Pulse Mark",
 			"description": "The Store's demo component: a mark with zero Fraym UI reading `sessions/list` through the one granted binding, selector-gated to a single boolean — the zero-import tier demonstrated.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -686,7 +686,7 @@
 			"title": "Reddit",
 			"icon": "packs/reddit/assets/icon.svg",
 			"description": "Reddit connector — feeds, posts, comments, search, submit, vote, and inbox via the Reddit OAuth API",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -708,7 +708,7 @@
 			"title": "Slack",
 			"icon": "packs/slack/assets/icon.svg",
 			"description": "Slack connector — list channels, read messages, and post via the Slack Web API",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -730,7 +730,7 @@
 			"title": "Taste",
 			"icon": "packs/taste/assets/icon.svg",
 			"description": "Taste — anti-slop frontend skill: brief-first design reads, real design systems, no templated AI aesthetics",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -756,7 +756,7 @@
 			"title": "Microsoft Teams",
 			"icon": "packs/teams/assets/icon.svg",
 			"description": "Microsoft Teams connector — list teams/channels and post channel messages via Microsoft Graph",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -779,7 +779,7 @@
 			"title": "Telegram",
 			"icon": "packs/telegram/assets/icon.svg",
 			"description": "Telegram connector — send messages, read updates, inspect chats via the Bot API",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -801,7 +801,7 @@
 			"title": "Triage Rail",
 			"icon": "bolt",
 			"description": "A session rail for threads, not folders: a violet Needs-you strip (oldest wait first), Now / Today / Yesterday / This week / Earlier groups, unread rows emphasised, and one Sweep that archives idle sessions older than a week. Built from @fraym/ui primitives and the rail slot's specVersion 2 channels only - no shipped rail inside.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -822,7 +822,7 @@
 			"title": "UI Skills",
 			"icon": "packs/ui-skills/assets/icon.svg",
 			"description": "UI Skills — opinionated interface-polish skills: baseline UI discipline, accessibility fixes, metadata audits, motion performance",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -850,7 +850,7 @@
 			"title": "Watch",
 			"icon": "packs/watch/assets/icon.svg",
 			"description": "Watch a video by URL or local path: ffmpeg frame sampling plus a timestamped transcript (captions, local Whisper, or a consent-gated cloud API)",
-			"version": "0.2.1",
+			"version": "0.2.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -874,7 +874,7 @@
 			"title": "WhatsApp",
 			"icon": "packs/whatsapp/assets/icon.svg",
 			"description": "WhatsApp connector — send text messages and templates via the Meta WhatsApp Cloud API",
-			"version": "0.1.1",
+			"version": "0.1.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -896,7 +896,7 @@
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
 			"description": "X (Twitter) connector — mentions, timelines, search, threads, and posting via the official X API v2",
-			"version": "0.2.3",
+			"version": "0.2.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -919,7 +919,7 @@
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
 			"description": "Search YouTube, inspect videos and channels, manage playlists, and read/post comments",
-			"version": "0.1.2",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},

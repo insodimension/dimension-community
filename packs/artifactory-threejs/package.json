@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/artifactory-threejs",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Three.js scenes as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified, hosted by the Dimension engine and rendered in the artifact-view seat.",
 	"type": "module",
 	"private": true,
@@ -9,10 +9,6 @@
 		"@modelcontextprotocol/server-threejs": "1.7.5"
 	},
 	"dimension": {
-		"name": "artifactory-threejs",
-		"description": "Three.js scenes as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified, hosted by the Dimension engine and rendered in the artifact-view seat. The Phase 4 pilot: zero code of its own, just packaging.",
-		"defaultEnabled": false,
-		"category": "artifactory",
-		"keywords": ["artifactory", "mcp-apps", "three.js", "3d", "example"]
+		"name": "artifactory-threejs"
 	}
 }

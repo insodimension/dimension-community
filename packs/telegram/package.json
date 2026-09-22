@@ -1,7 +1,7 @@
 {
 	"name": "@inso/telegram",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Telegram connector — send messages, read updates, and inspect chats via the Telegram Bot API",
 	"type": "module",
 	"main": "index.ts",
@@ -10,20 +10,10 @@
 	},
 	"dimension": {
 		"name": "telegram",
-		"description": "Telegram connector — send messages, read updates, inspect chats via the Bot API",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"telegram",
-			"bot",
-			"messaging",
-			"chat",
-			"connector"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
@@ -31,7 +21,7 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

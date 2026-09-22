@@ -1,0 +1,181 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "google-calendar",
+	"version": "0.1.3",
+	"description": "Manage Google Calendar events and schedules",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"google-calendar",
+		"calendar",
+		"agenda",
+		"daily-brief",
+		"scheduling",
+		"productivity"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Google Calendar",
+			"icon": "assets/icon.png",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Check my availability this Thursday afternoon and suggest the best two meeting slots",
+				"Summarize my calendar for tomorrow and flag anything that overlaps",
+				"Create a 30-minute customer sync at 2 PM Pacific this Friday"
+			],
+			"connect": {
+				"kind": [
+					"oauth"
+				],
+				"setup": [
+					{
+						"title": "Reuse (or create) your Google Cloud OAuth client",
+						"detail": "If you set up Google Drive you already have one — the same Desktop-app OAuth client works here. If not, create a free Google Cloud project and a Desktop-app OAuth client (no billing, no redirect URI to register).",
+						"url": "https://console.cloud.google.com/apis/credentials",
+						"urlLabel": "Open Credentials"
+					},
+					{
+						"title": "Enable the Google Calendar API",
+						"detail": "APIs & Services → Library → \"Google Calendar API\" → Enable. Creating the client is NOT enough — without this step the connection succeeds but every Calendar call fails.",
+						"url": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+						"urlLabel": "Open the API Library"
+					},
+					{
+						"title": "Copy the Client ID and Client Secret into the form below",
+						"detail": "Same values as your Drive connector — they stay on this machine."
+					}
+				],
+				"form": [
+					{
+						"id": "clientId",
+						"label": "OAuth Client ID",
+						"help": "Reuse the SAME OAuth client you created for Google Drive — no new Cloud project needed; just also enable the Google Calendar API. If you don't have one yet, follow the steps above.",
+						"helpUrl": "https://console.cloud.google.com/apis/credentials",
+						"helpUrlLabel": "Open Google Cloud Console"
+					},
+					{
+						"id": "clientSecret",
+						"label": "OAuth Client Secret",
+						"secret": true,
+						"help": "The same Client Secret as your Drive connector. Google issues one for Desktop app clients even though it isn't treated as secret for installed apps (RFC 8252). Copy it from the same credential page."
+					}
+				],
+				"oauth": {
+					"provider": "google",
+					"authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+					"tokenUrl": "https://oauth2.googleapis.com/token",
+					"scopes": [
+						"https://www.googleapis.com/auth/calendar"
+					],
+					"usePkce": true,
+					"extraAuthParams": {
+						"access_type": "offline",
+						"prompt": "consent"
+					}
+				},
+				"configTarget": "~/.config/dimension-google-calendar/token.json",
+				"verify": {
+					"http": "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1",
+					"failures": [
+						{
+							"match": "has not been used in project|is disabled|SERVICE_DISABLED|accessNotConfigured",
+							"title": "Enable the Google Calendar API",
+							"detail": "Your account connected, but the Google Cloud project has the Calendar API turned off. Enable it, wait a minute, then connect again.",
+							"url": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+							"urlLabel": "Open the API Library"
+						},
+						{
+							"match": "invalid_grant|UNAUTHENTICATED|Invalid Credentials|invalid_token",
+							"title": "Reconnect your Google account",
+							"detail": "The stored token is no longer valid — run Connect again to re-authorize."
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "google_calendar_list_calendars",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Calendars"
+				},
+				{
+					"match": "google_calendar_list_events",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Events"
+				},
+				{
+					"match": "google_calendar_get_event",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Event"
+				},
+				{
+					"match": "google_calendar_find_free_slots",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Free slots"
+				},
+				{
+					"match": "google_calendar_create_event",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Create event"
+				},
+				{
+					"match": "google_calendar_update_event",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Update event"
+				},
+				{
+					"match": "google_calendar_delete_event",
+					"use": "summary",
+					"icon": "google-calendar",
+					"title": "Delete event"
+				}
+			],
+			"skillCard": {
+				"skill": "google-calendar",
+				"use": "summary",
+				"icon": "google-calendar",
+				"title": "Google Calendar"
+			},
+			"tools": [
+				{
+					"name": "google_calendar_list_calendars",
+					"description": "List the calendars in the connected Google account — id, name, primary flag, and time zone."
+				},
+				{
+					"name": "google_calendar_list_events",
+					"description": "List or search events on a calendar within a bounded [timeMin, timeMax) window. Returns start–end, summary, id, location, and attendee count."
+				},
+				{
+					"name": "google_calendar_get_event",
+					"description": "Read one event's full detail — attendees with RSVP status, description, recurrence, conferencing link, and reminders."
+				},
+				{
+					"name": "google_calendar_find_free_slots",
+					"description": "Query busy blocks across one or more calendars (or attendee emails) in a window via the freeBusy API so you can compute the open gaps."
+				},
+				{
+					"name": "google_calendar_create_event",
+					"description": "Create an event (timed or all-day) on a calendar. Mutating — confirm the details first."
+				},
+				{
+					"name": "google_calendar_update_event",
+					"description": "Patch an existing event's fields — only the fields you pass change. Mutating — confirm the change first."
+				},
+				{
+					"name": "google_calendar_delete_event",
+					"description": "Permanently delete an event. Destructive and irreversible — confirm the exact event (summary + start) first."
+				}
+			]
+		}
+	}
+}

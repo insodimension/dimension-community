@@ -1,0 +1,26 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "classic-start",
+	"version": "0.1.1",
+	"description": "The shipped START SURFACE as a pack — the session surface's front door: hero composer, Project · Work strip, popover menus. Fills the `start` contract (a SECTION like `thread`/`composer`, resolved inside the session surface). The hero sentence comes from the space's `workspace.startCopy`, never from the kit.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"start",
+		"classic"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Classic Start",
+			"icon": "plus",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "start"
+		}
+	}
+}

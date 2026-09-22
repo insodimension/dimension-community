@@ -1,0 +1,166 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "telegram",
+	"version": "0.1.3",
+	"description": "Telegram connector — send messages, read updates, inspect chats via the Bot API",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"telegram",
+		"bot",
+		"messaging",
+		"chat",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Telegram",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Send me a Telegram message when the build finishes",
+				"Read my latest Telegram messages",
+				"What's the chat id for the person who just messaged my bot?"
+			],
+			"connect": {
+				"kind": [
+					"form"
+				],
+				"setup": [
+					{
+						"title": "Open @BotFather in Telegram",
+						"detail": "BotFather is Telegram's official bot for creating bots. Open it in the Telegram app (or Telegram Web).",
+						"url": "https://t.me/BotFather",
+						"urlLabel": "Open BotFather"
+					},
+					{
+						"title": "Create a new bot",
+						"detail": "Send /newbot to BotFather. Pick a display name, then a unique username that MUST end in `bot` (e.g. my_dimension_bot)."
+					},
+					{
+						"title": "Copy the HTTP API token",
+						"detail": "BotFather replies with a token like 123456789:ABCdefGhIJKlmNoPQRsTUVwxyz. Paste it into the form below — it stays on this machine."
+					},
+					{
+						"title": "Say hello to your bot",
+						"detail": "A bot cannot message a user who never messaged it first. Open a chat with your new bot (or add it to a group) and send /start. Then run telegram_get_updates to discover the chat_id you can message."
+					}
+				],
+				"form": [
+					{
+						"id": "botToken",
+						"label": "Bot API Token",
+						"secret": true,
+						"placeholder": "123456:ABC-…",
+						"help": "The HTTP API token @BotFather gives you when you create a bot with /newbot (or later via /mybots → API Token).",
+						"helpUrl": "https://core.telegram.org/bots#botfather",
+						"helpUrlLabel": "About BotFather"
+					}
+				],
+				"configTemplate": "connect/token.template.json",
+				"configTarget": "~/.config/dimension-telegram/token.json",
+				"verify": {
+					"http": "https://api.telegram.org/bot${access}/getMe",
+					"authPrefix": "",
+					"failures": [
+						{
+							"match": "401|Unauthorized",
+							"title": "Reconnect Telegram — the bot token is invalid",
+							"detail": "Ask @BotFather for the token again (/mybots → API Token) and paste the fresh value.",
+							"url": "https://t.me/BotFather",
+							"urlLabel": "Open BotFather"
+						}
+					]
+				}
+			},
+			"toolRenderer": [
+				{
+					"match": "telegram_send_message",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Send message"
+				},
+				{
+					"match": "telegram_get_updates",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Updates"
+				},
+				{
+					"match": "telegram_get_chat",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Chat"
+				},
+				{
+					"match": "telegram_reply_message",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Reply"
+				},
+				{
+					"match": "telegram_edit_message",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Edit"
+				},
+				{
+					"match": "telegram_delete_message",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Delete"
+				},
+				{
+					"match": "telegram_pin_message",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Pin"
+				},
+				{
+					"match": "telegram_send_photo",
+					"use": "summary",
+					"icon": "telegram",
+					"title": "Photo"
+				}
+			],
+			"tools": [
+				{
+					"name": "telegram_send_message",
+					"description": "Send a text message to a Telegram chat via the bot. Destructive — confirm recipient and text first. Returns the sent message_id."
+				},
+				{
+					"name": "telegram_get_updates",
+					"description": "Read recent incoming messages the bot received (chat id/title, sender, text). Use to discover a chat_id. Only works when no webhook is set."
+				},
+				{
+					"name": "telegram_get_chat",
+					"description": "Look up a chat's title, type, username, and description by chat_id or @username."
+				},
+				{
+					"name": "telegram_reply_message",
+					"description": "Reply to a specific message in a chat (threads under the original). Destructive — confirm chat_id, the message_id, and reply text first. Returns the sent message_id."
+				},
+				{
+					"name": "telegram_edit_message",
+					"description": "Replace the text of a message the bot itself sent. Cannot edit other users' messages. Destructive — confirm chat_id, message_id, and new text first."
+				},
+				{
+					"name": "telegram_delete_message",
+					"description": "Delete a message from a chat. Irreversible — demand explicit confirmation of chat_id and message_id. Bot's own any time; others' only within 48h and with admin rights."
+				},
+				{
+					"name": "telegram_pin_message",
+					"description": "Pin a message to the top of a chat, or unpin it when unpin=true. Needs 'pin messages' admin rights in groups. Confirm chat_id, message_id, and pin/unpin first."
+				},
+				{
+					"name": "telegram_send_photo",
+					"description": "Send a photo to a chat by https:// URL with an optional caption. Destructive — confirm recipient, photo URL, and caption first. Returns the sent message_id."
+				}
+			]
+		}
+	}
+}

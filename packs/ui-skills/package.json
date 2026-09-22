@@ -1,35 +1,19 @@
 {
 	"name": "@inso/ui-skills",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "UI Skills — opinionated interface-polish skills: baseline UI discipline, accessibility fixes, metadata audits, motion performance",
 	"type": "module",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "ui-skills",
-		"description": "UI Skills — opinionated interface-polish skills: baseline UI discipline, accessibility fixes, metadata audits, motion performance",
-		"defaultEnabled": false,
-		"category": "skills",
-		"keywords": [
-			"ui",
-			"design",
-			"accessibility",
-			"a11y",
-			"motion",
-			"animation",
-			"metadata",
-			"seo",
-			"tailwind",
-			"polish",
-			"skill"
-		]
+		"name": "ui-skills"
 	},
 	"files": [
 		"skills/",
 		"assets/",
-		"dimension.plugin.json",
+		"plugin.json",
 		"LICENSE"
 	],
 	"license": "MIT"

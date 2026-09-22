@@ -1,7 +1,7 @@
 {
 	"name": "@inso/google-workspace",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Google Workspace connector — read/write Sheets, Docs, and Slides via OAuth (bring-your-own Google Cloud client)",
 	"type": "module",
 	"main": "index.ts",
@@ -10,30 +10,17 @@
 	},
 	"dimension": {
 		"name": "google-workspace",
-		"description": "Google Workspace connector — read/write Sheets, Docs, and Slides via OAuth",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"google",
-			"workspace",
-			"sheets",
-			"docs",
-			"slides",
-			"oauth",
-			"connector",
-			"productivity"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"index.ts",
 		"assets/",
-		"dimension.plugin.json"
+		"plugin.json"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

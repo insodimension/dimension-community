@@ -7,7 +7,11 @@
 	"main": "./src/index.ts",
 	"types": "./src/index.ts",
 	"private": true,
-	"files": ["dimension.plugin.json", "dist", "README.md"],
+	"files": [
+		"plugin.json",
+		"dist",
+		"README.md"
+	],
 	"scripts": {
 		"build": "vite build",
 		"typecheck": "tsc -p tsconfig.json --noEmit",
@@ -16,13 +20,16 @@
 	"peerDependencies": {
 		"react": ">=19"
 	},
-	"keywords": ["component", "dock", "reviews", "pull-request", "store", "assembly"],
+	"keywords": [
+		"component",
+		"dock",
+		"reviews",
+		"pull-request",
+		"store",
+		"assembly"
+	],
 	"dimension": {
-		"name": "pr-viewer",
-		"description": "PR Viewer — reviews in the dock, from the Store's review keys. Installable and removable like any pack: with it a rail chip opens the review here, without it the browser.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": ["component", "dock", "reviews", "pull-request", "store"]
+		"name": "pr-viewer"
 	},
 	"devDependencies": {
 		"@fraym/ui": "workspace:*",

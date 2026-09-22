@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/classic-switcher",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Classic Switcher — the space switcher rail — the far-left column of space marks, as a marketplace pack.",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -17,14 +17,6 @@
 		"vite": "8.1.5"
 	},
 	"dimension": {
-		"name": "classic-switcher",
-		"description": "The shipped switcher rail as a pack — the far-left column of space marks.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"switcher",
-			"classic"
-		]
+		"name": "classic-switcher"
 	}
 }

@@ -1,0 +1,26 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "independent-thread",
+	"version": "0.1.1",
+	"description": "Independent thread section assembled from the published PARTS (Thread, SectionSessionScope, PresenceSurface, OpeningThreadSkeleton) — no shipped implementation imported.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"thread",
+		"independent"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Independent Thread",
+			"icon": "messageSquare",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "thread"
+		}
+	}
+}

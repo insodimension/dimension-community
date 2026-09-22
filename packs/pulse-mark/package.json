@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/pulse-mark",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Pulse Mark — the Store's demo COMPONENT: a mark that glows while any session is working, drawn with the author's OWN styling (zero Fraym UI), fed by read/watch through the one granted binding.",
 	"type": "module",
 	"main": "./src/index.ts",
@@ -11,16 +11,7 @@
 		"react": ">=19"
 	},
 	"dimension": {
-		"name": "pulse-mark",
-		"description": "The Store's demo component: a mark with zero Fraym UI reading `sessions/list` through the one granted binding, selector-gated to a single boolean — the zero-import tier demonstrated.",
-		"defaultEnabled": false,
-		"category": "component",
-		"keywords": [
-			"component",
-			"mark",
-			"demo",
-			"store"
-		]
+		"name": "pulse-mark"
 	},
 	"scripts": {
 		"build": "vite build"

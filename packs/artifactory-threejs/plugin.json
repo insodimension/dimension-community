@@ -1,0 +1,35 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "artifactory-threejs",
+	"version": "0.1.1",
+	"description": "Three.js scenes as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified, hosted by the Dimension engine and rendered in the artifact-view seat. The Phase 4 pilot: zero code of its own, just packaging.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"artifactory",
+		"mcp-apps",
+		"three.js",
+		"3d",
+		"example"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Three.js",
+			"icon": "box",
+			"category": "artifactory",
+			"defaultEnabled": false,
+			"artifactories": [
+				{
+					"mcpServer": "threejs",
+					"label": "3D scene",
+					"icon": "box",
+					"modelSpaces": [
+						"code"
+					]
+				}
+			]
+		}
+	}
+}

@@ -1,6 +1,6 @@
 {
 	"name": "@inso/watch",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Watch videos: sample frames with ffmpeg, transcribe from captions or local speech-to-text, and hand the agent grounded frames + a transcript quoted as untrusted data",
 	"type": "module",
 	"scripts": {
@@ -8,23 +8,10 @@
 	},
 	"dimension": {
 		"name": "watch",
-		"toolLoading": "eager",
-		"description": "Watch a video by URL or local path: ffmpeg frame sampling plus a timestamped transcript (captions, local Whisper, or a consent-gated cloud API)",
-		"defaultEnabled": false,
-		"category": "connector",
-		"keywords": [
-			"video",
-			"youtube",
-			"transcription",
-			"multimodal",
-			"ffmpeg",
-			"yt-dlp",
-			"connector"
-		],
-		"sharedModule": true,
 		"extensions": [
 			"index.ts"
-		]
+		],
+		"sharedModule": true
 	},
 	"files": [
 		"index.ts",
@@ -32,7 +19,7 @@
 		"skills/",
 		"rules/",
 		"assets/",
-		"dimension.plugin.json",
+		"plugin.json",
 		"PROVENANCE.md"
 	],
 	"author": "Dimension",

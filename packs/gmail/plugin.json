@@ -1,0 +1,76 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "gmail",
+	"version": "0.1.2",
+	"description": "Email connector — read/search/compose/reply over IMAP/SMTP via himalaya",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"email",
+		"gmail",
+		"imap",
+		"smtp",
+		"himalaya",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Gmail",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Summarize my unread emails from the last 24 hours",
+				"Find the latest email from my bank and show the balance",
+				"Draft a reply to the most recent email from Alex"
+			],
+			"connect": {
+				"kind": [
+					"cli",
+					"form"
+				],
+				"requires": {
+					"commands": [
+						"himalaya"
+					],
+					"install": {
+						"himalaya": {
+							"win32": [
+								"scoop install himalaya",
+								"cargo install --locked himalaya"
+							],
+							"darwin": [
+								"brew install himalaya",
+								"cargo install --locked himalaya"
+							],
+							"linux": [
+								"cargo install --locked himalaya"
+							]
+						}
+					}
+				},
+				"form": [
+					{
+						"id": "email",
+						"label": "Gmail address",
+						"placeholder": "you@gmail.com"
+					},
+					{
+						"id": "appPassword",
+						"label": "Gmail App Password",
+						"secret": true,
+						"help": "Not your Gmail password — create a 16-character App Password (requires 2-Step Verification). It's stored only on this machine.",
+						"helpUrl": "https://myaccount.google.com/apppasswords",
+						"helpUrlLabel": "Create an App Password"
+					}
+				],
+				"configTemplate": "connect/config.template.toml",
+				"configTarget": "~/.config/himalaya/config.toml",
+				"verify": "himalaya envelope list"
+			}
+		}
+	}
+}

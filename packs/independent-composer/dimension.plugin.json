@@ -1,9 +1,0 @@
-{
-	"plugin": "independent-composer",
-	"contractVersion": 1,
-	"title": "Independent Composer",
-	"type": "component",
-	"entry": "dist/index.mjs",
-	"slot": "composer",
-	"description": "A composer built INDEPENDENTLY on the marketplace authoring surface: Fraym primitives (Button, Textarea, Badge, Icon) + fr-* tokens + the store channels (actions.sendMessage, the session facts observable). Imports no shipped implementation — the proof that the bricks tier is sufficient to build a real session surface from scratch."
-}

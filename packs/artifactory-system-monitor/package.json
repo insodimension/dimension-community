@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/artifactory-system-monitor",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "A live system monitor as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified. Its View polls an app-only tool, which is what exercises visibility and the consent gate.",
 	"type": "module",
 	"private": true,
@@ -9,10 +9,6 @@
 		"@modelcontextprotocol/server-system-monitor": "1.7.5"
 	},
 	"dimension": {
-		"name": "artifactory-system-monitor",
-		"description": "System Monitor as an MCP App — the reference server from modelcontextprotocol/ext-apps, unmodified. A model-facing tool plus an app-only tool the View polls through the consent gate: the second Phase 4 pilot.",
-		"defaultEnabled": false,
-		"category": "artifactory",
-		"keywords": ["artifactory", "mcp-apps", "system", "example"]
+		"name": "artifactory-system-monitor"
 	}
 }

@@ -1,0 +1,26 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "classic-switcher",
+	"version": "0.1.1",
+	"description": "The shipped switcher rail as a pack — the far-left column of space marks.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"switcher",
+		"classic"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Classic Switcher",
+			"icon": "layers",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "switcher"
+		}
+	}
+}

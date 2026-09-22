@@ -1,0 +1,26 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "classic-environment",
+	"version": "0.1.1",
+	"description": "The shipped environment card, installable: re-exports ENVIRONMENT_CLASSIC from @fraym/ui - live SCM scan, submodule pins, worktree verbs, Push.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"workspace-surface",
+		"classic"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Classic Environment",
+			"icon": "layers",
+			"category": "component",
+			"defaultEnabled": true,
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "workspace-surface"
+		}
+	}
+}

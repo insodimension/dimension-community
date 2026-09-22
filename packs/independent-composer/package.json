@@ -1,20 +1,12 @@
 {
 	"name": "@dimension/independent-composer",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Independent composer — built from Fraym primitives and the store, not from the shipped composer.",
 	"type": "module",
 	"main": "./src/index.ts",
 	"dimension": {
-		"name": "independent-composer",
-		"description": "A composer built independently on the bricks tier — Fraym primitives + tokens + the store channels. Ships no shipped-implementation import.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"composer",
-			"independent"
-		]
+		"name": "independent-composer"
 	},
 	"private": true,
 	"scripts": {

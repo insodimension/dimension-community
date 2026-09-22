@@ -1,21 +1,12 @@
 {
 	"name": "@dimension/triage-rail",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Triage rail — a session rail built from @fraym/ui primitives and the rail channels alone: a Needs-you strip, recency groups, unread emphasis and one Sweep. Imports no shipped rail.",
 	"type": "module",
 	"main": "./src/index.tsx",
 	"dimension": {
-		"name": "triage-rail",
-		"description": "A session rail for threads, not folders: a violet Needs-you strip (oldest wait first), Now / Today / Yesterday / This week / Earlier groups, unread rows emphasised, and one Sweep that archives idle sessions older than a week. Built from @fraym/ui primitives and the rail slot's specVersion 2 channels only - no shipped rail inside.",
-		"defaultEnabled": true,
-		"category": "component",
-		"keywords": [
-			"component",
-			"rail",
-			"triage",
-			"community"
-		]
+		"name": "triage-rail"
 	},
 	"private": true,
 	"scripts": {

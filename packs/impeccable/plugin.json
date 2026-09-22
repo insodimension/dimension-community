@@ -1,0 +1,31 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "impeccable",
+	"version": "3.9.2",
+	"description": "Impeccable — design guidance for AI agents: 23 design commands (craft, polish, audit, critique, bolder, quieter, distill…), anti-slop rules, and a deterministic anti-pattern detector",
+	"author": {
+		"name": "Paul Bakaus (upstream) / Dimension (port)"
+	},
+	"license": "Apache-2.0",
+	"keywords": [
+		"design",
+		"frontend",
+		"impeccable",
+		"polish",
+		"audit",
+		"critique",
+		"anti-slop",
+		"ui",
+		"skill",
+		"detector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Impeccable",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": true
+		}
+	}
+}

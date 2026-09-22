@@ -1,7 +1,7 @@
 {
 	"name": "@inso/impeccable",
 	"author": "Paul Bakaus (upstream) / Dimension (port)",
-	"version": "3.9.1",
+	"version": "3.9.2",
 	"description": "Impeccable — the design language that makes your AI harness better at design. Vendored from pbakaus/impeccable (Apache-2.0); synced from upstream skill releases via scripts/sync.ts.",
 	"type": "module",
 	"scripts": {
@@ -9,27 +9,12 @@
 		"sync": "bun scripts/sync.ts"
 	},
 	"dimension": {
-		"name": "impeccable",
-		"description": "Impeccable — design guidance for AI agents: 23 design commands (craft, polish, audit, critique, bolder, quieter, distill…), anti-slop rules, and a deterministic anti-pattern detector",
-		"defaultEnabled": true,
-		"category": "skills",
-		"keywords": [
-			"design",
-			"frontend",
-			"impeccable",
-			"polish",
-			"audit",
-			"critique",
-			"anti-slop",
-			"ui",
-			"skill",
-			"detector"
-		]
+		"name": "impeccable"
 	},
 	"files": [
 		"skills/",
 		"assets/",
-		"dimension.plugin.json",
+		"plugin.json",
 		"upstream.json",
 		"LICENSE"
 	],
