@@ -8,7 +8,9 @@ import os
 def _label(entry):
     output = entry.model_output
     if output is None:
-        return "no action"
+        # No model output means the step failed (endpoint error, unparseable reply): say why.
+        errors = [r.error for r in entry.result if getattr(r, "error", None)]
+        return f"no action ({errors[0].splitlines()[0][:160]})" if errors else "no action"
     parts = []
     for action in output.action:
         for name, params in action.model_dump(exclude_unset=True, exclude_none=True).items():
