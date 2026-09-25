@@ -31,7 +31,8 @@ Options:
   --scenario <name>   jobs | full (default: jobs)
   --agents <list>     Comma-separated task agents (default: jev,browser-use). "hybrid" runs
                       account stages with browser-use and each job with jev, falling back to
-                      browser-use when jev does not finish it; the times of both are summed.
+                      browser-use when jev does not finish it or stalls (20 s without a step, or two
+                      waits in a row); the times of both are summed.
   --sites <list>      Comma-separated job sites (defaults above)
   --engine <name>     Browser engine for browser_open (default: chromium)
   --headed            Show the browser window (DIMENSION_BROWSER_HEADLESS=false)
@@ -240,7 +241,12 @@ async function call(name, args, options) {
 const runs = [];
 const startedAt = new Date();
 
-async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`) {
+/**
+ * `stall` (hybrid's jev leg): give up early instead of waiting for the agent to
+ * quit on its own - after `idleSeconds` without a step, or `waitSteps`
+ * consecutive "wait" actions (jev repeating a wait means it sees no way on).
+ */
+async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`, stall = null) {
   if (stage.reset) await resetWorld();
   const run = { agent, stage: stage.id, success: false, seconds: 0, solvedSeconds: null, status: "error", stepCount: 0, usage: null, summary: "", error: null, reason: "", check: null };
   const t0 = performance.now();
@@ -255,7 +261,14 @@ async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`)
   try {
     await call("browser_act", { browserId, action: { kind: "navigate", url: stage.start } });
     console.log(`[${label}] task started`);
-    const progress = { onprogress: (p) => { console.log(`[${label}] ${p.progress}: ${p.message ?? ""}`); pollSolved(); }, timeout: 60_000 };
+    let lastStepAt = performance.now();
+    let waits = 0;
+    const progress = { onprogress: (p) => {
+      console.log(`[${label}] ${p.progress}: ${p.message ?? ""}`);
+      lastStepAt = performance.now();
+      waits = /^wait\b/.test(p.message ?? "") ? waits + 1 : 0;
+      pollSolved();
+    }, timeout: 60_000 };
     const deadline = performance.now() + taskTimeoutMs;
     const credential = agent === "jev" && stage.task.includes(PASSWORD) ? { origin: base, mode: stage.account ? "signup" : "login" } : undefined;
     let taskRun = take(await call("browser_task", { browserId, agent, task: stage.task.replaceAll(PASSWORD, agent === "jev" ? "(filled by the browser)" : a.password), maxSteps, ...(credential ? { credential } : {}), waitSeconds: 3 }, progress));
@@ -269,6 +282,12 @@ async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`)
       if (stage.score(await worldResults()).success) {
         take(await call("browser_task_cancel", { browserId }));
         run.status = "done";
+        break;
+      }
+      if (stall && (waits >= stall.waitSteps || performance.now() - lastStepAt > stall.idleSeconds * 1000)) {
+        take(await call("browser_task_cancel", { browserId }));
+        run.status = "stalled";
+        console.log(`[${label}] stalled (${waits >= stall.waitSteps ? `${waits} waits in a row` : `no step for ${stall.idleSeconds}s`}); handing over`);
         break;
       }
       taskRun = take(await call("browser_task_wait", { browserId, waitSeconds: 3 }, progress));
@@ -308,7 +327,10 @@ for (const agent of agents) {
     // Hybrid: each stage goes to the agent that does it best. Accounts need
     // multi-step judgment (browser-use); single forms need speed (jev), with
     // browser-use finishing whatever jev leaves undone. Time adds up honestly.
-    const first = await runStage(isAccountStage(stage) ? "browser-use" : "jev", browserId, stage, `hybrid/${stage.id}`);
+    // jev is handed off after 20 s without a step or two waits in a row; its
+    // good runs take 2-4 s per step, so neither cuts off a working attempt.
+    const account = isAccountStage(stage);
+    const first = await runStage(account ? "browser-use" : "jev", browserId, stage, `hybrid/${stage.id}`, account ? null : { idleSeconds: 20, waitSteps: 2 });
     let run = first;
     if (!first.success && !isAccountStage(stage)) {
       const rescue = await runStage("browser-use", browserId, stage, `hybrid/${stage.id}:browser-use`);
