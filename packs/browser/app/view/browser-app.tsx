@@ -551,6 +551,16 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 					</div>
 				)}
 
+				{poll.connection === "unapproved" && (
+					<div className="bx-banner bx-banner-paused" role="status" title={poll.error ?? undefined}>
+						<Icon name="pause" size={14} strokeWidth={2} aria-hidden="true" />
+						Live view paused: permission wasn't granted.
+						<button type="button" className="bx-banner-action" onClick={refreshPoll}>
+							Ask again
+						</button>
+					</div>
+				)}
+
 				{poll.connection === "gone" && (
 					<div className="bx-gone" role="alert">
 						<div className="bx-gone-card">

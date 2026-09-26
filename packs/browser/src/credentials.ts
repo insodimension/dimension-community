@@ -10,7 +10,10 @@
  *    strong random one and save it first. Reusing a saved one keeps a retried
  *    sign-up from orphaning the account an earlier attempt created.
  *  - `login`: use the saved password; there is none to invent.
- * The value leaves this process only on the task worker's stdin, and the worker
+ * browser_act's `generatePassword` applies the same `signup` rule to a password
+ * field's own frame origin, and `useSavedPassword` the `login` rule.
+ * The value leaves this process only as those keystrokes, or on the task
+ * worker's stdin, and the worker
  * types it into password fields of that origin alone.
  *
  * Stored as `credentials.json` in the profile's own 0700 directory (mode 0600),
@@ -81,6 +84,21 @@ function read(file: string): Record<string, string> {
 }
 
 /**
+ * The password this profile saved for exactly `origin`, if any; never mints
+ * one. browser_act's `useSavedPassword` types it into a password field of that
+ * origin.
+ */
+export function savedPassword(profileDir: string, origin: string): string | undefined {
+  const origins = read(join(profileDir, FILE));
+  return Object.hasOwn(origins, origin) ? origins[origin] : undefined;
+}
+
+/** Every password this profile holds, so page reads handed back can be scrubbed of them. */
+export function savedPasswords(profileDir: string): string[] {
+  return Object.values(read(join(profileDir, FILE)));
+}
+
+/**
  * The password for `origin` in the profile at `profileDir`, minting and saving
  * one for a sign-up. Callers hold the profile lock, so there is one writer.
  */
@@ -92,7 +110,7 @@ export function resolveCredential(profileDir: string, request: CredentialRequest
   const saved = origins[origin];
   if (saved) return { origin, password: saved, created: false };
   if (request.mode === "login") {
-    fail("no_credential", `this profile has no saved password for ${origin}; the user signs in by hand in the View`);
+    fail("no_credential", `this profile has no saved password for ${origin}; log in with browser_act, or put the password in a browser_task`);
   }
   const password = generatePassword();
   const tmp = `${file}.${process.pid}.tmp`;

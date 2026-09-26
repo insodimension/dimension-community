@@ -57,6 +57,37 @@ function fillScript(credential: { origin: string; password: string }): string {
 	return python("import json, sys\nfrom dim_browser_bridge.jev_task import fill_script\nsys.stdout.write(fill_script(json.loads(sys.stdin.read())))", JSON.stringify(credential));
 }
 
+/**
+ * The REAL worker's frame walk (`fill_frames`) over raw CDP to the browser at
+ * `ws`, on the page target `target`: prints the number of fields it filled.
+ */
+function fillFrames(request: { ws: string; target: string; credential: { origin: string; password: string } }): string {
+	return python(
+		[
+			"import json, sys",
+			"from websockets.sync.client import connect",
+			"from dim_browser_bridge.jev_task import fill_frames",
+			"req = json.loads(sys.stdin.read())",
+			"ws = connect(req['ws'], max_size=None)",
+			"seq = [0]",
+			"def cdp(method, session_id=None, **params):",
+			"    seq[0] += 1",
+			"    message = {'id': seq[0], 'method': method, 'params': params}",
+			"    if session_id: message['sessionId'] = session_id",
+			"    ws.send(json.dumps(message))",
+			"    while True:",
+			"        reply = json.loads(ws.recv())",
+			"        if reply.get('id') == seq[0]:",
+			"            if 'error' in reply: raise RuntimeError(reply['error'])",
+			"            return reply.get('result', {})",
+			"session = cdp('Target.attachToTarget', targetId=req['target'], flatten=True)['sessionId']",
+			"sys.stdout.write(json.dumps(fill_frames(cdp, req['target'], session, req['credential'])))",
+			"ws.close()",
+		].join("\n"),
+		JSON.stringify(request),
+	);
+}
+
 /** Everything the process printed while a test ran: console and raw stdio writes. */
 function captureOutput(): { text(): string; restore(): void } {
 	const spies = [
@@ -323,6 +354,33 @@ describeWithBoth("the password fill in a real page", () => {
 	);
 
 	test(
+		"fills a cross-origin, out-of-process iframe's password field with ITS origin's credential, and never with the top page's",
+		async () => {
+			const fixture = startFixture();
+			const browser = await puppeteer.launch({ executablePath: chromePath, headless: true, userDataDir: await createRoot() });
+			browsers.push(browser);
+			const page = await browser.newPage();
+			// Top page on 127.0.0.1, the form in an iframe on localhost: another site, so its own process.
+			await page.goto(fixture.url("/framed"), { waitUntil: "load" });
+			const frame = page.mainFrame().childFrames()[0];
+			if (!frame) throw new Error("the fixture iframe did not load");
+			await frame.waitForSelector("#pass");
+			const { targetInfo } = await (await page.createCDPSession()).send("Target.getTargetInfo");
+			const fill = (credential: { origin: string; password: string }): number =>
+				JSON.parse(fillFrames({ ws: browser.wsEndpoint(), target: targetInfo.targetId, credential }));
+			const iframePass = (): Promise<string | null> => frame.$eval("#pass", (el) => (el instanceof HTMLInputElement ? el.value : null));
+
+			expect(fill({ origin: new URL(fixture.url("/")).origin, password: "top-page-password" })).toBe(0);
+			expect(await iframePass()).toBe("");
+
+			expect(fill({ origin: new URL(fixture.url("/", "localhost")).origin, password: AWKWARD })).toBe(1);
+			expect(await iframePass()).toBe(AWKWARD);
+			expect(await frame.$eval("#user", (el) => (el as HTMLInputElement).value)).toBe("");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"a filled field that a show-password toggle turns into text is emptied",
 		async () => {
 			const fixture = startFixture();
@@ -437,23 +495,37 @@ describe("the credential store", () => {
 describeWithPython("the jev worker", () => {
 	test("neither jev's goal nor a failed fill's log line carries the password", () => {
 		const credential = { origin: SHOP, password: "Zq7!never-in-a-model-call" };
-		// A CDP evaluate error commonly quotes the expression it failed on — here, the fill script.
-		const code = `import contextlib, io, json, sys
+		// A CDP evaluate error commonly quotes the expression it failed on — here, the fill script with the password in it.
+		const code = `import contextlib, io, json, sys, types
+calls = []
+def cdp(method, session_id=None, **params):
+    calls.append(method)
+    if method == "Runtime.evaluate":
+        raise RuntimeError(f"Evaluation failed: {params['expression']}")
+    raise AssertionError(f"unexpected CDP call {method}")
+harness = types.ModuleType("browser_harness")
+helpers = types.ModuleType("browser_harness.helpers")
+helpers.cdp = cdp
+harness.helpers = helpers
+sys.modules["browser_harness"], sys.modules["browser_harness.helpers"] = harness, helpers
 from dim_browser_bridge.jev_task import _fill_passwords, _jev_goal
 credential = json.loads(sys.stdin.read())
 class Browser:
-    def evaluate(self, expression):
-        raise RuntimeError(f"Evaluation failed: {expression}")
+    target = "page-target"
+    session = "page-session"
 log = io.StringIO()
 with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
     filled = _fill_passwords(Browser(), credential)
-json.dump({"goal": _jev_goal("Sign up as Ada Lovelace.", credential), "filled": filled, "log": log.getvalue()}, sys.stdout)`;
+json.dump({"goal": _jev_goal("Sign up as Ada Lovelace.", credential), "filled": filled, "log": log.getvalue(), "calls": calls}, sys.stdout)`;
 
-		const { goal, filled, log } = JSON.parse(python(code, JSON.stringify(credential))) as { goal: string; filled: boolean; log: string };
+		const { goal, filled, log, calls } = JSON.parse(python(code, JSON.stringify(credential))) as { goal: string; filled: boolean; log: string; calls: string[] };
 
 		expect(goal).toStartWith("Sign up as Ada Lovelace.");
 		expect(goal).not.toContain(credential.password);
+		// The fill reached the evaluate and failed there, with an error that quotes the password.
+		expect(calls).toEqual(["Runtime.evaluate"]);
 		expect(filled).toBe(false);
+		expect(log).toContain("password fill skipped");
 		expect(log).not.toContain(credential.password);
 	});
 });

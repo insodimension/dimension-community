@@ -8,7 +8,9 @@ The request's `task` field is a JSON script:
    "background": true,        # ...opening that tab in the background, as jev does
    "crash": {"stderr": "...", "exit": 3},   # write stderr, exit with no result
    "result": {"status", "summary", "steps", "modelCalls", "inputTokens", "outputTokens"},
-   "credentialOut": "<path>"}  # write the request's `credential` there, never to the protocol
+   "credentialOut": "<path>",  # write the request's `credential` there, never to the protocol
+   "holdPipes": 30}           # first spawn a process that inherits stdout/stderr and lives that many seconds,
+                              # as a daemon an agent library spawns can; the worker itself then exits
 Stdin EOF while waiting => a `cancelled` result, as the protocol requires.
 """
 
@@ -44,6 +46,11 @@ def main():
     if script.get("credentialOut"):
         with open(script["credentialOut"], "w", encoding="utf-8") as out:
             json.dump(request.get("credential"), out)
+
+    if script.get("holdPipes"):
+        import subprocess
+
+        subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({float(script['holdPipes'])})"])
 
     crash = script.get("crash")
     if crash:

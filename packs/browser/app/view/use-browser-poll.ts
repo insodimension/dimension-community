@@ -9,7 +9,11 @@
 //   • document hidden → the seat is off screen; nothing is polled until it
 //                       returns.
 // Failures back off exponentially and are reported; an unknown browserId is
-// terminal (the browser was closed elsewhere) and stops the loop.
+// terminal (the browser was closed elsewhere) and stops the loop. So does a
+// call the HOST refused to approve (a third-party pack's View calls are
+// consent-gated): retrying it would raise a fresh consent prompt on every
+// backoff tick, forever, and bury whatever else is waiting for the human
+// (friction #59). It waits for `refresh()` — the human asking again.
 import { useEffect, useRef, useState } from "react";
 import type { BrowserFrame, BrowserState } from "../../src/contracts";
 import { type BrowserClient, failureText } from "./browser-client";
@@ -19,8 +23,10 @@ const FROZEN_INTERVAL_MS = 1000;
 const BACKOFF_START_MS = 500;
 const BACKOFF_MAX_MS = 8000;
 const GONE = /unknown or already closed browserId/i;
+/** The host's consent refusal (a denied or expired prompt), not a server failure. */
+const NOT_APPROVED = /was not approved/i;
 
-export type Connection = "connecting" | "live" | "reconnecting" | "gone";
+export type Connection = "connecting" | "live" | "reconnecting" | "unapproved" | "gone";
 
 export interface BrowserPoll {
 	/** The newest live frame for the CURRENT browserId, or null before the first. */
@@ -63,6 +69,8 @@ export function useBrowserPoll(client: BrowserClient, browserId: string | null, 
 		let inFlight = false;
 		let kicked = false;
 		let lastFrameId = "";
+		/** Refused by the host: only `refresh()` polls again, never a timer or a visibility change. */
+		let halted = false;
 
 		const schedule = (delay: number) => {
 			if (!alive) return;
@@ -107,6 +115,12 @@ export function useBrowserPoll(client: BrowserClient, browserId: string | null, 
 					setConnection("gone");
 					return;
 				}
+				if (NOT_APPROVED.test(detail)) {
+					setConnection("unapproved");
+					backoff = BACKOFF_START_MS;
+					halted = true;
+					return;
+				}
 				setConnection("reconnecting");
 				schedule(backoff);
 				backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
@@ -117,10 +131,11 @@ export function useBrowserPoll(client: BrowserClient, browserId: string | null, 
 
 		const onVisibility = () => {
 			window.clearTimeout(timer);
-			if (alive && !document.hidden && !inFlight) schedule(0);
+			if (alive && !halted && !document.hidden && !inFlight) schedule(0);
 		};
 		document.addEventListener("visibilitychange", onVisibility);
 		kickRef.current = () => {
+			halted = false;
 			if (inFlight) kicked = true;
 			else schedule(0);
 		};

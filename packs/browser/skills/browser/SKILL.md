@@ -1,16 +1,16 @@
 ---
 name: browser
-description: Drive a real browser the user watches live in the Browser View — open sites or localhost on a persistent logged-in profile, read and act on pages, read a public page logged out with browser_read, hand whole tasks to the fast jev or browser-use agents, and read the user's circled annotations. Use when the user asks to browse, read a public page, fill a form, sign up, apply, check a site, test a local app, or "look at this page".
+description: Drive a real browser the user watches live in the Browser View — open sites or localhost on a persistent profile, log in or sign up, read and act on pages, read a public page logged out with browser_read, post through browser_publish, hand whole tasks to the fast jev or browser-use agents, and read the user's circled annotations. Use when the user asks to browse, read a public page, fill a form, log in, sign up, post, apply, check a site, test a local app, or "look at this page".
 ---
 
 # Browser
 
 One browser, shared: the user sees the same page you act on, live, in the
 Browser View beside the chat. You decide what to do; the browser does it
-immediately. Your session's permission mode and your own judgment govern
-consequential steps — ask the user (with `ask`) before an irreversible
-submission they have not clearly asked for (payment, sending, publishing,
-final "submit application" when details were guessed).
+immediately. Your session's permission mode decides which steps ask for
+approval; beyond that, use your judgment on an irreversible submission the user
+has not clearly asked for (payment, sending, publishing, a final "submit
+application" when details were guessed).
 
 ## Open
 
@@ -24,11 +24,27 @@ tool needs it.
   (the user's own running Chrome, profile must be `relay`; `browser_task` is
   refused there — use a chromium profile for task agents). `abp` and `browser4`
   are refused with the reason.
-- The user logs in by hand, once, in the View. Never type or put in `task` a
-  password — you never know one, and anything you write lands in the session
-  transcript. For a jev sign-up or login use `credential` (below). Never
-  create accounts that require defeating CAPTCHAs or phone verification — hand
-  that step to the user.
+- You may log in or sign up yourself: `browser_act` types into password fields
+  like any other, and `browser_task` takes a password in `task`. Logins persist
+  in the profile. A verification step (CAPTCHA, email code, phone code) is
+  yours to handle however you can; use `ask` when you need the user for it.
+- **Tip — keep passwords out of the transcript.** Anything you type or put in
+  `task` lands in the session transcript. On a password field, `browser_act`
+  `type` (with a selector) or `insert` (into the focused field) takes one of
+  these instead of `text`, and the password never enters the transcript:
+  - `generatePassword: true` — **for a sign-up**, and the way to do one
+    without a task key: the browser generates a strong password, saves it in
+    this profile for the field's own frame origin (the same store as
+    `browser_task` `credential`), and types it, replacing the field. A
+    password already saved for that origin is reused, so a retried sign-up
+    keeps the account's password.
+  - `useSavedPassword: true` — **to log in**: types the password saved for the
+    field's own frame origin. With nothing saved there it fails and types
+    nothing.
+
+  The result says `credential: { origin, created }`, never the value. Either
+  flag on a field that is not a password input fails and types nothing.
+  Without a flag, your `text` is typed as given.
 
 ## Read a public page
 
@@ -66,7 +82,12 @@ The browser has real tabs. `browser_state` lists them (`tabs[]` with `id`,
 
 1. `browser_snapshot` → page text plus the interactive controls, each with a
    selector (`#email`, `input[name="city"]`, `input[name="role"][value="fe"]`)
-   and center coordinates.
+   and center coordinates. Iframes, cross-origin ones included (embedded
+   login forms), follow as `## frame @1~3fa92c0d` sections whose selectors
+   start with that ref (`@1~3fa92c0d #password`): pass them to `browser_act`
+   as given. A ref names the frame as it was when read; if the frame moved
+   or navigated since, the act fails with "frame changed" — take a new
+   `browser_snapshot`. Password values are never shown.
 2. `browser_act` with one action: `navigate`, `back`, `forward`, `reload`,
    `stop`, `click` (selector or x/y; optional `button` and `clickCount` for
    right/double clicks), `hover` (x/y), `type` (replaces the field's value),
@@ -86,19 +107,28 @@ runs that agent in this same browser while the user watches; it returns
 status (`done`, `blocked`, `failed`, `cancelled`), a summary, steps, elapsed
 time, model calls and tokens. Put every fact the agent needs in `task` (names,
 emails, answers) — it cannot ask you. `jev` is the fastest (one TypeSafe
-decision per step); `browser-use` is a general LLM agent. `browser_act` and
-`browser_tab` are refused while a task runs; `browser_task_cancel` stops it. After a task,
-`browser_snapshot` to verify the outcome yourself.
+decision per step); `browser-use` is a general LLM agent. Both need model keys
+in the browser server's environment (jev: `TYPESAFE_API_KEY` and
+`TEXT_MODEL_API_KEY`). A `failed` task is a tool error naming the cause and
+the next step (an unfunded key is HTTP 402); the browser stays open, so carry
+on with `browser_act` — for a sign-up's password, `generatePassword: true`.
+`browser_act` and `browser_tab` are refused (`task_running`) while a task runs;
+`browser_task_cancel` stops it. After a task, `browser_snapshot` to verify the
+outcome yourself.
 
-**Passwords are the browser's, not yours.** For a jev sign-up pass
-`credential: { origin: "https://site.example", mode: "signup" }`: the browser
-creates a strong password, saves it in this profile for that origin and fills
-that origin's password fields itself; jev, you and the results never see it
-(the result says `credential: { origin, created }`). To sign in again later to
-an account the browser created, `mode: "login"`. It fills only pages of that
-exact origin (https, or http on localhost). An account the user made has no
-saved password — the user signs in by hand. `credential` is refused for
-`browser-use`, which reads password fields.
+**Optional: let the browser hold the password.** For a jev sign-up you may pass
+`credential: { origin: "https://site.example", mode: "signup" }` instead of a
+password: the browser generates a strong password, saves it in this profile
+for that origin and fills that origin's password fields itself, so it never
+appears in the transcript — jev, you and the results never see it (the result
+says `credential: { origin, created }`). To sign in again later to an account
+the browser created, `mode: "login"`. It fills only documents of that exact
+origin (https, or http on localhost), including one in an iframe on another
+site's page (an embedded login form). An account made any other way has no
+saved password: log in with `browser_act` (`useSavedPassword: true` needs a
+saved one), or put the password in `task`.
+`credential` is jev-only: `browser-use` reads password fields into its model,
+so it gets the password in `task` instead.
 
 Give a task **one clear goal with all its data**, start to finish. If a task
 ends unfinished (`blocked`, `failed`, out of steps, or `done` but the snapshot
@@ -106,7 +136,7 @@ shows it is not), do NOT start a second task that says "continue the half-done
 form" — jev loops on that. Inspect with `browser_snapshot` and finish the
 remaining steps yourself with `browser_act`.
 
-## Publishing (the human presses Post)
+## Publishing
 
 To post something public (a social post, a reply) use `browser_publish`, not
 `browser_act`. Prefer a **preset** over a hand-written recipe: list them with
@@ -128,17 +158,21 @@ the posted URL's path on the origin (`{segment}` = one path segment,
 `linkSelector`.
 
 - `mode: "check"` only verifies that the profile is logged in (`signed-in` /
-  `not-signed-in`). Logging in is the user's job, by hand in the View. Never
-  type a password or fill a signup form.
+  `not-signed-in`). If it is not, log in first (`browser_act`, `browser_task`,
+  or the user in the View), then post. A password field is never a publish
+  field.
 - `mode: "post"` fills the fields and reads them back. It then returns
   `awaiting-confirmation` with a `publishId` and `composeUrl` (where it will
-  post). **Nothing is sent yet.** The View shows the exact text, and only the
-  user's **Post** click sends it. You cannot confirm it; tell the user to press
-  Post.
+  post). **Nothing is sent yet.** The View shows the exact text with **Post**
+  and **Cancel**. Post it yourself with
+  `browser_publish_confirm({ browserId, publishId })` (clicks submit exactly
+  once, never retried, and returns `posted` with the post's `url` read from
+  the page, `failed` or `unknown`), or drop it with `browser_publish_cancel`.
+  The user's Post button does the same.
 - Don't act on the page while a publish awaits confirmation: `browser_act`,
-  `browser_tab`, `browser_task` and `browser_publish` are refused anyway
-  (`publish_pending`). Only the human can post or cancel. A pending publish
-  blocks new posts until it is posted, cancelled or expires (10 minutes).
+  `browser_tab`, `browser_task`, `browser_publish` and `browser_close` are
+  refused anyway (`publish_pending`) until it is posted, cancelled or expires
+  (10 minutes).
 - `browser_publish_wait({ browserId, publishId })` follows it to `posted`
   (with the post's `url`, read from the page), `unknown` (it may have posted:
   never post again), `failed`, `cancelled` or `expired`.

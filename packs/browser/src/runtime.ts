@@ -44,10 +44,10 @@ import type {
 	Viewport,
 } from "./contracts.js";
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
-import { credentialOrigin, resolveCredential } from "./credentials.js";
+import { credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { launchReader } from "./engines/puppeteer.js";
-import type { EngineDriver, EngineState, PageReader } from "./engines/types.js";
+import type { EngineDriver, EngineState, PageReader, PasswordSource, PerformOutcome } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
@@ -151,6 +151,15 @@ interface Entry {
 	worker: { process: RunningWorker; finished: Promise<TaskRun> } | null;
 	/** The current or most recent publish (publish.ts). */
 	publish: Publication | null;
+	/**
+	 * Saved passwords this browser typed or handed a task worker. With every
+	 * password the profile holds on disk, they are replaced in every page read
+	 * handed back (snapshot, state, act results, annotation context), so a page
+	 * that reveals or copies one — a show-password toggle flipping the field to
+	 * text — never returns it. Kept in memory too: a deleted or unreadable
+	 * credentials file must not un-redact a password already typed.
+	 */
+	secrets: Set<string>;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -240,7 +249,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const started = this.launch(profile, engine, viewport).finally(() => this.opening.delete(profile));
 		this.opening.set(profile, started);
 		const entry = await started;
-		return await this.buildState(entry);
+		return this.redact(entry, await this.buildState(entry));
 	}
 
 	private async launch(profile: string, engine: BrowserEngine, viewport: Viewport): Promise<Entry> {
@@ -271,7 +280,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				browserId: randomBytes(24).toString("base64url"),
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), closed: false,
-				task: null, worker: null, publish: null,
+				task: null, worker: null, publish: null, secrets: new Set(),
 			};
 			this.byId.set(entry.browserId, entry);
 			this.byProfile.set(profile, entry);
@@ -360,7 +369,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// -----------------------------------------------------------------------
 
 	async state(browserId: string): Promise<BrowserState> {
-		return await this.serialize(this.require(browserId), (entry) => this.buildState(entry));
+		return await this.serialize(this.require(browserId), async (entry) => this.redact(entry, await this.buildState(entry)));
 	}
 
 	/**
@@ -373,7 +382,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (format === "jpeg") {
 			const entry = this.require(browserId);
 			const live = await entry.driver.liveFrame();
-			return { state: await this.buildState(entry), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
+			return { state: this.redact(entry, await this.buildState(entry)), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
 		}
 		if (format !== "png") fail("bad_format", `format must be "jpeg" or "png"`);
 		return await this.serialize(this.require(browserId), async (entry) => {
@@ -401,7 +410,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			entry.frames.push(record);
 			while (entry.frames.length > MAX_FRAMES_RETAINED) entry.frames.shift();
 			return {
-				state,
+				state: this.redact(entry, state),
 				frameId: record.id,
 				mimeType: "image/png" as const,
 				data: bytes.toString("base64"),
@@ -417,7 +426,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const text = await entry.driver.snapshot(MAX_SNAPSHOT_CHARS);
 			const state = await this.buildState(entry);
 			if (entry.revision !== revision) fail("stale_snapshot", "The document changed during inspection.");
-			return { state, text };
+			return this.redact(entry, { state, text });
 		});
 	}
 
@@ -464,7 +473,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				mimeType: "image/png" as const,
 				data: png.toString("base64"),
 				elements:
-					`${elements}\n\n[live DOM read at ${new Date().toISOString()}, revision ${entry.revision}; ` +
+					`${this.redact(entry, elements)}\n\n[live DOM read at ${new Date().toISOString()}, revision ${entry.revision}; ` +
 					`the image is the frame captured at ${record.capturedAt} — a dynamic page may have changed between them]`,
 			};
 		});
@@ -485,7 +494,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const ratio = Number.isFinite(scale) ? Math.min(2, Math.max(1, Math.round(scale * 4) / 4)) : 1;
 		return await this.serialize(entry, async () => {
 			await entry.driver.resize(size, ratio);
-			return await this.buildState(entry);
+			return this.redact(entry, await this.buildState(entry));
 		});
 	}
 
@@ -505,7 +514,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
 			switch (request.op) {
@@ -525,7 +534,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				default:
 					fail("bad_tab", `op must be one of: new, activate, close`);
 			}
-			return await this.buildState(entry);
+			return this.redact(entry, await this.buildState(entry));
 		});
 	}
 
@@ -537,7 +546,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
 			const action = normalizeAction(input, entry.viewport);
@@ -545,22 +554,46 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
 			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
 			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
+			// Opt-in only, and never for the View: the human's keystrokes and
+			// pastes arrive as insert and must type exactly what they typed.
+			if ((action.useSavedPassword || action.generatePassword) && caller === "app") {
+				fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
+			}
+			const profileDir = this.store.profileDir(entry.profile);
+			let created = false;
+			const password: PasswordSource | undefined = action.generatePassword
+				? (origin: string) => {
+					// The signup rule the task credential uses: the saved one, else mint and save.
+					const credential = resolveCredential(profileDir, { origin, mode: "signup" });
+					created = credential.created;
+					entry.secrets.add(credential.password);
+					return credential.password;
+				}
+				: action.useSavedPassword
+					? (origin: string) => {
+						const value = savedPassword(profileDir, origin);
+						if (value) entry.secrets.add(value);
+						return value;
+					}
+					: undefined;
+			let outcome: PerformOutcome;
 			try {
-				await entry.driver.perform(action);
+				outcome = await entry.driver.perform(action, password);
 				if (touching) touching.touchedWhilePending = true;
 			} catch (error) {
 				const dispatched = !(error instanceof ActionNotDispatched);
 				if (dispatched && touching) touching.touchedWhilePending = true;
 				if (dispatched) entry.revision += 1;
-				return {
+				return this.redact(entry, {
 					status: dispatched ? "unknown" : "failed",
 					error: dispatched
 						? `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe(error)})`
 						: describe(error),
 					state: await this.buildState(entry).catch(() => this.staleState(entry)),
-				};
+				});
 			}
-			return { status: "completed", state: await this.buildState(entry) };
+			const state = await this.buildState(entry);
+			return this.redact(entry, outcome.passwordOrigin ? { status: "completed", state, credential: { origin: outcome.passwordOrigin, created } } : { status: "completed", state });
 		});
 	}
 
@@ -574,13 +607,15 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * agent working. Resolves with the finished run.
 	 */
 	async runTask(browserId: string, request: TaskRequest, onStep?: (step: TaskStep, run: TaskRun) => void): Promise<TaskRun> {
-		return await (await this.beginTask(browserId, request, onStep)).finished;
+		const entry = this.require(browserId);
+		return this.redact(entry, cloneTask(await (await this.beginTask(browserId, request, onStep)).finished));
 	}
 
 	/** Start a task and return as soon as it runs; follow it with `waitTask`. */
 	async startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun> {
+		const entry = this.require(browserId);
 		const { run } = await this.beginTask(browserId, request, undefined, caller);
-		return cloneTask(run);
+		return this.redact(entry, cloneTask(run));
 	}
 
 	private async beginTask(
@@ -603,7 +638,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (request.credential !== undefined) {
 			// browser-use reads password fields like any other and would put a
 			// filled value in front of its model; only jev never reads them.
-			if (request.agent !== "jev") fail("credential_unsupported", "credential is supported with agent jev only; with browser-use the user signs in by hand in the View");
+			if (request.agent !== "jev") fail("credential_unsupported", "credential is supported with agent jev only; browser-use reads password fields, so give it the password in task or log in with browser_act");
 			credentialOrigin(request.credential?.origin);
 		}
 
@@ -613,6 +648,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const state = await this.refreshState(entry);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(entry.profile), request.credential) : undefined;
+			if (credential) entry.secrets.add(credential.password);
 			const run: TaskRun = {
 				id: randomBytes(8).toString("hex"), agent: request.agent, task, status: "running", summary: "",
 				steps: [], stepCount: 0, startedAt: new Date().toISOString(), elapsedMs: 0,
@@ -628,7 +664,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 					run.stepCount = Math.max(run.stepCount, step.n);
 					run.elapsedMs = step.elapsedMs;
 					run.usage = step.usage;
-					onStep?.(record, run);
+					if (onStep) onStep(this.redact(entry, record), this.redact(entry, cloneTask(run)));
 				},
 			);
 			const finished = worker.done.then((result) => {
@@ -667,7 +703,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			await Promise.race([worker.finished, elapsed]);
 			clearTimeout(timer);
 		}
-		return cloneTask(entry.task);
+		return this.redact(entry, cloneTask(entry.task));
 	}
 
 	async cancelTask(browserId: string): Promise<TaskRun> {
@@ -675,10 +711,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const worker = entry.worker;
 		if (!worker) {
 			if (!entry.task) fail("no_task", "no task has run on this browser");
-			return entry.task;
+			return this.redact(entry, cloneTask(entry.task));
 		}
 		worker.process.cancel();
-		return await worker.finished;
+		return this.redact(entry, cloneTask(await worker.finished));
 	}
 
 	/** Stop a running task and wait for its worker to exit. */
@@ -690,7 +726,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	// -----------------------------------------------------------------------
-	// Publishing — fill, park for the human's Post, submit once (publish.ts)
+	// Publishing — fill, park for a confirm, submit once (publish.ts)
 	// -----------------------------------------------------------------------
 
 	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef): Promise<PublishCheck | PublishRecord> {
@@ -699,20 +735,20 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const selected = validateMode(mode);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
-			// Even from the View: a check or a second post would navigate away from the page the human is confirming.
+			// Even from the View: a check or a second post would navigate away from the page awaiting confirmation.
 			if (isPending(entry.publish)) {
-				fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
+				fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
 			}
 			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
-			if (!("record" in outcome)) return outcome;
+			if (!("record" in outcome)) return this.redact(entry, outcome);
 			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
 			outcome.sharedPage = entry.engine === "chrome-relay";
 			if (preset !== undefined) outcome.record.preset = { name: preset.name, verified: preset.verified };
 			entry.publish = outcome;
-			return publishRecord(outcome);
+			return this.redact(entry, publishRecord(outcome));
 		});
 	}
 
@@ -721,10 +757,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			await confirm(entry.driver, publication);
-			return publishRecord(publication);
+			return this.redact(entry, publishRecord(publication));
 		});
 	}
 
@@ -733,16 +769,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
 			cancel(publication);
-			return publishRecord(publication);
+			return this.redact(entry, publishRecord(publication));
 		});
 	}
 
 	/** Not queued: it only reads the record, and must not wait behind a confirm. */
 	async waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord> {
-		const publication = this.require(browserId).publish;
+		const entry = this.require(browserId);
+		const publication = entry.publish;
 		if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
 		await waitSettled(publication, ms);
-		return publishRecord(publication);
+		return this.redact(entry, publishRecord(publication));
 	}
 
 	// -----------------------------------------------------------------------
@@ -897,6 +934,21 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
+
+	/**
+	 * `value` with every saved password of this profile (on disk, plus any this
+	 * browser used) scrubbed out. An unreadable credentials file still scrubs
+	 * the ones in memory.
+	 */
+	private redact<T>(entry: Entry, value: T): T {
+		const secrets = new Set(entry.secrets);
+		try {
+			for (const secret of savedPasswords(this.store.profileDir(entry.profile))) secrets.add(secret);
+		} catch {
+			// credentials_unreadable: the in-memory set is all there is to scrub.
+		}
+		return secrets.size === 0 ? value : scrub(value, secrets);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -941,6 +993,45 @@ function navigationUrl(url: unknown, name: string, code: string): string {
 	return parsed.toString();
 }
 
+/**
+ * `value` with every one of `secrets` replaced by `[saved password]` in every
+ * string it holds (keys untouched), raw and as a URL carries it: percent-
+ * encoded (`encodeURIComponent`, and with `+` for spaces), and form-encoded
+ * the way a GET form puts `?pass=…` in the page's URL (which also encodes
+ * `!'()~`, left alone by `encodeURIComponent`).
+ */
+function scrub<T>(value: T, secrets: ReadonlySet<string>): T {
+	const forms = new Set<string>();
+	for (const secret of secrets) {
+		if (secret.length === 0) continue;
+		const encoded = encodeURIComponent(secret);
+		forms.add(secret).add(encoded).add(encoded.replace(/%20/g, "+")).add(new URLSearchParams([["", secret]]).toString().slice(1));
+	}
+	return scrubForms(value, [...forms]);
+}
+
+function scrubForms<T>(value: T, forms: readonly string[]): T {
+	if (typeof value === "string") {
+		let out: string = value;
+		for (const form of forms) out = out.replaceAll(form, "[saved password]");
+		return out as T;
+	}
+	if (Array.isArray(value)) return value.map((item) => scrubForms(item, forms)) as T;
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrubForms(item, forms)])) as T;
+	}
+	return value;
+}
+
+/** `useSavedPassword` or `generatePassword` is `true` and stands in for `text`: exactly one of the three. */
+function passwordFlag(action: BrowserAction): { useSavedPassword: true } | { generatePassword: true } {
+	const given = [action.text !== undefined, action.useSavedPassword !== undefined, action.generatePassword !== undefined].filter(Boolean).length;
+	if (given !== 1) fail("bad_action", `${action.kind}: pass exactly one of text, useSavedPassword: true or generatePassword: true`);
+	if (action.useSavedPassword === true) return { useSavedPassword: true };
+	if (action.generatePassword === true) return { generatePassword: true };
+	return fail("bad_action", `${action.kind}: useSavedPassword and generatePassword can only be true`);
+}
+
 /** Validate and canonicalize an action before anything touches the page. */
 function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserAction {
 	if (!action || typeof action !== "object") fail("bad_action", "action must be an object");
@@ -966,6 +1057,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 			return { kind: "hover", x, y };
 		}
 		case "insert": {
+			if (action.useSavedPassword !== undefined || action.generatePassword !== undefined) return { kind: "insert", ...passwordFlag(action) };
 			if (typeof action.text !== "string" || action.text.length === 0 || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `insert.text must be a string of 1-${MAX_TEXT_INPUT} characters`);
 			}
@@ -977,6 +1069,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 		case "stop":
 			return { kind: action.kind };
 		case "type": {
+			if (action.useSavedPassword !== undefined || action.generatePassword !== undefined) return { kind: "type", selector: requireSelector(action.selector), ...passwordFlag(action) };
 			// An empty string is legal and means "clear the field".
 			if (typeof action.text !== "string" || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `type.text must be a string of at most ${MAX_TEXT_INPUT} characters`);
@@ -1035,13 +1128,14 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 
 /**
- * While the human is confirming a post, the page is theirs: only the Browser
- * View's own input ("app") may drive it. Anything else could change what the
- * human is approving between their look and their Post.
+ * While a post awaits confirmation the page is pinned: only the Browser View's
+ * own input ("app") may drive it. Anything else could change what is being
+ * confirmed between the fill and the Post. Confirm and cancel are not gated
+ * here; any caller may settle the publish.
  */
 function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
 	if (caller !== "app" && isPending(entry.publish)) {
-		fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+		fail("publish_pending", "a post awaits confirmation on this browser; confirm or cancel it (browser_publish_confirm / browser_publish_cancel) or wait with browser_publish_wait");
 	}
 }
 

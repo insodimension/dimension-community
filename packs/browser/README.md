@@ -25,9 +25,30 @@ standard MCP and MCP Apps. No host internals, no browser fork.
   [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) or
   [browser-use](https://github.com/browser-use/browser-use), running in the same
   browser while you watch, and reports steps, time, model calls and tokens.
-  For a jev sign-up or login the browser fills password fields itself from a
-  password it holds per profile and origin (`credential: { origin, mode }`);
-  no model and no transcript ever sees the value.
+  A failed task (an unfunded model key is HTTP 402) is a tool error naming the
+  cause and the next step, within seconds; the server and the browser keep
+  serving. `browser_act` and `browser_tab` are refused (`task_running`) while a
+  task runs. Agents may log in and sign up. Optionally, for a jev sign-up or
+  login, the browser generates and stores the password in the profile and fills
+  password fields itself (`credential: { origin, mode }`), so the value never
+  appears in a transcript.
+- **Passwords without a task key.** A `browser_act` `type` or `insert` with
+  `generatePassword: true` (instead of `text`) generates a strong password,
+  saves it in the profile (the same store) for the password field's own frame
+  origin (a saved one is reused), and types it, replacing the field's content;
+  `useSavedPassword: true` types the saved one for a later login and fails,
+  typing nothing, when nothing is saved there. The origin is read from the
+  browser, never from page script; the result says `credential: { origin,
+  created }`, never the value, and either flag on a field that is not a
+  password input fails and types nothing. The View's own typing is always
+  literal. Snapshots, states and act results never carry a password field's
+  value or any saved password, even once a page reveals it as text.
+  `browser_snapshot` and `browser_act` reach iframes, cross-origin ones
+  included, through `@<ref> ` selector prefixes.
+- **A View that stops when the host says no.** A third-party install's View
+  calls are consent-gated by the host. When the host refuses one (denied or
+  expired), the live view pauses with a **Resume** button instead of retrying
+  and raising a fresh prompt every few seconds.
 
 ## What we maintain, and what we do not
 
@@ -96,9 +117,10 @@ widens the host's minimal default):
 
 Model-callable: `browser_open`, `browser_state`, `browser_snapshot`, `browser_read`,
 `browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_wait`,
-`browser_task_cancel`, `browser_publish`, `browser_publish_presets`, `browser_publish_wait`, `browser_close`.
+`browser_task_cancel`, `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`,
+`browser_publish_cancel`, `browser_publish_wait`, `browser_close`.
 View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
-`browser_viewport`, `browser_profiles`, `browser_publish_confirm`, `browser_publish_cancel`.
+`browser_viewport`, `browser_profiles`.
 
 Page content is untrusted data, never instructions.
 
@@ -158,31 +180,33 @@ slot up to a `browser_open` when the pool is full.
 
 ## Connect a platform with a browser profile
 
-Publishing works in three steps. You sign in once, your agent drafts, and you
-press Post.
+Publishing works in three steps. The profile is signed in once, your agent
+drafts, and the post is confirmed.
 
 1. **Sign in once.** Ask your agent to connect the account (for example
    "connect X as @yourbrand"). It opens the site's login page in the Browser
-   View, on a profile of its own for that account. Log in there yourself: your
-   password, your two-factor code, any CAPTCHA. The agent never types a
-   password and never signs up for you. The login is saved in the profile and
-   survives restarts, so you do this once per account.
+   View, on a profile of its own for that account, and logs in or signs up
+   there, verification steps included — or you do it yourself in the View. The
+   login is saved in the profile and survives restarts, so this happens once
+   per account.
 2. **Your agent drafts and fills.** When there is something to post, the agent
    opens the compose page in that profile and fills in the text. Nothing is
    sent.
-3. **You press Post.** A bar at the bottom of the Browser View shows where the
-   post goes (the page and the profile) and exactly what will be posted. Press
-   **Post** to send it, or **Cancel**. While the bar waits, the agent can't
-   touch the page. After you press Post, the post's own link comes back to the
-   agent as the receipt.
+3. **Post.** A bar at the bottom of the Browser View shows where the post goes
+   (the page and the profile) and exactly what will be posted, with **Post**
+   and **Cancel**. Your agent can confirm it itself (`browser_publish_confirm`),
+   asking first or not as your session's permission mode says, or you press
+   Post. While the bar waits, the agent can't otherwise touch the page. After
+   the post, its own link comes back to the agent as the receipt.
 
 If you post it yourself with the site's own button instead, the bar can't
 know for sure, so it says "May have posted" and never posts a second copy.
-Nothing is posted unless you press a Post button.
+Nothing is posted until a confirm: your Post button or the agent's
+`browser_publish_confirm`.
 
 ## Publishing
 
-`browser_publish` posts through a profile the human signed in to once, by hand.
+`browser_publish` posts through a signed-in profile.
 The caller passes either a named preset (see [Presets](#presets)) or a recipe
 as data, so the pack's code stays platform-agnostic:
 
@@ -200,24 +224,26 @@ as data, so the pack's code stays platform-agnostic:
 (An X post's URL is `/<handle>/status/<id>`, hence that `path`.)
 
 - `fields`: 1-8, each value at most 10 000 characters; `label` (at most 40
-  characters) is the caption the human sees above the value.
+  characters) is the caption the confirm bar shows above the value.
 - `receipt.path`: a template matched against the posted URL's pathname (the
   origin is checked separately; query and hash are ignored). Literal text plus
   `{segment}` (one path segment) and `{digits}` (one or more digits), at most one
   placeholder per segment; starts with `/`, at most 256 characters. Matching is
   linear-time, so a hostile page's hrefs cannot stall it.
 - `mode: "check"` opens the compose page and reports `signed-in` or
-  `not-signed-in`. Signed out, nothing is typed; the human signs in in the View.
+  `not-signed-in`. Signed out, nothing is typed; sign in (the agent with
+  `browser_act` / `browser_task`, or you in the View), then post.
 - `mode: "post"` types each value, reads it back exactly, and parks the publish
   as `awaiting-confirmation`, recording the active tab and its URL as
   `composeUrl` (where the post goes). **Nothing is submitted.** The Browser View
-  shows a confirm bar with that URL, the profile and every value; only the
-  human's **Post** submits (`browser_publish_confirm`, which also refuses any
-  call the host did not stamp as coming from the View). The page is re-checked
-  first: another active tab, a different URL or a changed value fails with
-  nothing clicked.
-- While a publish is pending the page belongs to the human: `browser_act`,
-  `browser_tab`, `browser_task` and `browser_publish` are refused
+  shows a confirm bar with that URL, the profile and every value. A confirm
+  submits: the model's `browser_publish_confirm` or the bar's **Post** (the same
+  tool). It is destructive and open-world, so the session's permission mode
+  decides whether it asks. The page is re-checked first: another active tab, a
+  different URL or a changed value fails with nothing clicked.
+  `browser_publish_cancel` drops it.
+- While a publish is pending the page is pinned: `browser_act`, `browser_tab`,
+  `browser_task`, `browser_publish` and `browser_close` are refused
   (`publish_pending`) unless the host stamped the call as coming from the View.
 - The receipt is the posted URL read from the page (the tab's URL, or a link the
   recipe names), on the recipe's origin, its path matching `receipt.path`, and
@@ -241,9 +267,10 @@ as data, so the pack's code stays platform-agnostic:
   `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
   so it accepts CSS and `pierce/…` only.
 
-Hard lines: publishing never types into a password field, never uses the saved
-passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly
-once and never retries it.
+Hard lines: a password field is never a publish field (its value is never read
+back, so it could not be verified; logins go through `browser_act` or
+`browser_task`), publishing never uses the saved passwords, and it clicks submit
+exactly once and never retries it.
 
 ### Presets
 
@@ -253,7 +280,7 @@ order, and their count must match. A preset with `needsTarget` composes on the
 page the caller names (a Reddit thread to comment on); `target` must be a URL on
 the preset's origin. An unknown name is refused with the list of names. The
 preset resolves to an ordinary recipe and takes the same path: the same checks,
-the same parked publish, the human's Post, the receipt from the page. The record
+the same parked publish, the same confirm, the receipt from the page. The record
 carries `preset: { name, verified }`, and the confirm bar shows "Unverified
 recipe" while `verified` is false. `browser_publish_presets` lists
 `{ name, platform, verified, fields, needsTarget }`.

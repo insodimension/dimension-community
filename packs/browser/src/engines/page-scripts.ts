@@ -1,7 +1,14 @@
 import type { BrowserRegion } from "../contracts.js";
 import type { FieldRead, PageRead } from "./types.js";
-const PAGE_TEXT_SCRIPT = (limit: number): string => {
-	const parts: string[] = [`# ${document.title}`, document.location.href, ""];
+/**
+ * The page's text and interactive controls, each with a selector for
+ * browser_act and its center in main-viewport pixels. Run in a child frame,
+ * `frameRef` names it: the section is headed `## frame @<ref>`, every selector
+ * starts `@<ref> `, and (`dx`, `dy`) — where the frame's content box sits in
+ * the main viewport — is added to each center.
+ */
+const PAGE_TEXT_SCRIPT = (limit: number, frameRef: string | null = null, dx = 0, dy = 0): string => {
+	const parts: string[] = frameRef === null ? [`# ${document.title}`, document.location.href, ""] : [`## frame @${frameRef}: ${document.title}`, document.location.href, ""];
 	const body = document.body?.innerText ?? "";
 	parts.push(body.replace(/\n{3,}/g, "\n\n").trim());
 	const controls: string[] = [];
@@ -41,9 +48,10 @@ const PAGE_TEXT_SCRIPT = (limit: number): string => {
 		const options = el.tagName === "SELECT"
 			? ` options: ${Array.from((el as HTMLSelectElement).options).slice(0, 12).map((o) => o.text.trim()).join(" | ")}`
 			: "";
-		controls.push(`${target}${kind} "${label}"${options} @${Math.round(rect.x + rect.width / 2)},${Math.round(rect.y + rect.height / 2)}`);
+		const ref = frameRef === null ? "" : `@${frameRef} `;
+		controls.push(`${ref}${target}${kind} "${label}"${options} @${Math.round(dx + rect.x + rect.width / 2)},${Math.round(dy + rect.y + rect.height / 2)}`);
 	}
-	if (controls.length > 0) parts.push("", "## interactive", controls.join("\n"));
+	if (controls.length > 0) parts.push("", frameRef === null ? "## interactive" : `### interactive (frame @${frameRef})`, controls.join("\n"));
 	const text = parts.join("\n");
 	return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
 };
@@ -172,6 +180,51 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /**
+ * For `useSavedPassword` / `generatePassword`, run in puppeteer's utility world (an isolated world:
+ * the page's own overrides of `window.origin`, `type`, `activeElement` or any
+ * prototype do not reach it). Whether `el` is a password input, and this
+ * frame's real origin.
+ */
+const SAVED_PASSWORD_TARGET_SCRIPT = (el: Element): { password: boolean; origin: string } => ({
+	password: el instanceof HTMLInputElement && el.type === "password",
+	origin: window.origin,
+});
+/**
+ * The password insert itself, run in the utility world like
+ * SAVED_PASSWORD_TARGET_SCRIPT: focus `el`, check it is still a password
+ * input of `origin` holding focus in a focused document, then select its
+ * content and replace it with `value` — all in ONE evaluate, so no page
+ * script can move focus between the check and the insert (a blur handler
+ * that runs inside `focus()` is caught by the check after it). The text goes
+ * to this document's selection only, never to whatever frame has focus.
+ * Anything but "inserted" means nothing was inserted.
+ */
+const INSERT_PASSWORD_SCRIPT = (el: Element, value: string, origin: string): "inserted" | "not_password" | "origin" | "focus" | "rejected" => {
+	if (!(el instanceof HTMLInputElement) || el.type !== "password") return "not_password";
+	if (window.origin !== origin) return "origin";
+	el.focus();
+	if (!document.hasFocus() || (el.getRootNode() as Document | ShadowRoot).activeElement !== el) return "focus";
+	el.select();
+	return document.execCommand("insertText", false, value) ? "inserted" : "rejected";
+};
+/**
+ * The focused element of THIS frame when focus ends here (followed down
+ * through open shadow roots, and not a frame or the body), else null. Run in
+ * the utility world, like SAVED_PASSWORD_TARGET_SCRIPT.
+ */
+const FOCUSED_LEAF_SCRIPT = (): Element | null => {
+	if (!document.hasFocus()) return null;
+	let focused: Element | null = document.activeElement;
+	while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	if (focused === null || focused === document.body || focused.tagName === "IFRAME" || focused.tagName === "FRAME") return null;
+	return focused;
+};
+/** Where an iframe's content box starts inside its own border box: border plus padding, in CSS pixels. */
+const FRAME_INSET_SCRIPT = (el: Element): { x: number; y: number } => {
+	const style = getComputedStyle(el);
+	return { x: el.clientLeft + (parseFloat(style.paddingLeft) || 0), y: el.clientTop + (parseFloat(style.paddingTop) || 0) };
+};
+/**
  * An input/textarea's `.value`, or a contenteditable's text minus one trailing
  * newline. An editor that keeps one `<p>` per line (ProseMirror, Quill,
  * Lexical) reads as those lines joined by one newline each: `innerText` would
@@ -242,6 +295,10 @@ export {
 	FAVICON_HREF_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	TYPE_TARGET_SCRIPT,
+	SAVED_PASSWORD_TARGET_SCRIPT,
+	INSERT_PASSWORD_SCRIPT,
+	FOCUSED_LEAF_SCRIPT,
+	FRAME_INSET_SCRIPT,
 	READ_FIELD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 };

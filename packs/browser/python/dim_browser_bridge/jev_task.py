@@ -101,7 +101,10 @@ def _jev_goal(task, credential):
 # origin are passed as JSON literals, never interpolated as code.
 #  - Origin: checked INSIDE the page, atomically with the fill, so a redirect or
 #    a link to another site between ticks can never receive the password
-#    (`location` is unforgeable by page script). Only the top document is read.
+#    (`location` is unforgeable by page script). It runs in EVERY frame of the
+#    page (fill_frames), cross-origin and out-of-process ones included, and
+#    each frame checks its own origin: one origin's password never goes into
+#    another origin's frame, whichever frame is on top.
 #  - Visibility: the same predicate jev's scanner uses, so a field a person
 #    cannot see (honeypot, opacity 0, aria-hidden, inert) is never filled.
 #  - A "show password" toggle puts the value where jev WOULD read it (and where
@@ -156,13 +159,73 @@ def fill_script(credential):
     return _FILL_PASSWORDS % (json.dumps(credential["password"]), json.dumps(credential["origin"]))
 
 
+# Child frames run the fill in this isolated world: the page's DOM, not its globals.
+_FILL_WORLD = "dimension-password-fill"
+
+
 def _fill_passwords(browser, credential):
+    from browser_harness.helpers import cdp
+
     try:
-        return bool(browser.evaluate(fill_script(credential)))
+        return fill_frames(cdp, browser.target, browser.session, credential) > 0
     except Exception as exc:  # a navigation mid-fill: the next tick tries again
         # The type only: an evaluate error must never be able to echo the script.
         print(f"password fill skipped: {type(exc).__name__}", flush=True)
         return False
+
+
+def fill_frames(cdp, page_target, page_session, credential):
+    """Run the fill in every frame of the page and return how many fields it
+    filled. `cdp(method, session_id=None, **params)` is raw CDP (the harness's
+    own, or any client). The page's own target first; then every out-of-process
+    iframe target whose parent chain (Target.getTargets' parentId) reaches the
+    page, attached for the fill and detached after."""
+    script = fill_script(credential)
+    filled = _fill_target(cdp, page_session, script)
+    iframes = [t for t in cdp("Target.getTargets").get("targetInfos", []) if t.get("type") == "iframe"]
+    ours, grew = {page_target}, True
+    while grew:
+        grew = False
+        for info in iframes:
+            if info["targetId"] not in ours and info.get("parentId") in ours:
+                ours.add(info["targetId"])
+                grew = True
+    for info in iframes:
+        if info["targetId"] not in ours:
+            continue
+        try:
+            session = cdp("Target.attachToTarget", targetId=info["targetId"], flatten=True)["sessionId"]
+        except RuntimeError:  # the frame went away since the listing
+            continue
+        try:
+            filled += _fill_target(cdp, session, script)
+        finally:
+            cdp("Target.detachFromTarget", sessionId=session)
+    return filled
+
+
+def _fill_target(cdp, session, script):
+    """One target's frames: its main frame in the page's own world, then each
+    same-process child frame in an isolated world. A child frame that lives in
+    another process is its own target (filled by fill_frames) and is skipped
+    here, as is one that went away mid-fill."""
+    filled = _filled(cdp("Runtime.evaluate", session_id=session, expression=script, returnByValue=True))
+    stack = list(cdp("Page.getFrameTree", session_id=session)["frameTree"].get("childFrames", []))
+    while stack:
+        node = stack.pop()
+        stack.extend(node.get("childFrames", []))
+        try:
+            context = cdp("Page.createIsolatedWorld", session_id=session, frameId=node["frame"]["id"], worldName=_FILL_WORLD)["executionContextId"]
+            filled += _filled(cdp("Runtime.evaluate", session_id=session, expression=script, contextId=context, returnByValue=True))
+        except RuntimeError:
+            continue
+    return filled
+
+
+def _filled(response):
+    """The fill count a Runtime.evaluate returned; 0 when the frame threw (it was changing)."""
+    value = response.get("result", {}).get("value")
+    return value if not response.get("exceptionDetails") and isinstance(value, int) else 0
 
 
 def _stop_daemon(name):

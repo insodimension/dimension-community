@@ -1,22 +1,24 @@
 /**
- * Publishing — the agent fills, the HUMAN confirms, the page is the receipt.
+ * Publishing — the agent fills, one confirm posts, the page is the receipt.
  *
  * A recipe (data from the caller; the pack knows no platform) names the
  * compose page, a signed-in marker, the fields, the submit control and how the
  * posted URL shows up. `prepare` navigates, checks sign-in, types each field
- * and reads it back, then PARKS the publish: nothing is submitted until the
- * human presses Post in the Browser View (`confirm`), which re-verifies the
- * page, clicks submit exactly once and reads the receipt URL from the page.
+ * and reads it back, then PARKS the publish: nothing is submitted until a
+ * confirm (the model's `browser_publish_confirm`, or the Post button in the
+ * Browser View), which re-verifies the page, clicks submit exactly once and
+ * reads the receipt URL from the page.
  *
  * Hard lines, enforced here and in the driver:
- *  - never type into a password input (checked before typing, on the element);
- *  - never touch the credential store; a signed-out profile is reported, and
- *    the human signs in by hand;
+ *  - a password input is never a publish field (checked before typing, on the
+ *    element): its value is never read, so a readback could not verify it.
+ *    Logging in is browser_act's or browser_task's job, not publish's;
+ *  - never touch the credential store; a signed-out profile is reported;
  *  - submit exactly once, never retried: an error after dispatch is `unknown`;
  *  - the receipt URL comes only from the page, on the recipe's origin, its
  *    pathname matching the recipe's path template, and never something
  *    already there before submit;
- *  - confirm submits only on the very tab and URL the human was shown;
+ *  - confirm submits only on the very tab and URL shown in the View;
  *  - page content never chooses a selector or a URL.
  */
 import { randomBytes } from "node:crypto";
@@ -36,7 +38,7 @@ const MAX_URL_CHARS = 2_048;
 const MAX_RECEIPT_LINKS = 5_000;
 const SIGNED_IN_WAIT_MS = 15_000;
 const RECEIPT_WAIT_MS = 20_000;
-/** How long a parked publish waits for the human. */
+/** How long a parked publish waits for a confirm. */
 export const PUBLISH_PENDING_MS = 10 * 60_000;
 const POLL_MS = 250;
 /** `http:` is allowed only here, for local fixtures and apps. */
@@ -53,7 +55,7 @@ export interface Recipe extends PublishRecipe {
 	matchesPath: (pathname: string) => boolean;
 }
 
-/** A parked publish: the record the human sees, and the recipe confirm needs (never shown). */
+/** A parked publish: the record the View shows, and the recipe confirm needs (never shown). */
 export interface Publication {
 	record: PublishRecord;
 	recipe: Recipe;
@@ -226,7 +228,7 @@ export async function prepare(driver: EngineDriver, profile: string, recipe: Rec
 		const before = await driver.readField(field.selector).catch((error) => ({ state: "error" as const, error }));
 		if (before.state === "error") return failed(`could not read ${JSON.stringify(field.selector)}: ${describe(before.error)}`);
 		if (before.state === "absent") return failed(`${JSON.stringify(field.selector)} is not on the page`);
-		if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field; publishing never types into one`);
+		if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`);
 		if (before.state === "not-editable") return failed(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
 		try {
 			await driver.fill(field.selector, field.value);
@@ -265,7 +267,7 @@ export async function prepare(driver: EngineDriver, profile: string, recipe: Rec
 }
 
 // ---------------------------------------------------------------------------
-// confirm — the human's Post
+// confirm — the one Post (the model's confirm or the View's button)
 // ---------------------------------------------------------------------------
 
 /** The pending publication `publishId`, or a refusal naming why it cannot be acted on. */
@@ -363,7 +365,7 @@ function isReceipt(url: string, recipe: Recipe): boolean {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-/** The human's Cancel, or the browser closing under a pending publish. */
+/** A Cancel (the model's or the View's), or the browser closing under a pending publish. */
 export function cancel(publication: Publication, error?: string): void {
 	const unsure = unsureError(publication);
 	if (unsure) settle(publication, "unknown", { error: unsure });

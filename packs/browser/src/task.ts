@@ -17,6 +17,8 @@ import { fail } from "./store.js";
 /** `packs/browser/python`, from both `src/task.ts` and the bundled `app/server.mjs`. */
 const PYTHON_DIR = fileURLToPath(new URL("../python/", import.meta.url));
 const CANCEL_GRACE_MS = 15_000;
+/** After the worker exits, how long its stdout may take to drain before the result is settled without `close`. */
+const EXIT_DRAIN_MS = 2_000;
 const STDERR_KEEP = 4_096;
 
 export interface WorkerStep { n: number; action: string; url: string; elapsedMs: number; usage: TaskUsage }
@@ -102,7 +104,13 @@ export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void):
       };
     }
   });
+  // A pipe error (the worker or a process it spawned dying mid-write) is an
+  // 'error' event; unheard, Node throws it and takes the whole MCP server down.
+  // The worker's result comes from `close` below either way.
   child.stdin.on("error", () => undefined);
+  child.stdout.on("error", () => undefined);
+  child.stderr.on("error", () => undefined);
+  lines.on("error", () => undefined);
   child.stdin.write(`${JSON.stringify(job)}\n`);
 
   let killTimer: NodeJS.Timeout | undefined;
@@ -110,10 +118,19 @@ export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void):
     const finish = (reason: string): void => {
       clearTimeout(killTimer);
       resolve(result ?? { status: "failed", summary: `${reason}${stderr ? `: ${stderr.trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
+      // Settled: a pipe a lingering grandchild still holds is ours to let go of.
+      lines.close();
+      child.stdout.destroy();
+      child.stderr.destroy();
     };
     child.once("error", (error) => finish(`task worker failed to start (${error.message})`));
-    // `close` (not `exit`) so every stdout line has been read first.
+    // `close` (not `exit`) so every stdout line has been read first. A process
+    // the worker spawned can inherit its pipes and hold them open after it
+    // exits, so `close` never comes: then `exit` plus a drain grace settles it.
     child.once("close", (code, signal) => finish(`task worker exited (${signal ?? code})`));
+    child.once("exit", (code, signal) => {
+      setTimeout(() => finish(`task worker exited (${signal ?? code})`), EXIT_DRAIN_MS).unref();
+    });
   });
   return {
     done,

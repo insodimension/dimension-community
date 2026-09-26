@@ -141,7 +141,7 @@ export interface Fixture {
 	url(path: string, host?: FixtureHost): string;
 	/** How many times the server was asked for `path` (query excluded). */
 	hits(path: string): number;
-	/** Every accepted form POST, in order. This is the write count. */
+	/** Every accepted form submission, in order (a POST to `/submit`, or the GET login form's `/logged-in`). This is the write count. */
 	submissions(): ReadonlyArray<Record<string, string>>;
 	/** The value `/set-cookie` persists; `/show-cookie` echoes it back. */
 	readonly cookieValue: string;
@@ -231,6 +231,39 @@ export function startFixture(): Fixture {
 			if (pathname === "/guarded") return html(page("guarded form", GUARDED_BODY));
 			if (pathname === "/opener") return html(page("opener", OPENER_BODY));
 			if (pathname === "/with-icon") return html(page("with icon", "<p>has an icon</p>", `<link rel="icon" href="/brand.png">`));
+			// The fixture form inside a CROSS-ORIGIN iframe (the other host: another site, so an out-of-process frame).
+			if (pathname === "/framed") {
+				const other: FixtureHost = url.hostname === "localhost" ? "127.0.0.1" : "localhost";
+				return html(page("framed login", `<h1>framed login</h1><iframe id="login" src="${origin(other)}/" style="width:600px;height:300px;border:0"></iframe>`));
+			}
+			// The fixture form on a page that claims the OTHER host's origin: `window.origin` is replaceable by page script.
+			if (pathname === "/spoofed") {
+				const other: FixtureHost = url.hostname === "localhost" ? "127.0.0.1" : "localhost";
+				return html(page("spoofed", `${FORM_BODY}<p id="claims"></p><script>window.origin = ${JSON.stringify(origin(other))}; document.getElementById("claims").textContent = "claims " + window.origin;</script>`));
+			}
+			// The fixture form with a show-password toggle that turns #pass into a text field.
+			if (pathname === "/revealable") {
+				return html(page("revealable", `${FORM_BODY}<button type="button" id="show" onclick="document.getElementById('pass').type = 'text'">show</button>`));
+			}
+			// A login form with no `method`: it submits as GET, so the password lands in the next page's URL, form-encoded.
+			if (pathname === "/get-login") {
+				return html(page("get login", `<form action="/logged-in"><input id="user" name="user" type="text" /><input id="pass" name="pass" type="password" /><button id="go" type="submit">Log in</button></form>`));
+			}
+			if (pathname === "/logged-in") {
+				submissions.push(Object.fromEntries(url.searchParams));
+				return html(page("logged in", `<p id="count">submissions:${submissions.length}</p>`));
+			}
+			// An ad iframe, then two form iframes (the other host's, then this host's); #drop removes the ad, so every later frame's index shifts down one.
+			if (pathname === "/three-frames") {
+				const other: FixtureHost = url.hostname === "localhost" ? "127.0.0.1" : "localhost";
+				const frame = (id: string, src: string): string => `<iframe id="${id}" src="${src}" style="width:600px;height:160px;border:0"></iframe>`;
+				return html(page("three frames", `<button type="button" id="drop" onclick="document.getElementById('ad').remove()">drop ad</button>${frame("ad", "/page2")}${frame("a", `${origin(other)}/`)}${frame("b", "/")}`));
+			}
+			// The fixture form plus a decoy field (in the form) that takes focus on the task after #pass gains it.
+			if (pathname === "/focus-thief") {
+				const body = FORM_BODY.replace(`<button id="go"`, `<input id="decoy" name="decoy" type="text" /><button id="go"`);
+				return html(page("focus thief", `${body}<script>document.getElementById("pass").addEventListener("focus", () => setTimeout(() => document.getElementById("decoy").focus(), 0));</script>`));
+			}
 			if (pathname === "/brand.png") return new Response(FAVICON_PNG, { headers: { "content-type": "image/png" } });
 			// Answers only after SLOW_PAGE_MS: a navigation that stays in flight long enough to observe.
 			if (pathname === "/slow") {

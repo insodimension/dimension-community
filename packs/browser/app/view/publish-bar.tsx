@@ -1,9 +1,9 @@
-// The human's gate on every post. The agent filled the compose page and
-// parked the publish; nothing is submitted until Post here. The bar shows
-// where it goes (the compose page URL, the profile) and every exact value,
-// and afterwards what the page said: the posted URL, or why it did not (or
-// may not have) posted. Post and Cancel are the only callers of the app-only
-// confirm and cancel tools.
+// The View's Post and Cancel for a parked publish. The agent filled the
+// compose page and parked it; nothing is submitted until a confirm — Post
+// here, or the agent's own browser_publish_confirm. The bar shows where it
+// goes (the compose page URL, the profile) and every exact value, and
+// afterwards what the page said: the posted URL, or why it did not (or may
+// not have) posted.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PublishRecord, PublishStatus } from "../../src/contracts";
 import { Icon } from "@fraym/ui/icons";
@@ -166,7 +166,7 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 						</span>
 					)}
 					<span className="bx-publish-detail">
-						Nothing is sent until you press Post.
+						Nothing is sent until you press Post or your agent confirms it.
 						{Number.isFinite(expires.getTime()) && (
 							<>
 								{" "}
