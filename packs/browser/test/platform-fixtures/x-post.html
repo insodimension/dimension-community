@@ -1,0 +1,119 @@
+<!-- FIXTURE COPY, modelled on x.com as of 2026-09. NOT the live site; the preset is unverified against it. -->
+<!--
+  Structure copied: /compose/post renders the composer as a modal dialog in
+  #layers over the home timeline; the timeline's inline composer carries the
+  SAME data-testid (tweetTextarea_0), with its own button (tweetButtonInline).
+  The editor is a Draft.js contenteditable (one data-block div per line,
+  white-space: pre-wrap). The Post button is aria-disabled until there is
+  text. After Post: the create call, the dialog closes, the URL becomes /home,
+  and a toast "Your post was sent." carries a View link to
+  /<handle>/status/<id>. The account switcher exists only when signed in.
+-->
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>Post / X</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .public-DraftEditor-content { outline: none; white-space: pre-wrap; overflow-wrap: break-word; min-height: 48px; }
+  #layers [role="dialog"] { position: fixed; inset: 40px 20%; background: #fff; border: 1px solid #ccc; padding: 12px; }
+  [data-testid="toast"] { position: fixed; bottom: 16px; left: 16px; background: #1d9bf0; color: #fff; padding: 8px; }
+</style>
+</head>
+<body>
+<div id="react-root">
+  <header role="banner">
+    <nav aria-label="Primary" role="navigation">
+      <a href="/home" aria-label="Home" role="link" data-testid="AppTabBar_Home_Link">Home</a>
+      <a href="/explore" aria-label="Search and explore" role="link" data-testid="AppTabBar_Explore_Link">Explore</a>
+      <!-- signed-in -->
+      <a href="/alice" aria-label="Profile" role="link" data-testid="AppTabBar_Profile_Link">Profile</a>
+      <button type="button" aria-label="Account menu" role="button" data-testid="SideNav_AccountSwitcher_Button">Alice @alice</button>
+      <!-- /signed-in -->
+    </nav>
+  </header>
+  <main role="main">
+    <div aria-label="Home timeline">
+      <div data-testid="tweetTextarea_0_label">
+        <div class="DraftEditor-root">
+          <div class="public-DraftEditorPlaceholder-root"><div class="public-DraftEditorPlaceholder-inner">What is happening?!</div></div>
+          <div class="DraftEditor-editorContainer">
+            <div class="notranslate public-DraftEditor-content" contenteditable="true" role="textbox" spellcheck="true" aria-label="Post text" aria-multiline="true" data-testid="tweetTextarea_0"><div data-contents="true"><div class="" data-block="true" data-editor="inline" data-offset-key="i0-0-0"><div data-offset-key="i0-0-0" class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr"><span data-offset-key="i0-0-0"><br data-text="true"></span></div></div></div></div>
+          </div>
+        </div>
+      </div>
+      <button type="button" role="button" data-testid="tweetButtonInline" aria-disabled="true">Post</button>
+      <section aria-labelledby="timeline">
+        <article data-testid="tweet" role="article"><a href="/bob/status/1839000000000000001" role="link"><time datetime="2026-09-25T10:00:00.000Z">Sep 25</time></a><div data-testid="tweetText">an older post already on the page</div></article>
+      </section>
+    </div>
+  </main>
+</div>
+<div id="layers">
+  <div role="dialog" aria-modal="true" aria-labelledby="modal-header">
+    <h2 id="modal-header" hidden>Compose new post</h2>
+    <button type="button" aria-label="Close" data-testid="app-bar-close">×</button>
+    <div data-testid="tweetTextarea_0_label">
+      <div class="DraftEditor-root">
+        <div class="public-DraftEditorPlaceholder-root"><div class="public-DraftEditorPlaceholder-inner">What is happening?!</div></div>
+        <div class="DraftEditor-editorContainer">
+          <div class="notranslate public-DraftEditor-content" contenteditable="true" role="textbox" spellcheck="true" aria-label="Post text" aria-multiline="true" data-testid="tweetTextarea_0"><div data-contents="true"><div class="" data-block="true" data-editor="modal" data-offset-key="m0-0-0"><div data-offset-key="m0-0-0" class="public-DraftStyleDefault-block public-DraftStyleDefault-ltr"><span data-offset-key="m0-0-0"><br data-text="true"></span></div></div></div></div>
+        </div>
+      </div>
+    </div>
+    <div data-testid="toolBar">
+      <button type="button" aria-label="Add photos or video">Media</button>
+      <button type="button" role="button" data-testid="tweetButton" aria-disabled="true">Post</button>
+    </div>
+  </div>
+</div>
+<script>
+  // Draft's getPlainText: each block's text, blocks joined by "\n", no
+  // trailing newline. Built from the editor's DOM, never innerText: a
+  // block's text is its text nodes' data with each <br> a "\n", except the
+  // block's last <br>, which is Draft's empty-block marker (<br data-text>),
+  // not text. A block is a leaf block element (Draft's
+  // public-DraftStyleDefault-block, or the copy of it Chrome makes on Enter).
+  function blockText(block) {
+    var text = "";
+    var trailingBreak = false;
+    var walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (var node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.data;
+        if (node.data !== "") trailingBreak = false;
+      } else if (node.nodeName === "BR") {
+        text += "\n";
+        trailingBreak = true;
+      }
+    }
+    return trailingBreak ? text.slice(0, -1) : text;
+  }
+  function plainText(editor) {
+    var blocks = Array.from(editor.querySelectorAll("div, p")).filter(function (el) { return el.querySelector("div, p") === null; });
+    return blocks.map(blockText).join("\n");
+  }
+  function wire(editor, button, closeDialog) {
+    editor.addEventListener("input", function () {
+      button.setAttribute("aria-disabled", plainText(editor).trim() === "" ? "true" : "false");
+    });
+    button.addEventListener("click", async function () {
+      if (button.getAttribute("aria-disabled") === "true") return;
+      button.setAttribute("aria-disabled", "true");
+      var response = await fetch("/i/api/graphql/fixture/CreateTweet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: plainText(editor) }) });
+      var id = "18400000000000000" + String((await response.json()).id).padStart(2, "0");
+      if (closeDialog) document.querySelector("#layers [role='dialog']").remove();
+      history.replaceState(null, "", "/home");
+      var toast = document.createElement("div");
+      toast.setAttribute("data-testid", "toast");
+      toast.setAttribute("role", "alert");
+      toast.innerHTML = '<span>Your post was sent.</span> <a role="link" href="/alice/status/' + id + '">View</a>';
+      document.getElementById("layers").appendChild(toast);
+    });
+  }
+  wire(document.querySelector("main [data-testid='tweetTextarea_0']"), document.querySelector("[data-testid='tweetButtonInline']"), false);
+  wire(document.querySelector("[role='dialog'] [data-testid='tweetTextarea_0']"), document.querySelector("[data-testid='tweetButton']"), true);
+</script>
+</body>
+</html>

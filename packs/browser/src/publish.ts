@@ -401,7 +401,7 @@ export async function waitSettled(publication: Publication, ms: number): Promise
 export function publishRecord(publication: Publication): PublishRecord {
 	expireIfDue(publication);
 	const { record } = publication;
-	return { ...record, fields: record.fields.map((field) => ({ ...field })) };
+	return { ...record, fields: record.fields.map((field) => ({ ...field })), ...(record.preset === undefined ? {} : { preset: { ...record.preset } }) };
 }
 
 export function isPending(publication: Publication | null): boolean {

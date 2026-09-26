@@ -29,6 +29,7 @@ import type {
 	BrowserState,
 	FrameFormat,
 	MouseButton,
+	PresetRef,
 	PublishCheck,
 	PublishMode,
 	PublishRecipe,
@@ -663,7 +664,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// Publishing — fill, park for the human's Post, submit once (publish.ts)
 	// -----------------------------------------------------------------------
 
-	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord> {
+	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef): Promise<PublishCheck | PublishRecord> {
 		const entry = this.require(browserId);
 		const valid = validateRecipe(recipe);
 		const selected = validateMode(mode);
@@ -680,6 +681,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (!("record" in outcome)) return outcome;
 			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
 			outcome.sharedPage = entry.engine === "chrome-relay";
+			if (preset !== undefined) outcome.record.preset = { name: preset.name, verified: preset.verified };
 			entry.publish = outcome;
 			return publishRecord(outcome);
 		});

@@ -1,0 +1,13 @@
+{
+  "name": "x-post",
+  "platform": "X",
+  "verified": false,
+  "verifiedAt": null,
+  "notes": "Modelled on x.com as of 2026-09; not run against live X. /compose/post opens the composer as a modal dialog over the home timeline, whose inline composer carries the same data-testid, so the editor and the button are scoped to [role=dialog]. signedIn: the side nav's account switcher (SideNav_AccountSwitcher_Button), rendered only when logged in. Post text: the Draft.js contenteditable (data-testid tweetTextarea_0). submit: the modal's Post button (data-testid tweetButton; the inline one is tweetButtonInline). receipt: the 'Your post was sent.' toast (data-testid toast) and its View link to /<handle>/status/<id>.",
+  "origin": "https://x.com",
+  "composeUrl": "https://x.com/compose/post",
+  "signedIn": "[data-testid=\"SideNav_AccountSwitcher_Button\"]",
+  "fields": [{ "label": "Post text", "selector": "[role=\"dialog\"] [data-testid=\"tweetTextarea_0\"]" }],
+  "submit": "[role=\"dialog\"] [data-testid=\"tweetButton\"]",
+  "receipt": { "path": "/{segment}/status/{digits}", "linkSelector": "[data-testid=\"toast\"] a[href*=\"/status/\"]" }
+}

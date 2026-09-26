@@ -121,7 +121,12 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
-/** An input/textarea's `.value`, or a contenteditable's `innerText` minus one trailing newline. */
+/**
+ * An input/textarea's `.value`, or a contenteditable's text minus one trailing
+ * newline. An editor that keeps one `<p>` per line (ProseMirror, Quill,
+ * Lexical) reads as those lines joined by one newline each: `innerText` would
+ * put a blank line between paragraphs, which is not the text that posts.
+ */
 const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	if (el.tagName === "INPUT") {
 		const input = el as HTMLInputElement;
@@ -131,8 +136,14 @@ const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	if (el.tagName === "TEXTAREA") return { state: "value", value: (el as HTMLTextAreaElement).value };
 	const html = el as HTMLElement;
 	if (!html.isContentEditable) return { state: "not-editable" };
-	const text = html.innerText;
-	return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
+	const trimmed = (text: string): string => (text.endsWith("\n") ? text.slice(0, -1) : text);
+	const children = Array.from(html.childNodes);
+	const paragraphs =
+		children.some((node) => node.nodeName === "P") &&
+		children.every((node) => node.nodeName === "P" || (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === ""));
+	if (!paragraphs) return { state: "value", value: trimmed(html.innerText) };
+	const lines = children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText));
+	return { state: "value", value: lines.join("\n") };
 };
 /**
  * The absolute hrefs of up to `limit` elements matching `selector`. The

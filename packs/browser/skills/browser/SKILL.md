@@ -95,12 +95,23 @@ remaining steps yourself with `browser_act`.
 ## Publishing (the human presses Post)
 
 To post something public (a social post, a reply) use `browser_publish`, not
-`browser_act`. You pass a `recipe`: the site's `origin`, its `composeUrl`, a
-`signedIn` selector, the `fields` (`selector`, exact `value`, optional `label`
-such as "Post text" that the user sees above it), the `submit` button, and a
-`receipt`: `path`, a template for the posted URL's path on the origin
-(`{segment}` = one path segment, `{digits}` = a number; for X
-`"/{segment}/status/{digits}"`), plus an optional `linkSelector`.
+`browser_act`. Prefer a **preset** over a hand-written recipe: list them with
+`browser_publish_presets` (`name`, `platform`, `verified`, `fields`,
+`needsTarget`), then pass `preset: { name, values }`, one value per field, in
+the listed order. A preset with `needsTarget` (e.g. `reddit-comment`) also takes
+`target`, the page on that site to post on (the thread's URL). Shipped presets:
+`x-post`, `bluesky-post`, `linkedin-post`, `reddit-comment`. They are
+`verified: false`: tested against copies of each site's page, not the live
+site, so if one fails on a selector, report the error; never improvise a
+different button.
+
+Only for a site with no preset, pass a `recipe` instead (never both): the
+site's `origin`, its `composeUrl`, a `signedIn` selector, the `fields`
+(`selector`, exact `value`, optional `label` such as "Post text" that the user
+sees above it), the `submit` button, and a `receipt`: `path`, a template for
+the posted URL's path on the origin (`{segment}` = one path segment,
+`{digits}` = a number; for X `"/{segment}/status/{digits}"`), plus an optional
+`linkSelector`.
 
 - `mode: "check"` only verifies that the profile is logged in (`signed-in` /
   `not-signed-in`). Logging in is the user's job, by hand in the View. Never

@@ -160,6 +160,11 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 						Post to <span className="bx-publish-key">{record.composeUrl || record.origin}</span> from browser profile{" "}
 						<span className="bx-publish-key">{record.profile}</span>?
 					</span>
+					{record.preset?.verified === false && (
+						<span className="bx-publish-caption" title={`The ${record.preset.name} recipe is tested against a copy of the site's page and has not yet posted on the live site.`}>
+							Recipe not yet proven on the live site. Check the filled-in post before you press Post.
+						</span>
+					)}
 					<span className="bx-publish-detail">
 						Nothing is sent until you press Post.
 						{Number.isFinite(expires.getTime()) && (

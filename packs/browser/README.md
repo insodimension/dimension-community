@@ -96,7 +96,7 @@ widens the host's minimal default):
 
 Model-callable: `browser_open`, `browser_state`, `browser_snapshot`,
 `browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_wait`,
-`browser_task_cancel`, `browser_publish`, `browser_publish_wait`, `browser_close`.
+`browser_task_cancel`, `browser_publish`, `browser_publish_presets`, `browser_publish_wait`, `browser_close`.
 View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
 `browser_viewport`, `browser_profiles`, `browser_publish_confirm`, `browser_publish_cancel`.
 
@@ -129,7 +129,8 @@ Nothing is posted unless you press a Post button.
 ## Publishing
 
 `browser_publish` posts through a profile the human signed in to once, by hand.
-The caller supplies a recipe as data, so the pack stays platform-agnostic:
+The caller passes either a named preset (see [Presets](#presets)) or a recipe
+as data, so the pack's code stays platform-agnostic:
 
 ```json
 {
@@ -177,6 +178,10 @@ The caller supplies a recipe as data, so the pack stays platform-agnostic:
   use directly, outside the View. The bar's Post still works there, but a
   close, cancel, expiry or changed page settles `unknown`, never `cancelled`,
   `expired` or `failed`.
+- A contenteditable is read back as its text: one newline per line. An editor
+  that keeps one `<p>` per line (ProseMirror, Quill, Lexical) reads as those
+  lines joined by one newline, not the blank line `innerText` would put between
+  paragraphs.
 - Recipe selectors (`signedIn`, `fields`, `submit`) accept any puppeteer
   selector syntax: CSS, `pierce/…` to reach into open shadow roots,
   `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
@@ -185,6 +190,35 @@ The caller supplies a recipe as data, so the pack stays platform-agnostic:
 Hard lines: publishing never types into a password field, never uses the saved
 passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly
 once and never retries it.
+
+### Presets
+
+Named recipes ship in `recipes/<name>.json`. Pass one instead of a recipe:
+`preset: { name, values, target? }`. `values` fill the preset's fields in
+order, and their count must match. A preset with `needsTarget` composes on the
+page the caller names (a Reddit thread to comment on); `target` must be a URL on
+the preset's origin. An unknown name is refused with the list of names. The
+preset resolves to an ordinary recipe and takes the same path: the same checks,
+the same parked publish, the human's Post, the receipt from the page. The record
+carries `preset: { name, verified }`, and the confirm bar shows "Unverified
+recipe" while `verified` is false. `browser_publish_presets` lists
+`{ name, platform, verified, fields, needsTarget }`.
+
+| Name | Platform | Verified | Needs target |
+| --- | --- | --- | --- |
+| `x-post` | X | no | no |
+| `bluesky-post` | Bluesky | no | no |
+| `linkedin-post` | LinkedIn | no | no |
+| `reddit-comment` | Reddit | no | yes (the thread URL) |
+
+Presets are modelled on each site's page as of 2026-09 and tested against
+fixture copies, not the live sites. A preset becomes verified only after a real
+post is observed through it. Each preset's `notes` say what every selector is
+modelled on; the fixture copies are in `test/platform-fixtures/`.
+`reddit-comment`'s receipt link matches any comment permalink, so another
+user's comment that loads on the thread after submit could be taken as the
+receipt: the receipt checks the path shape and that the link was not on the
+page before submit, not who wrote the comment.
 
 ## Tests and benchmark
 
