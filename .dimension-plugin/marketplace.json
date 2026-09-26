@@ -99,6 +99,32 @@
 			]
 		},
 		{
+			"name": "ban-comments",
+			"source": "./packs/ban-comments",
+			"pluginId": "ban-comments",
+			"title": "Ban Comments",
+			"icon": "message-square-off",
+			"description": "Ban Comments — a stream rule that stops the agent mid-edit when it writes a code comment and has it carry the meaning in names, types and structure instead",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "rules",
+			"tags": [
+				"rules",
+				"ttsr",
+				"comments",
+				"code-style",
+				"typescript",
+				"rust",
+				"go",
+				"python"
+			],
+			"channel": "canary"
+		},
+		{
 			"name": "brand-marks",
 			"source": "./packs/brand-marks",
 			"pluginId": "brand-marks",
