@@ -119,6 +119,12 @@ export interface PublishRecipe {
     linkSelector?: string;
   };
 }
+/** Which shipped preset a publish was resolved from, as the record shows it. */
+export interface PresetRef {
+  name: string;
+  /** False until a real post was observed through the preset: the View labels it "Unverified recipe". */
+  verified: boolean;
+}
 export const PUBLISH_MODES = ["check", "post"] as const;
 export type PublishMode = (typeof PUBLISH_MODES)[number];
 export const PUBLISH_STATUSES = ["awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
@@ -143,6 +149,8 @@ export interface PublishRecord {
   /** The posted URL, read from the page after submit. */
   url?: string;
   error?: string;
+  /** Set when the recipe came from a named preset (`browser_publish`'s `preset`). */
+  preset?: PresetRef;
 }
 /** A `browser_publish` that stopped before anything was parked for confirmation. */
 export interface PublishCheck {
@@ -211,8 +219,8 @@ export interface BrowserRuntimePort {
   close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun>;
-  /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. */
-  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord>;
+  /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef): Promise<PublishCheck | PublishRecord>;
   /** The human's Post: re-verify, click submit exactly once, read the receipt from the page. */
   confirmPublish(browserId: string, publishId: string): Promise<PublishRecord>;
   cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;

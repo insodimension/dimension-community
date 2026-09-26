@@ -2,9 +2,9 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 // src/server.ts
-import { readFile, readdir } from "node:fs/promises";
-import { extname, join as join5 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
+import { extname as extname2, join as join6 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -16,14 +16,14 @@ var CREDENTIAL_MODES = ["signup", "login"];
 var MAX_ANNOTATION_BYTES = 2097152;
 var PUBLISH_MODES = ["check", "post"];
 
-// src/runtime.ts
-import { randomBytes as randomBytes3 } from "node:crypto";
-import { join as join4 } from "node:path";
+// src/presets.ts
+import { readdir, readFile } from "node:fs/promises";
+import { basename, extname, join as join2 } from "node:path";
+import { fileURLToPath } from "node:url";
 
-// src/credentials.ts
-import { randomInt } from "node:crypto";
-import { readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join as join2 } from "node:path";
+// src/publish.ts
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 
 // src/store.ts
 import { randomBytes } from "node:crypto";
@@ -166,7 +166,432 @@ function defaultRootDir() {
   return join(homedir(), ".inso", "browser");
 }
 
+// src/publish.ts
+var MAX_FIELDS = 8;
+var MAX_VALUE_CHARS = 1e4;
+var MAX_LABEL_CHARS = 40;
+var MAX_SELECTOR_CHARS = 512;
+var MAX_PATH_CHARS = 256;
+var MAX_URL_CHARS = 2048;
+var MAX_RECEIPT_LINKS = 5e3;
+var SIGNED_IN_WAIT_MS = 15e3;
+var RECEIPT_WAIT_MS = 2e4;
+var PUBLISH_PENDING_MS = 10 * 6e4;
+var POLL_MS = 250;
+var LOOPBACK_HOSTS = ["127.0.0.1", "localhost"];
+var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
+var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
+var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
+function validateMode(mode) {
+  const found = PUBLISH_MODES.find((candidate) => candidate === mode);
+  if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
+  return found;
+}
+function validateRecipe(input) {
+  if (!isObject(input)) fail("bad_recipe", "recipe must be an object");
+  const origin = parseOrigin(input.origin);
+  const compose = parseUrl(input.composeUrl, "composeUrl");
+  if (compose.origin !== origin) fail("bad_recipe", `composeUrl must be on ${origin}, got ${compose.origin}`);
+  if (!Array.isArray(input.fields) || input.fields.length === 0 || input.fields.length > MAX_FIELDS) {
+    fail("bad_recipe", `fields must hold 1-${MAX_FIELDS} entries`);
+  }
+  const fields = input.fields.map((field, index) => {
+    if (!isObject(field)) fail("bad_recipe", `fields[${index}] must be an object`);
+    if (typeof field.value !== "string" || field.value.length > MAX_VALUE_CHARS) {
+      fail("bad_recipe", `fields[${index}].value must be a string of at most ${MAX_VALUE_CHARS} characters`);
+    }
+    if (field.label !== void 0 && (typeof field.label !== "string" || field.label.trim().length === 0 || field.label.length > MAX_LABEL_CHARS)) {
+      fail("bad_recipe", `fields[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
+    }
+    return {
+      selector: selector(field.selector, `fields[${index}].selector`),
+      value: field.value,
+      ...field.label === void 0 ? {} : { label: field.label.trim() }
+    };
+  });
+  const receipt = input.receipt;
+  if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
+  const path = receiptPath(receipt.path);
+  return {
+    origin,
+    composeUrl: compose.href,
+    signedIn: selector(input.signedIn, "signedIn"),
+    fields,
+    submit: selector(input.submit, "submit"),
+    receipt: {
+      path,
+      ...receipt.linkSelector === void 0 ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }
+    },
+    matchesPath: compilePath(path)
+  };
+}
+var PLACEHOLDERS = { segment: "[^/]+", digits: "[0-9]+" };
+var TEMPLATE_TOKEN = /\{([^{}]*)\}|[{}]|[.*+?^$()|[\]\\]/g;
+function receiptPath(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.length > MAX_PATH_CHARS) {
+    fail("bad_recipe", `receipt.path must start with "/" and be at most ${MAX_PATH_CHARS} characters`);
+  }
+  return value;
+}
+function compilePath(path) {
+  const segments = path.split("/").map((segment, index) => {
+    let placeholders = 0;
+    const source = segment.replace(TEMPLATE_TOKEN, (token, placeholder) => {
+      if (placeholder === void 0) {
+        if (token === "{" || token === "}") fail("bad_recipe", `receipt.path has an unmatched brace in segment ${index}`);
+        return `\\${token}`;
+      }
+      const pattern2 = Object.hasOwn(PLACEHOLDERS, placeholder) ? PLACEHOLDERS[placeholder] : void 0;
+      if (pattern2 === void 0) fail("bad_recipe", `receipt.path placeholder {${placeholder}} is unknown; use {segment} or {digits}`);
+      placeholders += 1;
+      return pattern2;
+    });
+    if (placeholders > 1) fail("bad_recipe", "receipt.path allows at most one placeholder per segment");
+    return source;
+  });
+  const pattern = new RegExp(`^${segments.join("/")}$`);
+  return (pathname) => pattern.test(pathname);
+}
+function parseOrigin(value) {
+  const url = parseUrl(value, "origin");
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `origin must be a bare origin such as https://example.com`);
+  return url.origin;
+}
+function parseUrl(value, name) {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_URL_CHARS) {
+    fail("bad_recipe", `${name} must be a URL of at most ${MAX_URL_CHARS} characters`);
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    fail("bad_recipe", `${name} ${JSON.stringify(value)} is not an absolute URL`);
+  }
+  if (url.username || url.password) fail("bad_recipe", `${name} must not carry credentials`);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname))) {
+    fail("bad_recipe", `${name} must be https (http only for 127.0.0.1 and localhost)`);
+  }
+  return url;
+}
+function selector(value, name) {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_SELECTOR_CHARS) {
+    fail("bad_recipe", `${name} must be a non-empty CSS selector of at most ${MAX_SELECTOR_CHARS} characters`);
+  }
+  return value.trim();
+}
+async function prepare(driver, profile2, recipe, mode) {
+  try {
+    await driver.perform({ kind: "navigate", url: recipe.composeUrl });
+  } catch (error) {
+    return { status: "failed", url: await currentUrl(driver), profile: profile2, error: `could not open the compose page: ${describe(error)}` };
+  }
+  const deadline = Date.now() + SIGNED_IN_WAIT_MS;
+  let signedIn = false;
+  while (!signedIn) {
+    signedIn = originOf(await currentUrl(driver)) === recipe.origin && await driver.hasElement(recipe.signedIn).catch(() => false);
+    if (signedIn || Date.now() >= deadline) break;
+    await sleep(POLL_MS);
+  }
+  const url = await currentUrl(driver);
+  if (!signedIn) return { status: "not-signed-in", url, profile: profile2 };
+  if (mode === "check") return { status: "signed-in", url, profile: profile2 };
+  for (const field of recipe.fields) {
+    const failed = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted` });
+    const before = await driver.readField(field.selector).catch((error) => ({ state: "error", error }));
+    if (before.state === "error") return failed(`could not read ${JSON.stringify(field.selector)}: ${describe(before.error)}`);
+    if (before.state === "absent") return failed(`${JSON.stringify(field.selector)} is not on the page`);
+    if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field; publishing never types into one`);
+    if (before.state === "not-editable") return failed(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
+    try {
+      await driver.fill(field.selector, field.value);
+    } catch (error) {
+      return failed(`typing into ${JSON.stringify(field.selector)} failed: ${describe(error)}`);
+    }
+    const after = await driver.readField(field.selector).catch(() => null);
+    if (after?.state !== "value" || after.value !== field.value) {
+      return failed(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
+    }
+  }
+  const shown = await driver.state().catch(() => null);
+  if (!shown || originOf(shown.url) !== recipe.origin) {
+    return { status: "failed", url: shown?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
+  }
+  const now = Date.now();
+  return {
+    record: {
+      publishId: randomBytes2(16).toString("hex"),
+      status: "awaiting-confirmation",
+      origin: recipe.origin,
+      composeUrl: shown.url,
+      tabId: shown.activeTabId,
+      profile: profile2,
+      fields: recipe.fields.map((field) => ({ ...field })),
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
+    },
+    recipe,
+    confirming: false,
+    touchedWhilePending: false,
+    sharedPage: false,
+    settled: Promise.withResolvers()
+  };
+}
+function requirePending(publication, publishId) {
+  if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+  expireIfDue(publication);
+  const { status } = publication.record;
+  if (status !== "awaiting-confirmation" || publication.confirming) {
+    fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status}`);
+  }
+  return publication;
+}
+async function confirm(driver, publication) {
+  publication.confirming = true;
+  const { recipe } = publication;
+  try {
+    if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+    const changed = await changedSinceShown(driver, publication);
+    if (changed) {
+      if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
+      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+    }
+    const before = new Set(await receipts(driver, recipe).catch(() => []));
+    try {
+      await driver.perform({ kind: "click", selector: recipe.submit });
+    } catch (error) {
+      if (error instanceof ActionNotDispatched) {
+        const unsure = unsureError(publication);
+        if (unsure) return settle(publication, "unknown", { error: unsure });
+        return settle(publication, "failed", { error: `submit was not clicked: ${describe(error)}; nothing was submitted` });
+      }
+      return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe(error)})` });
+    }
+    const deadline = Date.now() + RECEIPT_WAIT_MS;
+    while (Date.now() < deadline) {
+      const found = (await receipts(driver, recipe).catch(() => [])).find((url) => !before.has(url));
+      if (found) return settle(publication, "posted", { url: found });
+      await sleep(POLL_MS);
+    }
+    settle(publication, "unknown", { error: "submitted, but no receipt was seen, so it may have posted; never retried" });
+  } catch (error) {
+    settle(publication, "unknown", { error: `publishing errored, so it may have posted; never retried (${describe(error)})` });
+  }
+}
+async function changedSinceShown(driver, publication) {
+  try {
+    const state = await driver.state();
+    if (state.activeTabId !== publication.record.tabId) return "another tab is active";
+    if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
+    for (const field of publication.record.fields) {
+      const read2 = await driver.readField(field.selector);
+      if (read2.state !== "value" || read2.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
+    }
+    return null;
+  } catch (error) {
+    return `the page could not be re-read (${describe(error)})`;
+  }
+}
+async function receipts(driver, recipe) {
+  const candidates = recipe.receipt.linkSelector === void 0 ? [(await driver.state()).url] : await driver.linkHrefs(recipe.receipt.linkSelector, MAX_RECEIPT_LINKS);
+  return candidates.filter((url) => url.length <= MAX_URL_CHARS && isReceipt(url, recipe));
+}
+function isReceipt(url, recipe) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
+}
+function cancel(publication, error) {
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
+  else settle(publication, "cancelled", error === void 0 ? {} : { error });
+}
+function expireIfDue(publication) {
+  if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
+  if (Date.now() < Date.parse(publication.record.expiresAt)) return;
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
+  else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+}
+function unsureError(publication) {
+  if (publication.touchedWhilePending) return TOUCHED_ERROR;
+  return publication.sharedPage ? SHARED_ERROR : null;
+}
+async function waitSettled(publication, ms) {
+  expireIfDue(publication);
+  if (TERMINAL.includes(publication.record.status)) return;
+  const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
+  const { promise: elapsed, resolve: resolve3 } = Promise.withResolvers();
+  const timer = setTimeout(resolve3, Math.max(0, publication.confirming ? ms : Math.min(ms, untilExpiry)));
+  await Promise.race([publication.settled.promise, elapsed]);
+  clearTimeout(timer);
+  expireIfDue(publication);
+}
+function publishRecord(publication) {
+  expireIfDue(publication);
+  const { record } = publication;
+  return { ...record, fields: record.fields.map((field) => ({ ...field })), ...record.preset === void 0 ? {} : { preset: { ...record.preset } } };
+}
+function isPending(publication) {
+  if (!publication) return false;
+  expireIfDue(publication);
+  return publication.record.status === "awaiting-confirmation";
+}
+function settle(publication, status, detail) {
+  if (TERMINAL.includes(publication.record.status)) return;
+  Object.assign(publication.record, { status }, detail);
+  publication.confirming = false;
+  publication.settled.resolve();
+}
+async function currentUrl(driver) {
+  return (await driver.state().catch(() => null))?.url ?? "";
+}
+function originOf(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function describe(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// src/presets.ts
+var NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
+var MAX_PLATFORM_CHARS = 40;
+var MAX_NOTES_CHARS = 2e3;
+var PRESETS_DIR = fileURLToPath(new URL("../recipes/", import.meta.url));
+var PRESET_KEYS = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signedIn", "fields", "submit", "receipt"];
+async function loadPresets(dir = PRESETS_DIR) {
+  const files = (await readdir(dir)).filter((file) => extname(file) === ".json").sort();
+  const presets = [];
+  for (const file of files) {
+    const where = join2(dir, file);
+    let raw;
+    try {
+      raw = JSON.parse(await readFile(where, "utf8"));
+    } catch (error) {
+      throw new Error(`publish preset ${where} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const preset = parsePreset(raw, where);
+    if (preset.name !== basename(file, ".json")) throw new Error(`publish preset ${where} is named ${JSON.stringify(preset.name)}; the file must be ${preset.name}.json`);
+    presets.push(preset);
+  }
+  return presets;
+}
+function parsePreset(input, where) {
+  const bad = (message) => {
+    throw new Error(`publish preset ${where}: ${message}`);
+  };
+  if (!isObject2(input)) return bad("must be an object");
+  for (const key of Object.keys(input)) if (!PRESET_KEYS.includes(key)) bad(`unknown key ${JSON.stringify(key)}`);
+  const { name, platform, verified, verifiedAt, notes, composeUrl, composeFrom, fields, receipt } = input;
+  if (typeof name !== "string" || !NAME.test(name)) bad("name must be lowercase letters, digits and dashes");
+  if (typeof platform !== "string" || platform.length === 0 || platform.length > MAX_PLATFORM_CHARS) bad(`platform must be 1-${MAX_PLATFORM_CHARS} characters`);
+  if (typeof verified !== "boolean") bad("verified must be a boolean");
+  if (verified ? typeof verifiedAt !== "string" || !Number.isFinite(Date.parse(verifiedAt)) : verifiedAt !== null) {
+    bad("verifiedAt must be the date a live post was observed when verified, else null");
+  }
+  if (typeof notes !== "string" || notes.length > MAX_NOTES_CHARS) bad(`notes must be a string of at most ${MAX_NOTES_CHARS} characters`);
+  if (composeUrl === void 0 === (composeFrom === void 0)) bad('give exactly one of composeUrl or composeFrom: "target"');
+  if (composeFrom !== void 0 && composeFrom !== "target") bad('composeFrom must be "target"');
+  if (!Array.isArray(fields)) return bad("fields must be an array");
+  const labelled = fields.map((field, index) => {
+    if (!isObject2(field) || Object.keys(field).some((key) => key !== "label" && key !== "selector")) bad(`fields[${index}] must be { label, selector }`);
+    const { label, selector: selector3 } = field;
+    if (typeof label !== "string" || typeof selector3 !== "string") return bad(`fields[${index}] needs a label and a selector`);
+    return { label, selector: selector3 };
+  });
+  if (!isObject2(receipt) || Object.keys(receipt).some((key) => key !== "path" && key !== "linkSelector")) bad("receipt must be { path, linkSelector? }");
+  const preset = input;
+  try {
+    const recipe = toRecipe(preset, labelled.map(() => ""), preset.composeUrl ?? `${String(preset.origin)}/`);
+    const valid = validateRecipe(recipe);
+    return {
+      name: preset.name,
+      platform: preset.platform,
+      verified: preset.verified,
+      verifiedAt: preset.verifiedAt,
+      notes: preset.notes,
+      origin: valid.origin,
+      ...preset.composeUrl === void 0 ? { composeFrom: "target" } : { composeUrl: valid.composeUrl },
+      signedIn: valid.signedIn,
+      fields: valid.fields.map((field) => ({ label: field.label ?? "", selector: field.selector })),
+      submit: valid.submit,
+      receipt: valid.receipt
+    };
+  } catch (error) {
+    return bad(error instanceof Error ? error.message : String(error));
+  }
+}
+function summarizePresets(presets) {
+  return presets.map((preset) => ({
+    name: preset.name,
+    platform: preset.platform,
+    verified: preset.verified,
+    fields: preset.fields.map((field) => field.label),
+    needsTarget: preset.composeFrom === "target"
+  }));
+}
+function resolvePreset(presets, request) {
+  if (!isObject2(request)) fail("bad_preset", "preset must be { name, values, target? }");
+  const preset = presets.find((candidate) => candidate.name === request.name);
+  if (preset === void 0) {
+    fail("bad_preset", `unknown preset ${JSON.stringify(request.name)}; known presets: ${presets.map((candidate) => candidate.name).join(", ") || "none"}`);
+  }
+  const labels = preset.fields.map((field) => field.label);
+  if (!Array.isArray(request.values) || request.values.length !== labels.length || request.values.some((value) => typeof value !== "string")) {
+    fail("bad_preset", `${preset.name} takes ${labels.length} value${labels.length === 1 ? "" : "s"} in this order: ${labels.join(", ")}`);
+  }
+  let composeUrl;
+  if (preset.composeFrom === "target") {
+    if (typeof request.target !== "string") fail("bad_preset", `${preset.name} needs target: the page on ${preset.origin} to post on`);
+    composeUrl = onOrigin(request.target, preset);
+  } else {
+    if (request.target !== void 0) fail("bad_preset", `${preset.name} takes no target; it always composes at ${preset.composeUrl}`);
+    composeUrl = preset.composeUrl ?? fail("bad_preset", `${preset.name} has no composeUrl`);
+  }
+  return { recipe: toRecipe(preset, request.values, composeUrl), preset: { name: preset.name, verified: preset.verified } };
+}
+function onOrigin(target, preset) {
+  let url;
+  try {
+    url = new URL(target);
+  } catch {
+    fail("bad_preset", `target ${JSON.stringify(target)} is not an absolute URL`);
+  }
+  if (url.origin !== preset.origin) fail("bad_preset", `target must be a page on ${preset.origin}, got ${url.origin}`);
+  return url.href;
+}
+function toRecipe(preset, values, composeUrl) {
+  return {
+    origin: preset.origin,
+    composeUrl,
+    signedIn: preset.signedIn,
+    fields: preset.fields.map((field, index) => ({ label: field.label, selector: field.selector, value: values[index] ?? "" })),
+    submit: preset.submit,
+    receipt: { ...preset.receipt }
+  };
+}
+function isObject2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/runtime.ts
+import { randomBytes as randomBytes3 } from "node:crypto";
+import { join as join5 } from "node:path";
+
 // src/credentials.ts
+import { randomInt } from "node:crypto";
+import { readFileSync as readFileSync2, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join as join3 } from "node:path";
 var FILE = "credentials.json";
 var LOOPBACK = { localhost: true, "127.0.0.1": true, "[::1]": true };
 var LOWER = "abcdefghijkmnopqrstuvwxyz";
@@ -214,7 +639,7 @@ function read(file) {
 function resolveCredential(profileDir, request) {
   if (!CREDENTIAL_MODES.includes(request.mode)) fail("bad_credential", `credential.mode must be one of: ${CREDENTIAL_MODES.join(", ")}`);
   const origin = credentialOrigin(request.origin);
-  const file = join2(profileDir, FILE);
+  const file = join3(profileDir, FILE);
   const origins = read(file);
   const saved = origins[origin];
   if (saved) return { origin, password: saved, created: false };
@@ -235,7 +660,7 @@ function resolveCredential(profileDir, request) {
 
 // src/engines/puppeteer.ts
 import { mkdirSync as mkdirSync2 } from "node:fs";
-import { setTimeout as sleep } from "node:timers/promises";
+import { setTimeout as sleep2 } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
 
 // src/favicon.ts
@@ -249,7 +674,7 @@ var FaviconCache = class {
   #pending = /* @__PURE__ */ new Map();
   /** The cached icon for `pageUrl`'s origin, or null (unknown yet, none, or not http/https). */
   get(pageUrl) {
-    const origin = originOf(pageUrl);
+    const origin = originOf2(pageUrl);
     return origin === null ? null : this.#icons.get(origin) ?? null;
   }
   /**
@@ -259,7 +684,7 @@ var FaviconCache = class {
    * so the next load retries.
    */
   async load(pageUrl, declared) {
-    const origin = originOf(pageUrl);
+    const origin = originOf2(pageUrl);
     if (origin === null || this.#icons.has(origin)) return;
     const inFlight = this.#pending.get(origin);
     if (inFlight) return await inFlight;
@@ -273,7 +698,7 @@ var FaviconCache = class {
     await work;
   }
 };
-function originOf(url) {
+function originOf2(url) {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
@@ -474,8 +899,12 @@ var READ_FIELD_SCRIPT = (el) => {
   if (el.tagName === "TEXTAREA") return { state: "value", value: el.value };
   const html = el;
   if (!html.isContentEditable) return { state: "not-editable" };
-  const text = html.innerText;
-  return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
+  const trimmed = (text) => text.endsWith("\n") ? text.slice(0, -1) : text;
+  const children = Array.from(html.childNodes);
+  const paragraphs = children.some((node) => node.nodeName === "P") && children.every((node) => node.nodeName === "P" || node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === "");
+  if (!paragraphs) return { state: "value", value: trimmed(html.innerText) };
+  const lines = children.filter((node) => node.nodeName === "P").map((p) => trimmed(p.innerText));
+  return { state: "value", value: lines.join("\n") };
 };
 var LINK_HREFS_SCRIPT = (selector3, limit) => {
   const out = [];
@@ -554,7 +983,7 @@ async function attachRelay(options, release) {
     } catch (err) {
       fail(
         "relay_unavailable",
-        `could not attach to chrome-relay at ${browserURL}: ${describe(err)}. Start the chrome-relay (the relay app/extension that exposes this endpoint), or point relayUrl at the endpoint it is actually listening on.`
+        `could not attach to chrome-relay at ${browserURL}: ${describe2(err)}. Start the chrome-relay (the relay app/extension that exposes this endpoint), or point relayUrl at the endpoint it is actually listening on.`
       );
     }
     page = await browser.newPage();
@@ -602,7 +1031,7 @@ async function launchChromium(options, release) {
       else {
         fail(
           "launch_cleanup_failed",
-          `browser initialization failed (${describe(err)}), and shutdown is unconfirmed (${describe(cleanupError)}). The profile lease for ${userDataDir} is deliberately retained while that process may still be alive.`
+          `browser initialization failed (${describe2(err)}), and shutdown is unconfirmed (${describe2(cleanupError)}). The profile lease for ${userDataDir} is deliberately retained while that process may still be alive.`
         );
       }
     }
@@ -938,7 +1367,7 @@ var PuppeteerDriver = class {
       }
       fail(
         "close_failed",
-        `the browser did not shut down (${describe(err)}); its profile lease is deliberately NOT released while that process may still be alive`
+        `the browser did not shut down (${describe2(err)}); its profile lease is deliberately NOT released while that process may still be alive`
       );
     }
     this.#release();
@@ -1118,7 +1547,7 @@ var PuppeteerDriver = class {
       try {
         return await send();
       } catch {
-        await sleep(delay);
+        await sleep2(delay);
       }
     }
     this.#assertOpen();
@@ -1188,7 +1617,7 @@ function hasExited(browser) {
   const proc = browser.process();
   return proc !== null && (proc.exitCode !== null || proc.signalCode !== null);
 }
-function describe(err) {
+function describe2(err) {
   return err instanceof Error ? err.message : String(err);
 }
 async function withTimeout(promise, ms, label) {
@@ -1225,318 +1654,19 @@ function createEngineDriver(engine, options) {
   return createPuppeteerDriver(engine === "chrome-relay" ? "chrome-relay" : "chromium", options);
 }
 
-// src/publish.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
-import { setTimeout as sleep2 } from "node:timers/promises";
-var MAX_FIELDS = 8;
-var MAX_VALUE_CHARS = 1e4;
-var MAX_LABEL_CHARS = 40;
-var MAX_SELECTOR_CHARS = 512;
-var MAX_PATH_CHARS = 256;
-var MAX_URL_CHARS = 2048;
-var MAX_RECEIPT_LINKS = 5e3;
-var SIGNED_IN_WAIT_MS = 15e3;
-var RECEIPT_WAIT_MS = 2e4;
-var PUBLISH_PENDING_MS = 10 * 6e4;
-var POLL_MS = 250;
-var LOOPBACK_HOSTS = ["127.0.0.1", "localhost"];
-var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
-var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
-var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
-function validateMode(mode) {
-  const found = PUBLISH_MODES.find((candidate) => candidate === mode);
-  if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
-  return found;
-}
-function validateRecipe(input) {
-  if (!isObject(input)) fail("bad_recipe", "recipe must be an object");
-  const origin = parseOrigin(input.origin);
-  const compose = parseUrl(input.composeUrl, "composeUrl");
-  if (compose.origin !== origin) fail("bad_recipe", `composeUrl must be on ${origin}, got ${compose.origin}`);
-  if (!Array.isArray(input.fields) || input.fields.length === 0 || input.fields.length > MAX_FIELDS) {
-    fail("bad_recipe", `fields must hold 1-${MAX_FIELDS} entries`);
-  }
-  const fields = input.fields.map((field, index) => {
-    if (!isObject(field)) fail("bad_recipe", `fields[${index}] must be an object`);
-    if (typeof field.value !== "string" || field.value.length > MAX_VALUE_CHARS) {
-      fail("bad_recipe", `fields[${index}].value must be a string of at most ${MAX_VALUE_CHARS} characters`);
-    }
-    if (field.label !== void 0 && (typeof field.label !== "string" || field.label.trim().length === 0 || field.label.length > MAX_LABEL_CHARS)) {
-      fail("bad_recipe", `fields[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
-    }
-    return {
-      selector: selector(field.selector, `fields[${index}].selector`),
-      value: field.value,
-      ...field.label === void 0 ? {} : { label: field.label.trim() }
-    };
-  });
-  const receipt = input.receipt;
-  if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
-  const path = receiptPath(receipt.path);
-  return {
-    origin,
-    composeUrl: compose.href,
-    signedIn: selector(input.signedIn, "signedIn"),
-    fields,
-    submit: selector(input.submit, "submit"),
-    receipt: {
-      path,
-      ...receipt.linkSelector === void 0 ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }
-    },
-    matchesPath: compilePath(path)
-  };
-}
-var PLACEHOLDERS = { segment: "[^/]+", digits: "[0-9]+" };
-var TEMPLATE_TOKEN = /\{([^{}]*)\}|[{}]|[.*+?^$()|[\]\\]/g;
-function receiptPath(value) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.length > MAX_PATH_CHARS) {
-    fail("bad_recipe", `receipt.path must start with "/" and be at most ${MAX_PATH_CHARS} characters`);
-  }
-  return value;
-}
-function compilePath(path) {
-  const segments = path.split("/").map((segment, index) => {
-    let placeholders = 0;
-    const source = segment.replace(TEMPLATE_TOKEN, (token, placeholder) => {
-      if (placeholder === void 0) {
-        if (token === "{" || token === "}") fail("bad_recipe", `receipt.path has an unmatched brace in segment ${index}`);
-        return `\\${token}`;
-      }
-      const pattern2 = Object.hasOwn(PLACEHOLDERS, placeholder) ? PLACEHOLDERS[placeholder] : void 0;
-      if (pattern2 === void 0) fail("bad_recipe", `receipt.path placeholder {${placeholder}} is unknown; use {segment} or {digits}`);
-      placeholders += 1;
-      return pattern2;
-    });
-    if (placeholders > 1) fail("bad_recipe", "receipt.path allows at most one placeholder per segment");
-    return source;
-  });
-  const pattern = new RegExp(`^${segments.join("/")}$`);
-  return (pathname) => pattern.test(pathname);
-}
-function parseOrigin(value) {
-  const url = parseUrl(value, "origin");
-  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `origin must be a bare origin such as https://example.com`);
-  return url.origin;
-}
-function parseUrl(value, name) {
-  if (typeof value !== "string" || value.length === 0 || value.length > MAX_URL_CHARS) {
-    fail("bad_recipe", `${name} must be a URL of at most ${MAX_URL_CHARS} characters`);
-  }
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    fail("bad_recipe", `${name} ${JSON.stringify(value)} is not an absolute URL`);
-  }
-  if (url.username || url.password) fail("bad_recipe", `${name} must not carry credentials`);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname))) {
-    fail("bad_recipe", `${name} must be https (http only for 127.0.0.1 and localhost)`);
-  }
-  return url;
-}
-function selector(value, name) {
-  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_SELECTOR_CHARS) {
-    fail("bad_recipe", `${name} must be a non-empty CSS selector of at most ${MAX_SELECTOR_CHARS} characters`);
-  }
-  return value.trim();
-}
-async function prepare(driver, profile2, recipe, mode) {
-  try {
-    await driver.perform({ kind: "navigate", url: recipe.composeUrl });
-  } catch (error) {
-    return { status: "failed", url: await currentUrl(driver), profile: profile2, error: `could not open the compose page: ${describe2(error)}` };
-  }
-  const deadline = Date.now() + SIGNED_IN_WAIT_MS;
-  let signedIn = false;
-  while (!signedIn) {
-    signedIn = originOf2(await currentUrl(driver)) === recipe.origin && await driver.hasElement(recipe.signedIn).catch(() => false);
-    if (signedIn || Date.now() >= deadline) break;
-    await sleep2(POLL_MS);
-  }
-  const url = await currentUrl(driver);
-  if (!signedIn) return { status: "not-signed-in", url, profile: profile2 };
-  if (mode === "check") return { status: "signed-in", url, profile: profile2 };
-  for (const field of recipe.fields) {
-    const failed = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted` });
-    const before = await driver.readField(field.selector).catch((error) => ({ state: "error", error }));
-    if (before.state === "error") return failed(`could not read ${JSON.stringify(field.selector)}: ${describe2(before.error)}`);
-    if (before.state === "absent") return failed(`${JSON.stringify(field.selector)} is not on the page`);
-    if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field; publishing never types into one`);
-    if (before.state === "not-editable") return failed(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
-    try {
-      await driver.fill(field.selector, field.value);
-    } catch (error) {
-      return failed(`typing into ${JSON.stringify(field.selector)} failed: ${describe2(error)}`);
-    }
-    const after = await driver.readField(field.selector).catch(() => null);
-    if (after?.state !== "value" || after.value !== field.value) {
-      return failed(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
-    }
-  }
-  const shown = await driver.state().catch(() => null);
-  if (!shown || originOf2(shown.url) !== recipe.origin) {
-    return { status: "failed", url: shown?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
-  }
-  const now = Date.now();
-  return {
-    record: {
-      publishId: randomBytes2(16).toString("hex"),
-      status: "awaiting-confirmation",
-      origin: recipe.origin,
-      composeUrl: shown.url,
-      tabId: shown.activeTabId,
-      profile: profile2,
-      fields: recipe.fields.map((field) => ({ ...field })),
-      createdAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
-    },
-    recipe,
-    confirming: false,
-    touchedWhilePending: false,
-    sharedPage: false,
-    settled: Promise.withResolvers()
-  };
-}
-function requirePending(publication, publishId) {
-  if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
-  expireIfDue(publication);
-  const { status } = publication.record;
-  if (status !== "awaiting-confirmation" || publication.confirming) {
-    fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status}`);
-  }
-  return publication;
-}
-async function confirm(driver, publication) {
-  publication.confirming = true;
-  const { recipe } = publication;
-  try {
-    if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
-    const changed = await changedSinceShown(driver, publication);
-    if (changed) {
-      if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
-      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
-    }
-    const before = new Set(await receipts(driver, recipe).catch(() => []));
-    try {
-      await driver.perform({ kind: "click", selector: recipe.submit });
-    } catch (error) {
-      if (error instanceof ActionNotDispatched) {
-        const unsure = unsureError(publication);
-        if (unsure) return settle(publication, "unknown", { error: unsure });
-        return settle(publication, "failed", { error: `submit was not clicked: ${describe2(error)}; nothing was submitted` });
-      }
-      return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe2(error)})` });
-    }
-    const deadline = Date.now() + RECEIPT_WAIT_MS;
-    while (Date.now() < deadline) {
-      const found = (await receipts(driver, recipe).catch(() => [])).find((url) => !before.has(url));
-      if (found) return settle(publication, "posted", { url: found });
-      await sleep2(POLL_MS);
-    }
-    settle(publication, "unknown", { error: "submitted, but no receipt was seen, so it may have posted; never retried" });
-  } catch (error) {
-    settle(publication, "unknown", { error: `publishing errored, so it may have posted; never retried (${describe2(error)})` });
-  }
-}
-async function changedSinceShown(driver, publication) {
-  try {
-    const state = await driver.state();
-    if (state.activeTabId !== publication.record.tabId) return "another tab is active";
-    if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
-    for (const field of publication.record.fields) {
-      const read2 = await driver.readField(field.selector);
-      if (read2.state !== "value" || read2.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
-    }
-    return null;
-  } catch (error) {
-    return `the page could not be re-read (${describe2(error)})`;
-  }
-}
-async function receipts(driver, recipe) {
-  const candidates = recipe.receipt.linkSelector === void 0 ? [(await driver.state()).url] : await driver.linkHrefs(recipe.receipt.linkSelector, MAX_RECEIPT_LINKS);
-  return candidates.filter((url) => url.length <= MAX_URL_CHARS && isReceipt(url, recipe));
-}
-function isReceipt(url, recipe) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
-}
-function cancel(publication, error) {
-  const unsure = unsureError(publication);
-  if (unsure) settle(publication, "unknown", { error: unsure });
-  else settle(publication, "cancelled", error === void 0 ? {} : { error });
-}
-function expireIfDue(publication) {
-  if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
-  if (Date.now() < Date.parse(publication.record.expiresAt)) return;
-  const unsure = unsureError(publication);
-  if (unsure) settle(publication, "unknown", { error: unsure });
-  else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
-}
-function unsureError(publication) {
-  if (publication.touchedWhilePending) return TOUCHED_ERROR;
-  return publication.sharedPage ? SHARED_ERROR : null;
-}
-async function waitSettled(publication, ms) {
-  expireIfDue(publication);
-  if (TERMINAL.includes(publication.record.status)) return;
-  const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
-  const { promise: elapsed, resolve: resolve3 } = Promise.withResolvers();
-  const timer = setTimeout(resolve3, Math.max(0, publication.confirming ? ms : Math.min(ms, untilExpiry)));
-  await Promise.race([publication.settled.promise, elapsed]);
-  clearTimeout(timer);
-  expireIfDue(publication);
-}
-function publishRecord(publication) {
-  expireIfDue(publication);
-  const { record } = publication;
-  return { ...record, fields: record.fields.map((field) => ({ ...field })) };
-}
-function isPending(publication) {
-  if (!publication) return false;
-  expireIfDue(publication);
-  return publication.record.status === "awaiting-confirmation";
-}
-function settle(publication, status, detail) {
-  if (TERMINAL.includes(publication.record.status)) return;
-  Object.assign(publication.record, { status }, detail);
-  publication.confirming = false;
-  publication.settled.resolve();
-}
-async function currentUrl(driver) {
-  return (await driver.state().catch(() => null))?.url ?? "";
-}
-function originOf2(url) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
-}
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function describe2(error) {
-  return error instanceof Error ? error.message : String(error);
-}
-
 // src/task.ts
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { createInterface } from "node:readline";
-import { join as join3 } from "node:path";
-var PYTHON_DIR = fileURLToPath(new URL("../python/", import.meta.url));
+import { join as join4 } from "node:path";
+var PYTHON_DIR = fileURLToPath2(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var STDERR_KEEP = 4096;
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
-  const venv = process.platform === "win32" ? join3(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join3(PYTHON_DIR, ".venv", "bin", "python");
+  const venv = process.platform === "win32" ? join4(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join4(PYTHON_DIR, ".venv", "bin", "python");
   if (!existsSync(venv)) {
     fail(
       "python_env_missing",
@@ -1728,7 +1858,7 @@ var BrowserRuntime = class {
       if (entry) this.detach(entry);
     };
     try {
-      const profileDirectory = engine === "chromium" ? this.store.userDataDir(profile2) : join4(this.store.profileDir(profile2), engine);
+      const profileDirectory = engine === "chromium" ? this.store.userDataDir(profile2) : join5(this.store.profileDir(profile2), engine);
       driver = await createEngineDriver(engine, {
         profileDirectory,
         viewport,
@@ -2119,7 +2249,7 @@ var BrowserRuntime = class {
   // -----------------------------------------------------------------------
   // Publishing — fill, park for the human's Post, submit once (publish.ts)
   // -----------------------------------------------------------------------
-  async publish(browserId, recipe, mode, caller) {
+  async publish(browserId, recipe, mode, caller, preset) {
     const entry = this.require(browserId);
     const valid = validateRecipe(recipe);
     const selected = validateMode(mode);
@@ -2134,6 +2264,7 @@ var BrowserRuntime = class {
       const outcome = await prepare(entry.driver, entry.profile, valid, selected);
       if (!("record" in outcome)) return outcome;
       outcome.sharedPage = entry.engine === "chrome-relay";
+      if (preset !== void 0) outcome.record.preset = { name: preset.name, verified: preset.verified };
       entry.publish = outcome;
       return publishRecord(outcome);
     });
@@ -2395,6 +2526,11 @@ var recipeSchema = z.object({
   submit: selector2,
   receipt: z.object({ path: z.string().min(1).max(256).startsWith("/"), linkSelector: selector2.optional() }).strict()
 }).strict();
+var presetSchema = z.object({
+  name: z.string().min(1).max(48),
+  values: z.array(z.string().max(1e4)).min(1).max(8),
+  target: z.string().min(1).max(2048).optional()
+}).strict();
 var MIME = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".json": "application/json" };
 var APP_ONLY = { ui: { visibility: ["app"] } };
 var READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
@@ -2422,21 +2558,22 @@ async function createBrowserServer(options = {}) {
     ...process.env.DIMENSION_BROWSER_HEADLESS === void 0 ? {} : { headless: process.env.DIMENSION_BROWSER_HEADLESS !== "false" }
   });
   const server2 = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
-  const viewDir = options.viewDir ?? fileURLToPath2(new URL("./dist/", import.meta.url));
-  const html = await readFile(join5(viewDir, "index.html"), "utf8");
+  const viewDir = options.viewDir ?? fileURLToPath3(new URL("./dist/", import.meta.url));
+  const html = await readFile2(join6(viewDir, "index.html"), "utf8");
+  const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false } };
   registerAppResource(server2, "Browser", BROWSER_VIEW_URI, { _meta: metadata }, async () => ({
     contents: [{ uri: BROWSER_VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: html, _meta: metadata }]
   }));
-  for (const entry of await readdir(viewDir, { recursive: true, withFileTypes: true })) {
+  for (const entry of await readdir2(viewDir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === "index.html") continue;
-    const extension = extname(entry.name);
+    const extension = extname2(entry.name);
     const mimeType = MIME[extension];
     if (!mimeType) throw new Error(`Unsupported browser View asset: ${entry.name}`);
-    const path = join5(entry.parentPath, entry.name);
+    const path = join6(entry.parentPath, entry.name);
     const relative = path.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://browser/${relative}`;
-    server2.registerResource(relative, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile(path)).toString("base64") }] }));
+    server2.registerResource(relative, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile2(path)).toString("base64") }] }));
   }
   registerAppTool(server2, "browser_open", {
     title: "Open Browser",
@@ -2539,16 +2676,22 @@ async function createBrowserServer(options = {}) {
   }, ({ browserId }) => result(() => runtime.cancelTask(browserId)));
   registerAppTool(server2, "browser_publish", {
     title: "Publish",
-    description: `Post through a signed-in profile, with the human confirming in the Browser View. recipe (data you supply): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values \u2264 10000 chars; label \u2264 40 chars is the caption the human sees, e.g. "Post text"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. "/{segment}/status/{digits}"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode "check": opens composeUrl and returns status "signed-in" or "not-signed-in" (then the human signs in by hand in the View; never automate a login). mode "post": types each value, reads it back exactly, and returns status "awaiting-confirmation" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). "failed" means nothing was submitted. Never types into password fields. Refused while a task runs.`,
-    inputSchema: { browserId: capability, recipe: recipeSchema, mode: z.enum(PUBLISH_MODES) },
+    description: `Post through a signed-in profile, with the human confirming in the Browser View. Pass EXACTLY ONE of preset or recipe. preset (preferred; list them with browser_publish_presets): {name, values (one string per preset field, in the preset's field order), target? (only for a preset with needsTarget: the page on the preset's site to post on, e.g. the thread to comment on)}; it resolves to a recipe and takes the same path. recipe (data you supply, for a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values \u2264 10000 chars; label \u2264 40 chars is the caption the human sees, e.g. "Post text"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. "/{segment}/status/{digits}"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode "check": opens composeUrl and returns status "signed-in" or "not-signed-in" (then the human signs in by hand in the View; never automate a login). mode "post": types each value, reads it back exactly, and returns status "awaiting-confirmation" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). "failed" means nothing was submitted. Never types into password fields. Refused while a task runs.`,
+    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z.enum(PUBLISH_MODES) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ui: { resourceUri: BROWSER_VIEW_URI } }
     // `state` rides along so the View this call shows binds to THIS browser (a
     // tool result is the View's only source of a browserId) and paints the bar.
-  }, ({ browserId, recipe, mode }, extra) => result(async () => {
-    const outcome = await runtime.publish(browserId, recipe, mode, callerOf(extra));
+  }, ({ browserId, recipe, preset, mode }, extra) => result(async () => {
+    const resolved = preset !== void 0 && recipe === void 0 ? resolvePreset(presets, preset) : recipe !== void 0 && preset === void 0 ? { recipe, preset: void 0 } : fail("bad_publish", "pass exactly one of preset or recipe");
+    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset);
     return { ...outcome, state: await runtime.state(browserId) };
   }));
+  server2.registerTool("browser_publish_presets", {
+    description: "The named publish presets browser_publish accepts as preset: {name, platform, verified, fields (the labels of the values to pass, in order), needsTarget (pass target: the page on the site to post on)}. verified false means the preset is modelled on the site's page and tested against a copy of it, not yet observed posting on the live site.",
+    inputSchema: {},
+    annotations: READ_ONLY
+  }, () => result(async () => ({ presets: summarizePresets(presets) })));
   registerAppTool(server2, "browser_publish_confirm", {
     description: "The human's Post: re-verify the active tab is still the one and the URL the human was shown and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
     inputSchema: { browserId: capability, publishId: capability },

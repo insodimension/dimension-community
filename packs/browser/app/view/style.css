@@ -1231,6 +1231,14 @@ kbd {
 	overflow-wrap: anywhere;
 }
 
+/* A preset not yet observed posting on the live site: quiet, the field captions' type, no colour of its own. */
+.bx-publish-caption {
+	font-size: var(--fr-fs-xs);
+	font-weight: 500;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
 .bx-publish-url {
 	font-family: var(--bx-num);
 	color: var(--fr-text);

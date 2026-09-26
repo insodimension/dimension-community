@@ -1,0 +1,85 @@
+<!-- FIXTURE COPY, modelled on bsky.app as of 2026-09. NOT the live site; the preset is unverified against it. -->
+<!--
+  Structure copied: /intent/compose opens the composer dialog over the home
+  feed and the URL becomes /. The editor is a TipTap/ProseMirror
+  contenteditable (class "tiptap ProseMirror", one <p> per line, an empty
+  line is <p><br class="ProseMirror-trailingBreak"></p>, white-space:
+  pre-wrap). The Post button is data-testid composerPublishBtn. After Post:
+  the create call, the dialog closes, and a toast (role=alert) "Your post has
+  been published" carries a View link to /profile/<handle>/post/<rkey>. The
+  left nav's Profile link exists only when signed in; signed out, the nav
+  offers Sign in / Create account.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bluesky</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .ProseMirror { outline: none; white-space: pre-wrap; word-wrap: break-word; min-height: 64px; }
+  .ProseMirror p { margin: 0; }
+  [role="dialog"] { position: fixed; inset: 40px 20%; background: #fff; border: 1px solid #ccc; padding: 12px; }
+  [role="alert"] { position: fixed; bottom: 16px; right: 16px; background: #0a7aff; color: #fff; padding: 8px; }
+</style>
+</head>
+<body>
+<div id="root">
+  <nav role="navigation">
+    <a href="/" aria-label="Home" role="link">Home</a>
+    <a href="/search" aria-label="Search" role="link">Search</a>
+    <!-- signed-in -->
+    <a href="/notifications" aria-label="Notifications" role="link">Notifications</a>
+    <a href="/profile/alice.bsky.social" aria-label="Profile" role="link">Profile</a>
+    <button type="button" aria-label="New post" role="button">New Post</button>
+    <!-- /signed-in -->
+  </nav>
+  <main>
+    <div data-testid="followingFeedPage-feed-flatlist">
+      <div data-testid="feedItem-by-bob.bsky.social" role="link">
+        <a href="/profile/bob.bsky.social/post/3kfixtureolder" aria-label="Sep 25, 2026">1d</a>
+        <div data-testid="postText">an older post already on the page</div>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="portal">
+  <div role="dialog" aria-modal="true" aria-label="Compose new post" data-testid="composePostView">
+    <button type="button" aria-label="Cancel" data-testid="composerDiscardButton">Cancel</button>
+    <div>
+      <div class="tiptap ProseMirror" contenteditable="true" role="textbox" translate="no" aria-label="Rich-Text Editor" style="font-size: 20px"><p class="is-empty is-editor-empty" data-placeholder="What's up?"><br class="ProseMirror-trailingBreak"></p></div>
+    </div>
+    <div>
+      <span data-testid="charCount">300</span>
+      <button type="button" role="button" data-testid="composerPublishBtn" aria-label="Publish post">Post</button>
+    </div>
+  </div>
+</div>
+<script>
+  // The intent route redirects to the feed with the composer open.
+  history.replaceState(null, "", "/");
+  var editor = document.querySelector("[role='dialog'] .ProseMirror");
+  // The post text: one line per paragraph.
+  function plainText() {
+    return Array.from(editor.querySelectorAll(":scope > p")).map(function (p) {
+      var text = p.innerText;
+      return text.endsWith("\n") ? text.slice(0, -1) : text;
+    }).join("\n");
+  }
+  editor.addEventListener("input", function () {
+    document.querySelector("[data-testid='charCount']").textContent = String(300 - plainText().length);
+  });
+  document.querySelector("[data-testid='composerPublishBtn']").addEventListener("click", async function () {
+    var text = plainText();
+    if (text.trim() === "") return;
+    var response = await fetch("/xrpc/com.atproto.repo.applyWrites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: text }) });
+    var rkey = "3lfx" + String((await response.json()).id).padStart(9, "0");
+    document.querySelector("[role='dialog']").remove();
+    var toast = document.createElement("div");
+    toast.setAttribute("role", "alert");
+    toast.innerHTML = '<span>Your post has been published</span> <a role="link" href="/profile/alice.bsky.social/post/' + rkey + '">View</a>';
+    document.getElementById("portal").appendChild(toast);
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!-- FIXTURE COPY, modelled on www.reddit.com (the new "shreddit" UI) as of 2026-09. NOT the live site; the preset is unverified against it. -->
+<!--
+  Structure copied: a thread page (/r/<sub>/comments/<post>/<slug>/) with the
+  post, the top-level comment composer, and the comment tree. The composer is
+  the <shreddit-composer> custom element; its OPEN shadow root holds the
+  Lexical rich-text editor (a contenteditable with data-lexical-editor=true,
+  one <p> per line, an empty line is <p><br></p>, white-space: pre-wrap), and
+  its Comment button is slotted in from the light DOM (slot=submit-button).
+  After Comment: the create call, the editor clears, and a new
+  <shreddit-comment> joins the top of the tree, its timestamp linking to its
+  permalink /r/<sub>/comments/<post>/comment/<id>/. The older comment's
+  permalink is already on the page. The header's user drawer button exists
+  only when signed in; signed out, the header shows Log In.
+-->
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<title>fixture thread : r/fixtures</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  shreddit-composer { display: block; border: 1px solid #ccc; padding: 8px; }
+</style>
+</head>
+<body>
+<reddit-header-large>
+  <nav>
+    <a href="/" aria-label="Home">reddit</a>
+    <!-- signed-in -->
+    <button id="expand-user-drawer-button" type="button" aria-label="Expand user menu">u/alice</button>
+    <!-- /signed-in -->
+  </nav>
+</reddit-header-large>
+<main id="main-content">
+  <shreddit-post id="t3_1fx0abc" permalink="/r/fixtures/comments/1fx0abc/fixture_thread/" post-title="fixture thread" author="bob" subreddit-prefixed-name="r/fixtures">
+    <h1 slot="title">fixture thread</h1>
+  </shreddit-post>
+  <comment-composer-host>
+    <faceplate-form method="post" action="/svc/shreddit/t3_1fx0abc/create-comment">
+      <shreddit-composer name="comment" placeholder="Join the conversation">
+        <button slot="submit-button" type="submit" class="button-primary">Comment</button>
+      </shreddit-composer>
+    </faceplate-form>
+  </comment-composer-host>
+  <shreddit-comment-tree id="comment-tree" post-id="t3_1fx0abc">
+    <shreddit-comment thingid="t1_lfx0000" permalink="/r/fixtures/comments/1fx0abc/comment/lfx0000/" author="bob" depth="0">
+      <div slot="commentMeta"><a href="/user/bob/">bob</a> <a href="/r/fixtures/comments/1fx0abc/comment/lfx0000/" rel="nofollow noopener noreferrer"><faceplate-timeago ts="2026-09-25T10:00:00.000Z">1d ago</faceplate-timeago></a></div>
+      <div slot="comment" id="t1_lfx0000-comment-rtjson-content"><p>an older comment already on the page</p></div>
+    </shreddit-comment>
+  </shreddit-comment-tree>
+</main>
+<script>
+  class ShredditComposer extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      var root = this.attachShadow({ mode: "open" });
+      root.innerHTML =
+        '<div class="rte"><div contenteditable="true" role="textbox" spellcheck="true" data-lexical-editor="true" aria-placeholder="Join the conversation" aria-label="" style="user-select: text; white-space: pre-wrap; word-break: break-word; outline: none; min-height: 48px"><p><br></p></div></div>' +
+        '<div class="actions"><slot name="submit-button"></slot></div>';
+    }
+    get editor() { return this.shadowRoot.querySelector("[data-lexical-editor='true']"); }
+    // The comment text: one line per paragraph.
+    get text() {
+      return Array.from(this.editor.querySelectorAll(":scope > p")).map(function (p) {
+        var text = p.innerText;
+        return text.endsWith("\n") ? text.slice(0, -1) : text;
+      }).join("\n");
+    }
+  }
+  customElements.define("shreddit-composer", ShredditComposer);
+  var composer = document.querySelector("shreddit-composer");
+  composer.querySelector("button[slot='submit-button']").addEventListener("click", async function (event) {
+    event.preventDefault();
+    var text = composer.text;
+    if (text.trim() === "") return;
+    var response = await fetch("/svc/shreddit/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: text }) });
+    var id = "lfx" + String((await response.json()).id).padStart(4, "0");
+    composer.editor.innerHTML = "<p><br></p>";
+    var permalink = "/r/fixtures/comments/1fx0abc/comment/" + id + "/";
+    var comment = document.createElement("shreddit-comment");
+    comment.setAttribute("thingid", "t1_" + id);
+    comment.setAttribute("permalink", permalink);
+    comment.setAttribute("author", "alice");
+    comment.setAttribute("depth", "0");
+    comment.innerHTML = '<div slot="commentMeta"><a href="/user/alice/">alice</a> <a href="' + permalink + '" rel="nofollow noopener noreferrer"><faceplate-timeago>just now</faceplate-timeago></a></div><div slot="comment"></div>';
+    comment.querySelector("[slot='comment']").innerText = text;
+    var tree = document.getElementById("comment-tree");
+    tree.insertBefore(comment, tree.firstChild);
+  });
+</script>
+</body>
+</html>

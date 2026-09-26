@@ -19,7 +19,7 @@
     "category": "artifactory",
     "keywords": ["browser", "mcp-apps", "profiles", "annotations"]
   },
-  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/dist/", "python/dim_browser_bridge/", "python/pyproject.toml", "python/uv.lock", "skills/", "README.md"],
+  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/dist/", "recipes/", "python/dim_browser_bridge/", "python/pyproject.toml", "python/uv.lock", "skills/", "README.md"],
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",

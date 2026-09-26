@@ -7,7 +7,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { BrowserRuntimePort, ToolCaller } from "./contracts.js";
 import { BROWSER_ENGINES, CREDENTIAL_MODES, PUBLISH_MODES, TASK_AGENTS } from "./contracts.js";
+import { type PublishPreset, loadPresets, resolvePreset, summarizePresets } from "./presets.js";
 import { BrowserRuntime } from "./runtime.js";
+import { fail } from "./store.js";
 
 export const BROWSER_VIEW_URI = "ui://browser/index.html";
 const capability = z.string().min(16).max(128);
@@ -36,6 +38,11 @@ const recipeSchema = z.object({
   fields: z.array(z.object({ selector, value: z.string().max(10_000), label: z.string().trim().min(1).max(40).optional() }).strict()).min(1).max(8),
   submit: selector,
   receipt: z.object({ path: z.string().min(1).max(256).startsWith("/"), linkSelector: selector.optional() }).strict(),
+}).strict();
+const presetSchema = z.object({
+  name: z.string().min(1).max(48),
+  values: z.array(z.string().max(10_000)).min(1).max(8),
+  target: z.string().min(1).max(2048).optional(),
 }).strict();
 const MIME: Record<string, string> = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".json": "application/json" };
 const APP_ONLY = { ui: { visibility: ["app"] as const } };
@@ -71,6 +78,8 @@ async function result(run: () => Promise<object>): Promise<CallToolResult> {
 export interface BrowserServerOptions {
   runtime?: BrowserRuntimePort;
   viewDir?: string;
+  /** The publish presets offered; defaults to the shipped `recipes/`. */
+  presets?: readonly PublishPreset[];
 }
 
 export async function createBrowserServer(options: BrowserServerOptions = {}): Promise<McpServer> {
@@ -84,6 +93,8 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   const viewDir = options.viewDir ?? fileURLToPath(new URL("./dist/", import.meta.url));
   // A missing built View is a startup error, not an installed pack that opens blank.
   const html = await readFile(join(viewDir, "index.html"), "utf8");
+  // A malformed shipped preset is a startup error too, never a recipe an agent can reach.
+  const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false } };
   registerAppResource(server, "Browser", BROWSER_VIEW_URI, { _meta: metadata }, async () => ({
     contents: [{ uri: BROWSER_VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: html, _meta: metadata }],
@@ -200,16 +211,23 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   // submits; only the View's Post button (browser_publish_confirm) does, once.
   registerAppTool(server, "browser_publish", {
     title: "Publish",
-    description: "Post through a signed-in profile, with the human confirming in the Browser View. recipe (data you supply): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values ≤ 10000 chars; label ≤ 40 chars is the caption the human sees, e.g. \"Post text\"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. \"/{segment}/status/{digits}\"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode \"check\": opens composeUrl and returns status \"signed-in\" or \"not-signed-in\" (then the human signs in by hand in the View; never automate a login). mode \"post\": types each value, reads it back exactly, and returns status \"awaiting-confirmation\" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). \"failed\" means nothing was submitted. Never types into password fields. Refused while a task runs.",
-    inputSchema: { browserId: capability, recipe: recipeSchema, mode: z.enum(PUBLISH_MODES) },
+    description: "Post through a signed-in profile, with the human confirming in the Browser View. Pass EXACTLY ONE of preset or recipe. preset (preferred; list them with browser_publish_presets): {name, values (one string per preset field, in the preset's field order), target? (only for a preset with needsTarget: the page on the preset's site to post on, e.g. the thread to comment on)}; it resolves to a recipe and takes the same path. recipe (data you supply, for a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values ≤ 10000 chars; label ≤ 40 chars is the caption the human sees, e.g. \"Post text\"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. \"/{segment}/status/{digits}\"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode \"check\": opens composeUrl and returns status \"signed-in\" or \"not-signed-in\" (then the human signs in by hand in the View; never automate a login). mode \"post\": types each value, reads it back exactly, and returns status \"awaiting-confirmation\" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). \"failed\" means nothing was submitted. Never types into password fields. Refused while a task runs.",
+    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z.enum(PUBLISH_MODES) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ui: { resourceUri: BROWSER_VIEW_URI } },
   // `state` rides along so the View this call shows binds to THIS browser (a
   // tool result is the View's only source of a browserId) and paints the bar.
-  }, ({ browserId, recipe, mode }, extra) => result(async () => {
-    const outcome = await runtime.publish(browserId, recipe, mode, callerOf(extra));
+  }, ({ browserId, recipe, preset, mode }, extra) => result(async () => {
+    const resolved = preset !== undefined && recipe === undefined ? resolvePreset(presets, preset)
+      : recipe !== undefined && preset === undefined ? { recipe, preset: undefined }
+      : fail("bad_publish", "pass exactly one of preset or recipe");
+    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset);
     return { ...outcome, state: await runtime.state(browserId) };
   }));
+  server.registerTool("browser_publish_presets", {
+    description: "The named publish presets browser_publish accepts as preset: {name, platform, verified, fields (the labels of the values to pass, in order), needsTarget (pass target: the page on the site to post on)}. verified false means the preset is modelled on the site's page and tested against a copy of it, not yet observed posting on the live site.",
+    inputSchema: {}, annotations: READ_ONLY,
+  }, () => result(async () => ({ presets: summarizePresets(presets) })));
   registerAppTool(server, "browser_publish_confirm", {
     description: "The human's Post: re-verify the active tab is still the one and the URL the human was shown and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
     inputSchema: { browserId: capability, publishId: capability },
