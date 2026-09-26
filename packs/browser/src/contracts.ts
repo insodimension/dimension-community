@@ -24,6 +24,13 @@ export interface BrowserAction {
   selector?: string;
   /** `type`: replaces the field's value. `insert`: typed into whatever is focused. */
   text?: string;
+  /**
+   * `type`/`insert` INSTEAD of `text`: replace the password field's content
+   * with the password this profile saved for that field's own frame origin (read
+   * from the browser, never the page). No saved password there is an error and
+   * nothing is typed. Agent-only: the View types exactly what the human typed.
+   */
+  useSavedPassword?: true;
   /** `select`: the option's value or visible text. */
   value?: string;
   key?: string;
@@ -52,11 +59,7 @@ export interface TabRequest { op: TabOp; tabId?: string; url?: string }
 export type FrameFormat = "jpeg" | "png";
 /** `failed`: provably nothing happened. `unknown`: dispatched, then errored — may have taken effect. */
 export type ActionStatus = "completed" | "failed" | "unknown";
-/**
- * `savedPassword`: the text went into a password field of `origin`, and the
- * browser typed this profile's saved password for that origin instead of the
- * text given. Never the value.
- */
+/** `savedPassword`: a `useSavedPassword` action typed this profile's saved password for `origin`. Never the value. */
 export interface ActionResult { status: ActionStatus; error?: string; state: BrowserState; savedPassword?: { origin: string } }
 export interface TaskStep { n: number; action: string; url: string; elapsedMs: number }
 export interface TaskUsage { modelCalls: number; inputTokens: number; outputTokens: number; costUsd: number | null }

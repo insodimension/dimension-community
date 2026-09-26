@@ -28,10 +28,15 @@ standard MCP and MCP Apps. No host internals, no browser fork.
   Agents may log in and sign up. Optionally, for a jev sign-up or login, the
   browser generates and stores the password in the profile and fills password
   fields itself (`credential: { origin, mode }`), so the value never appears
-  in a transcript. After that, a `browser_act` `type` or `insert` into a
-  password field of an origin the profile has a saved password for types the
-  saved one instead of the text given, and says so (`savedPassword: { origin }`,
-  never the value).
+  in a transcript. After that, a `browser_act` `type` or `insert` with
+  `useSavedPassword: true` (instead of `text`) replaces a password field's
+  content with the password saved for that field's own frame origin, read from
+  the browser, never from page script; it says so (`savedPassword: { origin }`,
+  never the value) and fails, typing nothing, when nothing is saved there. The
+  View's own typing is always literal. Snapshots, states and act results never
+  carry a password field's value or any saved password, even once a page
+  reveals it as text. `browser_snapshot` and `browser_act` reach iframes,
+  cross-origin ones included, through `@<ref> ` selector prefixes.
 
 ## What we maintain, and what we do not
 

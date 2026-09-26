@@ -31,7 +31,7 @@
 import { mkdirSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer, { TimeoutError } from "puppeteer-core";
-import type { Browser, BrowserContext, CDPSession, ElementHandle, HTTPRequest, HTTPResponse, KeyInput, Page, Protocol, Target } from "puppeteer-core";
+import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
 import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
@@ -39,18 +39,28 @@ import { ActionNotDispatched, fail } from "../store.js";
 import {
 	ELEMENTS_IN_REGION_SCRIPT,
 	FAVICON_HREF_SCRIPT,
-	FOCUSED_PASSWORD_ORIGIN_SCRIPT,
+	FOCUSED_LEAF_SCRIPT,
+	FRAME_INSET_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 	PAGE_TEXT_SCRIPT,
 	READ_FIELD_SCRIPT,
 	READ_PAGE_SCRIPT,
+	SAVED_PASSWORD_TARGET_SCRIPT,
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
 import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, PerformOutcome, ReadOutcome, ReadPolicy, SavedPasswordLookup } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
+/** Child frames a snapshot lists controls for, depth first. */
+const MAX_SNAPSHOT_FRAMES = 16;
+/**
+ * A selector aimed into a child frame: `@<ref> <css>`, where `ref` is the
+ * frame's 1-based child-index path from the main frame (`@1`, `@1.2`), as the
+ * snapshot names it. Any frame, cross-origin and out-of-process included.
+ */
+const FRAME_SELECTOR = /^@(\d{1,3}(?:\.\d{1,3}){0,7})\s+([\s\S]+)$/;
 const ACTION_TIMEOUT_MS = 15_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
@@ -553,8 +563,27 @@ class PuppeteerDriver implements EngineDriver {
 		return cast.frame;
 	}
 
+	/**
+	 * The main frame's text and controls, then each child frame's (depth first,
+	 * cross-origin and out-of-process frames included) under `## frame @<ref>`,
+	 * its selectors prefixed `@<ref> ` for browser_act and its centers in
+	 * main-viewport pixels. A frame that is not rendered (no box) is left out.
+	 */
 	async snapshot(limit: number): Promise<string> {
-		return await this.#activeTab().page.evaluate(PAGE_TEXT_SCRIPT, limit);
+		const page = this.#activeTab().page;
+		const parts = [await page.evaluate(PAGE_TEXT_SCRIPT, limit, null, 0, 0)];
+		let left = limit - (parts[0]?.length ?? 0);
+		for (const { frame, ref } of childFrames(page)) {
+			if (left <= 0) break;
+			const offset = await frameOffset(frame).catch(() => null);
+			if (offset === null) continue;
+			// A frame navigating or detaching mid-read is left out of this snapshot.
+			const text = await frame.evaluate(PAGE_TEXT_SCRIPT, left, ref, offset.x, offset.y).catch(() => null);
+			if (text === null) continue;
+			parts.push(text);
+			left -= text.length;
+		}
+		return parts.join("\n\n");
 	}
 
 	async elements(region: BrowserRegion, limit: number): Promise<string> {
@@ -643,7 +672,7 @@ class PuppeteerDriver implements EngineDriver {
 					await page.mouse.click(requireNumber(action.x, "click.x"), requireNumber(action.y, "click.y"), options);
 					return NONE;
 				}
-				const handle = await this.#resolve(page, action.selector);
+				const { handle } = await this.#resolve(page, action.selector);
 				try {
 					await handle.click(options);
 				} finally {
@@ -654,18 +683,20 @@ class PuppeteerDriver implements EngineDriver {
 			case "hover":
 				await page.mouse.move(requireNumber(action.x, "hover.x"), requireNumber(action.y, "hover.y"));
 				return NONE;
-			case "insert": {
+			case "insert":
+				if (action.useSavedPassword) return await this.#typeSaved(page, await this.#focusedField(page), savedPassword);
 				// Whatever has focus receives the text as one native input operation.
-				const text = requireField(action.text, "insert.text");
-				const saved = await this.#savedFor(page, savedPassword);
-				await page.keyboard.sendCharacter(saved?.value ?? text);
-				return saved ? { savedPasswordOrigin: saved.origin } : NONE;
+				await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
+				return NONE;
+			case "type": {
+				const selector = requireField(action.selector, "type.selector");
+				if (action.useSavedPassword) return await this.#typeSaved(page, await this.#resolve(page, selector), savedPassword);
+				await this.#type(page, selector, requireField(action.text, "type.text", true), false);
+				return NONE;
 			}
-			case "type":
-				return await this.#type(page, requireField(action.selector, "type.selector"), requireField(action.text, "type.text", true), false, savedPassword);
 			case "select": {
 				const wanted = requireField(action.value, "select.value", true);
-				const handle = await this.#resolve(page, requireField(action.selector, "select.selector"));
+				const { handle } = await this.#resolve(page, requireField(action.selector, "select.selector"));
 				try {
 					const value = await handle.evaluate((el, wanted) => {
 						if (!(el instanceof HTMLSelectElement)) return null;
@@ -982,11 +1013,9 @@ class PuppeteerDriver implements EngineDriver {
 	 * Replace a field's content: focus, select all, and ONE native input
 	 * operation — no transient empty value, and the text never appears in argv
 	 * or a log. `refusePassword` refuses a password input before any input event.
-	 * Otherwise, a password input that `savedPassword` knows a value for gets
-	 * that value instead of `text`.
 	 */
-	async #type(page: Page, selector: string, text: string, refusePassword: boolean, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome> {
-		const handle = await this.#resolve(page, selector);
+	async #type(page: Page, selector: string, text: string, refusePassword: boolean): Promise<void> {
+		const { handle } = await this.#resolve(page, selector);
 		try {
 			if (refusePassword && (await handle.evaluate(IS_PASSWORD_SCRIPT))) {
 				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`);
@@ -1008,44 +1037,88 @@ class PuppeteerDriver implements EngineDriver {
 			if (refusePassword && focus === "password") {
 				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} has a password field focused, which a publish never reads back; nothing was typed`);
 			}
-			const saved = focus === "password" ? await this.#savedFor(page, savedPassword) : undefined;
-			const typed = saved?.value ?? text;
-			if (typed.length > 0) await page.keyboard.sendCharacter(typed);
+			if (text.length > 0) await page.keyboard.sendCharacter(text);
 			else await page.keyboard.press("Backspace");
-			return saved ? { savedPasswordOrigin: saved.origin } : NONE;
 		} finally {
 			await handle.dispose().catch(() => undefined);
 		}
 	}
 
 	/**
-	 * The saved password for the focused password input's origin, or undefined
-	 * (no lookup, focus not on a password input, or nothing saved there). Only
-	 * reads, so a failure here is a certain non-event.
+	 * `useSavedPassword`: REPLACE `field`'s content with the password this
+	 * profile saved for the field's own frame origin. Every check runs in
+	 * puppeteer's utility world, an isolated world page script cannot reach, so
+	 * the page cannot fake its origin (`window.origin` is replaceable in its own
+	 * world), a password type, or focus. The origin is the FRAME's, never the
+	 * top page's. Focus and origin are checked again right before typing; if
+	 * either changed, nothing is typed. No saved password is an error, never a
+	 * fallback. Everything before the one insert is a certain non-event.
 	 */
-	async #savedFor(page: Page, lookup: SavedPasswordLookup | undefined): Promise<{ origin: string; value: string } | undefined> {
-		if (!lookup) return undefined;
-		let origin: string | null;
+	async #typeSaved(page: Page, target: { handle: ElementHandle<Element>; frame: Frame }, lookup: SavedPasswordLookup | undefined): Promise<PerformOutcome> {
+		const { handle, frame } = target;
+		let field: ElementHandle<Element> | null = null;
 		try {
-			origin = await page.evaluate(FOCUSED_PASSWORD_ORIGIN_SCRIPT);
-		} catch (error) {
-			throw new ActionNotDispatched("focus_unreadable", `could not tell whether the focused field is a password field; nothing was typed (${describe(error)})`);
+			if (!lookup) throw new ActionNotDispatched("bad_action", "useSavedPassword needs the profile's saved passwords");
+			field = await utilityWorld(frame).adoptHandle(handle);
+			const before = await field.evaluate(SAVED_PASSWORD_TARGET_SCRIPT);
+			if (!before.password) throw new ActionNotDispatched("not_password_field", "useSavedPassword types only into a password field, and this field is not one; nothing was typed");
+			let value: string | undefined;
+			try {
+				value = lookup(before.origin);
+			} catch (error) {
+				throw new ActionNotDispatched("credentials_unreadable", describe(error));
+			}
+			if (!value) throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; use browser_task credential signup, or pass text`);
+			await field.focus();
+			if (!(await field.evaluate(SELECT_ALL_SCRIPT))) {
+				throw new ActionNotDispatched("not_password_field", "the password field's content could not be selected to replace; nothing was typed");
+			}
+			const now = await field.evaluate(SAVED_PASSWORD_TARGET_SCRIPT);
+			if (!now.focused || !now.password || now.origin !== before.origin) {
+				throw new ActionNotDispatched("focus_moved", "the password field lost focus or changed origin before typing; nothing was typed");
+			}
+			await page.keyboard.sendCharacter(value);
+			return { savedPasswordOrigin: before.origin };
+		} finally {
+			await field?.dispose().catch(() => undefined);
+			await handle.dispose().catch(() => undefined);
 		}
-		if (origin === null) return undefined;
-		let value: string | undefined;
-		try {
-			value = lookup(origin);
-		} catch (error) {
-			throw new ActionNotDispatched("credentials_unreadable", describe(error));
-		}
-		return value ? { origin, value } : undefined;
 	}
 
-	/** Element resolution is read-only, so a miss here is a certain non-event. */
-	async #resolve(page: Page, selector: string): Promise<ElementHandle<Element>> {
-		const handle = await page.waitForSelector(selector, { timeout: ACTION_TIMEOUT_MS }).catch(() => null);
+	/**
+	 * The element that has focus, in whichever frame holds it (cross-origin
+	 * and out-of-process frames included), read in each frame's utility world.
+	 * None, or an unreadable frame when none was found, is a certain non-event.
+	 */
+	async #focusedField(page: Page): Promise<{ handle: ElementHandle<Element>; frame: Frame }> {
+		let unreadable: unknown = null;
+		for (const frame of page.frames()) {
+			if (frame.detached) continue;
+			try {
+				const found = await utilityWorld(frame).evaluateHandle(FOCUSED_LEAF_SCRIPT);
+				const element = found.asElement();
+				if (element) return { handle: element as ElementHandle<Element>, frame };
+				await found.dispose();
+			} catch (error) {
+				unreadable ??= error;
+			}
+		}
+		const why = unreadable === null ? "" : ` (${describe(unreadable)})`;
+		throw new ActionNotDispatched("no_focus", `no field has focus; click the password field first, or type into it by selector${why}; nothing was typed`);
+	}
+
+	/**
+	 * Resolve `selector` — plain, or `@<ref> <css>` for a child frame — to an
+	 * element and the frame it is in. Element resolution is read-only, so a
+	 * miss here is a certain non-event.
+	 */
+	async #resolve(page: Page, selector: string): Promise<{ handle: ElementHandle<Element>; frame: Frame }> {
+		const aimed = FRAME_SELECTOR.exec(selector);
+		const frame = aimed ? frameAt(page, aimed[1] as string) : page.mainFrame();
+		const css = aimed ? (aimed[2] as string) : selector;
+		const handle = await frame.waitForSelector(css, { timeout: ACTION_TIMEOUT_MS }).catch(() => null);
 		if (!handle) throw new ActionNotDispatched("no_element", `selector ${JSON.stringify(selector)} did not resolve to an element`);
-		return handle;
+		return { handle, frame };
 	}
 }
 
@@ -1087,6 +1160,61 @@ function requireNumber(value: unknown, name: string): number {
 function hasExited(browser: Browser): boolean {
 	const proc = browser.process();
 	return proc !== null && (proc.exitCode !== null || proc.signalCode !== null);
+}
+
+/**
+ * puppeteer's per-frame utility world: an isolated world, so page script can
+ * reach neither its globals nor its prototypes. `isolatedRealm()` and
+ * `adoptHandle()` are on every CDP frame of the pinned puppeteer-core but
+ * marked internal, so they are typed here.
+ */
+interface UtilityWorld {
+	adoptHandle<T extends ElementHandle<Element>>(handle: T): Promise<T>;
+	evaluateHandle<R>(fn: () => R): Promise<JSHandle<R>>;
+}
+function utilityWorld(frame: Frame): UtilityWorld {
+	// Reason: internal API of the pinned puppeteer-core (see UtilityWorld).
+	return (frame as unknown as { isolatedRealm(): UtilityWorld }).isolatedRealm();
+}
+
+/** The active page's child frames, depth first, each with its `@<ref>` path (1-based child indexes). Bounded. */
+function childFrames(page: Page): Array<{ frame: Frame; ref: string }> {
+	const out: Array<{ frame: Frame; ref: string }> = [];
+	const walk = (parent: Frame, prefix: string): void => {
+		parent.childFrames().forEach((frame, i) => {
+			if (out.length >= MAX_SNAPSHOT_FRAMES || frame.detached) return;
+			const ref = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+			out.push({ frame, ref });
+			walk(frame, ref);
+		});
+	};
+	walk(page.mainFrame(), "");
+	return out;
+}
+
+/** The frame a `@<ref>` names; a ref that no longer names a frame is a certain non-event. */
+function frameAt(page: Page, ref: string): Frame {
+	let frame = page.mainFrame();
+	for (const step of ref.split(".")) {
+		const next = frame.childFrames()[Number(step) - 1];
+		if (!next || next.detached) throw new ActionNotDispatched("no_frame", `frame @${ref} is not on the page; take a new browser_snapshot`);
+		frame = next;
+	}
+	return frame;
+}
+
+/** Where a child frame's content box starts in the main viewport, or null when it has no box (not rendered). */
+async function frameOffset(frame: Frame): Promise<{ x: number; y: number } | null> {
+	const element = await frame.frameElement();
+	if (!element) return null;
+	try {
+		const box = await element.boundingBox();
+		if (!box || box.width <= 0 || box.height <= 0) return null;
+		const inset = await element.evaluate(FRAME_INSET_SCRIPT);
+		return { x: box.x + inset.x, y: box.y + inset.y };
+	} finally {
+		await element.dispose().catch(() => undefined);
+	}
 }
 
 function describe(err: unknown): string {

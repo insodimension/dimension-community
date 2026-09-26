@@ -106,10 +106,11 @@ export interface EngineDriver {
    * `ActionNotDispatched` when provably nothing reached the page; any other
    * error means the effect may have happened.
    *
-   * `savedPassword`, for `type` and `insert`: when the text would land in a
-   * password input, it is asked for that input's document origin, and a value
-   * it returns is typed INSTEAD of the action's text. It is asked only then.
-   * The result names the origin whose saved password was typed, never the value.
+   * `savedPassword`, for a `type`/`insert` with `useSavedPassword`: asked for
+   * the target password field's own frame origin, read from the browser (an
+   * isolated world, never page script); the value replaces the field's content.
+   * Nothing saved is an error and nothing is typed. The result names the
+   * origin, never the value.
    */
   perform(action: BrowserAction, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome>;
   /**

@@ -29,12 +29,16 @@ tool needs it.
   in the profile. A verification step (CAPTCHA, email code, phone code) is
   yours to handle however you can; use `ask` when you need the user for it.
 - **Tip — keep passwords out of the transcript.** Anything you type or put in
-  `task` lands in the session transcript. For a new account, prefer
-  `browser_task` with `credential` (below): the browser generates the password
-  and stores it in the profile. Once a profile has a saved password for an
-  origin, `browser_act` `type`/`insert` into that origin's password field types
-  the saved one instead of your text, and the result says
-  `savedPassword: { origin }` (never the value).
+  `task` lands in the session transcript. Use `credential` or
+  `useSavedPassword: true`; the password never enters the transcript. For a
+  new account, `browser_task` with `credential` (below) has the browser
+  generate the password and store it in the profile. Once a profile has a
+  saved password for an origin, `browser_act` `type` (with a selector) or
+  `insert` (into the focused field) with `useSavedPassword: true` and no
+  `text` replaces that password field's content with the password saved for
+  the field's own frame origin; the result says `savedPassword: { origin }`.
+  With nothing saved there it fails and types nothing. Without the flag, your
+  `text` is typed as given.
 
 ## Read a public page
 
@@ -72,7 +76,10 @@ The browser has real tabs. `browser_state` lists them (`tabs[]` with `id`,
 
 1. `browser_snapshot` → page text plus the interactive controls, each with a
    selector (`#email`, `input[name="city"]`, `input[name="role"][value="fe"]`)
-   and center coordinates.
+   and center coordinates. Iframes, cross-origin ones included (embedded
+   login forms), follow as `## frame @1` sections whose selectors start
+   `@1 ` (`@1 #password`): pass them to `browser_act` as given. Password
+   values are never shown.
 2. `browser_act` with one action: `navigate`, `back`, `forward`, `reload`,
    `stop`, `click` (selector or x/y; optional `button` and `clickCount` for
    right/double clicks), `hover` (x/y), `type` (replaces the field's value),
@@ -102,9 +109,11 @@ password: the browser generates a strong password, saves it in this profile
 for that origin and fills that origin's password fields itself, so it never
 appears in the transcript — jev, you and the results never see it (the result
 says `credential: { origin, created }`). To sign in again later to an account
-the browser created, `mode: "login"`. It fills only pages of that exact origin
-(https, or http on localhost). An account made any other way has no saved
-password: log in with `browser_act`, or put the password in `task`.
+the browser created, `mode: "login"`. It fills only documents of that exact
+origin (https, or http on localhost), including one in an iframe on another
+site's page (an embedded login form). An account made any other way has no
+saved password: log in with `browser_act` (`useSavedPassword: true` needs a
+saved one), or put the password in `task`.
 `credential` is jev-only: `browser-use` reads password fields into its model,
 so it gets the password in `task` instead.
 

@@ -231,6 +231,20 @@ export function startFixture(): Fixture {
 			if (pathname === "/guarded") return html(page("guarded form", GUARDED_BODY));
 			if (pathname === "/opener") return html(page("opener", OPENER_BODY));
 			if (pathname === "/with-icon") return html(page("with icon", "<p>has an icon</p>", `<link rel="icon" href="/brand.png">`));
+			// The fixture form inside a CROSS-ORIGIN iframe (the other host: another site, so an out-of-process frame).
+			if (pathname === "/framed") {
+				const other: FixtureHost = url.hostname === "localhost" ? "127.0.0.1" : "localhost";
+				return html(page("framed login", `<h1>framed login</h1><iframe id="login" src="${origin(other)}/" style="width:600px;height:300px;border:0"></iframe>`));
+			}
+			// The fixture form on a page that claims the OTHER host's origin: `window.origin` is replaceable by page script.
+			if (pathname === "/spoofed") {
+				const other: FixtureHost = url.hostname === "localhost" ? "127.0.0.1" : "localhost";
+				return html(page("spoofed", `${FORM_BODY}<p id="claims"></p><script>window.origin = ${JSON.stringify(origin(other))}; document.getElementById("claims").textContent = "claims " + window.origin;</script>`));
+			}
+			// The fixture form with a show-password toggle that turns #pass into a text field.
+			if (pathname === "/revealable") {
+				return html(page("revealable", `${FORM_BODY}<button type="button" id="show" onclick="document.getElementById('pass').type = 'text'">show</button>`));
+			}
 			if (pathname === "/brand.png") return new Response(FAVICON_PNG, { headers: { "content-type": "image/png" } });
 			// Answers only after SLOW_PAGE_MS: a navigation that stays in flight long enough to observe.
 			if (pathname === "/slow") {

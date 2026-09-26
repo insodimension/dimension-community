@@ -111,45 +111,187 @@ describeWithChrome("act", () => {
 	);
 
 	test(
-		"type and insert into a password field of an origin with a saved password type the saved one, name only the origin, and elsewhere type the text as given",
+		"useSavedPassword REPLACES the field with the saved password for its origin and names only the origin; text is typed literally; nothing saved types nothing",
 		async () => {
 			const fixture = startFixture();
 			const { runtime, rootDir } = await createRuntime();
 			const { browserId } = await runtime.open({ profile: "act-saved", viewport: VIEWPORT });
 			const origin = new URL(fixture.url("/")).origin;
+			const other = new URL(fixture.url("/", "localhost")).origin;
 			const saved = "Saved-Pw_7#fixture";
 			await writeFile(join(rootDir, "profiles", "act-saved", "credentials.json"), JSON.stringify({ version: 1, origins: { [origin]: saved } }));
 
-			// `type` on the saved origin: the saved password lands, the model's text does not.
+			// `type` with the flag over a field that already holds text: replaced, not appended.
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
-			const user = await runtime.act(browserId, { kind: "type", selector: "#user", text: "ada" });
-			expect(user.savedPassword).toBeUndefined();
-			const typed = await runtime.act(browserId, { kind: "type", selector: "#pass", text: "model-typed" });
+			await perform(runtime, browserId, { kind: "type", selector: "#user", text: "ada" });
+			await perform(runtime, browserId, { kind: "type", selector: "#pass", text: "stale-" });
+			const typed = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
 			expect({ status: typed.status, savedPassword: typed.savedPassword }).toEqual({ status: "completed", savedPassword: { origin } });
 			expect(JSON.stringify(typed)).not.toContain(saved);
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await submissionLanded(runtime, browserId, fixture);
 
-			// `insert` into the focused password field: the same.
+			// `insert` with the flag into the focused field after literal text: replaced too.
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
 			await perform(runtime, browserId, { kind: "click", selector: "#pass" });
-			const inserted = await runtime.act(browserId, { kind: "insert", text: "model-inserted" });
+			await perform(runtime, browserId, { kind: "insert", text: "abc" });
+			const inserted = await runtime.act(browserId, { kind: "insert", useSavedPassword: true });
 			expect(inserted.savedPassword).toEqual({ origin });
 			await perform(runtime, browserId, { kind: "press", key: "Enter" });
-			await submissionLanded(runtime, browserId, fixture);
+			await waitUntil("the second form post", () => fixture.submissions().length, (count) => count === 2);
 
-			// Another origin (localhost, same server) has nothing saved: the text goes in as given.
-			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/", "localhost") });
+			// No flag on the saved origin: the text as given.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
 			const plain = await runtime.act(browserId, { kind: "type", selector: "#pass", text: "model-typed" });
 			expect(plain.savedPassword).toBeUndefined();
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await waitUntil("the third form post", () => fixture.submissions().length, (count) => count === 3);
 
+			// The flag where nothing is saved: an error, and the field stays empty.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/", "localhost") });
+			const missing = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
+			expect({ status: missing.status, error: missing.error }).toEqual({
+				status: "failed",
+				error: `no saved password for ${other}; use browser_task credential signup, or pass text`,
+			});
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await waitUntil("the fourth form post", () => fixture.submissions().length, (count) => count === 4);
+
 			expect(fixture.submissions()).toEqual([
 				{ user: "ada", pass: saved },
 				{ user: "", pass: saved },
 				{ user: "", pass: "model-typed" },
+				{ user: "", pass: "" },
 			]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the View's insert types the human's text literally into a password field of a saved origin, and the View cannot ask for the saved one",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-app", viewport: VIEWPORT });
+			const saved = "Saved-Pw_app#fixture";
+			await writeFile(join(rootDir, "profiles", "act-app", "credentials.json"), JSON.stringify({ version: 1, origins: { [new URL(fixture.url("/")).origin]: saved } }));
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
+			await perform(runtime, browserId, { kind: "click", selector: "#pass" });
+
+			expect((await runtime.act(browserId, { kind: "insert", text: "hun" }, "app")).status).toBe("completed");
+			expect((await runtime.act(browserId, { kind: "insert", text: "ter2" }, "app")).status).toBe("completed");
+			expect(await failureCode(() => runtime.act(browserId, { kind: "insert", useSavedPassword: true }, "app"))).toBe("bad_action");
+			await perform(runtime, browserId, { kind: "press", key: "Enter" });
+			await submissionLanded(runtime, browserId, fixture);
+
+			expect(fixture.submissions()).toEqual([{ user: "", pass: "hunter2" }]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a page that sets window.origin to a saved origin gets no saved password with the flag, and the literal text without it",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-spoof", viewport: VIEWPORT });
+			const victim = new URL(fixture.url("/")).origin;
+			const real = new URL(fixture.url("/", "localhost")).origin;
+			const saved = "Victim-Pw_9#fixture";
+			await writeFile(join(rootDir, "profiles", "act-spoof", "credentials.json"), JSON.stringify({ version: 1, origins: { [victim]: saved } }));
+
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/spoofed", "localhost") });
+			// The page's own world really does claim the victim's origin.
+			expect((await runtime.snapshot(browserId)).text).toContain(`claims ${victim}`);
+			const spoofed = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
+			expect({ status: spoofed.status, error: spoofed.error }).toEqual({
+				status: "failed",
+				error: `no saved password for ${real}; use browser_task credential signup, or pass text`,
+			});
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await waitUntil("the first form post", () => fixture.submissions().length, (count) => count === 1);
+
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/spoofed", "localhost") });
+			await perform(runtime, browserId, { kind: "type", selector: "#pass", text: "literal" });
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await waitUntil("the second form post", () => fixture.submissions().length, (count) => count === 2);
+
+			expect(fixture.submissions()).toEqual([
+				{ user: "", pass: "" },
+				{ user: "", pass: "literal" },
+			]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a saved password the page reveals as text never comes back in a snapshot, state or act result",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-reveal", viewport: VIEWPORT });
+			const saved = "Revealed-Pw_3#fixture";
+			await writeFile(join(rootDir, "profiles", "act-reveal", "credentials.json"), JSON.stringify({ version: 1, origins: { [new URL(fixture.url("/")).origin]: saved } }));
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/revealable") });
+			await perform(runtime, browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
+
+			const shown = await runtime.act(browserId, { kind: "click", selector: "#show" });
+			const { text } = await waitUntil("the revealed field in the snapshot", () => runtime.snapshot(browserId), (read) => read.text.includes("#pass (text)"));
+
+			expect(text).toContain(`#pass (text) "[saved password]"`);
+			expect(JSON.stringify([shown, text, await runtime.state(browserId)])).not.toContain(saved);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a cross-origin iframe's form is in the snapshot under @1; type, click and insert reach it, and ITS origin picks the saved password, never the top page's",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-framed", viewport: VIEWPORT });
+			const top = new URL(fixture.url("/")).origin;
+			const framed = new URL(fixture.url("/", "localhost")).origin;
+			// Both origins have one; only the iframe's may ever go into the iframe.
+			await writeFile(
+				join(rootDir, "profiles", "act-framed", "credentials.json"),
+				JSON.stringify({ version: 1, origins: { [top]: "top-page-password", [framed]: "iframe-password" } }),
+			);
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
+			const loaded = await waitUntil("the iframe's form in the snapshot", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
+			expect(loaded).toContain(`## frame @1: fixture form`);
+			expect(loaded).toContain(`${framed}/`);
+			expect(loaded).toMatch(/^@1 #user \(text\) "user" @\d+,\d+$/m);
+
+			await perform(runtime, browserId, { kind: "type", selector: "@1 #user", text: "ada" });
+			const typed = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", useSavedPassword: true });
+			expect({ status: typed.status, savedPassword: typed.savedPassword }).toEqual({ status: "completed", savedPassword: { origin: framed } });
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await waitUntil("the iframe's form post", () => fixture.submissions().length, (count) => count === 1);
+
+			// insert goes wherever focus is: here, the iframe's password field.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
+			await waitUntil("the reloaded iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #pass" });
+			const inserted = await runtime.act(browserId, { kind: "insert", useSavedPassword: true });
+			expect(inserted.savedPassword).toEqual({ origin: framed });
+			await perform(runtime, browserId, { kind: "press", key: "Enter" });
+			await waitUntil("the second iframe post", () => fixture.submissions().length, (count) => count === 2);
+
+			// Literal text into the frame, then its submit.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
+			await waitUntil("the third iframe form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
+			await perform(runtime, browserId, { kind: "type", selector: "@1 #pass", text: "typed-in-frame" });
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await waitUntil("the third iframe post", () => fixture.submissions().length, (count) => count === 3);
+
+			expect(fixture.submissions()).toEqual([
+				{ user: "ada", pass: "iframe-password" },
+				{ user: "", pass: "iframe-password" },
+				{ user: "", pass: "typed-in-frame" },
+			]);
+			// The top page stayed put: the posts went from inside the iframe.
+			expect((await runtime.state(browserId)).url).toBe(fixture.url("/framed"));
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

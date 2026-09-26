@@ -1,7 +1,14 @@
 import type { BrowserRegion } from "../contracts.js";
 import type { FieldRead, PageRead } from "./types.js";
-const PAGE_TEXT_SCRIPT = (limit: number): string => {
-	const parts: string[] = [`# ${document.title}`, document.location.href, ""];
+/**
+ * The page's text and interactive controls, each with a selector for
+ * browser_act and its center in main-viewport pixels. Run in a child frame,
+ * `frameRef` names it: the section is headed `## frame @<ref>`, every selector
+ * starts `@<ref> `, and (`dx`, `dy`) — where the frame's content box sits in
+ * the main viewport — is added to each center.
+ */
+const PAGE_TEXT_SCRIPT = (limit: number, frameRef: string | null = null, dx = 0, dy = 0): string => {
+	const parts: string[] = frameRef === null ? [`# ${document.title}`, document.location.href, ""] : [`## frame @${frameRef}: ${document.title}`, document.location.href, ""];
 	const body = document.body?.innerText ?? "";
 	parts.push(body.replace(/\n{3,}/g, "\n\n").trim());
 	const controls: string[] = [];
@@ -41,9 +48,10 @@ const PAGE_TEXT_SCRIPT = (limit: number): string => {
 		const options = el.tagName === "SELECT"
 			? ` options: ${Array.from((el as HTMLSelectElement).options).slice(0, 12).map((o) => o.text.trim()).join(" | ")}`
 			: "";
-		controls.push(`${target}${kind} "${label}"${options} @${Math.round(rect.x + rect.width / 2)},${Math.round(rect.y + rect.height / 2)}`);
+		const ref = frameRef === null ? "" : `@${frameRef} `;
+		controls.push(`${ref}${target}${kind} "${label}"${options} @${Math.round(dx + rect.x + rect.width / 2)},${Math.round(dy + rect.y + rect.height / 2)}`);
 	}
-	if (controls.length > 0) parts.push("", "## interactive", controls.join("\n"));
+	if (controls.length > 0) parts.push("", frameRef === null ? "## interactive" : `### interactive (frame @${frameRef})`, controls.join("\n"));
 	const text = parts.join("\n");
 	return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
 };
@@ -172,32 +180,32 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /**
- * The origin of the document holding the focused element, when that element
- * is a password input; else null. Focus is followed down through open shadow
- * roots and same-origin iframes; a cross-origin frame cannot be looked into,
- * so it is null. `window.origin` is the real origin, inherited by srcdoc and
- * about:blank frames. Reads only; the value is never read.
+ * For `useSavedPassword`, run in puppeteer's utility world (an isolated world:
+ * the page's own overrides of `window.origin`, `type`, `activeElement` or any
+ * prototype do not reach it). Whether `el` is a password input, whether it has
+ * focus in a focused document, and this frame's real origin.
  */
-const FOCUSED_PASSWORD_ORIGIN_SCRIPT = (): string | null => {
+const SAVED_PASSWORD_TARGET_SCRIPT = (el: Element): { password: boolean; focused: boolean; origin: string } => ({
+	password: el instanceof HTMLInputElement && el.type === "password",
+	focused: document.hasFocus() && (el.getRootNode() as Document | ShadowRoot).activeElement === el,
+	origin: window.origin,
+});
+/**
+ * The focused element of THIS frame when focus ends here (followed down
+ * through open shadow roots, and not a frame or the body), else null. Run in
+ * the utility world, like SAVED_PASSWORD_TARGET_SCRIPT.
+ */
+const FOCUSED_LEAF_SCRIPT = (): Element | null => {
+	if (!document.hasFocus()) return null;
 	let focused: Element | null = document.activeElement;
-	for (let depth = 0; focused !== null && depth < 32; depth += 1) {
-		const shadowed: Element | null | undefined = focused.shadowRoot?.activeElement;
-		if (shadowed) {
-			focused = shadowed;
-			continue;
-		}
-		if (focused.tagName !== "IFRAME" && focused.tagName !== "FRAME") break;
-		let inner: Document | null = null;
-		try {
-			inner = (focused as HTMLIFrameElement).contentDocument;
-		} catch {
-			inner = null;
-		}
-		if (inner === null) return null;
-		focused = inner.activeElement;
-	}
-	if (focused === null || focused.tagName !== "INPUT" || ((focused as HTMLInputElement).type ?? "").toLowerCase() !== "password") return null;
-	return focused.ownerDocument.defaultView?.origin ?? null;
+	while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	if (focused === null || focused === document.body || focused.tagName === "IFRAME" || focused.tagName === "FRAME") return null;
+	return focused;
+};
+/** Where an iframe's content box starts inside its own border box: border plus padding, in CSS pixels. */
+const FRAME_INSET_SCRIPT = (el: Element): { x: number; y: number } => {
+	const style = getComputedStyle(el);
+	return { x: el.clientLeft + (parseFloat(style.paddingLeft) || 0), y: el.clientTop + (parseFloat(style.paddingTop) || 0) };
 };
 /**
  * An input/textarea's `.value`, or a contenteditable's text minus one trailing
@@ -270,7 +278,9 @@ export {
 	FAVICON_HREF_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	TYPE_TARGET_SCRIPT,
-	FOCUSED_PASSWORD_ORIGIN_SCRIPT,
+	SAVED_PASSWORD_TARGET_SCRIPT,
+	FOCUSED_LEAF_SCRIPT,
+	FRAME_INSET_SCRIPT,
 	READ_FIELD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 };

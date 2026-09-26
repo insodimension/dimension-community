@@ -44,7 +44,7 @@ import type {
 	Viewport,
 } from "./contracts.js";
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
-import { credentialOrigin, resolveCredential, savedPassword } from "./credentials.js";
+import { credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { launchReader } from "./engines/puppeteer.js";
 import type { EngineDriver, EngineState, PageReader, PerformOutcome } from "./engines/types.js";
@@ -151,6 +151,15 @@ interface Entry {
 	worker: { process: RunningWorker; finished: Promise<TaskRun> } | null;
 	/** The current or most recent publish (publish.ts). */
 	publish: Publication | null;
+	/**
+	 * Saved passwords this browser typed or handed a task worker. With every
+	 * password the profile holds on disk, they are replaced in every page read
+	 * handed back (snapshot, state, act results, annotation context), so a page
+	 * that reveals or copies one — a show-password toggle flipping the field to
+	 * text — never returns it. Kept in memory too: a deleted or unreadable
+	 * credentials file must not un-redact a password already typed.
+	 */
+	secrets: Set<string>;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -271,7 +280,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				browserId: randomBytes(24).toString("base64url"),
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), closed: false,
-				task: null, worker: null, publish: null,
+				task: null, worker: null, publish: null, secrets: new Set(),
 			};
 			this.byId.set(entry.browserId, entry);
 			this.byProfile.set(profile, entry);
@@ -360,7 +369,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// -----------------------------------------------------------------------
 
 	async state(browserId: string): Promise<BrowserState> {
-		return await this.serialize(this.require(browserId), (entry) => this.buildState(entry));
+		return await this.serialize(this.require(browserId), async (entry) => this.redact(entry, await this.buildState(entry)));
 	}
 
 	/**
@@ -417,7 +426,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const text = await entry.driver.snapshot(MAX_SNAPSHOT_CHARS);
 			const state = await this.buildState(entry);
 			if (entry.revision !== revision) fail("stale_snapshot", "The document changed during inspection.");
-			return { state, text };
+			return this.redact(entry, { state, text });
 		});
 	}
 
@@ -464,7 +473,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				mimeType: "image/png" as const,
 				data: png.toString("base64"),
 				elements:
-					`${elements}\n\n[live DOM read at ${new Date().toISOString()}, revision ${entry.revision}; ` +
+					`${this.redact(entry, elements)}\n\n[live DOM read at ${new Date().toISOString()}, revision ${entry.revision}; ` +
 					`the image is the frame captured at ${record.capturedAt} — a dynamic page may have changed between them]`,
 			};
 		});
@@ -545,11 +554,19 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
 			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
 			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
-			// A password field gets this profile's saved password for its origin, if
-			// there is one, instead of the text given: the value never passes
-			// through a tool argument. Looked up only when the text lands in one.
+			// Opt-in only, and never for the View: the human's keystrokes and
+			// pastes arrive as insert and must type exactly what they typed.
+			if (action.useSavedPassword && caller === "app") {
+				fail("bad_action", "useSavedPassword is for the agent; the Browser View types exactly what the human typed");
+			}
 			const profileDir = this.store.profileDir(entry.profile);
-			const lookup = action.kind === "type" || action.kind === "insert" ? (origin: string) => savedPassword(profileDir, origin) : undefined;
+			const lookup = action.useSavedPassword
+				? (origin: string) => {
+					const value = savedPassword(profileDir, origin);
+					if (value) entry.secrets.add(value);
+					return value;
+				}
+				: undefined;
 			let outcome: PerformOutcome;
 			try {
 				outcome = await entry.driver.perform(action, lookup);
@@ -558,16 +575,16 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				const dispatched = !(error instanceof ActionNotDispatched);
 				if (dispatched && touching) touching.touchedWhilePending = true;
 				if (dispatched) entry.revision += 1;
-				return {
+				return this.redact(entry, {
 					status: dispatched ? "unknown" : "failed",
 					error: dispatched
 						? `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe(error)})`
 						: describe(error),
 					state: await this.buildState(entry).catch(() => this.staleState(entry)),
-				};
+				});
 			}
 			const state = await this.buildState(entry);
-			return outcome?.savedPasswordOrigin ? { status: "completed", state, savedPassword: { origin: outcome.savedPasswordOrigin } } : { status: "completed", state };
+			return this.redact(entry, outcome?.savedPasswordOrigin ? { status: "completed", state, savedPassword: { origin: outcome.savedPasswordOrigin } } : { status: "completed", state });
 		});
 	}
 
@@ -620,6 +637,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const state = await this.refreshState(entry);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(entry.profile), request.credential) : undefined;
+			if (credential) entry.secrets.add(credential.password);
 			const run: TaskRun = {
 				id: randomBytes(8).toString("hex"), agent: request.agent, task, status: "running", summary: "",
 				steps: [], stepCount: 0, startedAt: new Date().toISOString(), elapsedMs: 0,
@@ -904,6 +922,21 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
+
+	/**
+	 * `value` with every saved password of this profile (on disk, plus any this
+	 * browser used) scrubbed out. An unreadable credentials file still scrubs
+	 * the ones in memory.
+	 */
+	private redact<T>(entry: Entry, value: T): T {
+		const secrets = new Set(entry.secrets);
+		try {
+			for (const secret of savedPasswords(this.store.profileDir(entry.profile))) secrets.add(secret);
+		} catch {
+			// credentials_unreadable: the in-memory set is all there is to scrub.
+		}
+		return secrets.size === 0 ? value : scrub(value, secrets);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -948,6 +981,26 @@ function navigationUrl(url: unknown, name: string, code: string): string {
 	return parsed.toString();
 }
 
+/** `value` with every one of `secrets` replaced by `[saved password]` in every string it holds (keys untouched). */
+function scrub<T>(value: T, secrets: ReadonlySet<string>): T {
+	if (typeof value === "string") {
+		let out: string = value;
+		for (const secret of secrets) if (secret.length > 0) out = out.replaceAll(secret, "[saved password]");
+		return out as T;
+	}
+	if (Array.isArray(value)) return value.map((item) => scrub(item, secrets)) as T;
+	if (value !== null && typeof value === "object") {
+		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item, secrets)])) as T;
+	}
+	return value;
+}
+
+/** `useSavedPassword` is `true` and stands in for `text`: never both. */
+function savedPasswordFlag(action: BrowserAction): true {
+	if (action.useSavedPassword !== true || action.text !== undefined) fail("bad_action", `${action.kind}: pass text OR useSavedPassword: true`);
+	return true;
+}
+
 /** Validate and canonicalize an action before anything touches the page. */
 function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserAction {
 	if (!action || typeof action !== "object") fail("bad_action", "action must be an object");
@@ -973,6 +1026,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 			return { kind: "hover", x, y };
 		}
 		case "insert": {
+			if (action.useSavedPassword !== undefined) return { kind: "insert", useSavedPassword: savedPasswordFlag(action) };
 			if (typeof action.text !== "string" || action.text.length === 0 || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `insert.text must be a string of 1-${MAX_TEXT_INPUT} characters`);
 			}
@@ -984,6 +1038,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 		case "stop":
 			return { kind: action.kind };
 		case "type": {
+			if (action.useSavedPassword !== undefined) return { kind: "type", selector: requireSelector(action.selector), useSavedPassword: savedPasswordFlag(action) };
 			// An empty string is legal and means "clear the field".
 			if (typeof action.text !== "string" || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `type.text must be a string of at most ${MAX_TEXT_INPUT} characters`);

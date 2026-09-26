@@ -82,12 +82,17 @@ function read(file: string): Record<string, string> {
 
 /**
  * The password this profile saved for exactly `origin`, if any; never mints
- * one. browser_act types it instead of the text it was given when the field
- * it types into is a password input of that origin.
+ * one. browser_act's `useSavedPassword` types it into a password field of that
+ * origin.
  */
 export function savedPassword(profileDir: string, origin: string): string | undefined {
   const origins = read(join(profileDir, FILE));
   return Object.hasOwn(origins, origin) ? origins[origin] : undefined;
+}
+
+/** Every password this profile holds, so page reads handed back can be scrubbed of them. */
+export function savedPasswords(profileDir: string): string[] {
+  return Object.values(read(join(profileDir, FILE)));
 }
 
 /**
