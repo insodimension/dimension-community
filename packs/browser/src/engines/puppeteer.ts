@@ -33,7 +33,7 @@ import { mkdirSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer, { TimeoutError } from "puppeteer-core";
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
-import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
+import type { BrowserAction, BrowserApp, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, BrowserRuntimeError, fail } from "../store.js";
@@ -52,6 +52,7 @@ import {
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
+import { headfulUserAgent, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, viewLaunchOptions } from "./launch.js";
 import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
@@ -152,7 +153,7 @@ async function attachRelay(options: EngineOptions, release: () => void): Promise
 		}
 		page = await browser.newPage();
 		const tab = await prepareTab(page, options.viewport);
-		return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release });
+		return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release, app: null });
 	} catch (err) {
 		// Roll back exactly what we created. Disconnecting ends the lease, which
 		// is the only resource the relay engine holds — so the release here is
@@ -164,22 +165,46 @@ async function attachRelay(options: EngineOptions, release: () => void): Promise
 	}
 }
 
-/** Launch Chrome on the persistent profile directory this driver owns. */
+/**
+ * Headful User-Agent per browser binary, read once from that binary: a
+ * throwaway headless launch (no profile of ours) reports its User-Agent, and
+ * the headless token is taken out. Failures are not cached.
+ */
+const HEADFUL_USER_AGENTS = new Map<string, Promise<string>>();
+
+function binaryUserAgent(executablePath: string): Promise<string> {
+	let known = HEADFUL_USER_AGENTS.get(executablePath);
+	if (!known) {
+		known = (async () => {
+			const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: CHROMIUM_ARGS });
+			try {
+				return headfulUserAgent(await probe.userAgent());
+			} finally {
+				await probe.close();
+			}
+		})();
+		known.catch(() => HEADFUL_USER_AGENTS.delete(executablePath));
+		HEADFUL_USER_AGENTS.set(executablePath, known);
+	}
+	return known;
+}
+
+/** Launch the user's browser (launch.ts decides which, and how) on the persistent profile directory this driver owns. */
 async function launchChromium(options: EngineOptions, release: () => void): Promise<EngineDriver> {
 	const userDataDir = options.profileDirectory;
 	let browser: Browser;
+	let resolved: ResolvedBrowser;
 	try {
+		resolved = resolveBrowser(options.executablePath);
+		const headless = options.headless ?? true;
+		const userAgent = headless ? await binaryUserAgent(resolved.executablePath) : undefined;
 		mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
-		browser = await puppeteer.launch({
-			headless: options.headless ?? true,
-			userDataDir,
-			timeout: LAUNCH_TIMEOUT_MS,
-			defaultViewport: null,
-			// An explicit binary wins; otherwise the locally installed stable
-			// Chrome channel. Nothing is downloaded at runtime.
-			...(options.executablePath ? { executablePath: options.executablePath } : { channel: "chrome" as const }),
-			args: CHROMIUM_ARGS,
-		});
+		turnOffPasswordSaving(userDataDir);
+		browser = await puppeteer.launch(viewLaunchOptions({
+			browser: resolved, userDataDir, headless, args: CHROMIUM_ARGS, timeout: LAUNCH_TIMEOUT_MS,
+			...(userAgent ? { userAgent } : {}),
+		}));
+		console.error(`[browser] launched ${resolved.app} (${resolved.executablePath})${headless ? ", headless" : ""} on ${userDataDir}`);
 	} catch (err) {
 		// Nothing of ours is running: puppeteer kills a partially started Chrome
 		// before rejecting, so the profile directory has no live writer.
@@ -198,7 +223,7 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
 		if (pages.length === 0) pages.push(await browser.newPage());
 		const tabs: Tab[] = [];
 		for (const page of pages) tabs.push(await prepareTab(page, options.viewport));
-		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release });
+		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app });
 	} catch (err) {
 		try {
 			// `browser.close()` resolves once the process is gone; only then is the
@@ -425,12 +450,14 @@ interface DriverParts {
 	viewport: Viewport;
 	ownsBrowser: boolean;
 	release: () => void;
+	app: BrowserApp | null;
 }
 
 /** An action that did nothing beyond itself. */
 const NONE: PerformOutcome = Object.freeze({});
 
 class PuppeteerDriver implements EngineDriver {
+	readonly app: BrowserApp | null;
 	readonly #browser: Browser;
 	/** Every tab this driver owns, in opening order. */
 	readonly #tabs: Tab[] = [];
@@ -456,6 +483,7 @@ class PuppeteerDriver implements EngineDriver {
 
 	constructor(parts: DriverParts) {
 		this.#browser = parts.browser;
+		this.app = parts.app;
 		this.#viewport = parts.viewport;
 		this.#ownsBrowser = parts.ownsBrowser;
 		this.#release = parts.release;

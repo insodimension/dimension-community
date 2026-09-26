@@ -108,7 +108,7 @@ const TOUCHING_KINDS: Partial<Record<BrowserAction["kind"], true>> = { click: tr
 export interface BrowserRuntimeOptions {
 	/** Profile root; defaults to `$INSO_HOME/browser` else `~/.inso/browser`. */
 	rootDir?: string;
-	/** Chrome/Chromium binary. Omitted → puppeteer's installed `chrome` channel. */
+	/** Chrome/Chromium binary. Omitted → the View picks installed Chrome, then Edge, then a Chromium (engines/launch.ts); the reader uses puppeteer's `chrome` channel. */
 	executablePath?: string;
 	/** chrome-relay CDP endpoint. Defaults to http://127.0.0.1:9224. */
 	relayUrl?: string;
@@ -916,7 +916,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private async buildState(entry: Entry): Promise<BrowserState> {
 		const state = await this.refreshState(entry);
 		return {
-			browserId: entry.browserId, profile: entry.profile, engine: entry.engine,
+			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, app: entry.driver.app,
 			url: state.url, title: state.title, revision: entry.revision,
 			viewport: state.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: state.tabs, activeTabId: state.activeTabId, loading: state.loading,
@@ -928,7 +928,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** State when the page cannot be read (it may be mid-navigation after a failed action). */
 	private staleState(entry: Entry): BrowserState {
 		return {
-			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, url: "", title: "",
+			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, app: entry.driver.app, url: "", title: "",
 			revision: entry.revision, viewport: entry.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false,
 			publish: entry.publish ? publishRecord(entry.publish) : null,

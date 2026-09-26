@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
+import type { BrowserAction, BrowserApp, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 
 /** Everything below describes the ACTIVE tab unless it says otherwise. */
 export interface EngineState {
@@ -96,6 +96,8 @@ export type PasswordSource = (origin: string) => string | undefined;
 export interface PerformOutcome { passwordOrigin?: string }
 
 export interface EngineDriver {
+  /** The browser application this driver launched; null when it attached to one it does not own. */
+  readonly app: BrowserApp | null;
   state(): Promise<EngineState>;
   /** Viewport PNG of the active tab, not a full-page image; device scale factor is one. */
   screenshot(): Promise<Uint8Array>;
