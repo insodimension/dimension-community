@@ -249,7 +249,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const started = this.launch(profile, engine, viewport).finally(() => this.opening.delete(profile));
 		this.opening.set(profile, started);
 		const entry = await started;
-		return await this.buildState(entry);
+		return this.redact(entry, await this.buildState(entry));
 	}
 
 	private async launch(profile: string, engine: BrowserEngine, viewport: Viewport): Promise<Entry> {
@@ -382,7 +382,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (format === "jpeg") {
 			const entry = this.require(browserId);
 			const live = await entry.driver.liveFrame();
-			return { state: await this.buildState(entry), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
+			return { state: this.redact(entry, await this.buildState(entry)), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
 		}
 		if (format !== "png") fail("bad_format", `format must be "jpeg" or "png"`);
 		return await this.serialize(this.require(browserId), async (entry) => {
@@ -410,7 +410,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			entry.frames.push(record);
 			while (entry.frames.length > MAX_FRAMES_RETAINED) entry.frames.shift();
 			return {
-				state,
+				state: this.redact(entry, state),
 				frameId: record.id,
 				mimeType: "image/png" as const,
 				data: bytes.toString("base64"),
@@ -494,7 +494,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const ratio = Number.isFinite(scale) ? Math.min(2, Math.max(1, Math.round(scale * 4) / 4)) : 1;
 		return await this.serialize(entry, async () => {
 			await entry.driver.resize(size, ratio);
-			return await this.buildState(entry);
+			return this.redact(entry, await this.buildState(entry));
 		});
 	}
 
@@ -534,7 +534,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				default:
 					fail("bad_tab", `op must be one of: new, activate, close`);
 			}
-			return await this.buildState(entry);
+			return this.redact(entry, await this.buildState(entry));
 		});
 	}
 
@@ -607,13 +607,15 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * agent working. Resolves with the finished run.
 	 */
 	async runTask(browserId: string, request: TaskRequest, onStep?: (step: TaskStep, run: TaskRun) => void): Promise<TaskRun> {
-		return await (await this.beginTask(browserId, request, onStep)).finished;
+		const entry = this.require(browserId);
+		return this.redact(entry, cloneTask(await (await this.beginTask(browserId, request, onStep)).finished));
 	}
 
 	/** Start a task and return as soon as it runs; follow it with `waitTask`. */
 	async startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun> {
+		const entry = this.require(browserId);
 		const { run } = await this.beginTask(browserId, request, undefined, caller);
-		return cloneTask(run);
+		return this.redact(entry, cloneTask(run));
 	}
 
 	private async beginTask(
@@ -662,7 +664,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 					run.stepCount = Math.max(run.stepCount, step.n);
 					run.elapsedMs = step.elapsedMs;
 					run.usage = step.usage;
-					onStep?.(record, run);
+					if (onStep) onStep(this.redact(entry, record), this.redact(entry, cloneTask(run)));
 				},
 			);
 			const finished = worker.done.then((result) => {
@@ -701,7 +703,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			await Promise.race([worker.finished, elapsed]);
 			clearTimeout(timer);
 		}
-		return cloneTask(entry.task);
+		return this.redact(entry, cloneTask(entry.task));
 	}
 
 	async cancelTask(browserId: string): Promise<TaskRun> {
@@ -709,10 +711,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const worker = entry.worker;
 		if (!worker) {
 			if (!entry.task) fail("no_task", "no task has run on this browser");
-			return entry.task;
+			return this.redact(entry, cloneTask(entry.task));
 		}
 		worker.process.cancel();
-		return await worker.finished;
+		return this.redact(entry, cloneTask(await worker.finished));
 	}
 
 	/** Stop a running task and wait for its worker to exit. */
@@ -741,12 +743,12 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
 			}
 			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
-			if (!("record" in outcome)) return outcome;
+			if (!("record" in outcome)) return this.redact(entry, outcome);
 			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
 			outcome.sharedPage = entry.engine === "chrome-relay";
 			if (preset !== undefined) outcome.record.preset = { name: preset.name, verified: preset.verified };
 			entry.publish = outcome;
-			return publishRecord(outcome);
+			return this.redact(entry, publishRecord(outcome));
 		});
 	}
 
@@ -758,7 +760,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			await confirm(entry.driver, publication);
-			return publishRecord(publication);
+			return this.redact(entry, publishRecord(publication));
 		});
 	}
 
@@ -767,16 +769,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
 			cancel(publication);
-			return publishRecord(publication);
+			return this.redact(entry, publishRecord(publication));
 		});
 	}
 
 	/** Not queued: it only reads the record, and must not wait behind a confirm. */
 	async waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord> {
-		const publication = this.require(browserId).publish;
+		const entry = this.require(browserId);
+		const publication = entry.publish;
 		if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
 		await waitSettled(publication, ms);
-		return publishRecord(publication);
+		return this.redact(entry, publishRecord(publication));
 	}
 
 	// -----------------------------------------------------------------------
@@ -990,16 +993,32 @@ function navigationUrl(url: unknown, name: string, code: string): string {
 	return parsed.toString();
 }
 
-/** `value` with every one of `secrets` replaced by `[saved password]` in every string it holds (keys untouched). */
+/**
+ * `value` with every one of `secrets` replaced by `[saved password]` in every
+ * string it holds (keys untouched), raw and as a URL carries it: percent-
+ * encoded (`encodeURIComponent`, and with `+` for spaces), and form-encoded
+ * the way a GET form puts `?pass=…` in the page's URL (which also encodes
+ * `!'()~`, left alone by `encodeURIComponent`).
+ */
 function scrub<T>(value: T, secrets: ReadonlySet<string>): T {
+	const forms = new Set<string>();
+	for (const secret of secrets) {
+		if (secret.length === 0) continue;
+		const encoded = encodeURIComponent(secret);
+		forms.add(secret).add(encoded).add(encoded.replace(/%20/g, "+")).add(new URLSearchParams([["", secret]]).toString().slice(1));
+	}
+	return scrubForms(value, [...forms]);
+}
+
+function scrubForms<T>(value: T, forms: readonly string[]): T {
 	if (typeof value === "string") {
 		let out: string = value;
-		for (const secret of secrets) if (secret.length > 0) out = out.replaceAll(secret, "[saved password]");
+		for (const form of forms) out = out.replaceAll(form, "[saved password]");
 		return out as T;
 	}
-	if (Array.isArray(value)) return value.map((item) => scrub(item, secrets)) as T;
+	if (Array.isArray(value)) return value.map((item) => scrubForms(item, forms)) as T;
 	if (value !== null && typeof value === "object") {
-		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrub(item, secrets)])) as T;
+		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrubForms(item, forms)])) as T;
 	}
 	return value;
 }

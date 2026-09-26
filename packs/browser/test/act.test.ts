@@ -25,6 +25,14 @@ import {
 
 const VIEWPORT = { width: 800, height: 600 };
 
+/** The `@<path>~<tag>` ref the snapshot `text` gives the frame at `path` (e.g. "1"), as browser_act takes it. */
+function frameRef(text: string, path = "1"): string {
+	const found = new RegExp(`^## frame (@${path.replace(".", "\\.")}~[0-9a-f]{8}):`, "m").exec(text);
+	if (!found) throw new Error(`no frame @${path} in the snapshot:\n${text}`);
+	return found[1] as string;
+}
+const FORM_IN_FRAME = /^@1~[0-9a-f]{8} #pass /m;
+
 // Closing a real Chrome and deleting its profile on Windows takes longer than
 // bun's default hook budget; a leaked browser poisons every later test.
 afterEach(teardown, BROWSER_TEST_TIMEOUT_MS);
@@ -246,7 +254,7 @@ describeWithChrome("act", () => {
 	);
 
 	test(
-		"a cross-origin iframe's form is in the snapshot under @1; type, click and insert reach it, and ITS origin picks the saved password, never the top page's",
+		"a cross-origin iframe's form is in the snapshot under @1~<tag>; type, click and insert reach it, and ITS origin picks the saved password, never the top page's",
 		async () => {
 			const fixture = startFixture();
 			const { runtime, rootDir } = await createRuntime();
@@ -259,21 +267,22 @@ describeWithChrome("act", () => {
 				JSON.stringify({ version: 1, origins: { [top]: "top-page-password", [framed]: "iframe-password" } }),
 			);
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
-			const loaded = await waitUntil("the iframe's form in the snapshot", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
-			expect(loaded).toContain(`## frame @1: fixture form`);
+			const loaded = await waitUntil("the iframe's form in the snapshot", async () => (await runtime.snapshot(browserId)).text, (text) => FORM_IN_FRAME.test(text));
+			let f = frameRef(loaded);
+			expect(loaded).toContain(`## frame ${f}: fixture form`);
 			expect(loaded).toContain(`${framed}/`);
-			expect(loaded).toMatch(/^@1 #user \(text\) "user" @\d+,\d+$/m);
+			expect(loaded).toMatch(new RegExp(`^${f} #user \\(text\\) "user" @\\d+,\\d+$`, "m"));
 
-			await perform(runtime, browserId, { kind: "type", selector: "@1 #user", text: "ada" });
-			const typed = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", useSavedPassword: true });
+			await perform(runtime, browserId, { kind: "type", selector: `${f} #user`, text: "ada" });
+			const typed = await runtime.act(browserId, { kind: "type", selector: `${f} #pass`, useSavedPassword: true });
 			expect({ status: typed.status, credential: typed.credential }).toEqual({ status: "completed", credential: { origin: framed, created: false } });
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #go` });
 			await waitUntil("the iframe's form post", () => fixture.submissions().length, (count) => count === 1);
 
 			// insert goes wherever focus is: here, the iframe's password field.
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
-			await waitUntil("the reloaded iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #pass" });
+			f = frameRef(await waitUntil("the reloaded iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => FORM_IN_FRAME.test(text)));
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #pass` });
 			const inserted = await runtime.act(browserId, { kind: "insert", useSavedPassword: true });
 			expect(inserted.credential).toEqual({ origin: framed, created: false });
 			await perform(runtime, browserId, { kind: "press", key: "Enter" });
@@ -281,9 +290,9 @@ describeWithChrome("act", () => {
 
 			// Literal text into the frame, then its submit.
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
-			await waitUntil("the third iframe form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
-			await perform(runtime, browserId, { kind: "type", selector: "@1 #pass", text: "typed-in-frame" });
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			f = frameRef(await waitUntil("the third iframe form", async () => (await runtime.snapshot(browserId)).text, (text) => FORM_IN_FRAME.test(text)));
+			await perform(runtime, browserId, { kind: "type", selector: `${f} #pass`, text: "typed-in-frame" });
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #go` });
 			await waitUntil("the third iframe post", () => fixture.submissions().length, (count) => count === 3);
 
 			expect(fixture.submissions()).toEqual([
@@ -306,43 +315,43 @@ describeWithChrome("act", () => {
 			const store = join(rootDir, "profiles", "act-generate", "credentials.json");
 			const saved = (): Record<string, string> => (existsSync(store) ? JSON.parse(readFileSync(store, "utf8")).origins : {});
 			const framed = new URL(fixture.url("/", "localhost")).origin;
-			const openForm = async (): Promise<void> => {
+			const openForm = async (): Promise<string> => {
 				await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
-				await waitUntil("the iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
+				return frameRef(await waitUntil("the iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => FORM_IN_FRAME.test(text)));
 			};
 
 			// Not a password field: refused before anything is minted or typed.
-			await openForm();
-			const refused = await runtime.act(browserId, { kind: "type", selector: "@1 #user", generatePassword: true });
+			let f = await openForm();
+			const refused = await runtime.act(browserId, { kind: "type", selector: `${f} #user`, generatePassword: true });
 			expect(refused.status).toBe("failed");
 			expect(refused.error).toContain("generatePassword types only into a password field");
 			expect(saved()).toEqual({});
 
 			// Sign-up: minted for the iframe's origin (never the top page's), replacing what the field held.
-			await perform(runtime, browserId, { kind: "type", selector: "@1 #pass", text: "stale-" });
-			const signup = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", generatePassword: true });
+			await perform(runtime, browserId, { kind: "type", selector: `${f} #pass`, text: "stale-" });
+			const signup = await runtime.act(browserId, { kind: "type", selector: `${f} #pass`, generatePassword: true });
 			expect({ status: signup.status, credential: signup.credential }).toEqual({ status: "completed", credential: { origin: framed, created: true } });
 			expect(Object.keys(saved())).toEqual([framed]);
 			const password = saved()[framed] as string;
 			expect(password).toMatch(/^.{20}$/);
 			const snapshot = await runtime.snapshot(browserId);
 			expect(JSON.stringify([signup, snapshot, await runtime.state(browserId)])).not.toContain(password);
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #go` });
 			await waitUntil("the sign-up post", () => fixture.submissions().length, (count) => count === 1);
 
 			// A retried sign-up reuses the saved one (the account it made keeps its password).
-			await openForm();
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #pass" });
+			f = await openForm();
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #pass` });
 			const retried = await runtime.act(browserId, { kind: "insert", generatePassword: true });
 			expect(retried.credential).toEqual({ origin: framed, created: false });
 			await perform(runtime, browserId, { kind: "press", key: "Enter" });
 			await waitUntil("the retried post", () => fixture.submissions().length, (count) => count === 2);
 
 			// Login later: the saved one.
-			await openForm();
-			const login = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", useSavedPassword: true });
+			f = await openForm();
+			const login = await runtime.act(browserId, { kind: "type", selector: `${f} #pass`, useSavedPassword: true });
 			expect(login.credential).toEqual({ origin: framed, created: false });
-			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await perform(runtime, browserId, { kind: "click", selector: `${f} #go` });
 			await waitUntil("the login post", () => fixture.submissions().length, (count) => count === 3);
 
 			// The View never generates.
@@ -350,6 +359,55 @@ describeWithChrome("act", () => {
 
 			expect(fixture.submissions().map((post) => post.pass)).toEqual([password, password, password]);
 			expect(saved()).toEqual({ [framed]: password });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a frame ref from before an earlier sibling iframe went away is refused, and nothing is typed into the frame that took its index",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-frame-shift", viewport: VIEWPORT });
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/three-frames") });
+			const bothForms = /^@2~[0-9a-f]{8} #user /m;
+			const before = await waitUntil("both form iframes in the snapshot", async () => (await runtime.snapshot(browserId)).text, (text) => bothForms.test(text) && /^@3~[0-9a-f]{8} #user /m.test(text));
+			const second = frameRef(before, "2");
+
+			// The ad goes: the frame at index 2 is now the one that was @3, another site.
+			await perform(runtime, browserId, { kind: "click", selector: "#drop" });
+			await waitUntil("the ad gone", async () => (await runtime.snapshot(browserId)).text, (text) => !/^@3~/m.test(text));
+			const stale = await runtime.act(browserId, { kind: "type", selector: `${second} #user`, text: "ada" });
+
+			expect(stale.status).toBe("failed");
+			expect(stale.error).toContain("frame changed");
+			expect(stale.error).toContain("take a new browser_snapshot");
+			const after = (await runtime.snapshot(browserId)).text;
+			expect(after).not.toContain(`"ada"`);
+			// The ref for the same frame, re-read, still reaches it.
+			const again = frameRef(after, "1");
+			expect(again.split("~")[1]).toBe(second.split("~")[1]);
+			expect((await runtime.act(browserId, { kind: "type", selector: `${again} #user`, text: "ada" })).status).toBe("completed");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a page that moves focus off the password field right after it takes focus still gets the saved password in that field, never in the one it moved to",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-thief", viewport: VIEWPORT });
+			const saved = "Thief-Pw_4#fixture";
+			await writeFile(join(rootDir, "profiles", "act-thief", "credentials.json"), JSON.stringify({ version: 1, origins: { [new URL(fixture.url("/")).origin]: saved } }));
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/focus-thief") });
+
+			const typed = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await submissionLanded(runtime, browserId, fixture);
+
+			expect(typed.status).toBe("completed");
+			expect(fixture.submissions()).toEqual([{ user: "", pass: saved, decoy: "" }]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

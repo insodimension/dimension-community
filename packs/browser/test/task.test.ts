@@ -11,7 +11,7 @@
  *  `startWorker` — only the agent loop is replaced, never the process boundary.
  */
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -306,6 +306,58 @@ describeTasks("tasks", () => {
 			expect(scrolled.status).toBe("completed");
 			const frame = await within(8_000, "frame of the followed tab", runtime.frame(browserId));
 			expect(frame.state.url).toBe(fixture.url("/signup"));
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a generated password a GET login form carries in the URL comes back, raw or encoded, in no act, state, snapshot, tab or task result",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const call = await connect(runtime, rootDir);
+			const { browserId } = await runtime.open({ profile: "task-redact", viewport: VIEWPORT });
+			const store = join(rootDir, "profiles", "task-redact", "credentials.json");
+			const origin = new URL(fixture.url("/")).origin;
+			const results: unknown[] = [];
+			const act = async (action: Record<string, unknown>): Promise<ToolResult> => {
+				const out = await call("browser_act", { browserId, action });
+				results.push(out);
+				expect(out.isError).toBeUndefined();
+				return out;
+			};
+
+			// Mint until the password has a character a URL encodes (every one has a symbol; `-` and `_` stay as they are).
+			let password = "";
+			while (encodeURIComponent(password) === password || new URLSearchParams([["", password]]).toString().slice(1) === password) {
+				await rm(store, { force: true });
+				await act({ kind: "navigate", url: fixture.url("/get-login") });
+				await act({ kind: "type", selector: "#pass", generatePassword: true });
+				password = JSON.parse(await readFile(store, "utf8")).origins[origin];
+			}
+			await act({ kind: "click", selector: "#go" });
+			await waitUntil("the GET login", () => fixture.submissions().length, (count) => count === 1);
+			// The page's own URL really does carry it.
+			expect(fixture.submissions()).toEqual([{ user: "", pass: password }]);
+			const landed = `${fixture.url("/logged-in")}?${new URLSearchParams({ user: "", pass: password })}`;
+
+			const state = await call("browser_state", { browserId });
+			const tabId = state.structuredContent?.activeTabId as string;
+			results.push(state, await call("browser_snapshot", { browserId }), await call("browser_tab", { browserId, op: "activate", tabId }));
+			// A task whose steps and failure summary quote the URL, as jev's would after the filled form submits.
+			const summary = `stopped at ${landed} (${encodeURIComponent(password)})`;
+			const task = JSON.stringify({ steps: [{ action: `submitted ${landed}`, url: landed }], result: { status: "failed", summary, steps: 1 } });
+			const failed = await call("browser_task", { browserId, agent: "jev", task, waitSeconds: 20 });
+			expect(failed.isError).toBe(true);
+			results.push(failed, await call("browser_task_wait", { browserId, waitSeconds: 1 }), await call("browser_task_cancel", { browserId }));
+
+			const all = JSON.stringify(results);
+			// Non-vacuous: the URL and the task were read back, redacted.
+			expect(all).toContain(`${fixture.url("/logged-in")}?user=&pass=[saved password]`);
+			expect(all).toContain("submitted ");
+			for (const form of [password, encodeURIComponent(password), new URLSearchParams([["", password]]).toString().slice(1)]) {
+				expect(all).not.toContain(form);
+			}
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

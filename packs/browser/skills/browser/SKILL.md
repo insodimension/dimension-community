@@ -83,9 +83,11 @@ The browser has real tabs. `browser_state` lists them (`tabs[]` with `id`,
 1. `browser_snapshot` → page text plus the interactive controls, each with a
    selector (`#email`, `input[name="city"]`, `input[name="role"][value="fe"]`)
    and center coordinates. Iframes, cross-origin ones included (embedded
-   login forms), follow as `## frame @1` sections whose selectors start
-   `@1 ` (`@1 #password`): pass them to `browser_act` as given. Password
-   values are never shown.
+   login forms), follow as `## frame @1~3fa92c0d` sections whose selectors
+   start with that ref (`@1~3fa92c0d #password`): pass them to `browser_act`
+   as given. A ref names the frame as it was when read; if the frame moved
+   or navigated since, the act fails with "frame changed" — take a new
+   `browser_snapshot`. Password values are never shown.
 2. `browser_act` with one action: `navigate`, `back`, `forward`, `reload`,
    `stop`, `click` (selector or x/y; optional `button` and `clickCount` for
    right/double clicks), `hover` (x/y), `type` (replaces the field's value),

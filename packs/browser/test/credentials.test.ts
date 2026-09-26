@@ -495,23 +495,37 @@ describe("the credential store", () => {
 describeWithPython("the jev worker", () => {
 	test("neither jev's goal nor a failed fill's log line carries the password", () => {
 		const credential = { origin: SHOP, password: "Zq7!never-in-a-model-call" };
-		// A CDP evaluate error commonly quotes the expression it failed on — here, the fill script.
-		const code = `import contextlib, io, json, sys
+		// A CDP evaluate error commonly quotes the expression it failed on — here, the fill script with the password in it.
+		const code = `import contextlib, io, json, sys, types
+calls = []
+def cdp(method, session_id=None, **params):
+    calls.append(method)
+    if method == "Runtime.evaluate":
+        raise RuntimeError(f"Evaluation failed: {params['expression']}")
+    raise AssertionError(f"unexpected CDP call {method}")
+harness = types.ModuleType("browser_harness")
+helpers = types.ModuleType("browser_harness.helpers")
+helpers.cdp = cdp
+harness.helpers = helpers
+sys.modules["browser_harness"], sys.modules["browser_harness.helpers"] = harness, helpers
 from dim_browser_bridge.jev_task import _fill_passwords, _jev_goal
 credential = json.loads(sys.stdin.read())
 class Browser:
-    def evaluate(self, expression):
-        raise RuntimeError(f"Evaluation failed: {expression}")
+    target = "page-target"
+    session = "page-session"
 log = io.StringIO()
 with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
     filled = _fill_passwords(Browser(), credential)
-json.dump({"goal": _jev_goal("Sign up as Ada Lovelace.", credential), "filled": filled, "log": log.getvalue()}, sys.stdout)`;
+json.dump({"goal": _jev_goal("Sign up as Ada Lovelace.", credential), "filled": filled, "log": log.getvalue(), "calls": calls}, sys.stdout)`;
 
-		const { goal, filled, log } = JSON.parse(python(code, JSON.stringify(credential))) as { goal: string; filled: boolean; log: string };
+		const { goal, filled, log, calls } = JSON.parse(python(code, JSON.stringify(credential))) as { goal: string; filled: boolean; log: string; calls: string[] };
 
 		expect(goal).toStartWith("Sign up as Ada Lovelace.");
 		expect(goal).not.toContain(credential.password);
+		// The fill reached the evaluate and failed there, with an error that quotes the password.
+		expect(calls).toEqual(["Runtime.evaluate"]);
 		expect(filled).toBe(false);
+		expect(log).toContain("password fill skipped");
 		expect(log).not.toContain(credential.password);
 	});
 });

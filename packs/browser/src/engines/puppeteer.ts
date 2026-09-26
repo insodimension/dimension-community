@@ -28,6 +28,7 @@
  * Every page script executed here is a fixed compiled function from
  * `page-scripts.ts`. Caller-supplied JavaScript never reaches `evaluate`.
  */
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer, { TimeoutError } from "puppeteer-core";
@@ -42,6 +43,7 @@ import {
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
 	IS_PASSWORD_SCRIPT,
+	INSERT_PASSWORD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 	PAGE_TEXT_SCRIPT,
 	READ_FIELD_SCRIPT,
@@ -57,10 +59,15 @@ const NAVIGATE_TIMEOUT_MS = 30_000;
 const MAX_SNAPSHOT_FRAMES = 16;
 /**
  * A selector aimed into a child frame: `@<ref> <css>`, where `ref` is the
- * frame's 1-based child-index path from the main frame (`@1`, `@1.2`), as the
- * snapshot names it. Any frame, cross-origin and out-of-process included.
+ * frame's 1-based child-index path from the main frame plus `~` and a tag of
+ * that frame's identity and origin (`@1~3fa92c0d`, `@1.2~…`), as the snapshot
+ * names it. Any frame, cross-origin and out-of-process included. The tag is
+ * what makes a ref safe to reuse: an index alone shifts when an earlier
+ * sibling iframe goes away, and would then aim at a different site.
  */
-const FRAME_SELECTOR = /^@(\d{1,3}(?:\.\d{1,3}){0,7})\s+([\s\S]+)$/;
+const FRAME_SELECTOR = /^@(\d{1,3}(?:\.\d{1,3}){0,7})~([0-9a-f]{8})\s+([\s\S]+)$/;
+/** Anything that looks like a frame ref, well-formed or not (a stale or hand-written one is refused, never run as CSS). */
+const FRAME_REF_LIKE = /^@\d/;
 const ACTION_TIMEOUT_MS = 15_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
@@ -684,13 +691,13 @@ class PuppeteerDriver implements EngineDriver {
 				await page.mouse.move(requireNumber(action.x, "hover.x"), requireNumber(action.y, "hover.y"));
 				return NONE;
 			case "insert":
-				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#focusedField(page), action, password);
+				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(await this.#focusedField(page), action, password);
 				// Whatever has focus receives the text as one native input operation.
 				await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
 				return NONE;
 			case "type": {
 				const selector = requireField(action.selector, "type.selector");
-				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#resolve(page, selector), action, password);
+				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(await this.#resolve(page, selector), action, password);
 				await this.#type(page, selector, requireField(action.text, "type.text", true), false);
 				return NONE;
 			}
@@ -1051,13 +1058,14 @@ class PuppeteerDriver implements EngineDriver {
 	 * reach, so the page cannot fake its origin (`window.origin` is replaceable
 	 * in its own world), a password type, or focus. The origin is the FRAME's,
 	 * never the top page's, and a field that is not a password input is refused
-	 * before `source` is asked, so nothing is minted for it. Focus and origin
-	 * are checked again right before typing; if either changed, nothing is
-	 * typed. No password is an error, never a fallback. Everything before the
-	 * one insert is a certain non-event.
+	 * before `source` is asked, so nothing is minted for it. The final focus,
+	 * the re-check of type, origin and focus, and the insert are ONE evaluate
+	 * on the field (INSERT_PASSWORD_SCRIPT): the text is bound to that element's
+	 * document, never page-wide input a page could redirect between a check and
+	 * a keystroke. No password is an error, never a fallback. Every refusal is
+	 * a certain non-event.
 	 */
 	async #typePassword(
-		page: Page,
 		target: { handle: ElementHandle<Element>; frame: Frame },
 		action: BrowserAction,
 		source: PasswordSource | undefined,
@@ -1083,16 +1091,10 @@ class PuppeteerDriver implements EngineDriver {
 			if (!value) {
 				throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; for a sign-up pass generatePassword: true, or pass text`);
 			}
-			await field.focus();
-			if (!(await field.evaluate(SELECT_ALL_SCRIPT))) {
-				throw new ActionNotDispatched("not_password_field", "the password field's content could not be selected to replace; nothing was typed");
-			}
-			const now = await field.evaluate(SAVED_PASSWORD_TARGET_SCRIPT);
-			if (!now.focused || !now.password || now.origin !== before.origin) {
-				throw new ActionNotDispatched("focus_moved", "the password field lost focus or changed origin before typing; nothing was typed");
-			}
-			await page.keyboard.sendCharacter(value);
-			return { passwordOrigin: before.origin };
+			const inserted = await field.evaluate(INSERT_PASSWORD_SCRIPT, value, before.origin);
+			if (inserted === "inserted") return { passwordOrigin: before.origin };
+			if (inserted === "rejected") throw new ActionNotDispatched("not_password_field", "the password field refused the text; nothing was typed");
+			throw new ActionNotDispatched("focus_moved", `the password field lost ${inserted === "not_password" ? "its password type" : inserted === "origin" ? "its origin" : "focus"} before typing; nothing was typed`);
 		} finally {
 			await field?.dispose().catch(() => undefined);
 			await handle.dispose().catch(() => undefined);
@@ -1128,10 +1130,16 @@ class PuppeteerDriver implements EngineDriver {
 	 */
 	async #resolve(page: Page, selector: string): Promise<{ handle: ElementHandle<Element>; frame: Frame }> {
 		const aimed = FRAME_SELECTOR.exec(selector);
-		const frame = aimed ? frameAt(page, aimed[1] as string) : page.mainFrame();
-		const css = aimed ? (aimed[2] as string) : selector;
+		if (!aimed && FRAME_REF_LIKE.test(selector)) throw frameChanged(selector);
+		const frame = aimed ? frameAt(page, aimed[1] as string, aimed[2] as string) : page.mainFrame();
+		const css = aimed ? (aimed[3] as string) : selector;
 		const handle = await frame.waitForSelector(css, { timeout: ACTION_TIMEOUT_MS }).catch(() => null);
 		if (!handle) throw new ActionNotDispatched("no_element", `selector ${JSON.stringify(selector)} did not resolve to an element`);
+		// The wait can outlast a navigation of that frame to another site.
+		if (aimed && (frame.detached || frameTag(frame) !== aimed[2])) {
+			await handle.dispose().catch(() => undefined);
+			throw frameChanged(selector);
+		}
 		return { handle, frame };
 	}
 }
@@ -1191,29 +1199,58 @@ function utilityWorld(frame: Frame): UtilityWorld {
 	return (frame as unknown as { isolatedRealm(): UtilityWorld }).isolatedRealm();
 }
 
-/** The active page's child frames, depth first, each with its `@<ref>` path (1-based child indexes). Bounded. */
+/**
+ * The active page's child frames, depth first, each with its `@<ref>`: the
+ * 1-based child-index path, `~`, and the frame's tag. Bounded.
+ */
 function childFrames(page: Page): Array<{ frame: Frame; ref: string }> {
 	const out: Array<{ frame: Frame; ref: string }> = [];
 	const walk = (parent: Frame, prefix: string): void => {
 		parent.childFrames().forEach((frame, i) => {
 			if (out.length >= MAX_SNAPSHOT_FRAMES || frame.detached) return;
-			const ref = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
-			out.push({ frame, ref });
-			walk(frame, ref);
+			const path = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+			out.push({ frame, ref: `${path}~${frameTag(frame)}` });
+			walk(frame, path);
 		});
 	};
 	walk(page.mainFrame(), "");
 	return out;
 }
 
-/** The frame a `@<ref>` names; a ref that no longer names a frame is a certain non-event. */
-function frameAt(page: Page, ref: string): Frame {
+/**
+ * A short tag of a frame's identity (the browser's frame id) and its current
+ * origin, both as the browser reports them, never as the page claims: the
+ * same iframe navigated to another site gets a different tag.
+ */
+function frameTag(frame: Frame): string {
+	let origin = "null";
+	try {
+		origin = new URL(frame.url()).origin;
+	} catch {
+		// No URL yet: the origin stays "null".
+	}
+	// `_id` (the CDP frame id) is on every frame of the pinned puppeteer-core, but stripped from its public types.
+	if (!("_id" in frame) || typeof frame._id !== "string") throw new Error("puppeteer-core frames carry no _id; frame refs cannot be tagged");
+	return createHash("sha256").update(`${frame._id}\n${origin}`).digest("hex").slice(0, 8);
+}
+
+function frameChanged(selector: string): ActionNotDispatched {
+	const ref = selector.split(/\s/, 1)[0];
+	return new ActionNotDispatched("no_frame", `frame changed (${ref} no longer names the frame the snapshot described); take a new browser_snapshot`);
+}
+
+/**
+ * The frame a `@<path>~<tag>` names, only while it is still the frame the
+ * snapshot tagged; anything else is a certain non-event.
+ */
+function frameAt(page: Page, path: string, tag: string): Frame {
 	let frame = page.mainFrame();
-	for (const step of ref.split(".")) {
+	for (const step of path.split(".")) {
 		const next = frame.childFrames()[Number(step) - 1];
-		if (!next || next.detached) throw new ActionNotDispatched("no_frame", `frame @${ref} is not on the page; take a new browser_snapshot`);
+		if (!next || next.detached) throw frameChanged(`@${path}~${tag}`);
 		frame = next;
 	}
+	if (frameTag(frame) !== tag) throw frameChanged(`@${path}~${tag}`);
 	return frame;
 }
 

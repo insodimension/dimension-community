@@ -182,14 +182,31 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 /**
  * For `useSavedPassword` / `generatePassword`, run in puppeteer's utility world (an isolated world:
  * the page's own overrides of `window.origin`, `type`, `activeElement` or any
- * prototype do not reach it). Whether `el` is a password input, whether it has
- * focus in a focused document, and this frame's real origin.
+ * prototype do not reach it). Whether `el` is a password input, and this
+ * frame's real origin.
  */
-const SAVED_PASSWORD_TARGET_SCRIPT = (el: Element): { password: boolean; focused: boolean; origin: string } => ({
+const SAVED_PASSWORD_TARGET_SCRIPT = (el: Element): { password: boolean; origin: string } => ({
 	password: el instanceof HTMLInputElement && el.type === "password",
-	focused: document.hasFocus() && (el.getRootNode() as Document | ShadowRoot).activeElement === el,
 	origin: window.origin,
 });
+/**
+ * The password insert itself, run in the utility world like
+ * SAVED_PASSWORD_TARGET_SCRIPT: focus `el`, check it is still a password
+ * input of `origin` holding focus in a focused document, then select its
+ * content and replace it with `value` — all in ONE evaluate, so no page
+ * script can move focus between the check and the insert (a blur handler
+ * that runs inside `focus()` is caught by the check after it). The text goes
+ * to this document's selection only, never to whatever frame has focus.
+ * Anything but "inserted" means nothing was inserted.
+ */
+const INSERT_PASSWORD_SCRIPT = (el: Element, value: string, origin: string): "inserted" | "not_password" | "origin" | "focus" | "rejected" => {
+	if (!(el instanceof HTMLInputElement) || el.type !== "password") return "not_password";
+	if (window.origin !== origin) return "origin";
+	el.focus();
+	if (!document.hasFocus() || (el.getRootNode() as Document | ShadowRoot).activeElement !== el) return "focus";
+	el.select();
+	return document.execCommand("insertText", false, value) ? "inserted" : "rejected";
+};
 /**
  * The focused element of THIS frame when focus ends here (followed down
  * through open shadow roots, and not a frame or the body), else null. Run in
@@ -279,6 +296,7 @@ export {
 	IS_PASSWORD_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 	SAVED_PASSWORD_TARGET_SCRIPT,
+	INSERT_PASSWORD_SCRIPT,
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
 	READ_FIELD_SCRIPT,
