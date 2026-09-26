@@ -1,0 +1,21 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "ban-comments",
+	"version": "0.1.0",
+	"description": "Ban Comments — a stream rule that stops the agent mid-edit when it writes a code comment and has it carry the meaning in names, types and structure instead",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": ["rules", "ttsr", "comments", "code-style", "typescript", "rust", "go", "python"],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Ban Comments",
+			"icon": "message-square-off",
+			"category": "rules",
+			"defaultEnabled": true,
+			"channel": "canary"
+		}
+	}
+}

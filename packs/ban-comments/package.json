@@ -1,0 +1,14 @@
+{
+	"name": "@inso/ban-comments",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Ban Comments — a stream rule that stops the agent mid-edit when it writes a code comment and has it carry the meaning in names, types and structure instead",
+	"type": "module",
+	"dimension": {
+		"name": "ban-comments",
+		"category": "rules",
+		"keywords": ["rules", "ttsr", "comments", "code-style", "typescript", "rust", "go", "python"]
+	},
+	"files": ["rules/", "plugin.json"],
+	"license": "MIT"
+}

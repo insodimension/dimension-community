@@ -28,6 +28,9 @@ packs/
   artifactory-system-monitor/
                   The second artifactory pilot: an app-only tool the model never
                   sees, called from the View through the engine's consent gate.
+  ban-comments/   A RULES-ONLY pack: `plugin.json` + `rules/*.md` (one per language),
+                  no code. A stream rule (TTSR) that interrupts an edit/write
+                  the moment it adds a code comment.
 .dimension-plugin/
   marketplace.json  The catalog Dimension's plugin system reads — GENERATED
                     from the packs by `scripts/build-index.ts` (see below).
