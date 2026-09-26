@@ -122,7 +122,7 @@ export interface PublishRecipe {
 /** Which shipped preset a publish was resolved from, as the record shows it. */
 export interface PresetRef {
   name: string;
-  /** False until a real post was observed through the preset: the View labels it "Unverified recipe". */
+  /** False until a real post was observed through the preset: the View says "Recipe not yet proven on the live site. Check the filled-in post before you press Post.". */
   verified: boolean;
 }
 export const PUBLISH_MODES = ["check", "post"] as const;
