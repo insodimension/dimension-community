@@ -32,7 +32,6 @@ import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, fail } from "../store.js";
 import {
-	ELEMENT_EXISTS_SCRIPT,
 	ELEMENTS_IN_REGION_SCRIPT,
 	FAVICON_HREF_SCRIPT,
 	IS_PASSWORD_SCRIPT,
@@ -420,16 +419,28 @@ class PuppeteerDriver implements EngineDriver {
 		await withTimeout(this.#type(this.#activeTab().page, selector, text, true), ACTION_TIMEOUT_MS + 5_000, "fill");
 	}
 
+	// Publish reads resolve the selector through puppeteer's own query handlers
+	// (so `pierce/` reaches into shadow roots), then run a fixed data-only
+	// script on the element handle: no selector ever reaches page JavaScript.
 	async hasElement(selector: string): Promise<boolean> {
-		return await this.#activeTab().page.evaluate(ELEMENT_EXISTS_SCRIPT, selector);
+		const handle = await this.#activeTab().page.$(selector);
+		if (handle === null) return false;
+		await handle.dispose().catch(() => undefined);
+		return true;
 	}
 
 	async readField(selector: string): Promise<FieldRead> {
-		return await this.#activeTab().page.evaluate(READ_FIELD_SCRIPT, selector);
+		const handle = await this.#activeTab().page.$(selector);
+		if (handle === null) return { state: "absent" };
+		try {
+			return await handle.evaluate(READ_FIELD_SCRIPT);
+		} finally {
+			await handle.dispose().catch(() => undefined);
+		}
 	}
 
 	async linkHrefs(selector: string, limit: number): Promise<string[]> {
-		return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector, limit);
+		return await this.#activeTab().page.$$eval(selector, LINK_HREFS_SCRIPT, limit);
 	}
 
 	// -----------------------------------------------------------------------

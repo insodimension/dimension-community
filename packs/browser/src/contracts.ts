@@ -134,6 +134,8 @@ export interface PublishRecord {
   origin: string;
   /** Where the post goes: the compose page URL the fields were typed into and read back on (confirm requires the tab still there). */
   composeUrl: string;
+  /** The tab the fields were read back on: confirm submits only there, and the View holds Tab/Enter only while it is active. */
+  tabId: string;
   profile: string;
   fields: PublishField[];
   createdAt: string;

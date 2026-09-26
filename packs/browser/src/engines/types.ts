@@ -49,7 +49,7 @@ export interface EngineDriver {
    * password input is refused with `ActionNotDispatched` before any input event.
    */
   fill(selector: string, text: string): Promise<void>;
-  /** Publish reads on the active tab; none writes to the page. */
+  /** Publish reads on the active tab; none writes to the page. Selectors resolve like actions' (CSS or `pierce/`). */
   hasElement(selector: string): Promise<boolean>;
   readField(selector: string): Promise<FieldRead>;
   /** Resolved hrefs of up to `limit` elements matching `selector`, in document order. */

@@ -95,17 +95,11 @@ const FAVICON_HREF_SCRIPT = (): string | null => {
 	return null;
 };
 /**
- * Publish scripts. Each takes data arguments only (a selector, a bound) and
- * reads — none of them writes to the page. A password input is recognised and
- * never read.
+ * Publish scripts. Each runs on elements puppeteer already resolved (its query
+ * handlers, so `pierce/` reaches shadow roots) and takes data arguments only
+ * (a bound); they read — none of them writes to the page. A password input is
+ * recognised and never read.
  */
-const ELEMENT_EXISTS_SCRIPT = (selector: string): boolean => {
-	try {
-		return document.querySelector(selector) !== null;
-	} catch {
-		return false;
-	}
-};
 const IS_PASSWORD_SCRIPT = (el: Element): boolean =>
 	el.tagName === "INPUT" && ((el as HTMLInputElement).type ?? "").toLowerCase() === "password";
 /**
@@ -127,14 +121,7 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /** An input/textarea's `.value`, or a contenteditable's `innerText` minus one trailing newline. */
-const READ_FIELD_SCRIPT = (selector: string): FieldRead => {
-	let el: Element | null;
-	try {
-		el = document.querySelector(selector);
-	} catch {
-		el = null;
-	}
-	if (el === null) return { state: "absent" };
+const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	if (el.tagName === "INPUT") {
 		const input = el as HTMLInputElement;
 		if ((input.type ?? "").toLowerCase() === "password") return { state: "password" };
@@ -146,17 +133,11 @@ const READ_FIELD_SCRIPT = (selector: string): FieldRead => {
 	const text = html.innerText;
 	return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
 };
-/** The resolved hrefs of up to `limit` elements matching `selector`, in document order. */
-const LINK_HREFS_SCRIPT = (selector: string, limit: number): string[] => {
-	let nodes: NodeListOf<Element>;
-	try {
-		nodes = document.querySelectorAll(selector);
-	} catch {
-		return [];
-	}
+/** The resolved hrefs of up to `limit` of `elements`, in document order. */
+const LINK_HREFS_SCRIPT = (elements: Element[], limit: number): string[] => {
 	const out: string[] = [];
-	for (let i = 0; i < nodes.length && out.length < limit; i += 1) {
-		const raw = nodes[i].getAttribute("href");
+	for (let i = 0; i < elements.length && out.length < limit; i += 1) {
+		const raw = elements[i].getAttribute("href");
 		if (raw === null) continue;
 		try {
 			out.push(new URL(raw, document.baseURI).href);
@@ -172,7 +153,6 @@ export {
 	ELEMENTS_IN_REGION_SCRIPT,
 	SELECT_ALL_SCRIPT,
 	FAVICON_HREF_SCRIPT,
-	ELEMENT_EXISTS_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 	READ_FIELD_SCRIPT,

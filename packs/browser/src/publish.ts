@@ -44,6 +44,8 @@ const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "localhost"];
 const TERMINAL: readonly PublishStatus[] = ["posted", "unknown", "failed", "cancelled", "expired"];
 /** Every outcome that would otherwise say "nothing was posted", once the human used the page while waiting. */
 const TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
+/** The same, on an engine whose page the human can use outside the runtime (chrome-relay). */
+const SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
 
 /** A validated recipe, with its receipt path template compiled once. */
 export interface Recipe extends PublishRecipe {
@@ -55,16 +57,22 @@ export interface Recipe extends PublishRecipe {
 export interface Publication {
 	record: PublishRecord;
 	recipe: Recipe;
-	/** The active tab when the fields were last read back: confirm submits only there. */
-	shownTabId: string;
 	/** Set once confirm starts: expiry never overtakes a submit already under way. */
 	confirming: boolean;
 	/**
 	 * The human clicked or typed on the pinned tab in the Browser View while
-	 * waiting: they may have hit the site's own submit, so an outcome that
-	 * would say "nothing was posted" is reported `unknown` instead.
+	 * waiting (or the engine lets them use the page outside the runtime): they
+	 * may have hit the site's own submit, so confirm never clicks submit and
+	 * every outcome that would say "nothing was posted" is `unknown` instead.
 	 */
 	touchedWhilePending: boolean;
+	/**
+	 * The engine lets the human use this page outside the runtime (chrome-relay:
+	 * their own Chrome), so they may have posted there unseen. The bar's Post
+	 * still clicks submit, but every outcome that would say "nothing was
+	 * posted" (cancel, close, expiry, changed since shown) is `unknown`.
+	 */
+	sharedPage: boolean;
 	/** Resolves when the record reaches a terminal status. */
 	settled: PromiseWithResolvers<void>;
 }
@@ -242,15 +250,16 @@ export async function prepare(driver: EngineDriver, profile: string, recipe: Rec
 			status: "awaiting-confirmation",
 			origin: recipe.origin,
 			composeUrl: shown.url,
+			tabId: shown.activeTabId,
 			profile,
 			fields: recipe.fields.map((field) => ({ ...field })),
 			createdAt: new Date(now).toISOString(),
 			expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString(),
 		},
 		recipe,
-		shownTabId: shown.activeTabId,
 		confirming: false,
 		touchedWhilePending: false,
+		sharedPage: false,
 		settled: Promise.withResolvers<void>(),
 	};
 }
@@ -278,9 +287,13 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 	publication.confirming = true;
 	const { recipe } = publication;
 	try {
+		// The human used the page while waiting and may have pressed the site's own
+		// submit; a site that keeps the text afterwards would look unchanged, so a
+		// click here could post twice. Never click: report it honestly instead.
+		if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
 		const changed = await changedSinceShown(driver, publication);
 		if (changed) {
-			if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+			if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
 			return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
 		}
 		// What already looks like a receipt is not one: it predates this submit.
@@ -310,7 +323,7 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 async function changedSinceShown(driver: EngineDriver, publication: Publication): Promise<string | null> {
 	try {
 		const state = await driver.state();
-		if (state.activeTabId !== publication.shownTabId) return "another tab is active";
+		if (state.activeTabId !== publication.record.tabId) return "another tab is active";
 		if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
 		for (const field of publication.record.fields) {
 			const read = await driver.readField(field.selector);
@@ -350,7 +363,8 @@ function isReceipt(url: string, recipe: Recipe): boolean {
 
 /** The human's Cancel, or the browser closing under a pending publish. */
 export function cancel(publication: Publication, error?: string): void {
-	if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+	const unsure = unsureError(publication);
+	if (unsure) settle(publication, "unknown", { error: unsure });
 	else settle(publication, "cancelled", error === undefined ? {} : { error });
 }
 
@@ -358,8 +372,15 @@ export function cancel(publication: Publication, error?: string): void {
 export function expireIfDue(publication: Publication): void {
 	if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
 	if (Date.now() < Date.parse(publication.record.expiresAt)) return;
-	if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+	const unsure = unsureError(publication);
+	if (unsure) settle(publication, "unknown", { error: unsure });
 	else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+}
+
+/** Why an outcome that would say "nothing was posted" cannot, or null when it can. */
+function unsureError(publication: Publication): string | null {
+	if (publication.touchedWhilePending) return TOUCHED_ERROR;
+	return publication.sharedPage ? SHARED_ERROR : null;
 }
 
 /** Resolve once the publication is terminal or `ms` has passed (or it expires), whichever is first. */

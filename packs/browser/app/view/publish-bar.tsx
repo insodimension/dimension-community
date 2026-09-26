@@ -11,7 +11,7 @@ import { type BrowserClient, failureText } from "./browser-client";
 
 const OUTCOME: Record<Exclude<PublishStatus, "awaiting-confirmation">, string> = {
 	posted: "Posted",
-	unknown: "May have posted. Check the page before trying again.",
+	unknown: "May have posted",
 	failed: "Not posted",
 	cancelled: "Cancelled. Nothing was posted.",
 	expired: "Expired. Nothing was posted.",
@@ -94,13 +94,16 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 	// A keyboard user must be able to reach the bar: when it appears, and only
 	// if this View already has focus (never stealing it from the host), focus
 	// moves to the bar itself. Not to Post: a stray Enter there would post.
-	// The outcome takes focus only when the pressed button's disappearing
-	// dropped it on the body, so Tab carries on from the bar.
+	// Only from nowhere, the body or the page surface: never out of an input,
+	// textarea or contenteditable in the View, where the human is typing. The
+	// outcome follows the same rule, so when the pressed button's disappearing
+	// drops focus on the body, Tab carries on from the bar.
 	const barRef = useRef<HTMLDivElement | null>(null);
 	const awaiting = record.status === "awaiting-confirmation";
 	useEffect(() => {
 		if (!document.hasFocus()) return;
-		if (awaiting || document.activeElement === null || document.activeElement === document.body) barRef.current?.focus({ preventScroll: true });
+		const active = document.activeElement;
+		if (active === null || active === document.body || active.matches(".bx-page")) barRef.current?.focus({ preventScroll: true });
 	}, [awaiting, record.publishId]);
 
 	const decide = async (verb: "post" | "cancel") => {

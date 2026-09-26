@@ -18,17 +18,22 @@
  *  - `stay`     nothing at all;
  *  - `rewrite`  like `nav`, but `#text`'s input handler upper-cases what is typed;
  *  - `steal`    `#text`'s focus handler moves focus to another input, `#other`,
- *               whose input events count as writes too.
+ *               whose input events count as writes too;
+ *  - `shadow`   like `nav`, plus `<compose-box id="box">` whose OPEN shadow root
+ *               holds a textarea `#inner`; its input events count as writes and
+ *               `#post` submits its value as `text`.
  */
 import { randomBytes } from "node:crypto";
 
-export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite" | "steal";
+export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite" | "steal" | "shadow";
 
 export interface PublishFixture {
 	url(path: string, host?: "127.0.0.1" | "localhost"): string;
 	readonly origin: string;
 	/** Requests for `path` on either host. */
 	hits(path: string): number;
+	/** Resolves once `path` has been requested on either host (at once if it already was). */
+	reached(path: string): Promise<void>;
 	/** Every POST /submit body, in order. The real write count. */
 	submissions(): ReadonlyArray<{ text: string; rich: string }>;
 	stop(): Promise<void>;
@@ -45,6 +50,7 @@ ${signedIn ? `<p id="me">@alice</p>` : `<p>sign in to post</p>`}
 <input id="secret" type="password" />
 <button id="post" type="button">Post</button>
 ${variant === "steal" ? `<input id="other" />` : ""}
+${variant === "shadow" ? `<compose-box id="box"></compose-box>` : ""}
 <div id="toasts">${stale}</div>
 <script>
   var variant = ${JSON.stringify(variant)};
@@ -66,15 +72,22 @@ ${variant === "steal" ? `<input id="other" />` : ""}
     text.addEventListener("focus", function () { other.focus(); });
     other.addEventListener("input", function () { writes++; show(); });
   }
+  var inner = null;
+  if (variant === "shadow") {
+    var root = document.getElementById("box").attachShadow({ mode: "open" });
+    root.innerHTML = '<textarea id="inner"></textarea>';
+    inner = root.getElementById("inner");
+    inner.addEventListener("input", function () { writes++; show(); });
+  }
   ["focus", "keydown", "input", "beforeinput"].forEach(function (type) {
     document.getElementById("secret").addEventListener(type, function () { secret++; show(); });
   });
   document.getElementById("post").addEventListener("click", async function () {
     clicks++; show();
-    var response = await fetch("/submit", { method: "POST", body: JSON.stringify({ text: text.value, rich: rich.innerText }) });
+    var response = await fetch("/submit", { method: "POST", body: JSON.stringify({ text: (inner || text).value, rich: rich.innerText }) });
     var n = (await response.json()).n;
     var path = "/alice/status/" + n;
-    if (variant === "nav" || variant === "rewrite") location.href = path;
+    if (variant === "nav" || variant === "rewrite" || variant === "shadow") location.href = path;
     else if (variant === "offsite") location.href = offsite + path;
     else if (variant === "toast" || variant === "stale-new") {
       var link = document.createElement("a");
@@ -89,11 +102,12 @@ function html(markup: string, headers: Record<string, string> = {}): Response {
 	return new Response(markup, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers } });
 }
 
-const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite", "steal"];
+const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite", "steal", "shadow"];
 
 export function startPublishFixture(): PublishFixture {
 	const hits = new Map<string, number>();
 	const submissions: { text: string; rich: string }[] = [];
+	const awaited = new Map<string, Array<() => void>>();
 	const session = randomBytes(8).toString("hex");
 	const origin = (host: string): string => `http://${host}:${server.port}`;
 
@@ -104,6 +118,7 @@ export function startPublishFixture(): PublishFixture {
 			const url = new URL(request.url);
 			const { pathname } = url;
 			hits.set(pathname, (hits.get(pathname) ?? 0) + 1);
+			for (const resolve of awaited.get(pathname)?.splice(0) ?? []) resolve();
 			if (pathname === "/login") {
 				return html("<!doctype html><title>signed in</title><p>signed in</p>", { "set-cookie": `${COOKIE}=${session}; Path=/; SameSite=Lax` });
 			}
@@ -127,6 +142,12 @@ export function startPublishFixture(): PublishFixture {
 		url: (path, host = "127.0.0.1") => `${origin(host)}${path}`,
 		origin: origin("127.0.0.1"),
 		hits: (path) => hits.get(path) ?? 0,
+		reached: (path) => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			if (hits.has(path)) resolve();
+			else awaited.set(path, [...(awaited.get(path) ?? []), resolve]);
+			return promise;
+		},
 		submissions: () => submissions,
 		stop: async () => {
 			await server.stop(true);

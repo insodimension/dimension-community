@@ -514,7 +514,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			// The human driving the pinned page while waiting may hit the site's own submit.
 			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
 			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
-			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.shownTabId) === pinned.shownTabId ? pinned : null;
+			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
 			try {
 				await entry.driver.perform(action);
 				if (touching) touching.touchedWhilePending = true;
@@ -678,6 +678,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			}
 			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
 			if (!("record" in outcome)) return outcome;
+			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
+			outcome.sharedPage = entry.engine === "chrome-relay";
 			entry.publish = outcome;
 			return publishRecord(outcome);
 		});

@@ -455,13 +455,6 @@ var FAVICON_HREF_SCRIPT = () => {
   }
   return null;
 };
-var ELEMENT_EXISTS_SCRIPT = (selector3) => {
-  try {
-    return document.querySelector(selector3) !== null;
-  } catch {
-    return false;
-  }
-};
 var IS_PASSWORD_SCRIPT = (el) => el.tagName === "INPUT" && (el.type ?? "").toLowerCase() === "password";
 var TYPE_TARGET_SCRIPT = (el) => {
   const active = el.getRootNode().activeElement ?? null;
@@ -472,14 +465,7 @@ var TYPE_TARGET_SCRIPT = (el) => {
   while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
   return focused.tagName === "INPUT" && (focused.type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
-var READ_FIELD_SCRIPT = (selector3) => {
-  let el;
-  try {
-    el = document.querySelector(selector3);
-  } catch {
-    el = null;
-  }
-  if (el === null) return { state: "absent" };
+var READ_FIELD_SCRIPT = (el) => {
   if (el.tagName === "INPUT") {
     const input = el;
     if ((input.type ?? "").toLowerCase() === "password") return { state: "password" };
@@ -491,16 +477,10 @@ var READ_FIELD_SCRIPT = (selector3) => {
   const text = html.innerText;
   return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
 };
-var LINK_HREFS_SCRIPT = (selector3, limit) => {
-  let nodes;
-  try {
-    nodes = document.querySelectorAll(selector3);
-  } catch {
-    return [];
-  }
+var LINK_HREFS_SCRIPT = (elements, limit) => {
   const out = [];
-  for (let i = 0; i < nodes.length && out.length < limit; i += 1) {
-    const raw = nodes[i].getAttribute("href");
+  for (let i = 0; i < elements.length && out.length < limit; i += 1) {
+    const raw = elements[i].getAttribute("href");
     if (raw === null) continue;
     try {
       out.push(new URL(raw, document.baseURI).href);
@@ -762,14 +742,26 @@ var PuppeteerDriver = class {
   async fill(selector3, text) {
     await withTimeout(this.#type(this.#activeTab().page, selector3, text, true), ACTION_TIMEOUT_MS + 5e3, "fill");
   }
+  // Publish reads resolve the selector through puppeteer's own query handlers
+  // (so `pierce/` reaches into shadow roots), then run a fixed data-only
+  // script on the element handle: no selector ever reaches page JavaScript.
   async hasElement(selector3) {
-    return await this.#activeTab().page.evaluate(ELEMENT_EXISTS_SCRIPT, selector3);
+    const handle = await this.#activeTab().page.$(selector3);
+    if (handle === null) return false;
+    await handle.dispose().catch(() => void 0);
+    return true;
   }
   async readField(selector3) {
-    return await this.#activeTab().page.evaluate(READ_FIELD_SCRIPT, selector3);
+    const handle = await this.#activeTab().page.$(selector3);
+    if (handle === null) return { state: "absent" };
+    try {
+      return await handle.evaluate(READ_FIELD_SCRIPT);
+    } finally {
+      await handle.dispose().catch(() => void 0);
+    }
   }
   async linkHrefs(selector3, limit) {
-    return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector3, limit);
+    return await this.#activeTab().page.$$eval(selector3, LINK_HREFS_SCRIPT, limit);
   }
   // -----------------------------------------------------------------------
   // Actions
@@ -1230,6 +1222,7 @@ var POLL_MS = 250;
 var LOOPBACK_HOSTS = ["127.0.0.1", "localhost"];
 var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
 var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
+var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
 function validateMode(mode) {
   const found = PUBLISH_MODES.find((candidate) => candidate === mode);
   if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
@@ -1371,15 +1364,16 @@ async function prepare(driver, profile2, recipe, mode) {
       status: "awaiting-confirmation",
       origin: recipe.origin,
       composeUrl: shown.url,
+      tabId: shown.activeTabId,
       profile: profile2,
       fields: recipe.fields.map((field) => ({ ...field })),
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
     },
     recipe,
-    shownTabId: shown.activeTabId,
     confirming: false,
     touchedWhilePending: false,
+    sharedPage: false,
     settled: Promise.withResolvers()
   };
 }
@@ -1396,9 +1390,10 @@ async function confirm(driver, publication) {
   publication.confirming = true;
   const { recipe } = publication;
   try {
+    if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
     const changed = await changedSinceShown(driver, publication);
     if (changed) {
-      if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+      if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
       return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
     }
     const before = new Set(await receipts(driver, recipe).catch(() => []));
@@ -1424,7 +1419,7 @@ async function confirm(driver, publication) {
 async function changedSinceShown(driver, publication) {
   try {
     const state = await driver.state();
-    if (state.activeTabId !== publication.shownTabId) return "another tab is active";
+    if (state.activeTabId !== publication.record.tabId) return "another tab is active";
     if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
     for (const field of publication.record.fields) {
       const read2 = await driver.readField(field.selector);
@@ -1449,14 +1444,20 @@ function isReceipt(url, recipe) {
   return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
 }
 function cancel(publication, error) {
-  if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
   else settle(publication, "cancelled", error === void 0 ? {} : { error });
 }
 function expireIfDue(publication) {
   if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
   if (Date.now() < Date.parse(publication.record.expiresAt)) return;
-  if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
   else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+}
+function unsureError(publication) {
+  if (publication.touchedWhilePending) return TOUCHED_ERROR;
+  return publication.sharedPage ? SHARED_ERROR : null;
 }
 async function waitSettled(publication, ms) {
   expireIfDue(publication);
@@ -1966,7 +1967,7 @@ var BrowserRuntime = class {
       refuseWhilePublishing(entry, caller);
       const action = normalizeAction(input, entry.viewport);
       const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
-      const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.shownTabId) === pinned.shownTabId ? pinned : null;
+      const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
       try {
         await entry.driver.perform(action);
         if (touching) touching.touchedWhilePending = true;
@@ -2110,6 +2111,7 @@ var BrowserRuntime = class {
       }
       const outcome = await prepare(entry.driver, entry.profile, valid, selected);
       if (!("record" in outcome)) return outcome;
+      outcome.sharedPage = entry.engine === "chrome-relay";
       entry.publish = outcome;
       return publishRecord(outcome);
     });

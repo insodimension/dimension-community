@@ -33,6 +33,9 @@ import { type ComposeVariant, type PublishFixture, startPublishFixture } from ".
 const CALLER = "ai.insodimension/caller";
 const TEXT = "first line\nsecond line — ünïcødé 🚀";
 const RICH = "rich line one\nrich line two 👋";
+/** What an outcome that would otherwise say "nothing was posted" says once the human used the page while waiting. */
+const TOUCHED = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
+const CLOSED = "The browser was closed. Nothing was submitted.";
 
 interface ToolResult {
 	isError?: boolean;
@@ -123,6 +126,16 @@ async function record(s: Session, publishId: string): Promise<PublishRecord> {
 async function humanAct(s: Session, action: BrowserAction): Promise<void> {
 	const acted = await s.call("browser_act", { browserId: s.browserId, action }, "app");
 	expect(acted.isError).toBeFalsy();
+}
+
+/**
+ * The human clicks the SITE's own Post on the pinned tab while the bar waits;
+ * returns once that submit landed and its receipt page loaded.
+ */
+async function humanPostsOnThePage(s: Session): Promise<void> {
+	await humanAct(s, { kind: "click", selector: "#post" });
+	await s.fixture.reached("/landed");
+	expect(s.fixture.submissions()).toHaveLength(1);
 }
 
 /**
@@ -567,6 +580,141 @@ describeWithChrome("browser_publish", () => {
 			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
 			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 			expect(s.fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the human posting with the site's own button while waiting makes the bar's Post unknown (may have posted), and it never submits a second time",
+		async () => {
+			const s = await session("pub-touched-confirm");
+			const parked = await post(s, "nav");
+			await humanPostsOnThePage(s);
+
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "unknown", error: TOUCHED });
+			expect(await record(s, parked.publishId)).toMatchObject({ status: "unknown", error: TOUCHED });
+			expect(s.fixture.submissions()).toHaveLength(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"cancel after the human used the page while waiting is unknown, never cancelled",
+		async () => {
+			const s = await session("pub-touched-cancel");
+			const parked = await post(s, "nav");
+			await humanPostsOnThePage(s);
+
+			const cancelled = await s.call("browser_publish_cancel", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(cancelled.structuredContent).toMatchObject({ status: "unknown", error: TOUCHED });
+			expect(s.fixture.submissions()).toHaveLength(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"scrolling and hovering the page while waiting cannot post, so a cancel after them is still cancelled",
+		async () => {
+			const s = await session("pub-looked");
+			const parked = await post(s, "nav");
+			await humanAct(s, { kind: "scroll", deltaX: 0, deltaY: 200 });
+			await humanAct(s, { kind: "hover", x: 20, y: 20 });
+
+			const cancelled = await s.call("browser_publish_cancel", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(cancelled.structuredContent?.status).toBe("cancelled");
+			expect(cancelled.structuredContent?.error).toBeUndefined();
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"an unstamped or model browser_close while a publish awaits the human is refused publish_pending and the browser stays open",
+		async () => {
+			const s = await session("pub-close-refused");
+			const parked = await post(s, "nav");
+
+			for (const caller of [undefined, "model"]) {
+				const refused = await s.call("browser_close", { browserId: s.browserId }, caller);
+				expect({ caller, isError: refused.isError }).toEqual({ caller, isError: true });
+			}
+			expect(await failureCode(() => s.runtime.close(s.browserId, "model"))).toBe("publish_pending");
+
+			// Still open: the human's Post still posts.
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the View closing the browser while a publish awaits settles it cancelled, so a waiter hears it at once",
+		async () => {
+			const s = await session("pub-close");
+			const parked = await post(s, "nav");
+			// Registered on the runtime before the close is queued (MCP handlers give no such ordering);
+			// after the close the browserId is revoked, so only an already-waiting caller can hear the outcome.
+			const waiting = s.runtime.waitPublish(s.browserId, parked.publishId, 20_000);
+
+			expect((await s.call("browser_close", { browserId: s.browserId }, "app")).isError).toBeFalsy();
+
+			expect(await waiting).toMatchObject({ status: "cancelled", error: CLOSED });
+			expect(s.fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"closing the browser after the human typed on the page while waiting is unknown, never cancelled",
+		async () => {
+			const s = await session("pub-close-touched");
+			const parked = await post(s, "nav");
+			await humanAct(s, { kind: "type", selector: "#rich", text: "the human's own edit" });
+			const waiting = s.runtime.waitPublish(s.browserId, parked.publishId, 20_000);
+
+			expect((await s.call("browser_close", { browserId: s.browserId }, "app")).isError).toBeFalsy();
+
+			expect(await waiting).toMatchObject({ status: "unknown", error: TOUCHED });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a site that keeps the text after its own submit: once the human pressed it while waiting, the bar's Post never clicks submit again",
+		async () => {
+			const s = await session("pub-touched-stay");
+			const parked = await post(s, "stay");
+			await humanAct(s, { kind: "click", selector: "#post" });
+			await s.fixture.reached("/submit");
+
+			// Today confirm finds the page unchanged, clicks, and waits out the real 20 s receipt deadline; jump it.
+			const confirmed = await racingClock(
+				() => s.fixture.submissions().length > 0,
+				s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app"),
+			);
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "unknown", error: TOUCHED });
+			// The human's one POST, and none from the bar.
+			expect(s.fixture.submissions()).toHaveLength(1);
+			expect((await counters(s.runtime, s.browserId)).clicks).toBe(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a textarea inside an open shadow root is filled, read back and posted",
+		async () => {
+			const s = await session("pub-shadow");
+			const parked = await post(s, "shadow", { fields: [{ selector: "pierce/#inner", value: TEXT }] });
+			expect((await counters(s.runtime, s.browserId)).writes).toBeGreaterThan(0);
+
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
+			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: "" }]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

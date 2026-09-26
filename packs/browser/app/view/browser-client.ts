@@ -113,6 +113,7 @@ function readPublish(tool: string, value: unknown): PublishRecord {
 		status,
 		origin: readString(value, "origin") ?? "",
 		composeUrl: readString(value, "composeUrl") ?? "",
+		tabId: readString(value, "tabId") ?? "",
 		profile: readString(value, "profile") ?? "",
 		fields,
 		createdAt: readString(value, "createdAt") ?? "",
