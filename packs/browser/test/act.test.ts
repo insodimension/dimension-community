@@ -7,6 +7,8 @@
  *  as a clean failure or quietly retried, so a purchase or form post happens
  *  twice. Also: a navigate that becomes script execution or a local file read.
  */
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
 	BROWSER_TEST_TIMEOUT_MS,
@@ -17,6 +19,7 @@ import {
 	startFixture,
 	submissionLanded,
 	teardown,
+	waitUntil,
 } from "./fixture";
 
 const VIEWPORT = { width: 800, height: 600 };
@@ -103,6 +106,50 @@ describeWithChrome("act", () => {
 			expect(fixture.hits("/js-ran")).toBe(0);
 			expect(fixture.hits("/signup")).toBe(1);
 			expect((await runtime.state(browserId)).url).toBe(fixture.url("/signup"));
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"type and insert into a password field of an origin with a saved password type the saved one, name only the origin, and elsewhere type the text as given",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-saved", viewport: VIEWPORT });
+			const origin = new URL(fixture.url("/")).origin;
+			const saved = "Saved-Pw_7#fixture";
+			await writeFile(join(rootDir, "profiles", "act-saved", "credentials.json"), JSON.stringify({ version: 1, origins: { [origin]: saved } }));
+
+			// `type` on the saved origin: the saved password lands, the model's text does not.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
+			const user = await runtime.act(browserId, { kind: "type", selector: "#user", text: "ada" });
+			expect(user.savedPassword).toBeUndefined();
+			const typed = await runtime.act(browserId, { kind: "type", selector: "#pass", text: "model-typed" });
+			expect({ status: typed.status, savedPassword: typed.savedPassword }).toEqual({ status: "completed", savedPassword: { origin } });
+			expect(JSON.stringify(typed)).not.toContain(saved);
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await submissionLanded(runtime, browserId, fixture);
+
+			// `insert` into the focused password field: the same.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
+			await perform(runtime, browserId, { kind: "click", selector: "#pass" });
+			const inserted = await runtime.act(browserId, { kind: "insert", text: "model-inserted" });
+			expect(inserted.savedPassword).toEqual({ origin });
+			await perform(runtime, browserId, { kind: "press", key: "Enter" });
+			await submissionLanded(runtime, browserId, fixture);
+
+			// Another origin (localhost, same server) has nothing saved: the text goes in as given.
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/", "localhost") });
+			const plain = await runtime.act(browserId, { kind: "type", selector: "#pass", text: "model-typed" });
+			expect(plain.savedPassword).toBeUndefined();
+			await perform(runtime, browserId, { kind: "click", selector: "#go" });
+			await waitUntil("the third form post", () => fixture.submissions().length, (count) => count === 3);
+
+			expect(fixture.submissions()).toEqual([
+				{ user: "ada", pass: saved },
+				{ user: "", pass: saved },
+				{ user: "", pass: "model-typed" },
+			]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

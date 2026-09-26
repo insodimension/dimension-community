@@ -52,7 +52,12 @@ export interface TabRequest { op: TabOp; tabId?: string; url?: string }
 export type FrameFormat = "jpeg" | "png";
 /** `failed`: provably nothing happened. `unknown`: dispatched, then errored — may have taken effect. */
 export type ActionStatus = "completed" | "failed" | "unknown";
-export interface ActionResult { status: ActionStatus; error?: string; state: BrowserState }
+/**
+ * `savedPassword`: the text went into a password field of `origin`, and the
+ * browser typed this profile's saved password for that origin instead of the
+ * text given. Never the value.
+ */
+export interface ActionResult { status: ActionStatus; error?: string; state: BrowserState; savedPassword?: { origin: string } }
 export interface TaskStep { n: number; action: string; url: string; elapsedMs: number }
 export interface TaskUsage { modelCalls: number; inputTokens: number; outputTokens: number; costUsd: number | null }
 export type TaskStatus = "running" | "done" | "blocked" | "failed" | "cancelled";
@@ -78,7 +83,7 @@ export interface TaskRun {
  * never passes through a tool argument, a result or a model call.
  */
 export interface TaskRequest { agent: TaskAgent; task: string; maxSteps?: number; credential?: CredentialRequest }
-/** One field of a publish recipe: where to type, exactly what, and an optional caption for the human. */
+/** One field of a publish recipe: where to type, exactly what, and an optional caption shown in the View. */
 export interface PublishField {
   selector: string;
   value: string;
@@ -104,7 +109,7 @@ export interface PublishRecipe {
   signedIn: string;
   /** 1-8 fields, each value at most 10 000 characters. */
   fields: PublishField[];
-  /** CSS selector clicked exactly once, only after the human confirms. */
+  /** CSS selector clicked exactly once, only on confirm. */
   submit: string;
   receipt: {
     /**
@@ -237,9 +242,9 @@ export interface BrowserRuntimePort {
   close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun>;
-  /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
+  /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
   publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef): Promise<PublishCheck | PublishRecord>;
-  /** The human's Post: re-verify, click submit exactly once, read the receipt from the page. */
+  /** The Post (the model's confirm or the View's button): re-verify, click submit exactly once, read the receipt from the page. */
   confirmPublish(browserId: string, publishId: string): Promise<PublishRecord>;
   cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;
   /** The publish's record once it is terminal or `ms` has passed, whichever is first. */

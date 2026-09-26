@@ -1,10 +1,12 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: an agent posts to a real
- *  account something the human did not approve, posts it twice, types into a
- *  password field, or reports a URL that is not the post it made. Publishing
- *  may type into a signed-in compose page and park; only the human's Post in
- *  the Browser View (a call the host stamps `caller: "app"`) submits, exactly
- *  once, after re-checking that the page still shows what the human saw; the
- *  receipt is read from the page and nothing already there counts.
+ *  account something other than what was filled and shown, posts it twice,
+ *  types into a password field, or reports a URL that is not the post it made.
+ *  Publishing may type into a signed-in compose page and park; one confirm —
+ *  the model's `browser_publish_confirm` or the View's Post (the same tool) —
+ *  submits, exactly once, after re-checking that the page still shows what the
+ *  View showed; the receipt is read from the page and nothing already there
+ *  counts. While it is parked, only the View (`caller: "app"`) may drive the
+ *  pinned page.
  *
  *  Real Chrome against a local fake site (publish-fixture.ts), driven through
  *  the real MCP server over an in-memory transport so the caller stamp is the
@@ -67,6 +69,7 @@ afterEach(async () => {
 
 interface Session {
 	call: Call;
+	client: Client;
 	runtime: BrowserRuntime;
 	browserId: string;
 	fixture: PublishFixture;
@@ -96,7 +99,7 @@ async function session(profile: string, { signIn = true, relay = false } = {}): 
 	expect(opened.isError).toBeFalsy();
 	const browserId = opened.structuredContent?.browserId as string;
 	if (signIn) await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/login") });
-	return { call, runtime, browserId, fixture };
+	return { call, client, runtime, browserId, fixture };
 }
 
 /** A headless Chrome on a throwaway profile with a DevTools port: the endpoint the relay engine attaches to. */
@@ -312,25 +315,25 @@ describeWithChrome("browser_publish", () => {
 	);
 
 	test(
-		"only an app-stamped confirm submits: none and 'model' are refused; 'app' posts once and the url is the page's navigation",
+		"the model confirms a pending publish: exactly one submit, and the url is the one the page navigated to",
 		async () => {
-			const s = await session("pub-caller");
+			const s = await session("pub-model-confirm");
 			const parked = await post(s, "nav");
-			const args = { browserId: s.browserId, publishId: parked.publishId };
-
-			for (const caller of [undefined, "model"]) {
-				expect((await s.call("browser_publish_confirm", args, caller)).isError).toBe(true);
-				expect((await s.call("browser_publish_cancel", args, caller)).isError).toBe(true);
-			}
-			expect((await record(s, parked.publishId)).status).toBe("awaiting-confirmation");
-			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
 			expect(s.fixture.hits("/submit")).toBe(0);
+			// The host shows the model every tool not marked app-only: confirm and cancel are not.
+			const tools = (await s.client.listTools()).tools.filter((t) => t.name === "browser_publish_confirm" || t.name === "browser_publish_cancel");
+			expect(tools.map((t) => ({ name: t.name, visibility: (t._meta?.ui as { visibility?: unknown } | undefined)?.visibility }))).toEqual([
+				{ name: "browser_publish_confirm", visibility: undefined },
+				{ name: "browser_publish_cancel", visibility: undefined },
+			]);
 
-			const confirmed = await s.call("browser_publish_confirm", args, "app");
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "model");
 
+			expect(confirmed.isError).toBeFalsy();
 			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
-			// What landed is exactly what the human was shown.
+			// What landed is exactly what was filled and shown, once.
 			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: RICH }]);
+			expect(s.fixture.hits("/submit")).toBe(1);
 			expect(await record(s, parked.publishId)).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
@@ -422,14 +425,14 @@ describeWithChrome("browser_publish", () => {
 	);
 
 	test(
-		"cancel ends the publish without submitting; a confirm after it is refused",
+		"the model's cancel ends the publish without submitting; a confirm after it is refused",
 		async () => {
 			const s = await session("pub-cancel");
 			const parked = await post(s, "nav");
 			const args = { browserId: s.browserId, publishId: parked.publishId };
 
-			expect((await s.call("browser_publish_cancel", args, "app")).structuredContent?.status).toBe("cancelled");
-			expect((await s.call("browser_publish_confirm", args, "app")).isError).toBe(true);
+			expect((await s.call("browser_publish_cancel", args, "model")).structuredContent?.status).toBe("cancelled");
+			expect((await s.call("browser_publish_confirm", args, "model")).isError).toBe(true);
 
 			expect((await record(s, parked.publishId)).status).toBe("cancelled");
 			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);

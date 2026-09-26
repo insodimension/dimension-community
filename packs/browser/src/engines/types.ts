@@ -85,6 +85,11 @@ export interface PageReader {
   close(): Promise<void>;
 }
 
+/** The password a profile saved for a document origin, or undefined. May throw (an unreadable store). */
+export type SavedPasswordLookup = (origin: string) => string | undefined;
+/** What `perform` did beyond the action itself: the origin whose saved password it typed, if it did. */
+export interface PerformOutcome { savedPasswordOrigin?: string }
+
 export interface EngineDriver {
   state(): Promise<EngineState>;
   /** Viewport PNG of the active tab, not a full-page image; device scale factor is one. */
@@ -100,8 +105,13 @@ export interface EngineDriver {
    * Perform one action on the active tab now, once, never retried. Throws
    * `ActionNotDispatched` when provably nothing reached the page; any other
    * error means the effect may have happened.
+   *
+   * `savedPassword`, for `type` and `insert`: when the text would land in a
+   * password input, it is asked for that input's document origin, and a value
+   * it returns is typed INSTEAD of the action's text. It is asked only then.
+   * The result names the origin whose saved password was typed, never the value.
    */
-  perform(action: BrowserAction): Promise<void>;
+  perform(action: BrowserAction, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome>;
   /**
    * Replace a field's content exactly as `perform({ kind: "type" })` does. A
    * password input is refused with `ActionNotDispatched` before any input event.

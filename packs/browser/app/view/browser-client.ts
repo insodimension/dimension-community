@@ -335,7 +335,7 @@ export class BrowserClient {
 		};
 	}
 
-	/** The human's Post. Answers the settled record: posted, failed or unknown. */
+	/** The bar's Post. Answers the settled record: posted, failed or unknown. */
 	async confirmPublish(browserId: string, publishId: string): Promise<PublishRecord> {
 		const tool = "browser_publish_confirm";
 		return readPublish(tool, await this.call(tool, { browserId, publishId }));

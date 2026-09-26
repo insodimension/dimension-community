@@ -81,6 +81,16 @@ function read(file: string): Record<string, string> {
 }
 
 /**
+ * The password this profile saved for exactly `origin`, if any; never mints
+ * one. browser_act types it instead of the text it was given when the field
+ * it types into is a password input of that origin.
+ */
+export function savedPassword(profileDir: string, origin: string): string | undefined {
+  const origins = read(join(profileDir, FILE));
+  return Object.hasOwn(origins, origin) ? origins[origin] : undefined;
+}
+
+/**
  * The password for `origin` in the profile at `profileDir`, minting and saving
  * one for a sign-up. Callers hold the profile lock, so there is one writer.
  */
@@ -92,7 +102,7 @@ export function resolveCredential(profileDir: string, request: CredentialRequest
   const saved = origins[origin];
   if (saved) return { origin, password: saved, created: false };
   if (request.mode === "login") {
-    fail("no_credential", `this profile has no saved password for ${origin}; the user signs in by hand in the View`);
+    fail("no_credential", `this profile has no saved password for ${origin}; log in with browser_act, or put the password in a browser_task`);
   }
   const password = generatePassword();
   const tmp = `${file}.${process.pid}.tmp`;

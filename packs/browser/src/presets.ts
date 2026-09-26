@@ -6,7 +6,7 @@
  * signed-in marker, labelled fields, the submit control and the receipt path.
  * `resolvePreset` fills the caller's values in, in order, and returns an
  * ordinary recipe, which then takes the one publish path (validateRecipe,
- * prepare, the human's Post). A preset adds no power a hand-written recipe
+ * prepare, one confirm). A preset adds no power a hand-written recipe
  * lacks; it only saves an agent from pasting selectors.
  *
  * `verified` is true only after a real post was observed through the preset.

@@ -1101,7 +1101,7 @@ kbd {
 	}
 }
 
-/* publish confirm bar — the human's gate on every post */
+/* publish confirm bar — Post / Cancel for a parked publish */
 
 /* The column spans the float; only its cards take the pointer. */
 .bx-float > .bx-float-column {

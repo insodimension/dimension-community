@@ -39,6 +39,7 @@ import { ActionNotDispatched, fail } from "../store.js";
 import {
 	ELEMENTS_IN_REGION_SCRIPT,
 	FAVICON_HREF_SCRIPT,
+	FOCUSED_PASSWORD_ORIGIN_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 	PAGE_TEXT_SCRIPT,
@@ -47,7 +48,7 @@ import {
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
-import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, ReadOutcome, ReadPolicy } from "./types.js";
+import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, PerformOutcome, ReadOutcome, ReadPolicy, SavedPasswordLookup } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 const ACTION_TIMEOUT_MS = 15_000;
@@ -409,6 +410,9 @@ interface DriverParts {
 	release: () => void;
 }
 
+/** An action that did nothing beyond itself. */
+const NONE: PerformOutcome = Object.freeze({});
+
 class PuppeteerDriver implements EngineDriver {
 	readonly #browser: Browser;
 	/** Every tab this driver owns, in opening order. */
@@ -602,18 +606,18 @@ class PuppeteerDriver implements EngineDriver {
 	 * the page (validation, element resolution, empty history) throws
 	 * ActionNotDispatched before the first input event.
 	 */
-	async perform(action: BrowserAction): Promise<void> {
-		await withTimeout(this.#dispatch(action), NAVIGATE_TIMEOUT_MS + 5_000, `${action.kind}`);
+	async perform(action: BrowserAction, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome> {
+		return await withTimeout(this.#dispatch(action, savedPassword), NAVIGATE_TIMEOUT_MS + 5_000, `${action.kind}`);
 	}
 
-	async #dispatch(action: BrowserAction): Promise<void> {
+	async #dispatch(action: BrowserAction, savedPassword: SavedPasswordLookup | undefined): Promise<PerformOutcome> {
 		const tab = this.#activeTab();
 		const page = tab.page;
 		switch (action.kind) {
 			case "navigate": {
 				const url = requireField(action.url, "navigate.url");
 				await navigating(tab, page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATE_TIMEOUT_MS }));
-				return;
+				return NONE;
 			}
 			case "back":
 			case "forward": {
@@ -624,20 +628,20 @@ class PuppeteerDriver implements EngineDriver {
 				}
 				const options = { waitUntil: "domcontentloaded" as const, timeout: NAVIGATE_TIMEOUT_MS };
 				await navigating(tab, action.kind === "back" ? page.goBack(options) : page.goForward(options));
-				return;
+				return NONE;
 			}
 			case "reload":
 				await navigating(tab, page.reload({ waitUntil: "domcontentloaded", timeout: NAVIGATE_TIMEOUT_MS }));
-				return;
+				return NONE;
 			case "stop":
 				await tab.cdp.send("Page.stopLoading");
 				tab.loading = false;
-				return;
+				return NONE;
 			case "click": {
 				const options = { button: action.button ?? "left", count: action.clickCount ?? 1 };
 				if (action.selector === undefined) {
 					await page.mouse.click(requireNumber(action.x, "click.x"), requireNumber(action.y, "click.y"), options);
-					return;
+					return NONE;
 				}
 				const handle = await this.#resolve(page, action.selector);
 				try {
@@ -645,18 +649,20 @@ class PuppeteerDriver implements EngineDriver {
 				} finally {
 					await handle.dispose().catch(() => undefined);
 				}
-				return;
+				return NONE;
 			}
 			case "hover":
 				await page.mouse.move(requireNumber(action.x, "hover.x"), requireNumber(action.y, "hover.y"));
-				return;
-			case "insert":
+				return NONE;
+			case "insert": {
 				// Whatever has focus receives the text as one native input operation.
-				await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
-				return;
+				const text = requireField(action.text, "insert.text");
+				const saved = await this.#savedFor(page, savedPassword);
+				await page.keyboard.sendCharacter(saved?.value ?? text);
+				return saved ? { savedPasswordOrigin: saved.origin } : NONE;
+			}
 			case "type":
-				await this.#type(page, requireField(action.selector, "type.selector"), requireField(action.text, "type.text", true), false);
-				return;
+				return await this.#type(page, requireField(action.selector, "type.selector"), requireField(action.text, "type.text", true), false, savedPassword);
 			case "select": {
 				const wanted = requireField(action.value, "select.value", true);
 				const handle = await this.#resolve(page, requireField(action.selector, "select.selector"));
@@ -673,14 +679,14 @@ class PuppeteerDriver implements EngineDriver {
 				} finally {
 					await handle.dispose().catch(() => undefined);
 				}
-				return;
+				return NONE;
 			}
 			case "press":
 				await page.keyboard.press(requireField(action.key, "press.key") as KeyInput);
-				return;
+				return NONE;
 			case "scroll":
 				await page.mouse.wheel({ deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
-				return;
+				return NONE;
 			default:
 				throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify((action as BrowserAction).kind)}`);
 		}
@@ -976,12 +982,14 @@ class PuppeteerDriver implements EngineDriver {
 	 * Replace a field's content: focus, select all, and ONE native input
 	 * operation — no transient empty value, and the text never appears in argv
 	 * or a log. `refusePassword` refuses a password input before any input event.
+	 * Otherwise, a password input that `savedPassword` knows a value for gets
+	 * that value instead of `text`.
 	 */
-	async #type(page: Page, selector: string, text: string, refusePassword: boolean): Promise<void> {
+	async #type(page: Page, selector: string, text: string, refusePassword: boolean, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome> {
 		const handle = await this.#resolve(page, selector);
 		try {
 			if (refusePassword && (await handle.evaluate(IS_PASSWORD_SCRIPT))) {
-				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} is a password field; publishing never types into one`);
+				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`);
 			}
 			await handle.focus();
 			if (!(await handle.evaluate(SELECT_ALL_SCRIPT))) {
@@ -998,13 +1006,39 @@ class PuppeteerDriver implements EngineDriver {
 			const focus = await handle.evaluate(TYPE_TARGET_SCRIPT);
 			if (focus === "elsewhere") throw new ActionNotDispatched("focus_moved", `${JSON.stringify(selector)} lost focus before typing; nothing was typed`);
 			if (refusePassword && focus === "password") {
-				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} has a password field focused; publishing never types into one`);
+				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} has a password field focused, which a publish never reads back; nothing was typed`);
 			}
-			if (text.length > 0) await page.keyboard.sendCharacter(text);
+			const saved = focus === "password" ? await this.#savedFor(page, savedPassword) : undefined;
+			const typed = saved?.value ?? text;
+			if (typed.length > 0) await page.keyboard.sendCharacter(typed);
 			else await page.keyboard.press("Backspace");
+			return saved ? { savedPasswordOrigin: saved.origin } : NONE;
 		} finally {
 			await handle.dispose().catch(() => undefined);
 		}
+	}
+
+	/**
+	 * The saved password for the focused password input's origin, or undefined
+	 * (no lookup, focus not on a password input, or nothing saved there). Only
+	 * reads, so a failure here is a certain non-event.
+	 */
+	async #savedFor(page: Page, lookup: SavedPasswordLookup | undefined): Promise<{ origin: string; value: string } | undefined> {
+		if (!lookup) return undefined;
+		let origin: string | null;
+		try {
+			origin = await page.evaluate(FOCUSED_PASSWORD_ORIGIN_SCRIPT);
+		} catch (error) {
+			throw new ActionNotDispatched("focus_unreadable", `could not tell whether the focused field is a password field; nothing was typed (${describe(error)})`);
+		}
+		if (origin === null) return undefined;
+		let value: string | undefined;
+		try {
+			value = lookup(origin);
+		} catch (error) {
+			throw new ActionNotDispatched("credentials_unreadable", describe(error));
+		}
+		return value ? { origin, value } : undefined;
 	}
 
 	/** Element resolution is read-only, so a miss here is a certain non-event. */

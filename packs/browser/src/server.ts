@@ -57,15 +57,6 @@ function callerOf(extra: CallExtra): ToolCaller | undefined {
   return caller === "app" || caller === "model" ? caller : undefined;
 }
 
-/**
- * Confirm and cancel are the HUMAN's buttons. `_meta.ui.visibility` hides them
- * from the model only where the host enforces it; a raw MCP route does not, so
- * the handler refuses any call the host did not stamp as coming from the View.
- */
-function requireAppCaller(extra: CallExtra): void {
-  if (callerOf(extra) !== "app") throw new Error("Refused: only the human can confirm or cancel a publish, from the Browser View.");
-}
-
 async function result(run: () => Promise<object>): Promise<CallToolResult> {
   try {
     const value = await run();
@@ -147,14 +138,14 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] }; }
   });
   server.registerTool("browser_act", {
-    description: "Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status \"failed\" means nothing happened; \"unknown\" means it was sent and then errored, so it may have taken effect — look at the page before retrying a submission.",
+    description: "Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status \"failed\" means nothing happened; \"unknown\" means it was sent and then errored, so it may have taken effect — look at the page before retrying a submission. Password fields: text you type lands in the transcript. For a new account prefer browser_task with credential {origin, mode: \"signup\"} (the browser generates the password and saves it in this profile, so it never enters the transcript). When this profile has a saved password for a password field's origin, type or insert into that field types the saved password instead of your text (the result says savedPassword {origin}, never the value); otherwise your text is typed as given.",
     inputSchema: { browserId: capability, action: actionSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, async ({ browserId, action }, extra) => {
     try {
       const outcome = await runtime.act(browserId, action, callerOf(extra));
       const text = outcome.status === "completed"
-        ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title })
+        ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title, ...(outcome.savedPassword ? { savedPassword: { origin: outcome.savedPassword.origin, note: "typed this profile's saved password for that origin instead of the text given" } } : {}) })
         : `${outcome.status}: ${outcome.error}`;
       return { ...(outcome.status === "completed" ? {} : { isError: true }), content: [{ type: "text" as const, text }], structuredContent: outcome as unknown as Record<string, unknown> };
     } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] }; }
@@ -191,7 +182,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     }
   };
   server.registerTool("browser_task", {
-    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task — it cannot ask you. Never put a password in task: you do not know one and must not invent one. For a jev sign-up or login pass credential {origin, mode}: the browser fills that origin's password fields itself with a password it holds for this profile — "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account the user made; the user signs in by hand in the View). The value is never shown to you, to jev or in results. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. browser_act is refused while a task runs.`,
+    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task — it cannot ask you. Sign-ups and logins are fine to hand over. For a password, prefer credential {origin, mode} (jev) over writing it in task, so it never enters the transcript: the browser fills that origin's password fields itself with a password it holds for this profile — "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account made outside the browser's credential; put that password in task, or log in with browser_act). The value is never shown to you, to jev or in results. browser-use reads password fields, so it takes no credential. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. browser_act is refused while a task runs.`,
     inputSchema: {
       browserId: capability, agent: z.enum(TASK_AGENTS), task: z.string().min(1).max(8192), maxSteps: z.number().int().min(1).max(200).optional(),
       credential: z.object({ origin: z.string().min(1).max(2048), mode: z.enum(CREDENTIAL_MODES) }).strict().optional(),
@@ -212,11 +203,11 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, ({ browserId }) => result(() => runtime.cancelTask(browserId)));
-  // Publishing: the model fills, the HUMAN posts. browser_publish never
-  // submits; only the View's Post button (browser_publish_confirm) does, once.
+  // Publishing: fill and park, then one confirm (the model's call or the View's
+  // Post button) submits exactly once. browser_publish itself never submits.
   registerAppTool(server, "browser_publish", {
     title: "Publish",
-    description: "Post through a signed-in profile, with the human confirming in the Browser View. Pass EXACTLY ONE of preset or recipe. preset (preferred; list them with browser_publish_presets): {name, values (one string per preset field, in the preset's field order), target? (only for a preset with needsTarget: the page on the preset's site to post on, e.g. the thread to comment on)}; it resolves to a recipe and takes the same path. recipe (data you supply, for a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values ≤ 10000 chars; label ≤ 40 chars is the caption the human sees, e.g. \"Post text\"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. \"/{segment}/status/{digits}\"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode \"check\": opens composeUrl and returns status \"signed-in\" or \"not-signed-in\" (then the human signs in by hand in the View; never automate a login). mode \"post\": types each value, reads it back exactly, and returns status \"awaiting-confirmation\" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). \"failed\" means nothing was submitted. Never types into password fields. Refused while a task runs.",
+    description: "Post through a signed-in profile. Pass EXACTLY ONE of preset or recipe. preset (preferred; list them with browser_publish_presets): {name, values (one string per preset field, in the preset's field order), target? (only for a preset with needsTarget: the page on the preset's site to post on, e.g. the thread to comment on)}; it resolves to a recipe and takes the same path. recipe (data you supply, for a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values ≤ 10000 chars; label ≤ 40 chars is the caption shown in the Browser View, e.g. \"Post text\"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. \"/{segment}/status/{digits}\"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode \"check\": opens composeUrl and returns status \"signed-in\" or \"not-signed-in\" (sign in first — with browser_act or browser_task, or by hand in the View — then post). mode \"post\": types each value, reads it back exactly, and returns status \"awaiting-confirmation\" with a publishId and composeUrl (where it will post). NOTHING is submitted yet: confirm it with browser_publish_confirm (or the Post button in the Browser View), or drop it with browser_publish_cancel; browser_publish_wait follows it. While it awaits confirmation the page is pinned: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). \"failed\" means nothing was submitted. A password field is never a publish field (its value is never read back, so it cannot be verified); log in with browser_act or browser_task. Refused while a task runs.",
     inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z.enum(PUBLISH_MODES) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ui: { resourceUri: BROWSER_VIEW_URI } },
@@ -233,24 +224,18 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     description: "The named publish presets browser_publish accepts as preset: {name, platform, verified, fields (the labels of the values to pass, in order), needsTarget (pass target: the page on the site to post on)}. verified false means the preset is modelled on the site's page and tested against a copy of it, not yet observed posting on the live site.",
     inputSchema: {}, annotations: READ_ONLY,
   }, () => result(async () => ({ presets: summarizePresets(presets) })));
-  registerAppTool(server, "browser_publish_confirm", {
-    description: "The human's Post: re-verify the active tab is still the one and the URL the human was shown and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
+  server.registerTool("browser_publish_confirm", {
+    description: "Post a publish awaiting confirmation (the model may call this; the Browser View's Post button calls it too): re-verify the active tab is still the one and the URL shown in the View and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
     inputSchema: { browserId: capability, publishId: capability },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: APP_ONLY,
-  }, ({ browserId, publishId }, extra) => result(async () => {
-    requireAppCaller(extra);
-    return await runtime.confirmPublish(browserId, publishId);
-  }));
-  registerAppTool(server, "browser_publish_cancel", {
-    description: "The human's Cancel: drop the pending publish without submitting anything.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  }, ({ browserId, publishId }) => result(() => runtime.confirmPublish(browserId, publishId)));
+  server.registerTool("browser_publish_cancel", {
+    description: "Drop a publish awaiting confirmation without submitting anything (the model may call this; the Browser View's Cancel button calls it too).",
     inputSchema: { browserId: capability, publishId: capability },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, _meta: APP_ONLY,
-  }, ({ browserId, publishId }, extra) => result(async () => {
-    requireAppCaller(extra);
-    return await runtime.cancelPublish(browserId, publishId);
-  }));
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, ({ browserId, publishId }) => result(() => runtime.cancelPublish(browserId, publishId)));
   server.registerTool("browser_publish_wait", {
-    description: `Follow a publish the human is confirming: returns its record as soon as it is posted (with the url read from the page), unknown (may have posted — never retry), failed (nothing submitted), cancelled or expired (not confirmed within 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
+    description: `Follow a publish awaiting confirmation: returns its record as soon as it is posted (with the url read from the page), unknown (may have posted — never retry), failed (nothing submitted), cancelled or expired (not confirmed within 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
     inputSchema: { browserId: capability, publishId: capability, waitSeconds },
     annotations: READ_ONLY,
   }, ({ browserId, publishId, waitSeconds }) => result(() => runtime.waitPublish(browserId, publishId, (waitSeconds ?? WAIT_CAP_S) * 1000)));
@@ -281,7 +266,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     inputSchema: {}, annotations: READ_ONLY, _meta: APP_ONLY,
   }, () => result(async () => ({ profiles: await runtime.profiles() })));
   server.registerTool("browser_close", {
-    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits the human's confirmation (wait with browser_publish_wait).",
+    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits confirmation (confirm or cancel it first, or wait with browser_publish_wait).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, ({ browserId }, extra) => result(async () => { await runtime.close(browserId, callerOf(extra)); return { closed: true }; }));

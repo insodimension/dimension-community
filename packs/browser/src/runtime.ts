@@ -44,10 +44,10 @@ import type {
 	Viewport,
 } from "./contracts.js";
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
-import { credentialOrigin, resolveCredential } from "./credentials.js";
+import { credentialOrigin, resolveCredential, savedPassword } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { launchReader } from "./engines/puppeteer.js";
-import type { EngineDriver, EngineState, PageReader } from "./engines/types.js";
+import type { EngineDriver, EngineState, PageReader, PerformOutcome } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
@@ -545,8 +545,14 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
 			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
 			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
+			// A password field gets this profile's saved password for its origin, if
+			// there is one, instead of the text given: the value never passes
+			// through a tool argument. Looked up only when the text lands in one.
+			const profileDir = this.store.profileDir(entry.profile);
+			const lookup = action.kind === "type" || action.kind === "insert" ? (origin: string) => savedPassword(profileDir, origin) : undefined;
+			let outcome: PerformOutcome;
 			try {
-				await entry.driver.perform(action);
+				outcome = await entry.driver.perform(action, lookup);
 				if (touching) touching.touchedWhilePending = true;
 			} catch (error) {
 				const dispatched = !(error instanceof ActionNotDispatched);
@@ -560,7 +566,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 					state: await this.buildState(entry).catch(() => this.staleState(entry)),
 				};
 			}
-			return { status: "completed", state: await this.buildState(entry) };
+			const state = await this.buildState(entry);
+			return outcome?.savedPasswordOrigin ? { status: "completed", state, savedPassword: { origin: outcome.savedPasswordOrigin } } : { status: "completed", state };
 		});
 	}
 
@@ -603,7 +610,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (request.credential !== undefined) {
 			// browser-use reads password fields like any other and would put a
 			// filled value in front of its model; only jev never reads them.
-			if (request.agent !== "jev") fail("credential_unsupported", "credential is supported with agent jev only; with browser-use the user signs in by hand in the View");
+			if (request.agent !== "jev") fail("credential_unsupported", "credential is supported with agent jev only; browser-use reads password fields, so give it the password in task or log in with browser_act");
 			credentialOrigin(request.credential?.origin);
 		}
 
@@ -690,7 +697,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	// -----------------------------------------------------------------------
-	// Publishing — fill, park for the human's Post, submit once (publish.ts)
+	// Publishing — fill, park for a confirm, submit once (publish.ts)
 	// -----------------------------------------------------------------------
 
 	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef): Promise<PublishCheck | PublishRecord> {
@@ -702,9 +709,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
 			refuseWhilePublishing(entry, caller);
-			// Even from the View: a check or a second post would navigate away from the page the human is confirming.
+			// Even from the View: a check or a second post would navigate away from the page awaiting confirmation.
 			if (isPending(entry.publish)) {
-				fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
+				fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
 			}
 			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
 			if (!("record" in outcome)) return outcome;
@@ -1035,13 +1042,14 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 
 /**
- * While the human is confirming a post, the page is theirs: only the Browser
- * View's own input ("app") may drive it. Anything else could change what the
- * human is approving between their look and their Post.
+ * While a post awaits confirmation the page is pinned: only the Browser View's
+ * own input ("app") may drive it. Anything else could change what is being
+ * confirmed between the fill and the Post. Confirm and cancel are not gated
+ * here; any caller may settle the publish.
  */
 function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
 	if (caller !== "app" && isPending(entry.publish)) {
-		fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+		fail("publish_pending", "a post awaits confirmation on this browser; confirm or cancel it (browser_publish_confirm / browser_publish_cancel) or wait with browser_publish_wait");
 	}
 }
 

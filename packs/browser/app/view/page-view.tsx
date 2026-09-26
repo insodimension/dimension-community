@@ -99,7 +99,7 @@ export interface PageViewProps {
 	readonly onAction: (action: BrowserAction) => void;
 	readonly label: string;
 	/**
-	 * A post awaits the human's confirmation: Tab and Enter stay with the View
+	 * A post awaits confirmation: Tab and Enter stay with the View
 	 * (Tab moves on into the confirm bar) instead of reaching the page, where
 	 * they could land on and press the site's own submit.
 	 */

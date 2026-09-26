@@ -172,6 +172,34 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /**
+ * The origin of the document holding the focused element, when that element
+ * is a password input; else null. Focus is followed down through open shadow
+ * roots and same-origin iframes; a cross-origin frame cannot be looked into,
+ * so it is null. `window.origin` is the real origin, inherited by srcdoc and
+ * about:blank frames. Reads only; the value is never read.
+ */
+const FOCUSED_PASSWORD_ORIGIN_SCRIPT = (): string | null => {
+	let focused: Element | null = document.activeElement;
+	for (let depth = 0; focused !== null && depth < 32; depth += 1) {
+		const shadowed: Element | null | undefined = focused.shadowRoot?.activeElement;
+		if (shadowed) {
+			focused = shadowed;
+			continue;
+		}
+		if (focused.tagName !== "IFRAME" && focused.tagName !== "FRAME") break;
+		let inner: Document | null = null;
+		try {
+			inner = (focused as HTMLIFrameElement).contentDocument;
+		} catch {
+			inner = null;
+		}
+		if (inner === null) return null;
+		focused = inner.activeElement;
+	}
+	if (focused === null || focused.tagName !== "INPUT" || ((focused as HTMLInputElement).type ?? "").toLowerCase() !== "password") return null;
+	return focused.ownerDocument.defaultView?.origin ?? null;
+};
+/**
  * An input/textarea's `.value`, or a contenteditable's text minus one trailing
  * newline. An editor that keeps one `<p>` per line (ProseMirror, Quill,
  * Lexical) reads as those lines joined by one newline each: `innerText` would
@@ -242,6 +270,7 @@ export {
 	FAVICON_HREF_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	TYPE_TARGET_SCRIPT,
+	FOCUSED_PASSWORD_ORIGIN_SCRIPT,
 	READ_FIELD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 };
