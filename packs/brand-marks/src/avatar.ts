@@ -6,7 +6,7 @@
 // is the source of truth; the few shapes this pack reads are mirrored below,
 // because a pack bundles its own copy and must import nothing).
 //
-// ONE bundle, FOUR avatars: the manifest declares four `avatar` components off
+// ONE bundle, TEN avatars: the manifest declares ten `avatar` components off
 // this single entry, and the host writes `data-avatar="<component id>"` on
 // `#fraym-pack-root` so the module knows which one it is.
 //
@@ -173,7 +173,7 @@ function mount(root: HTMLElement, mark: Mark): (presence: Presence | undefined, 
 		// color-scheme differs from its embedder's gets an OPAQUE canvas, which
 		// would paint a dark box behind a light-theme mark.
 		if (theme) document.documentElement.style.colorScheme = mode;
-		// X's brand colour IS its mono ink, so its tint follows the theme.
+		// A mono mark's (X, Threads, TikTok) brand colour IS its ink, so its tint follows the theme.
 		stage.style.setProperty("--bm-tint", mark.fill === "theme" ? (mode === "dark" ? "#FFFFFF" : "#000000") : mark.hex);
 
 		// No presence offered yet reads as rest, never as a guessed state.

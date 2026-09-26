@@ -1,7 +1,8 @@
 # Brand Marks
 
-Four presence avatars ("Vibrs") for Dimension's well-known `avatar` slot — **X**,
-**Reddit**, **YouTube** and **Discord** — shipped from ONE bundle. Each paints the
+Ten presence avatars ("Vibrs") for Dimension's well-known `avatar` slot — **X**,
+**Reddit**, **YouTube**, **Discord**, **Y Combinator**, **Product Hunt**, **Bluesky**,
+**Threads**, **Instagram** and **TikTok** — shipped from ONE bundle. Each paints the
 brand's official mark and follows the session with container-only motion.
 
 > The pack's code is MIT. The **marks are trademarks of their owners** and are not
@@ -9,7 +10,7 @@ brand's official mark and follows the session with container-only motion.
 
 ## How the host runs it
 
-`plugin.json` declares four components off one entry (`dist/avatar.js`), each with
+`plugin.json` declares ten components off one entry (`dist/avatar.js`), each with
 `slot: "avatar"`. The engine publishes each as a presence record
 `plugin:brand-marks/<id>`; the host mounts the bundle in a sandboxed iframe
 (`allow-scripts allow-popups`, opaque origin) navigated to the engine's
@@ -22,7 +23,7 @@ the bundle itself and posts its SOURCE to the shell, which imports it from a
 The host writes the component id onto the root it hands the bundle:
 
 ```ts
-document.getElementById("fraym-pack-root")?.dataset.avatar; // "x" | "reddit" | "youtube" | "discord"
+document.getElementById("fraym-pack-root")?.dataset.avatar; // a MarkId: "x" | "reddit" | "youtube" | "discord" | "ycombinator" | …
 ```
 
 No attribute → the first mark (`x`). An unknown id → the bundle posts an `error`
@@ -37,7 +38,7 @@ against.
 - host → pack: `init` with `channels: { theme?, presence? }`, then `state` frames
   (`channel`, `value`) on every change. Frames without the brand or with `v > 5` are
   ignored; a malformed payload is ignored; an absent channel means "not offered".
-- `theme.mode` (`dark` / `light`) picks X's white-on-dark or black-on-light variant and
+- `theme.mode` (`dark` / `light`) picks the mono marks' (X, Threads, TikTok) white-on-dark or black-on-light variant and
   is declared as the document's `color-scheme`. Before a theme arrives: dark.
 - `presence`: `state`, `mode`, `energy`, `emotion`, plus the cost contract
   (`motion`, `gateOpen`, `fpsCap`).

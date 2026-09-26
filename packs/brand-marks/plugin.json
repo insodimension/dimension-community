@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "brand-marks",
-	"version": "0.1.0",
-	"description": "Brand Marks — four presence avatars (X, Reddit, YouTube, Discord) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
+	"version": "0.2.0",
+	"description": "Brand Marks — ten presence avatars (X, Reddit, YouTube, Discord, Y Combinator, Product Hunt, Bluesky, Threads, Instagram, TikTok) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -45,6 +45,36 @@
 					"id": "discord",
 					"slot": "avatar",
 					"label": "Discord"
+				},
+				{
+					"id": "ycombinator",
+					"slot": "avatar",
+					"label": "Y Combinator"
+				},
+				{
+					"id": "producthunt",
+					"slot": "avatar",
+					"label": "Product Hunt"
+				},
+				{
+					"id": "bluesky",
+					"slot": "avatar",
+					"label": "Bluesky"
+				},
+				{
+					"id": "threads",
+					"slot": "avatar",
+					"label": "Threads"
+				},
+				{
+					"id": "instagram",
+					"slot": "avatar",
+					"label": "Instagram"
+				},
+				{
+					"id": "tiktok",
+					"slot": "avatar",
+					"label": "TikTok"
 				}
 			]
 		}

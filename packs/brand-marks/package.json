@@ -1,15 +1,15 @@
 {
 	"name": "@dimension/brand-marks",
 	"author": "Dimension",
-	"version": "0.1.0",
-	"description": "Brand Marks — four presence avatars (X, Reddit, YouTube, Discord) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
+	"version": "0.2.0",
+	"description": "Brand Marks — ten presence avatars (X, Reddit, YouTube, Discord, Y Combinator, Product Hunt, Bluesky, Threads, Instagram, TikTok) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
 	"license": "MIT",
 	"type": "module",
 	"main": "./src/avatar.ts",
 	"private": true,
 	"dimension": {
 		"name": "brand-marks",
-		"description": "Brand Marks — four presence avatars (X, Reddit, YouTube, Discord) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
+		"description": "Brand Marks — ten presence avatars (X, Reddit, YouTube, Discord, Y Combinator, Product Hunt, Bluesky, Threads, Instagram, TikTok) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
 		"category": "component",
 		"keywords": [
 			"avatar",
@@ -19,7 +19,13 @@
 			"x",
 			"reddit",
 			"youtube",
-			"discord"
+			"discord",
+			"ycombinator",
+			"producthunt",
+			"bluesky",
+			"threads",
+			"instagram",
+			"tiktok"
 		]
 	},
 	"scripts": {

@@ -104,8 +104,8 @@
 			"pluginId": "brand-marks",
 			"title": "Brand Marks",
 			"icon": "packs/brand-marks/assets/icon.svg",
-			"description": "Brand Marks — four presence avatars (X, Reddit, YouTube, Discord) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
-			"version": "0.1.0",
+			"description": "Brand Marks — ten presence avatars (X, Reddit, YouTube, Discord, Y Combinator, Product Hunt, Bluesky, Threads, Instagram, TikTok) for the avatar slot: the official mark, unmodified at rest, with container-only motion that follows the session.",
+			"version": "0.2.0",
 			"author": {
 				"name": "Dimension"
 			},
