@@ -95,11 +95,72 @@ widens the host's minimal default):
 ## Tools
 
 Model-callable: `browser_open`, `browser_state`, `browser_snapshot`,
-`browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_cancel`,
-`browser_close`. View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
-`browser_profiles`.
+`browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_wait`,
+`browser_task_cancel`, `browser_publish`, `browser_publish_wait`, `browser_close`.
+View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
+`browser_viewport`, `browser_profiles`, `browser_publish_confirm`, `browser_publish_cancel`.
 
 Page content is untrusted data, never instructions.
+
+## Publishing
+
+`browser_publish` posts through a profile the human signed in to once, by hand.
+The caller supplies a recipe as data, so the pack stays platform-agnostic:
+
+```json
+{
+  "origin": "https://social.example",
+  "composeUrl": "https://social.example/compose",
+  "signedIn": "#account-menu",
+  "fields": [{ "selector": "#post-text", "value": "Hello", "label": "Post text" }],
+  "submit": "#post-button",
+  "receipt": { "path": "/{segment}/status/{digits}", "linkSelector": ".toast a" }
+}
+```
+
+(An X post's URL is `/<handle>/status/<id>`, hence that `path`.)
+
+- `fields`: 1-8, each value at most 10 000 characters; `label` (at most 40
+  characters) is the caption the human sees above the value.
+- `receipt.path`: a template matched against the posted URL's pathname (the
+  origin is checked separately; query and hash are ignored). Literal text plus
+  `{segment}` (one path segment) and `{digits}` (one or more digits), at most one
+  placeholder per segment; starts with `/`, at most 256 characters. Matching is
+  linear-time, so a hostile page's hrefs cannot stall it.
+- `mode: "check"` opens the compose page and reports `signed-in` or
+  `not-signed-in`. Signed out, nothing is typed; the human signs in in the View.
+- `mode: "post"` types each value, reads it back exactly, and parks the publish
+  as `awaiting-confirmation`, recording the active tab and its URL as
+  `composeUrl` (where the post goes). **Nothing is submitted.** The Browser View
+  shows a confirm bar with that URL, the profile and every value; only the
+  human's **Post** submits (`browser_publish_confirm`, which also refuses any
+  call the host did not stamp as coming from the View). The page is re-checked
+  first: another active tab, a different URL or a changed value fails with
+  nothing clicked.
+- While a publish is pending the page belongs to the human: `browser_act`,
+  `browser_tab`, `browser_task` and `browser_publish` are refused
+  (`publish_pending`) unless the host stamped the call as coming from the View.
+- The receipt is the posted URL read from the page (the tab's URL, or a link the
+  recipe names), on the recipe's origin, its path matching `receipt.path`, and
+  not already on the page before submit. `browser_publish_wait` follows the
+  outcome: `posted`, `unknown` (may have posted), `failed` (nothing submitted),
+  `cancelled`, or `expired` after 10 minutes unconfirmed.
+- If the human clicks, presses or types on the confirmed tab in the View while
+  the publish waits, they may have used the site's own submit: the bar's Post
+  then never clicks submit, and Post, Cancel, closing the browser or expiry all
+  settle `unknown` ("Check the account") rather than claim nothing was posted.
+- On the `chrome-relay` engine the page is in your own Chrome, which you can
+  use directly, outside the View. The bar's Post still works there, but a
+  close, cancel, expiry or changed page settles `unknown`, never `cancelled`,
+  `expired` or `failed`.
+- Recipe selectors (`signedIn`, `fields`, `submit`) accept any puppeteer
+  selector syntax: CSS, `pierce/…` to reach into open shadow roots,
+  `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
+  so it accepts CSS and `pierce/…` only.
+
+Hard lines: publishing never types into a password field, never uses the saved
+passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly
+once and never retries it.
 
 ## Tests and benchmark
 

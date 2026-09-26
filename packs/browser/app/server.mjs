@@ -14,9 +14,10 @@ var BROWSER_ENGINES = ["chromium", "chrome-relay", "abp", "browser4"];
 var TASK_AGENTS = ["jev", "browser-use"];
 var CREDENTIAL_MODES = ["signup", "login"];
 var MAX_ANNOTATION_BYTES = 2097152;
+var PUBLISH_MODES = ["check", "post"];
 
 // src/runtime.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { join as join4 } from "node:path";
 
 // src/credentials.ts
@@ -454,6 +455,58 @@ var FAVICON_HREF_SCRIPT = () => {
   }
   return null;
 };
+var IS_PASSWORD_SCRIPT = (el) => el.tagName === "INPUT" && (el.type ?? "").toLowerCase() === "password";
+var TYPE_TARGET_SCRIPT = (el) => {
+  const active = el.getRootNode().activeElement ?? null;
+  if (active === null) return "elsewhere";
+  const aimed = active === el || el.isContentEditable && el.contains(active);
+  if (!aimed) return "elsewhere";
+  let focused = active;
+  while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+  return focused.tagName === "INPUT" && (focused.type ?? "").toLowerCase() === "password" ? "password" : "ok";
+};
+var READ_FIELD_SCRIPT = (el) => {
+  if (el.tagName === "INPUT") {
+    const input = el;
+    if ((input.type ?? "").toLowerCase() === "password") return { state: "password" };
+    return { state: "value", value: input.value };
+  }
+  if (el.tagName === "TEXTAREA") return { state: "value", value: el.value };
+  const html = el;
+  if (!html.isContentEditable) return { state: "not-editable" };
+  const text = html.innerText;
+  return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
+};
+var LINK_HREFS_SCRIPT = (selector3, limit) => {
+  const out = [];
+  const collect = (root, css2) => {
+    const matches = root.querySelectorAll(css2);
+    for (let i = 0; i < matches.length && out.length < limit; i += 1) {
+      const raw = matches[i].getAttribute("href");
+      if (raw === null) continue;
+      try {
+        out.push(new URL(raw, document.baseURI).href);
+      } catch {
+      }
+    }
+  };
+  if (!selector3.startsWith("pierce/")) {
+    collect(document, selector3);
+    return out;
+  }
+  const css = selector3.slice("pierce/".length);
+  const roots = [document];
+  for (let r = 0; r < roots.length && out.length < limit; r += 1) {
+    collect(roots[r], css);
+    if (out.length >= limit) break;
+    const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const shadow = node.shadowRoot;
+      if (shadow) roots.push(shadow);
+    }
+  }
+  return out;
+};
 
 // src/engines/puppeteer.ts
 var NAVIGATE_TIMEOUT_MS = 3e4;
@@ -702,6 +755,35 @@ var PuppeteerDriver = class {
     return await this.#activeTab().page.evaluate(ELEMENTS_IN_REGION_SCRIPT, region, limit);
   }
   // -----------------------------------------------------------------------
+  // Publish — reads with fixed scripts, and one guarded fill
+  // -----------------------------------------------------------------------
+  async fill(selector3, text) {
+    await withTimeout(this.#type(this.#activeTab().page, selector3, text, true), ACTION_TIMEOUT_MS + 5e3, "fill");
+  }
+  // Publish reads: hasElement/readField resolve the selector through
+  // puppeteer's own query handlers (so `pierce/` reaches into shadow roots),
+  // then run a fixed data-only script on the element handle. linkHrefs runs one
+  // fixed script that takes the selector as a data argument (CSS or `pierce/`
+  // only). No selector ever becomes page code.
+  async hasElement(selector3) {
+    const handle = await this.#activeTab().page.$(selector3);
+    if (handle === null) return false;
+    await handle.dispose().catch(() => void 0);
+    return true;
+  }
+  async readField(selector3) {
+    const handle = await this.#activeTab().page.$(selector3);
+    if (handle === null) return { state: "absent" };
+    try {
+      return await handle.evaluate(READ_FIELD_SCRIPT);
+    } finally {
+      await handle.dispose().catch(() => void 0);
+    }
+  }
+  async linkHrefs(selector3, limit) {
+    return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector3, limit);
+  }
+  // -----------------------------------------------------------------------
   // Actions
   // -----------------------------------------------------------------------
   /**
@@ -761,27 +843,9 @@ var PuppeteerDriver = class {
       case "insert":
         await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
         return;
-      case "type": {
-        const text = requireField(action.text, "type.text", true);
-        const handle = await this.#resolve(page, requireField(action.selector, "type.selector"));
-        try {
-          await handle.focus();
-          if (!await handle.evaluate(SELECT_ALL_SCRIPT)) {
-            const modifier = process.platform === "darwin" ? "Meta" : "Control";
-            await page.keyboard.down(modifier);
-            try {
-              await page.keyboard.press("KeyA");
-            } finally {
-              await page.keyboard.up(modifier);
-            }
-          }
-          if (text.length > 0) await page.keyboard.sendCharacter(text);
-          else await page.keyboard.press("Backspace");
-        } finally {
-          await handle.dispose().catch(() => void 0);
-        }
+      case "type":
+        await this.#type(page, requireField(action.selector, "type.selector"), requireField(action.text, "type.text", true), false);
         return;
-      }
       case "select": {
         const wanted = requireField(action.value, "select.value", true);
         const handle = await this.#resolve(page, requireField(action.selector, "select.selector"));
@@ -1060,10 +1124,42 @@ var PuppeteerDriver = class {
     this.#assertOpen();
     return await send();
   }
+  /**
+   * Replace a field's content: focus, select all, and ONE native input
+   * operation — no transient empty value, and the text never appears in argv
+   * or a log. `refusePassword` refuses a password input before any input event.
+   */
+  async #type(page, selector3, text, refusePassword) {
+    const handle = await this.#resolve(page, selector3);
+    try {
+      if (refusePassword && await handle.evaluate(IS_PASSWORD_SCRIPT)) {
+        throw new ActionNotDispatched("password_field", `${JSON.stringify(selector3)} is a password field; publishing never types into one`);
+      }
+      await handle.focus();
+      if (!await handle.evaluate(SELECT_ALL_SCRIPT)) {
+        const modifier = process.platform === "darwin" ? "Meta" : "Control";
+        await page.keyboard.down(modifier);
+        try {
+          await page.keyboard.press("KeyA");
+        } finally {
+          await page.keyboard.up(modifier);
+        }
+      }
+      const focus = await handle.evaluate(TYPE_TARGET_SCRIPT);
+      if (focus === "elsewhere") throw new ActionNotDispatched("focus_moved", `${JSON.stringify(selector3)} lost focus before typing; nothing was typed`);
+      if (refusePassword && focus === "password") {
+        throw new ActionNotDispatched("password_field", `${JSON.stringify(selector3)} has a password field focused; publishing never types into one`);
+      }
+      if (text.length > 0) await page.keyboard.sendCharacter(text);
+      else await page.keyboard.press("Backspace");
+    } finally {
+      await handle.dispose().catch(() => void 0);
+    }
+  }
   /** Element resolution is read-only, so a miss here is a certain non-event. */
-  async #resolve(page, selector2) {
-    const handle = await page.waitForSelector(selector2, { timeout: ACTION_TIMEOUT_MS }).catch(() => null);
-    if (!handle) throw new ActionNotDispatched("no_element", `selector ${JSON.stringify(selector2)} did not resolve to an element`);
+  async #resolve(page, selector3) {
+    const handle = await page.waitForSelector(selector3, { timeout: ACTION_TIMEOUT_MS }).catch(() => null);
+    if (!handle) throw new ActionNotDispatched("no_element", `selector ${JSON.stringify(selector3)} did not resolve to an element`);
     return handle;
   }
 };
@@ -1127,6 +1223,305 @@ function assertEngineAvailable(engine) {
 function createEngineDriver(engine, options) {
   assertEngineAvailable(engine);
   return createPuppeteerDriver(engine === "chrome-relay" ? "chrome-relay" : "chromium", options);
+}
+
+// src/publish.ts
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { setTimeout as sleep2 } from "node:timers/promises";
+var MAX_FIELDS = 8;
+var MAX_VALUE_CHARS = 1e4;
+var MAX_LABEL_CHARS = 40;
+var MAX_SELECTOR_CHARS = 512;
+var MAX_PATH_CHARS = 256;
+var MAX_URL_CHARS = 2048;
+var MAX_RECEIPT_LINKS = 5e3;
+var SIGNED_IN_WAIT_MS = 15e3;
+var RECEIPT_WAIT_MS = 2e4;
+var PUBLISH_PENDING_MS = 10 * 6e4;
+var POLL_MS = 250;
+var LOOPBACK_HOSTS = ["127.0.0.1", "localhost"];
+var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
+var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
+var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
+function validateMode(mode) {
+  const found = PUBLISH_MODES.find((candidate) => candidate === mode);
+  if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
+  return found;
+}
+function validateRecipe(input) {
+  if (!isObject(input)) fail("bad_recipe", "recipe must be an object");
+  const origin = parseOrigin(input.origin);
+  const compose = parseUrl(input.composeUrl, "composeUrl");
+  if (compose.origin !== origin) fail("bad_recipe", `composeUrl must be on ${origin}, got ${compose.origin}`);
+  if (!Array.isArray(input.fields) || input.fields.length === 0 || input.fields.length > MAX_FIELDS) {
+    fail("bad_recipe", `fields must hold 1-${MAX_FIELDS} entries`);
+  }
+  const fields = input.fields.map((field, index) => {
+    if (!isObject(field)) fail("bad_recipe", `fields[${index}] must be an object`);
+    if (typeof field.value !== "string" || field.value.length > MAX_VALUE_CHARS) {
+      fail("bad_recipe", `fields[${index}].value must be a string of at most ${MAX_VALUE_CHARS} characters`);
+    }
+    if (field.label !== void 0 && (typeof field.label !== "string" || field.label.trim().length === 0 || field.label.length > MAX_LABEL_CHARS)) {
+      fail("bad_recipe", `fields[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
+    }
+    return {
+      selector: selector(field.selector, `fields[${index}].selector`),
+      value: field.value,
+      ...field.label === void 0 ? {} : { label: field.label.trim() }
+    };
+  });
+  const receipt = input.receipt;
+  if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
+  const path = receiptPath(receipt.path);
+  return {
+    origin,
+    composeUrl: compose.href,
+    signedIn: selector(input.signedIn, "signedIn"),
+    fields,
+    submit: selector(input.submit, "submit"),
+    receipt: {
+      path,
+      ...receipt.linkSelector === void 0 ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }
+    },
+    matchesPath: compilePath(path)
+  };
+}
+var PLACEHOLDERS = { segment: "[^/]+", digits: "[0-9]+" };
+var TEMPLATE_TOKEN = /\{([^{}]*)\}|[{}]|[.*+?^$()|[\]\\]/g;
+function receiptPath(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.length > MAX_PATH_CHARS) {
+    fail("bad_recipe", `receipt.path must start with "/" and be at most ${MAX_PATH_CHARS} characters`);
+  }
+  return value;
+}
+function compilePath(path) {
+  const segments = path.split("/").map((segment, index) => {
+    let placeholders = 0;
+    const source = segment.replace(TEMPLATE_TOKEN, (token, placeholder) => {
+      if (placeholder === void 0) {
+        if (token === "{" || token === "}") fail("bad_recipe", `receipt.path has an unmatched brace in segment ${index}`);
+        return `\\${token}`;
+      }
+      const pattern2 = Object.hasOwn(PLACEHOLDERS, placeholder) ? PLACEHOLDERS[placeholder] : void 0;
+      if (pattern2 === void 0) fail("bad_recipe", `receipt.path placeholder {${placeholder}} is unknown; use {segment} or {digits}`);
+      placeholders += 1;
+      return pattern2;
+    });
+    if (placeholders > 1) fail("bad_recipe", "receipt.path allows at most one placeholder per segment");
+    return source;
+  });
+  const pattern = new RegExp(`^${segments.join("/")}$`);
+  return (pathname) => pattern.test(pathname);
+}
+function parseOrigin(value) {
+  const url = parseUrl(value, "origin");
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `origin must be a bare origin such as https://example.com`);
+  return url.origin;
+}
+function parseUrl(value, name) {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_URL_CHARS) {
+    fail("bad_recipe", `${name} must be a URL of at most ${MAX_URL_CHARS} characters`);
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    fail("bad_recipe", `${name} ${JSON.stringify(value)} is not an absolute URL`);
+  }
+  if (url.username || url.password) fail("bad_recipe", `${name} must not carry credentials`);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname))) {
+    fail("bad_recipe", `${name} must be https (http only for 127.0.0.1 and localhost)`);
+  }
+  return url;
+}
+function selector(value, name) {
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > MAX_SELECTOR_CHARS) {
+    fail("bad_recipe", `${name} must be a non-empty CSS selector of at most ${MAX_SELECTOR_CHARS} characters`);
+  }
+  return value.trim();
+}
+async function prepare(driver, profile2, recipe, mode) {
+  try {
+    await driver.perform({ kind: "navigate", url: recipe.composeUrl });
+  } catch (error) {
+    return { status: "failed", url: await currentUrl(driver), profile: profile2, error: `could not open the compose page: ${describe2(error)}` };
+  }
+  const deadline = Date.now() + SIGNED_IN_WAIT_MS;
+  let signedIn = false;
+  while (!signedIn) {
+    signedIn = originOf2(await currentUrl(driver)) === recipe.origin && await driver.hasElement(recipe.signedIn).catch(() => false);
+    if (signedIn || Date.now() >= deadline) break;
+    await sleep2(POLL_MS);
+  }
+  const url = await currentUrl(driver);
+  if (!signedIn) return { status: "not-signed-in", url, profile: profile2 };
+  if (mode === "check") return { status: "signed-in", url, profile: profile2 };
+  for (const field of recipe.fields) {
+    const failed = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted` });
+    const before = await driver.readField(field.selector).catch((error) => ({ state: "error", error }));
+    if (before.state === "error") return failed(`could not read ${JSON.stringify(field.selector)}: ${describe2(before.error)}`);
+    if (before.state === "absent") return failed(`${JSON.stringify(field.selector)} is not on the page`);
+    if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field; publishing never types into one`);
+    if (before.state === "not-editable") return failed(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
+    try {
+      await driver.fill(field.selector, field.value);
+    } catch (error) {
+      return failed(`typing into ${JSON.stringify(field.selector)} failed: ${describe2(error)}`);
+    }
+    const after = await driver.readField(field.selector).catch(() => null);
+    if (after?.state !== "value" || after.value !== field.value) {
+      return failed(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
+    }
+  }
+  const shown = await driver.state().catch(() => null);
+  if (!shown || originOf2(shown.url) !== recipe.origin) {
+    return { status: "failed", url: shown?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
+  }
+  const now = Date.now();
+  return {
+    record: {
+      publishId: randomBytes2(16).toString("hex"),
+      status: "awaiting-confirmation",
+      origin: recipe.origin,
+      composeUrl: shown.url,
+      tabId: shown.activeTabId,
+      profile: profile2,
+      fields: recipe.fields.map((field) => ({ ...field })),
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
+    },
+    recipe,
+    confirming: false,
+    touchedWhilePending: false,
+    sharedPage: false,
+    settled: Promise.withResolvers()
+  };
+}
+function requirePending(publication, publishId) {
+  if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+  expireIfDue(publication);
+  const { status } = publication.record;
+  if (status !== "awaiting-confirmation" || publication.confirming) {
+    fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status}`);
+  }
+  return publication;
+}
+async function confirm(driver, publication) {
+  publication.confirming = true;
+  const { recipe } = publication;
+  try {
+    if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+    const changed = await changedSinceShown(driver, publication);
+    if (changed) {
+      if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
+      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+    }
+    const before = new Set(await receipts(driver, recipe).catch(() => []));
+    try {
+      await driver.perform({ kind: "click", selector: recipe.submit });
+    } catch (error) {
+      if (error instanceof ActionNotDispatched) {
+        const unsure = unsureError(publication);
+        if (unsure) return settle(publication, "unknown", { error: unsure });
+        return settle(publication, "failed", { error: `submit was not clicked: ${describe2(error)}; nothing was submitted` });
+      }
+      return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe2(error)})` });
+    }
+    const deadline = Date.now() + RECEIPT_WAIT_MS;
+    while (Date.now() < deadline) {
+      const found = (await receipts(driver, recipe).catch(() => [])).find((url) => !before.has(url));
+      if (found) return settle(publication, "posted", { url: found });
+      await sleep2(POLL_MS);
+    }
+    settle(publication, "unknown", { error: "submitted, but no receipt was seen, so it may have posted; never retried" });
+  } catch (error) {
+    settle(publication, "unknown", { error: `publishing errored, so it may have posted; never retried (${describe2(error)})` });
+  }
+}
+async function changedSinceShown(driver, publication) {
+  try {
+    const state = await driver.state();
+    if (state.activeTabId !== publication.record.tabId) return "another tab is active";
+    if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
+    for (const field of publication.record.fields) {
+      const read2 = await driver.readField(field.selector);
+      if (read2.state !== "value" || read2.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
+    }
+    return null;
+  } catch (error) {
+    return `the page could not be re-read (${describe2(error)})`;
+  }
+}
+async function receipts(driver, recipe) {
+  const candidates = recipe.receipt.linkSelector === void 0 ? [(await driver.state()).url] : await driver.linkHrefs(recipe.receipt.linkSelector, MAX_RECEIPT_LINKS);
+  return candidates.filter((url) => url.length <= MAX_URL_CHARS && isReceipt(url, recipe));
+}
+function isReceipt(url, recipe) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
+}
+function cancel(publication, error) {
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
+  else settle(publication, "cancelled", error === void 0 ? {} : { error });
+}
+function expireIfDue(publication) {
+  if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
+  if (Date.now() < Date.parse(publication.record.expiresAt)) return;
+  const unsure = unsureError(publication);
+  if (unsure) settle(publication, "unknown", { error: unsure });
+  else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+}
+function unsureError(publication) {
+  if (publication.touchedWhilePending) return TOUCHED_ERROR;
+  return publication.sharedPage ? SHARED_ERROR : null;
+}
+async function waitSettled(publication, ms) {
+  expireIfDue(publication);
+  if (TERMINAL.includes(publication.record.status)) return;
+  const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
+  const { promise: elapsed, resolve: resolve3 } = Promise.withResolvers();
+  const timer = setTimeout(resolve3, Math.max(0, publication.confirming ? ms : Math.min(ms, untilExpiry)));
+  await Promise.race([publication.settled.promise, elapsed]);
+  clearTimeout(timer);
+  expireIfDue(publication);
+}
+function publishRecord(publication) {
+  expireIfDue(publication);
+  const { record } = publication;
+  return { ...record, fields: record.fields.map((field) => ({ ...field })) };
+}
+function isPending(publication) {
+  if (!publication) return false;
+  expireIfDue(publication);
+  return publication.record.status === "awaiting-confirmation";
+}
+function settle(publication, status, detail) {
+  if (TERMINAL.includes(publication.record.status)) return;
+  Object.assign(publication.record, { status }, detail);
+  publication.confirming = false;
+  publication.settled.resolve();
+}
+async function currentUrl(driver) {
+  return (await driver.state().catch(() => null))?.url ?? "";
+}
+function originOf2(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function describe2(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 // src/task.ts
@@ -1227,7 +1622,7 @@ var MAX_SNAPSHOT_CHARS = 2e4;
 var MAX_ELEMENT_CHARS = 4e3;
 var MAX_TEXT_INPUT = 4096;
 var MAX_NOTE_CHARS = 8192;
-var MAX_SELECTOR_CHARS = 512;
+var MAX_SELECTOR_CHARS2 = 512;
 var MAX_TAB_ID_CHARS = 128;
 var MOUSE_BUTTONS = ["left", "right", "middle"];
 var MAX_URL_LENGTH = 2048;
@@ -1258,6 +1653,7 @@ var NAMED_KEYS = {
   PageDown: true,
   Space: true
 };
+var TOUCHING_KINDS = { click: true, press: true, type: true, insert: true };
 var BrowserRuntime = class {
   store;
   options;
@@ -1344,7 +1740,7 @@ var BrowserRuntime = class {
       const initial = await driver.state();
       if (released) fail("browser_closed", "The browser closed during initialization.");
       entry = {
-        browserId: randomBytes2(24).toString("base64url"),
+        browserId: randomBytes3(24).toString("base64url"),
         profile: profile2,
         engine,
         viewport: initial.viewport,
@@ -1356,7 +1752,8 @@ var BrowserRuntime = class {
         queue: Promise.resolve(),
         closed: false,
         task: null,
-        worker: null
+        worker: null,
+        publish: null
       };
       this.byId.set(entry.browserId, entry);
       this.byProfile.set(profile2, entry);
@@ -1374,14 +1771,19 @@ var BrowserRuntime = class {
       throw error;
     }
   }
-  async close(browserId) {
+  /** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+  async close(browserId, caller) {
     const entry = this.byId.get(browserId);
     if (!entry) fail("unknown_browser", "Unknown or already closed browserId.");
-    await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true });
+    await this.serialize(entry, async () => {
+      if (!entry.closed) refuseWhilePublishing(entry, caller);
+      await this.teardown(entry);
+    }, { evenIfClosed: true });
   }
   /** Retain ownership and the lock until the driver confirms shutdown. */
   async teardown(entry) {
     if (this.byId.get(entry.browserId) !== entry) return;
+    settleOnClose(entry);
     entry.closed = true;
     entry.frames.length = 0;
     await this.stopTask(entry);
@@ -1394,7 +1796,7 @@ var BrowserRuntime = class {
     const errors = [];
     for (const entry of [...this.byId.values()]) {
       await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true }).catch(
-        (err) => errors.push(describe2(err))
+        (err) => errors.push(describe3(err))
       );
     }
     for (const orphan of [...this.stranded]) {
@@ -1403,13 +1805,14 @@ var BrowserRuntime = class {
         orphan.release();
         this.stranded.delete(orphan);
       } catch (err) {
-        errors.push(describe2(err));
+        errors.push(describe3(err));
       }
     }
     if (errors.length > 0) fail("dispose_incomplete", `some browsers did not shut down cleanly: ${errors.join("; ")}`);
   }
   /** Drop in-memory state and make the capability dead. Does NOT free the lock. */
   detach(entry) {
+    settleOnClose(entry);
     entry.closed = true;
     entry.frames.length = 0;
     entry.worker?.process.cancel();
@@ -1450,7 +1853,7 @@ var BrowserRuntime = class {
         fail("frame_too_large", `screenshot is ${bytes.length} bytes, above the ${MAX_FRAME_BYTES} byte limit`);
       }
       const record = {
-        id: randomBytes2(12).toString("hex"),
+        id: randomBytes3(12).toString("hex"),
         bytes,
         url,
         revision,
@@ -1542,7 +1945,7 @@ var BrowserRuntime = class {
    * Refused while a task runs: switching away from the agent's tab hides it,
    * and a hidden tab renders no frames, so the agent would stall.
    */
-  async tab(browserId, request) {
+  async tab(browserId, request, caller) {
     const entry = this.require(browserId);
     if (!request || typeof request !== "object") fail("bad_tab", "tab request must be an object");
     const navigate = request.op === "new" && request.url !== void 0 ? normalizeAction({ kind: "navigate", url: request.url }, entry.viewport) : void 0;
@@ -1553,12 +1956,13 @@ var BrowserRuntime = class {
       if (entry.task?.status === "running") {
         fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
       }
+      refuseWhilePublishing(entry, caller);
       switch (request.op) {
         case "new":
           try {
             await entry.driver.openTab(navigate?.url);
           } catch (error) {
-            fail("tab_failed", `opening a new tab${navigate ? ` at ${navigate.url}` : ""} failed: ${describe2(error)}`);
+            fail("tab_failed", `opening a new tab${navigate ? ` at ${navigate.url}` : ""} failed: ${describe3(error)}`);
           }
           break;
         case "activate":
@@ -1576,21 +1980,26 @@ var BrowserRuntime = class {
   // -----------------------------------------------------------------------
   // Actions
   // -----------------------------------------------------------------------
-  async act(browserId, input) {
+  async act(browserId, input, caller) {
     const entry = this.require(browserId);
     return await this.serialize(entry, async () => {
       if (entry.task?.status === "running") {
         fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
       }
+      refuseWhilePublishing(entry, caller);
       const action = normalizeAction(input, entry.viewport);
+      const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
+      const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
       try {
         await entry.driver.perform(action);
+        if (touching) touching.touchedWhilePending = true;
       } catch (error) {
         const dispatched = !(error instanceof ActionNotDispatched);
+        if (dispatched && touching) touching.touchedWhilePending = true;
         if (dispatched) entry.revision += 1;
         return {
           status: dispatched ? "unknown" : "failed",
-          error: dispatched ? `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe2(error)})` : describe2(error),
+          error: dispatched ? `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe3(error)})` : describe3(error),
           state: await this.buildState(entry).catch(() => this.staleState(entry))
         };
       }
@@ -1609,11 +2018,11 @@ var BrowserRuntime = class {
     return await (await this.beginTask(browserId, request, onStep)).finished;
   }
   /** Start a task and return as soon as it runs; follow it with `waitTask`. */
-  async startTask(browserId, request) {
-    const { run } = await this.beginTask(browserId, request);
+  async startTask(browserId, request, caller) {
+    const { run } = await this.beginTask(browserId, request, void 0, caller);
     return cloneTask(run);
   }
-  async beginTask(browserId, request, onStep) {
+  async beginTask(browserId, request, onStep, caller) {
     const entry = this.require(browserId);
     if (!TASK_AGENTS.includes(request.agent)) fail("bad_agent", `agent must be one of: ${TASK_AGENTS.join(", ")}`);
     if (entry.engine === "chrome-relay") {
@@ -1628,10 +2037,11 @@ var BrowserRuntime = class {
     }
     return await this.serialize(entry, async () => {
       if (entry.worker) fail("task_running", `a ${entry.task?.agent} task is already running on this browser`);
+      refuseWhilePublishing(entry, caller);
       const state = await this.refreshState(entry);
       const credential = request.credential ? resolveCredential(this.store.profileDir(entry.profile), request.credential) : void 0;
       const run = {
-        id: randomBytes2(8).toString("hex"),
+        id: randomBytes3(8).toString("hex"),
         agent: request.agent,
         task,
         status: "running",
@@ -1707,6 +2117,54 @@ var BrowserRuntime = class {
     await worker.finished;
   }
   // -----------------------------------------------------------------------
+  // Publishing — fill, park for the human's Post, submit once (publish.ts)
+  // -----------------------------------------------------------------------
+  async publish(browserId, recipe, mode, caller) {
+    const entry = this.require(browserId);
+    const valid = validateRecipe(recipe);
+    const selected = validateMode(mode);
+    return await this.serialize(entry, async () => {
+      if (entry.task?.status === "running") {
+        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+      }
+      refuseWhilePublishing(entry, caller);
+      if (isPending(entry.publish)) {
+        fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
+      }
+      const outcome = await prepare(entry.driver, entry.profile, valid, selected);
+      if (!("record" in outcome)) return outcome;
+      outcome.sharedPage = entry.engine === "chrome-relay";
+      entry.publish = outcome;
+      return publishRecord(outcome);
+    });
+  }
+  async confirmPublish(browserId, publishId) {
+    const entry = this.require(browserId);
+    return await this.serialize(entry, async () => {
+      const publication = requirePending(entry.publish, publishId);
+      if (entry.task?.status === "running") {
+        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+      }
+      await confirm(entry.driver, publication);
+      return publishRecord(publication);
+    });
+  }
+  async cancelPublish(browserId, publishId) {
+    const entry = this.require(browserId);
+    return await this.serialize(entry, async () => {
+      const publication = requirePending(entry.publish, publishId);
+      cancel(publication);
+      return publishRecord(publication);
+    });
+  }
+  /** Not queued: it only reads the record, and must not wait behind a confirm. */
+  async waitPublish(browserId, publishId, ms) {
+    const publication = this.require(browserId).publish;
+    if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+    await waitSettled(publication, ms);
+    return publishRecord(publication);
+  }
+  // -----------------------------------------------------------------------
   // Internals
   // -----------------------------------------------------------------------
   require(browserId) {
@@ -1754,7 +2212,8 @@ var BrowserRuntime = class {
       activeTabId: state.activeTabId,
       loading: state.loading,
       canGoBack: state.canGoBack,
-      canGoForward: state.canGoForward
+      canGoForward: state.canGoForward,
+      publish: entry.publish ? publishRecord(entry.publish) : null
     };
   }
   /** State when the page cannot be read (it may be mid-navigation after a failed action). */
@@ -1772,7 +2231,8 @@ var BrowserRuntime = class {
       activeTabId: "",
       loading: false,
       canGoBack: false,
-      canGoForward: false
+      canGoForward: false,
+      publish: entry.publish ? publishRecord(entry.publish) : null
     };
   }
 };
@@ -1869,11 +2329,11 @@ function normalizeAction(action, viewport) {
       fail("bad_action", `unsupported action kind ${JSON.stringify(action.kind)}`);
   }
 }
-function requireSelector(selector2) {
-  if (typeof selector2 !== "string" || selector2.trim().length === 0 || selector2.length > MAX_SELECTOR_CHARS) {
-    fail("bad_action", `selector must be a non-empty CSS selector of at most ${MAX_SELECTOR_CHARS} characters`);
+function requireSelector(selector3) {
+  if (typeof selector3 !== "string" || selector3.trim().length === 0 || selector3.length > MAX_SELECTOR_CHARS2) {
+    fail("bad_action", `selector must be a non-empty CSS selector of at most ${MAX_SELECTOR_CHARS2} characters`);
   }
-  return selector2.trim();
+  return selector3.trim();
 }
 function requireCoordinate(value, kind, name, bound) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -1889,10 +2349,20 @@ function requireDelta(value, name) {
   if (typeof value !== "number" || !Number.isFinite(value)) fail("bad_action", `scroll.${name} must be a number`);
   return Math.max(-MAX_SCROLL_DELTA, Math.min(MAX_SCROLL_DELTA, Math.floor(value)));
 }
+function refuseWhilePublishing(entry, caller) {
+  if (caller !== "app" && isPending(entry.publish)) {
+    fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+  }
+}
+function settleOnClose(entry) {
+  if (entry.publish && !entry.publish.confirming && isPending(entry.publish)) {
+    cancel(entry.publish, "The browser was closed. Nothing was submitted.");
+  }
+}
 function cloneTask(run) {
   return { ...run, steps: run.steps.map((step) => ({ ...step })), usage: { ...run.usage } };
 }
-function describe2(err) {
+function describe3(err) {
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -1901,13 +2371,13 @@ var BROWSER_VIEW_URI = "ui://browser/index.html";
 var capability = z.string().min(16).max(128);
 var profile = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,47}$/);
 var coordinate = z.number().finite().min(0).max(4096);
-var selector = z.string().trim().min(1).max(512);
+var selector2 = z.string().trim().min(1).max(512);
 var point = { x: coordinate, y: coordinate };
 var actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: z.url().max(2048).refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "Only HTTP and HTTPS navigation is supported") }).strict(),
-  z.object({ kind: z.literal("click"), selector: selector.optional(), x: coordinate.optional(), y: coordinate.optional(), button: z.enum(["left", "right", "middle"]).optional(), clickCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() }).strict().refine((value) => value.selector !== void 0 ? value.x === void 0 && value.y === void 0 : value.x !== void 0 && value.y !== void 0, "Choose a selector OR both coordinates"),
-  z.object({ kind: z.literal("type"), selector, text: z.string().max(4096) }).strict(),
-  z.object({ kind: z.literal("select"), selector, value: z.string().max(4096) }).strict(),
+  z.object({ kind: z.literal("click"), selector: selector2.optional(), x: coordinate.optional(), y: coordinate.optional(), button: z.enum(["left", "right", "middle"]).optional(), clickCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() }).strict().refine((value) => value.selector !== void 0 ? value.x === void 0 && value.y === void 0 : value.x !== void 0 && value.y !== void 0, "Choose a selector OR both coordinates"),
+  z.object({ kind: z.literal("type"), selector: selector2, text: z.string().max(4096) }).strict(),
+  z.object({ kind: z.literal("select"), selector: selector2, value: z.string().max(4096) }).strict(),
   z.object({ kind: z.literal("press"), key: z.string().min(1).max(64) }).strict(),
   z.object({ kind: z.literal("scroll"), deltaX: z.number().finite().min(-5e3).max(5e3), deltaY: z.number().finite().min(-5e3).max(5e3) }).strict(),
   z.object({ kind: z.literal("insert"), text: z.string().min(1).max(4096) }).strict(),
@@ -1917,9 +2387,25 @@ var actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reload") }).strict(),
   z.object({ kind: z.literal("stop") }).strict()
 ]);
+var recipeSchema = z.object({
+  origin: z.string().min(1).max(2048),
+  composeUrl: z.string().min(1).max(2048),
+  signedIn: selector2,
+  fields: z.array(z.object({ selector: selector2, value: z.string().max(1e4), label: z.string().trim().min(1).max(40).optional() }).strict()).min(1).max(8),
+  submit: selector2,
+  receipt: z.object({ path: z.string().min(1).max(256).startsWith("/"), linkSelector: selector2.optional() }).strict()
+}).strict();
 var MIME = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".json": "application/json" };
 var APP_ONLY = { ui: { visibility: ["app"] } };
 var READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+var CALLER_META_KEY = "ai.insodimension/caller";
+function callerOf(extra) {
+  const caller = extra._meta?.[CALLER_META_KEY];
+  return caller === "app" || caller === "model" ? caller : void 0;
+}
+function requireAppCaller(extra) {
+  if (callerOf(extra) !== "app") throw new Error("Refused: only the human can confirm or cancel a publish, from the Browser View.");
+}
 async function result(run) {
   try {
     const value = await run();
@@ -1991,9 +2477,9 @@ async function createBrowserServer(options = {}) {
     description: `Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status "failed" means nothing happened; "unknown" means it was sent and then errored, so it may have taken effect \u2014 look at the page before retrying a submission.`,
     inputSchema: { browserId: capability, action: actionSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
-  }, async ({ browserId, action }) => {
+  }, async ({ browserId, action }, extra) => {
     try {
-      const outcome = await runtime.act(browserId, action);
+      const outcome = await runtime.act(browserId, action, callerOf(extra));
       const text = outcome.status === "completed" ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title }) : `${outcome.status}: ${outcome.error}`;
       return { ...outcome.status === "completed" ? {} : { isError: true }, content: [{ type: "text", text }], structuredContent: outcome };
     } catch (error) {
@@ -2038,7 +2524,7 @@ async function createBrowserServer(options = {}) {
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, ({ browserId, agent, task, maxSteps, credential, waitSeconds: waitSeconds2 }, extra) => result(async () => {
-    await runtime.startTask(browserId, { agent, task, ...maxSteps ? { maxSteps } : {}, ...credential ? { credential } : {} });
+    await runtime.startTask(browserId, { agent, task, ...maxSteps ? { maxSteps } : {}, ...credential ? { credential } : {} }, callerOf(extra));
     return await follow(browserId, waitSeconds2, extra);
   }));
   server2.registerTool("browser_task_wait", {
@@ -2051,11 +2537,46 @@ async function createBrowserServer(options = {}) {
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, ({ browserId }) => result(() => runtime.cancelTask(browserId)));
+  registerAppTool(server2, "browser_publish", {
+    title: "Publish",
+    description: `Post through a signed-in profile, with the human confirming in the Browser View. recipe (data you supply): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values \u2264 10000 chars; label \u2264 40 chars is the caption the human sees, e.g. "Post text"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. "/{segment}/status/{digits}"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode "check": opens composeUrl and returns status "signed-in" or "not-signed-in" (then the human signs in by hand in the View; never automate a login). mode "post": types each value, reads it back exactly, and returns status "awaiting-confirmation" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). "failed" means nothing was submitted. Never types into password fields. Refused while a task runs.`,
+    inputSchema: { browserId: capability, recipe: recipeSchema, mode: z.enum(PUBLISH_MODES) },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    _meta: { ui: { resourceUri: BROWSER_VIEW_URI } }
+    // `state` rides along so the View this call shows binds to THIS browser (a
+    // tool result is the View's only source of a browserId) and paints the bar.
+  }, ({ browserId, recipe, mode }, extra) => result(async () => {
+    const outcome = await runtime.publish(browserId, recipe, mode, callerOf(extra));
+    return { ...outcome, state: await runtime.state(browserId) };
+  }));
+  registerAppTool(server2, "browser_publish_confirm", {
+    description: "The human's Post: re-verify the active tab is still the one and the URL the human was shown and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
+    inputSchema: { browserId: capability, publishId: capability },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    _meta: APP_ONLY
+  }, ({ browserId, publishId }, extra) => result(async () => {
+    requireAppCaller(extra);
+    return await runtime.confirmPublish(browserId, publishId);
+  }));
+  registerAppTool(server2, "browser_publish_cancel", {
+    description: "The human's Cancel: drop the pending publish without submitting anything.",
+    inputSchema: { browserId: capability, publishId: capability },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    _meta: APP_ONLY
+  }, ({ browserId, publishId }, extra) => result(async () => {
+    requireAppCaller(extra);
+    return await runtime.cancelPublish(browserId, publishId);
+  }));
+  server2.registerTool("browser_publish_wait", {
+    description: `Follow a publish the human is confirming: returns its record as soon as it is posted (with the url read from the page), unknown (may have posted \u2014 never retry), failed (nothing submitted), cancelled or expired (not confirmed within 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
+    inputSchema: { browserId: capability, publishId: capability, waitSeconds },
+    annotations: READ_ONLY
+  }, ({ browserId, publishId, waitSeconds: waitSeconds2 }) => result(() => runtime.waitPublish(browserId, publishId, (waitSeconds2 ?? WAIT_CAP_S) * 1e3)));
   server2.registerTool("browser_tab", {
     description: `Manage this browser's tabs: op "new" opens a tab (navigating to url when given, http/https only) and makes it active; "activate" makes tabId (from state.tabs) the shown and driven tab; "close" closes tabId \u2014 closing the last tab leaves a blank one. Every other browser tool works on the active tab. Pages a site opens (target=_blank, popups) become the active tab on their own. Refused while a task runs. Returns the browser state.`,
     inputSchema: { browserId: capability, op: z.enum(["new", "activate", "close"]), tabId: z.string().min(1).max(128).optional(), url: z.string().max(2048).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
-  }, ({ browserId, op, tabId, url }) => result(() => runtime.tab(browserId, { op, ...tabId === void 0 ? {} : { tabId }, ...url === void 0 ? {} : { url } })));
+  }, ({ browserId, op, tabId, url }, extra) => result(() => runtime.tab(browserId, { op, ...tabId === void 0 ? {} : { tabId }, ...url === void 0 ? {} : { url } }, callerOf(extra))));
   registerAppTool(server2, "browser_frame", {
     description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory \u2014 poll it for live view; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
     inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional() },
@@ -2086,11 +2607,11 @@ async function createBrowserServer(options = {}) {
     _meta: APP_ONLY
   }, () => result(async () => ({ profiles: await runtime.profiles() })));
   server2.registerTool("browser_close", {
-    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated.",
+    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits the human's confirmation (wait with browser_publish_wait).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, ({ browserId }) => result(async () => {
-    await runtime.close(browserId);
+  }, ({ browserId }, extra) => result(async () => {
+    await runtime.close(browserId, callerOf(extra));
     return { closed: true };
   }));
   const previousOnClose = server2.server.onclose;

@@ -4,7 +4,7 @@
 // the shapes and engine identifiers come from the pack's own contracts module.
 import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import { BROWSER_ENGINES, TASK_AGENTS } from "../../src/contracts";
+import { BROWSER_ENGINES, PUBLISH_STATUSES, TASK_AGENTS } from "../../src/contracts";
 import type {
 	BrowserAction,
 	BrowserAnnotation,
@@ -13,6 +13,8 @@ import type {
 	BrowserRegion,
 	BrowserState,
 	FrameFormat,
+	PublishField,
+	PublishRecord,
 	TabInfo,
 	TabOp,
 	TaskRun,
@@ -91,6 +93,36 @@ function readTask(tool: string, value: unknown): TaskRun {
 	};
 }
 
+function readPublish(tool: string, value: unknown): PublishRecord {
+	if (!isRecord(value)) throw new BrowserToolError(tool, "result carried no publish record");
+	const publishId = readString(value, "publishId");
+	const status = PUBLISH_STATUSES.find(candidate => candidate === readString(value, "status"));
+	if (publishId === undefined || publishId.length === 0 || !status) throw new BrowserToolError(tool, "publish record carried no id or an unknown status");
+	const fields: PublishField[] = [];
+	for (const field of Array.isArray(value.fields) ? value.fields : []) {
+		if (!isRecord(field)) continue;
+		const selector = readString(field, "selector");
+		const text = readString(field, "value");
+		const label = readString(field, "label");
+		if (selector !== undefined && text !== undefined) fields.push({ selector, value: text, ...(label === undefined ? {} : { label }) });
+	}
+	const url = readString(value, "url");
+	const error = readString(value, "error");
+	return {
+		publishId,
+		status,
+		origin: readString(value, "origin") ?? "",
+		composeUrl: readString(value, "composeUrl") ?? "",
+		tabId: readString(value, "tabId") ?? "",
+		profile: readString(value, "profile") ?? "",
+		fields,
+		createdAt: readString(value, "createdAt") ?? "",
+		expiresAt: readString(value, "expiresAt") ?? "",
+		...(url === undefined ? {} : { url }),
+		...(error === undefined ? {} : { error }),
+	};
+}
+
 function readTabs(value: unknown): TabInfo[] {
 	if (!Array.isArray(value)) return [];
 	const tabs: TabInfo[] = [];
@@ -138,6 +170,7 @@ function readState(tool: string, value: unknown): BrowserState {
 		loading: value.loading === true,
 		canGoBack: value.canGoBack === true,
 		canGoForward: value.canGoForward === true,
+		publish: value.publish === null || value.publish === undefined ? null : readPublish(tool, value.publish),
 	};
 }
 
@@ -300,6 +333,17 @@ export class BrowserClient {
 			data,
 			elements: readString(payload, "elements") ?? "",
 		};
+	}
+
+	/** The human's Post. Answers the settled record: posted, failed or unknown. */
+	async confirmPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const tool = "browser_publish_confirm";
+		return readPublish(tool, await this.call(tool, { browserId, publishId }));
+	}
+
+	async cancelPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const tool = "browser_publish_cancel";
+		return readPublish(tool, await this.call(tool, { browserId, publishId }));
 	}
 
 	async close(browserId: string): Promise<void> {

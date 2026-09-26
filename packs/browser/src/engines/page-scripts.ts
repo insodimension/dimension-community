@@ -1,4 +1,5 @@
 import type { BrowserRegion } from "../contracts.js";
+import type { FieldRead } from "./types.js";
 const PAGE_TEXT_SCRIPT = (limit: number): string => {
 	const parts: string[] = [`# ${document.title}`, document.location.href, ""];
 	const body = document.body?.innerText ?? "";
@@ -93,5 +94,92 @@ const FAVICON_HREF_SCRIPT = (): string | null => {
 	}
 	return null;
 };
+/**
+ * Publish scripts. The element scripts run on elements puppeteer already
+ * resolved (its query handlers, so `pierce/` reaches shadow roots); the link
+ * reader resolves its own selector in-page. All take data arguments only; they
+ * read — none of them writes to the page. A password input is recognised and
+ * never read.
+ */
+const IS_PASSWORD_SCRIPT = (el: Element): boolean =>
+	el.tagName === "INPUT" && ((el as HTMLInputElement).type ?? "").toLowerCase() === "password";
+/**
+ * Where typed text would land right now, relative to the aimed element:
+ * "elsewhere" unless the focused element is it (or, for a contenteditable,
+ * inside it); "password" if what really has focus is a password input. Focus
+ * is read in the element's own root, so a field inside a shadow root (where
+ * `document.activeElement` is only the host) is found; the password check
+ * walks on down through open shadow roots to the innermost focused element.
+ */
+const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
+	// A detached element is its own root and has no activeElement.
+	const active = (el.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement ?? null;
+	if (active === null) return "elsewhere";
+	const aimed = active === el || ((el as HTMLElement).isContentEditable && el.contains(active));
+	if (!aimed) return "elsewhere";
+	let focused: Element = active;
+	while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
+};
+/** An input/textarea's `.value`, or a contenteditable's `innerText` minus one trailing newline. */
+const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
+	if (el.tagName === "INPUT") {
+		const input = el as HTMLInputElement;
+		if ((input.type ?? "").toLowerCase() === "password") return { state: "password" };
+		return { state: "value", value: input.value };
+	}
+	if (el.tagName === "TEXTAREA") return { state: "value", value: (el as HTMLTextAreaElement).value };
+	const html = el as HTMLElement;
+	if (!html.isContentEditable) return { state: "not-editable" };
+	const text = html.innerText;
+	return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
+};
+/**
+ * The absolute hrefs of up to `limit` elements matching `selector`. The
+ * selector is data, never code: plain CSS goes to `document.querySelectorAll`
+ * (document order); `pierce/<css>` queries the document, then every open
+ * shadow root beneath it, nested ones too (each root in document order).
+ * Stops at `limit`.
+ */
+const LINK_HREFS_SCRIPT = (selector: string, limit: number): string[] => {
+	const out: string[] = [];
+	const collect = (root: Document | ShadowRoot, css: string): void => {
+		const matches = root.querySelectorAll(css);
+		for (let i = 0; i < matches.length && out.length < limit; i += 1) {
+			const raw = matches[i].getAttribute("href");
+			if (raw === null) continue;
+			try {
+				out.push(new URL(raw, document.baseURI).href);
+			} catch {
+				// Not a URL: not a receipt.
+			}
+		}
+	};
+	if (!selector.startsWith("pierce/")) {
+		collect(document, selector);
+		return out;
+	}
+	const css = selector.slice("pierce/".length);
+	const roots: Array<Document | ShadowRoot> = [document];
+	for (let r = 0; r < roots.length && out.length < limit; r += 1) {
+		collect(roots[r], css);
+		if (out.length >= limit) break;
+		const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+			const shadow = (node as Element).shadowRoot;
+			if (shadow) roots.push(shadow);
+		}
+	}
+	return out;
+};
 
-export { PAGE_TEXT_SCRIPT, ELEMENTS_IN_REGION_SCRIPT, SELECT_ALL_SCRIPT, FAVICON_HREF_SCRIPT };
+export {
+	PAGE_TEXT_SCRIPT,
+	ELEMENTS_IN_REGION_SCRIPT,
+	SELECT_ALL_SCRIPT,
+	FAVICON_HREF_SCRIPT,
+	IS_PASSWORD_SCRIPT,
+	TYPE_TARGET_SCRIPT,
+	READ_FIELD_SCRIPT,
+	LINK_HREFS_SCRIPT,
+};

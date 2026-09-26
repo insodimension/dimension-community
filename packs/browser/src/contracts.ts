@@ -78,6 +78,79 @@ export interface TaskRun {
  * never passes through a tool argument, a result or a model call.
  */
 export interface TaskRequest { agent: TaskAgent; task: string; maxSteps?: number; credential?: CredentialRequest }
+/** One field of a publish recipe: where to type, exactly what, and an optional caption for the human. */
+export interface PublishField {
+  selector: string;
+  value: string;
+  /** Shown above the value in the confirm bar (≤ 40 characters); the View falls back to "Field N". */
+  label?: string;
+}
+/**
+ * Who made a tool call, as the host stamped it in request `_meta`: "model"
+ * (an agent turn) or "app" (the Browser View, i.e. the human). A call with no
+ * stamp did not come through the host and is treated as not-the-human.
+ */
+export type ToolCaller = "model" | "app";
+/**
+ * How to post on one site, supplied by the caller as data — the pack itself is
+ * platform-agnostic. See publish.ts for the bounds every field is held to.
+ */
+export interface PublishRecipe {
+  /** `https://…`; `http://` only for 127.0.0.1 and localhost. */
+  origin: string;
+  /** On `origin`. */
+  composeUrl: string;
+  /** CSS selector present only when the profile is signed in. */
+  signedIn: string;
+  /** 1-8 fields, each value at most 10 000 characters. */
+  fields: PublishField[];
+  /** CSS selector clicked exactly once, only after the human confirms. */
+  submit: string;
+  receipt: {
+    /**
+     * Template matched against the receipt URL's PATHNAME (the origin is checked
+     * separately; query and hash are ignored): literal text plus `{segment}`
+     * (one path segment) and `{digits}` (one or more 0-9), at most one
+     * placeholder per segment. Starts with "/", at most 256 characters.
+     * Example: "/{segment}/status/{digits}".
+     */
+    path: string;
+    /** Receipt is the href of the first matching element whose href matches; else the active tab's URL. */
+    linkSelector?: string;
+  };
+}
+export const PUBLISH_MODES = ["check", "post"] as const;
+export type PublishMode = (typeof PUBLISH_MODES)[number];
+export const PUBLISH_STATUSES = ["awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
+/**
+ * `unknown`: submit was dispatched and then errored, or no receipt appeared —
+ * it may have posted; never retried. `failed`: provably nothing was submitted.
+ */
+export type PublishStatus = (typeof PUBLISH_STATUSES)[number];
+/** The browser's current or most recent publish. `url` is read from the page only. */
+export interface PublishRecord {
+  publishId: string;
+  status: PublishStatus;
+  origin: string;
+  /** Where the post goes: the compose page URL the fields were typed into and read back on (confirm requires the tab still there). */
+  composeUrl: string;
+  /** The tab the fields were read back on: confirm submits only there, and the View holds Tab/Enter only while it is active. */
+  tabId: string;
+  profile: string;
+  fields: PublishField[];
+  createdAt: string;
+  expiresAt: string;
+  /** The posted URL, read from the page after submit. */
+  url?: string;
+  error?: string;
+}
+/** A `browser_publish` that stopped before anything was parked for confirmation. */
+export interface PublishCheck {
+  status: "not-signed-in" | "signed-in" | "failed";
+  url: string;
+  profile: string;
+  error?: string;
+}
 export interface BrowserState {
   browserId: string;
   profile: string;
@@ -95,6 +168,8 @@ export interface BrowserState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** The current or most recent publish; the View renders its confirm bar from this. */
+  publish: PublishRecord | null;
 }
 export interface BrowserFrame {
   state: BrowserState;
@@ -123,16 +198,25 @@ export interface BrowserRuntimePort {
   open(options: BrowserOpenOptions): Promise<BrowserState>;
   state(browserId: string): Promise<BrowserState>;
   frame(browserId: string, format?: FrameFormat): Promise<BrowserFrame>;
-  tab(browserId: string, request: TabRequest): Promise<BrowserState>;
+  tab(browserId: string, request: TabRequest, caller?: ToolCaller): Promise<BrowserState>;
   resize(browserId: string, viewport: Viewport, scale?: number): Promise<BrowserState>;
   snapshot(browserId: string): Promise<{ state: BrowserState; text: string }>;
-  act(browserId: string, action: BrowserAction): Promise<ActionResult>;
+  /** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+  act(browserId: string, action: BrowserAction, caller?: ToolCaller): Promise<ActionResult>;
   runTask(browserId: string, request: TaskRequest, onStep?: (step: TaskStep, run: TaskRun) => void): Promise<TaskRun>;
   cancelTask(browserId: string): Promise<TaskRun>;
   annotate(browserId: string, frameId: string, region: BrowserRegion, note: string): Promise<BrowserAnnotation>;
   profiles(): Promise<string[]>;
-  close(browserId: string): Promise<void>;
+  /** Settles a pending publish first. Refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
+  close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
-  startTask(browserId: string, request: TaskRequest): Promise<TaskRun>;
+  startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun>;
+  /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. */
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord>;
+  /** The human's Post: re-verify, click submit exactly once, read the receipt from the page. */
+  confirmPublish(browserId: string, publishId: string): Promise<PublishRecord>;
+  cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;
+  /** The publish's record once it is terminal or `ms` has passed, whichever is first. */
+  waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord>;
   dispose(): Promise<void>;
 }

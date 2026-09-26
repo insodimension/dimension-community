@@ -92,6 +92,32 @@ shows it is not), do NOT start a second task that says "continue the half-done
 form" — jev loops on that. Inspect with `browser_snapshot` and finish the
 remaining steps yourself with `browser_act`.
 
+## Publishing (the human presses Post)
+
+To post something public (a social post, a reply) use `browser_publish`, not
+`browser_act`. You pass a `recipe`: the site's `origin`, its `composeUrl`, a
+`signedIn` selector, the `fields` (`selector`, exact `value`, optional `label`
+such as "Post text" that the user sees above it), the `submit` button, and a
+`receipt`: `path`, a template for the posted URL's path on the origin
+(`{segment}` = one path segment, `{digits}` = a number; for X
+`"/{segment}/status/{digits}"`), plus an optional `linkSelector`.
+
+- `mode: "check"` only verifies that the profile is logged in (`signed-in` /
+  `not-signed-in`). Logging in is the user's job, by hand in the View. Never
+  type a password or fill a signup form.
+- `mode: "post"` fills the fields and reads them back. It then returns
+  `awaiting-confirmation` with a `publishId` and `composeUrl` (where it will
+  post). **Nothing is sent yet.** The View shows the exact text, and only the
+  user's **Post** click sends it. You cannot confirm it; tell the user to press
+  Post.
+- Don't act on the page while a publish awaits confirmation: `browser_act`,
+  `browser_tab`, `browser_task` and `browser_publish` are refused anyway
+  (`publish_pending`). Only the human can post or cancel. A pending publish
+  blocks new posts until it is posted, cancelled or expires (10 minutes).
+- `browser_publish_wait({ browserId, publishId })` follows it to `posted`
+  (with the post's `url`, read from the page), `unknown` (it may have posted:
+  never post again), `failed`, `cancelled` or `expired`.
+
 ## Annotations
 
 When the user circles or selects part of the page in the View, you receive

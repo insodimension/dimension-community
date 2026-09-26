@@ -98,6 +98,12 @@ export interface PageViewProps {
 	readonly onSketch: (next: Sketch) => void;
 	readonly onAction: (action: BrowserAction) => void;
 	readonly label: string;
+	/**
+	 * A post awaits the human's confirmation: Tab and Enter stay with the View
+	 * (Tab moves on into the confirm bar) instead of reaching the page, where
+	 * they could land on and press the site's own submit.
+	 */
+	readonly confirming?: boolean;
 	/** The page area's size in CSS px, whenever it changes (and once on mount). */
 	readonly onResize: (width: number, height: number) => void;
 	/** Floating layers over the page (annotation strip, agent pill, toasts).
@@ -105,7 +111,7 @@ export interface PageViewProps {
 	readonly children?: ReactNode;
 }
 
-export function PageView({ frame, viewport, mode, tool, sketch, onSketch, onAction, onResize, label, children }: PageViewProps) {
+export function PageView({ frame, viewport, mode, tool, sketch, onSketch, onAction, onResize, label, confirming = false, children }: PageViewProps) {
 	const pageRef = useRef<HTMLDivElement | null>(null);
 	const stageRef = useRef<HTMLDivElement | null>(null);
 	const onResizeRef = useRef(onResize);
@@ -230,6 +236,7 @@ export function PageView({ frame, viewport, mode, tool, sketch, onSketch, onActi
 		if (!live || event.ctrlKey || event.metaKey || event.altKey) return;
 		// Shift+Tab is left to the host: it is the way out of the page for a keyboard user.
 		if (event.key === "Tab" && event.shiftKey) return;
+		if (confirming && (event.key === "Tab" || event.key === "Enter")) return;
 		if (event.key === " ") {
 			event.preventDefault();
 			onAction({ kind: "press", key: "Space" });
@@ -271,7 +278,9 @@ export function PageView({ frame, viewport, mode, tool, sketch, onSketch, onActi
 						? `${label}. Annotation mode: drag to draw.`
 						: mode === "locked"
 							? `${label}. An agent is driving this page.`
-							: `${label}. Click, scroll and type to use the page. Shift+Tab leaves it.`
+							: confirming
+								? `${label}. A post is waiting for your confirmation: Tab moves to it. Click, scroll and type to use the page.`
+								: `${label}. Click, scroll and type to use the page. Shift+Tab leaves it.`
 				}
 				data-tool={mode === "annotate" ? tool : undefined}
 				onPointerDown={onPointerDown}

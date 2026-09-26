@@ -24,6 +24,9 @@ export interface LiveFrame {
   capturedAt: string;
 }
 
+/** A publish field as read from the page. A password input is recognised and never read. */
+export type FieldRead = { state: "absent" | "password" | "not-editable" } | { state: "value"; value: string };
+
 export interface EngineDriver {
   state(): Promise<EngineState>;
   /** Viewport PNG of the active tab, not a full-page image; device scale factor is one. */
@@ -41,6 +44,16 @@ export interface EngineDriver {
    * error means the effect may have happened.
    */
   perform(action: BrowserAction): Promise<void>;
+  /**
+   * Replace a field's content exactly as `perform({ kind: "type" })` does. A
+   * password input is refused with `ActionNotDispatched` before any input event.
+   */
+  fill(selector: string, text: string): Promise<void>;
+  /** Publish reads on the active tab; none writes to the page. Selectors resolve like actions' (CSS or `pierce/`). */
+  hasElement(selector: string): Promise<boolean>;
+  readField(selector: string): Promise<FieldRead>;
+  /** Absolute hrefs of up to `limit` elements matching `selector` (CSS or `pierce/` only: it is read in-page). */
+  linkHrefs(selector: string, limit: number): Promise<string[]>;
   /** Open a tab, make it the active one, and navigate it to `url` (already validated) when given. */
   openTab(url?: string): Promise<void>;
   /** Make `tabId` the driven and shown tab. Throws `ActionNotDispatched` for an unknown id. */

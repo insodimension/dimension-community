@@ -926,8 +926,9 @@ kbd {
 	right: 12px;
 }
 
+/* Clear of the page's bottom edge and any device inset beneath it. */
 .bx-float-bottom {
-	bottom: 12px;
+	bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 	left: 12px;
 	right: 12px;
 }
@@ -1098,6 +1099,300 @@ kbd {
 		overflow: hidden;
 		clip-path: inset(50%);
 	}
+}
+
+/* publish confirm bar — the human's gate on every post */
+
+/* The column spans the float; only its cards take the pointer. */
+.bx-float > .bx-float-column {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	pointer-events: none;
+}
+
+.bx-float-column > * {
+	pointer-events: auto;
+}
+
+.bx-publish {
+	/* Bar-local ink. Dark text-2 falls just short of 4.5:1 on the glass over a
+	   light page, so the bar's small copy and its marks step toward the text. */
+	--bx-publish-ink-2: color-mix(in oklab, var(--fr-text-2) 65%, var(--fr-text));
+	--bx-publish-mark: color-mix(in oklab, var(--fr-accent) 40%, var(--fr-text));
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 28%, transparent);
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(100%, 560px);
+	padding: 10px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-root[data-theme="light"] .bx-publish,
+[data-theme="light"] .bx-root .bx-publish {
+	--bx-publish-ink-2: var(--fr-text-2);
+	--bx-publish-mark: var(--fr-accent);
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+}
+
+/* Focused programmatically when it appears, so a keyboard user can Tab into it.
+   The container is not a control: at most a hairline says where focus is. The
+   full ring stays on the stops inside it (Cancel, Post, the fields, Dismiss). */
+.bx-publish:focus {
+	outline: none;
+}
+
+.bx-publish:focus-visible {
+	outline: 1px solid color-mix(in oklab, var(--fr-accent) 34%, transparent);
+	outline-offset: 1px;
+}
+
+.bx-publish-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.bx-publish-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--bx-publish-mark);
+	background: var(--bx-publish-mark-tile);
+}
+
+.bx-publish[data-status="unknown"] .bx-publish-mark {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
+.bx-publish[data-status="failed"] .bx-publish-mark {
+	color: var(--fr-del);
+	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
+}
+
+.bx-publish[data-status="cancelled"] .bx-publish-mark,
+.bx-publish[data-status="expired"] .bx-publish-mark {
+	color: var(--bx-publish-ink-2);
+	background: var(--bx-hover);
+}
+
+/* At least the mark's height and centred in it, so a one-line outcome sits level
+   with the mark and Dismiss; longer copy grows down from the top. */
+.bx-publish-text {
+	flex: 1;
+	min-width: 0;
+	min-height: 26px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 2px;
+	font-size: var(--fr-fs-sm);
+	line-height: 1.45;
+}
+
+.bx-publish-title {
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+/* The confirm question: connecting words recede, the URL and profile carry it. */
+.bx-publish:not([data-status]) .bx-publish-title {
+	font-size: var(--fr-fs-base);
+	font-weight: 400;
+	color: var(--bx-publish-ink-2);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-key {
+	font-family: var(--bx-num);
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-publish-num {
+	font-family: var(--bx-num);
+}
+
+.bx-publish-detail {
+	color: var(--bx-publish-ink-2);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-url {
+	font-family: var(--bx-num);
+	color: var(--fr-text);
+	overflow-wrap: anywhere;
+	user-select: all;
+	cursor: text;
+}
+
+.bx-publish-heading {
+	margin: 0;
+	font-size: var(--fr-fs-xs);
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
+/* The list's focus ring lives on this frame: the list's own fade mask would clip it. */
+.bx-publish-fields-frame {
+	margin: -4px 0 0;
+	border-radius: 8px;
+}
+
+.bx-publish-fields-frame:has(> .bx-publish-fields:focus-visible) {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 1px;
+}
+
+.bx-publish-fields {
+	--bx-fade-top: 0px;
+	--bx-fade-bottom: 0px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 180px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow-y: auto;
+	border-radius: 8px;
+}
+
+.bx-publish-fields:focus-visible {
+	outline: none;
+}
+
+.bx-publish-fields[data-fit] {
+	max-height: none;
+	overflow: visible;
+}
+
+/* More beyond the fold: fade that edge until it is scrolled to. */
+.bx-publish-fields[data-more-above] {
+	--bx-fade-top: 28px;
+}
+
+.bx-publish-fields[data-more-below] {
+	--bx-fade-bottom: 28px;
+}
+
+.bx-publish-fields:is([data-more-above], [data-more-below]) {
+	mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
+	-webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
+}
+
+.bx-publish-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: var(--bx-field);
+}
+
+.bx-publish-label {
+	font-size: var(--fr-fs-xs);
+	font-weight: 500;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-value {
+	color: var(--fr-text);
+	font-size: var(--fr-fs-base);
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.bx-publish-empty {
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-error {
+	margin: 0;
+	font-size: var(--fr-fs-sm);
+	color: var(--fr-del);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* The icon slot holds a spinner while posting. */
+.bx-publish-post {
+	justify-content: center;
+}
+
+/* Every label a button can show shares one cell, so the widest sets the size and nothing moves. */
+.bx-publish-label-slot {
+	display: inline-grid;
+}
+
+.bx-publish-label-slot > * {
+	grid-area: 1 / 1;
+	text-align: center;
+}
+
+.bx-publish-label-slot > [data-hidden] {
+	visibility: hidden;
+}
+
+.bx-publish-post .bx-tab-spinner {
+	border-color: color-mix(in oklab, var(--fr-accent-ink, #fff) 30%, transparent);
+	border-top-color: var(--fr-accent-ink, #fff);
+}
+
+/* Busy, not disabled: "Posting…" stays fully legible through the receipt wait. */
+.bx-publish-post[data-busy]:disabled {
+	opacity: 1;
+	cursor: progress;
+}
+
+/* 24px beside the 26px mark: a pixel of margin puts both centres on one line. */
+.bx-publish .bx-toast-close {
+	margin-block: 1px;
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-cancel {
+	height: 30px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: var(--fr-fs-sm);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-publish-cancel:hover:not(:disabled) {
+	background: var(--bx-press);
+}
+
+.bx-publish-cancel:disabled {
+	opacity: 0.45;
+	cursor: default;
 }
 
 /* agent pill */

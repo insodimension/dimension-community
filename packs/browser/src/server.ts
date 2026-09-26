@@ -5,8 +5,8 @@ import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@model
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { BrowserRuntimePort } from "./contracts.js";
-import { BROWSER_ENGINES, CREDENTIAL_MODES, TASK_AGENTS } from "./contracts.js";
+import type { BrowserRuntimePort, ToolCaller } from "./contracts.js";
+import { BROWSER_ENGINES, CREDENTIAL_MODES, PUBLISH_MODES, TASK_AGENTS } from "./contracts.js";
 import { BrowserRuntime } from "./runtime.js";
 
 export const BROWSER_VIEW_URI = "ui://browser/index.html";
@@ -29,9 +29,35 @@ const actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reload") }).strict(),
   z.object({ kind: z.literal("stop") }).strict(),
 ]);
+const recipeSchema = z.object({
+  origin: z.string().min(1).max(2048),
+  composeUrl: z.string().min(1).max(2048),
+  signedIn: selector,
+  fields: z.array(z.object({ selector, value: z.string().max(10_000), label: z.string().trim().min(1).max(40).optional() }).strict()).min(1).max(8),
+  submit: selector,
+  receipt: z.object({ path: z.string().min(1).max(256).startsWith("/"), linkSelector: selector.optional() }).strict(),
+}).strict();
 const MIME: Record<string, string> = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".json": "application/json" };
 const APP_ONLY = { ui: { visibility: ["app"] as const } };
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+/** Stamped by the host on every tools/call from the visibility-checked caller: "model" | "app". */
+const CALLER_META_KEY = "ai.insodimension/caller";
+type CallExtra = { _meta?: Record<string, unknown> };
+
+/** Who the host says made this call; no stamp means it did not come through the host. */
+function callerOf(extra: CallExtra): ToolCaller | undefined {
+  const caller = extra._meta?.[CALLER_META_KEY];
+  return caller === "app" || caller === "model" ? caller : undefined;
+}
+
+/**
+ * Confirm and cancel are the HUMAN's buttons. `_meta.ui.visibility` hides them
+ * from the model only where the host enforces it; a raw MCP route does not, so
+ * the handler refuses any call the host did not stamp as coming from the View.
+ */
+function requireAppCaller(extra: CallExtra): void {
+  if (callerOf(extra) !== "app") throw new Error("Refused: only the human can confirm or cancel a publish, from the Browser View.");
+}
 
 async function result(run: () => Promise<object>): Promise<CallToolResult> {
   try {
@@ -108,9 +134,9 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     description: "Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status \"failed\" means nothing happened; \"unknown\" means it was sent and then errored, so it may have taken effect — look at the page before retrying a submission.",
     inputSchema: { browserId: capability, action: actionSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-  }, async ({ browserId, action }) => {
+  }, async ({ browserId, action }, extra) => {
     try {
-      const outcome = await runtime.act(browserId, action);
+      const outcome = await runtime.act(browserId, action, callerOf(extra));
       const text = outcome.status === "completed"
         ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title })
         : `${outcome.status}: ${outcome.error}`;
@@ -157,7 +183,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, ({ browserId, agent, task, maxSteps, credential, waitSeconds }, extra) => result(async () => {
-    await runtime.startTask(browserId, { agent, task, ...(maxSteps ? { maxSteps } : {}), ...(credential ? { credential } : {}) });
+    await runtime.startTask(browserId, { agent, task, ...(maxSteps ? { maxSteps } : {}), ...(credential ? { credential } : {}) }, callerOf(extra));
     return await follow(browserId, waitSeconds, extra);
   }));
   server.registerTool("browser_task_wait", {
@@ -170,11 +196,46 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, ({ browserId }) => result(() => runtime.cancelTask(browserId)));
+  // Publishing: the model fills, the HUMAN posts. browser_publish never
+  // submits; only the View's Post button (browser_publish_confirm) does, once.
+  registerAppTool(server, "browser_publish", {
+    title: "Publish",
+    description: "Post through a signed-in profile, with the human confirming in the Browser View. recipe (data you supply): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (a CSS selector present only when logged in), fields [{selector, value, label?}] (1-8, values ≤ 10000 chars; label ≤ 40 chars is the caption the human sees, e.g. \"Post text\"), submit (selector), receipt {path (template for the posted URL's pathname on origin: literal text plus {segment} for one path segment and {digits} for a number, at most one per segment, e.g. \"/{segment}/status/{digits}\"; query and hash are ignored), linkSelector? (the posted link's element; else the tab's URL after submit)}. mode \"check\": opens composeUrl and returns status \"signed-in\" or \"not-signed-in\" (then the human signs in by hand in the View; never automate a login). mode \"post\": types each value, reads it back exactly, and returns status \"awaiting-confirmation\" with a publishId and composeUrl (where it will post). NOTHING is submitted: tell the human to press Post in the Browser View, then follow with browser_publish_wait. While it awaits confirmation the page is the human's: browser_act, browser_tab, browser_task and browser_publish are refused (publish_pending) until it is posted, cancelled or expires (10 minutes). \"failed\" means nothing was submitted. Never types into password fields. Refused while a task runs.",
+    inputSchema: { browserId: capability, recipe: recipeSchema, mode: z.enum(PUBLISH_MODES) },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    _meta: { ui: { resourceUri: BROWSER_VIEW_URI } },
+  // `state` rides along so the View this call shows binds to THIS browser (a
+  // tool result is the View's only source of a browserId) and paints the bar.
+  }, ({ browserId, recipe, mode }, extra) => result(async () => {
+    const outcome = await runtime.publish(browserId, recipe, mode, callerOf(extra));
+    return { ...outcome, state: await runtime.state(browserId) };
+  }));
+  registerAppTool(server, "browser_publish_confirm", {
+    description: "The human's Post: re-verify the active tab is still the one and the URL the human was shown and every field still holds exactly the pending value, click submit exactly once (never retried), and read the posted URL from the page. Status posted (url), failed (nothing submitted) or unknown (may have posted).",
+    inputSchema: { browserId: capability, publishId: capability },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }, _meta: APP_ONLY,
+  }, ({ browserId, publishId }, extra) => result(async () => {
+    requireAppCaller(extra);
+    return await runtime.confirmPublish(browserId, publishId);
+  }));
+  registerAppTool(server, "browser_publish_cancel", {
+    description: "The human's Cancel: drop the pending publish without submitting anything.",
+    inputSchema: { browserId: capability, publishId: capability },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, _meta: APP_ONLY,
+  }, ({ browserId, publishId }, extra) => result(async () => {
+    requireAppCaller(extra);
+    return await runtime.cancelPublish(browserId, publishId);
+  }));
+  server.registerTool("browser_publish_wait", {
+    description: `Follow a publish the human is confirming: returns its record as soon as it is posted (with the url read from the page), unknown (may have posted — never retry), failed (nothing submitted), cancelled or expired (not confirmed within 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
+    inputSchema: { browserId: capability, publishId: capability, waitSeconds },
+    annotations: READ_ONLY,
+  }, ({ browserId, publishId, waitSeconds }) => result(() => runtime.waitPublish(browserId, publishId, (waitSeconds ?? WAIT_CAP_S) * 1000)));
   server.registerTool("browser_tab", {
     description: "Manage this browser's tabs: op \"new\" opens a tab (navigating to url when given, http/https only) and makes it active; \"activate\" makes tabId (from state.tabs) the shown and driven tab; \"close\" closes tabId — closing the last tab leaves a blank one. Every other browser tool works on the active tab. Pages a site opens (target=_blank, popups) become the active tab on their own. Refused while a task runs. Returns the browser state.",
     inputSchema: { browserId: capability, op: z.enum(["new", "activate", "close"]), tabId: z.string().min(1).max(128).optional(), url: z.string().max(2048).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-  }, ({ browserId, op, tabId, url }) => result(() => runtime.tab(browserId, { op, ...(tabId === undefined ? {} : { tabId }), ...(url === undefined ? {} : { url }) })));
+  }, ({ browserId, op, tabId, url }, extra) => result(() => runtime.tab(browserId, { op, ...(tabId === undefined ? {} : { tabId }), ...(url === undefined ? {} : { url }) }, callerOf(extra))));
   registerAppTool(server, "browser_frame", {
     description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory — poll it for live view; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
     inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional() }, annotations: READ_ONLY, _meta: APP_ONLY,
@@ -197,10 +258,10 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     inputSchema: {}, annotations: READ_ONLY, _meta: APP_ONLY,
   }, () => result(async () => ({ profiles: await runtime.profiles() })));
   server.registerTool("browser_close", {
-    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated.",
+    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits the human's confirmation (wait with browser_publish_wait).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, ({ browserId }) => result(async () => { await runtime.close(browserId); return { closed: true }; }));
+  }, ({ browserId }, extra) => result(async () => { await runtime.close(browserId, callerOf(extra)); return { closed: true }; }));
   const previousOnClose = server.server.onclose;
   const closeTransport = server.close.bind(server);
   let disposal: Promise<void> | undefined;

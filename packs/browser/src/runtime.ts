@@ -29,10 +29,15 @@ import type {
 	BrowserState,
 	FrameFormat,
 	MouseButton,
+	PublishCheck,
+	PublishMode,
+	PublishRecipe,
+	PublishRecord,
 	TabRequest,
 	TaskRequest,
 	TaskRun,
 	TaskStep,
+	ToolCaller,
 	Viewport,
 } from "./contracts.js";
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
@@ -40,6 +45,7 @@ import { credentialOrigin, resolveCredential } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import type { EngineDriver, EngineState } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
+import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
 
@@ -89,6 +95,8 @@ const NAMED_KEYS: Record<string, true> = {
 	PageDown: true,
 	Space: true,
 };
+/** View input that can press the site's own submit; scroll, hover and navigation cannot. */
+const TOUCHING_KINDS: Partial<Record<BrowserAction["kind"], true>> = { click: true, press: true, type: true, insert: true };
 
 export interface BrowserRuntimeOptions {
 	/** Profile root; defaults to `$INSO_HOME/browser` else `~/.inso/browser`. */
@@ -128,6 +136,8 @@ interface Entry {
 	task: TaskRun | null;
 	/** The live task worker, while one runs. */
 	worker: { process: RunningWorker; finished: Promise<TaskRun> } | null;
+	/** The current or most recent publish (publish.ts). */
+	publish: Publication | null;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -233,7 +243,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				browserId: randomBytes(24).toString("base64url"),
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), closed: false,
-				task: null, worker: null,
+				task: null, worker: null, publish: null,
 			};
 			this.byId.set(entry.browserId, entry);
 			this.byProfile.set(profile, entry);
@@ -259,16 +269,21 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 
-	async close(browserId: string): Promise<void> {
+	/** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+	async close(browserId: string, caller?: ToolCaller): Promise<void> {
 		// A failed close revokes reads/actions but remains retryable for cleanup.
 		const entry = this.byId.get(browserId);
 		if (!entry) fail("unknown_browser", "Unknown or already closed browserId.");
-		await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true });
+		await this.serialize(entry, async () => {
+			if (!entry.closed) refuseWhilePublishing(entry, caller);
+			await this.teardown(entry);
+		}, { evenIfClosed: true });
 	}
 
 	/** Retain ownership and the lock until the driver confirms shutdown. */
 	private async teardown(entry: Entry): Promise<void> {
 		if (this.byId.get(entry.browserId) !== entry) return;
+		settleOnClose(entry);
 		entry.closed = true;
 		entry.frames.length = 0;
 		// A task agent drives this Chrome; it stops before the browser does.
@@ -302,6 +317,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 	/** Drop in-memory state and make the capability dead. Does NOT free the lock. */
 	private detach(entry: Entry): void {
+		settleOnClose(entry);
 		entry.closed = true;
 		entry.frames.length = 0;
 		entry.worker?.process.cancel();
@@ -448,7 +464,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * Refused while a task runs: switching away from the agent's tab hides it,
 	 * and a hidden tab renders no frames, so the agent would stall.
 	 */
-	async tab(browserId: string, request: TabRequest): Promise<BrowserState> {
+	async tab(browserId: string, request: TabRequest, caller?: ToolCaller): Promise<BrowserState> {
 		const entry = this.require(browserId);
 		if (!request || typeof request !== "object") fail("bad_tab", "tab request must be an object");
 		const navigate = request.op === "new" && request.url !== undefined
@@ -461,6 +477,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (entry.task?.status === "running") {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
+			refuseWhilePublishing(entry, caller);
 			switch (request.op) {
 				case "new":
 					try {
@@ -486,17 +503,24 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// Actions
 	// -----------------------------------------------------------------------
 
-	async act(browserId: string, input: BrowserAction): Promise<ActionResult> {
+	async act(browserId: string, input: BrowserAction, caller?: ToolCaller): Promise<ActionResult> {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
+			refuseWhilePublishing(entry, caller);
 			const action = normalizeAction(input, entry.viewport);
+			// The human driving the pinned page while waiting may hit the site's own submit.
+			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
+			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
+			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
 			try {
 				await entry.driver.perform(action);
+				if (touching) touching.touchedWhilePending = true;
 			} catch (error) {
 				const dispatched = !(error instanceof ActionNotDispatched);
+				if (dispatched && touching) touching.touchedWhilePending = true;
 				if (dispatched) entry.revision += 1;
 				return {
 					status: dispatched ? "unknown" : "failed",
@@ -524,8 +548,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	/** Start a task and return as soon as it runs; follow it with `waitTask`. */
-	async startTask(browserId: string, request: TaskRequest): Promise<TaskRun> {
-		const { run } = await this.beginTask(browserId, request);
+	async startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun> {
+		const { run } = await this.beginTask(browserId, request, undefined, caller);
 		return cloneTask(run);
 	}
 
@@ -533,6 +557,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		browserId: string,
 		request: TaskRequest,
 		onStep?: (step: TaskStep, run: TaskRun) => void,
+		caller?: ToolCaller,
 	): Promise<{ run: TaskRun; finished: Promise<TaskRun> }> {
 		const entry = this.require(browserId);
 		if (!TASK_AGENTS.includes(request.agent)) fail("bad_agent", `agent must be one of: ${TASK_AGENTS.join(", ")}`);
@@ -554,6 +579,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 		return await this.serialize(entry, async () => {
 			if (entry.worker) fail("task_running", `a ${entry.task?.agent} task is already running on this browser`);
+			refuseWhilePublishing(entry, caller);
 			const state = await this.refreshState(entry);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(entry.profile), request.credential) : undefined;
@@ -634,6 +660,61 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	// -----------------------------------------------------------------------
+	// Publishing — fill, park for the human's Post, submit once (publish.ts)
+	// -----------------------------------------------------------------------
+
+	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord> {
+		const entry = this.require(browserId);
+		const valid = validateRecipe(recipe);
+		const selected = validateMode(mode);
+		return await this.serialize(entry, async () => {
+			if (entry.task?.status === "running") {
+				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+			}
+			refuseWhilePublishing(entry, caller);
+			// Even from the View: a check or a second post would navigate away from the page the human is confirming.
+			if (isPending(entry.publish)) {
+				fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
+			}
+			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
+			if (!("record" in outcome)) return outcome;
+			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
+			outcome.sharedPage = entry.engine === "chrome-relay";
+			entry.publish = outcome;
+			return publishRecord(outcome);
+		});
+	}
+
+	async confirmPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const entry = this.require(browserId);
+		return await this.serialize(entry, async () => {
+			const publication = requirePending(entry.publish, publishId);
+			if (entry.task?.status === "running") {
+				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+			}
+			await confirm(entry.driver, publication);
+			return publishRecord(publication);
+		});
+	}
+
+	async cancelPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const entry = this.require(browserId);
+		return await this.serialize(entry, async () => {
+			const publication = requirePending(entry.publish, publishId);
+			cancel(publication);
+			return publishRecord(publication);
+		});
+	}
+
+	/** Not queued: it only reads the record, and must not wait behind a confirm. */
+	async waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord> {
+		const publication = this.require(browserId).publish;
+		if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+		await waitSettled(publication, ms);
+		return publishRecord(publication);
+	}
+
+	// -----------------------------------------------------------------------
 	// Internals
 	// -----------------------------------------------------------------------
 
@@ -684,6 +765,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			viewport: state.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: state.tabs, activeTabId: state.activeTabId, loading: state.loading,
 			canGoBack: state.canGoBack, canGoForward: state.canGoForward,
+			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
 
@@ -693,6 +775,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, url: "", title: "",
 			revision: entry.revision, viewport: entry.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false,
+			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
 }
@@ -827,6 +910,28 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * While the human is confirming a post, the page is theirs: only the Browser
+ * View's own input ("app") may drive it. Anything else could change what the
+ * human is approving between their look and their Post.
+ */
+function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
+	if (caller !== "app" && isPending(entry.publish)) {
+		fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+	}
+}
+
+/**
+ * The browser is going away under a pending publish: settle it first, so a
+ * `browser_publish_wait` hears the outcome instead of waiting out the expiry.
+ * A confirm already under way settles itself.
+ */
+function settleOnClose(entry: Entry): void {
+	if (entry.publish && !entry.publish.confirming && isPending(entry.publish)) {
+		cancel(entry.publish, "The browser was closed. Nothing was submitted.");
+	}
+}
 
 function cloneTask(run: TaskRun): TaskRun {
 	return { ...run, steps: run.steps.map((step) => ({ ...step })), usage: { ...run.usage } };
