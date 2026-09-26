@@ -83,6 +83,16 @@ export function isMirrorHost(hostname: string): boolean {
 	);
 }
 
+/**
+ * A page whose whole text is this short is essentially the gate the reader was
+ * shown, not an article with a form on it.
+ */
+const SHORT_PAGE_CHARS = 1_500;
+/** A challenge frame covering this share of the first viewport is the page, however much text is behind it. */
+const CHALLENGE_SHARE = 0.4;
+/** A login form or dialog covering this share of the first viewport is a wall, however much text is behind it. */
+const LOGIN_SHARE = 0.5;
+
 /** Why this page is blocked for a logged-out reader, or null when it can be read. */
 export function blockedReason(page: PageRead): string | null {
 	const status = page.httpStatus;
@@ -90,24 +100,31 @@ export function blockedReason(page: PageRead): string | null {
 	const challenge = challengeEvidence(page);
 	if (challenge !== null) return `CAPTCHA or bot check: ${challenge}`;
 	if (LOGIN_PATH.test(pathnameOf(page.url))) return "login wall: the page is a sign-in page";
-	if (page.passwordVisible) return "login wall: the page shows a password field";
+	// A password field is a wall only when it is what the page shows: a short
+	// page, or a login form/dialog over most of the viewport. A quick-login box
+	// beside a public thread or article is not.
+	const password = page.passwordShare;
+	if (password !== null && (page.bodyChars <= SHORT_PAGE_CHARS || password >= LOGIN_SHARE)) return "login wall: the page shows a password field";
 	return null;
 }
 
 /**
- * A challenge is something the reader is asked to pass: the interstitial's
- * title, or a VISIBLE challenge frame. A provider's script alone is not one —
- * reCAPTCHA v3 and Turnstile/hCaptcha are loaded site-wide for invisible
- * scoring and comment forms — so only frames the page script saw rendered
- * count, and reCAPTCHA's invisible-scoring badge (`anchor?size=invisible`)
- * does not.
+ * A challenge is something the reader is asked to pass instead of the page:
+ * the interstitial's title, or a visible challenge frame that IS the page — in
+ * the first viewport of a short page, or covering a large share of the
+ * viewport. A provider's script is never one (reCAPTCHA v3 and Turnstile load
+ * site-wide for invisible scoring), reCAPTCHA's invisible-scoring badge
+ * (`anchor?size=invisible`) is not, and neither is a checkbox widget in the
+ * comment or contact form under an article.
  */
 function challengeEvidence(page: PageRead): string | null {
 	if (CHALLENGE_TITLE.test(page.title)) return `the page title is "${page.title.trim().slice(0, 80)}"`;
-	for (const src of page.frames) {
+	const short = page.bodyChars <= SHORT_PAGE_CHARS;
+	for (const frame of page.frames) {
+		if (!((short && frame.share > 0) || frame.share >= CHALLENGE_SHARE)) continue;
 		let url: URL;
 		try {
-			url = new URL(src);
+			url = new URL(frame.src);
 		} catch {
 			continue;
 		}
@@ -199,13 +216,19 @@ function privateReason(host: string): string {
 	return `private address: ${host} is loopback, private or link-local; browser_read reads the public web only`;
 }
 
+/** A hostname's addresses. The system resolver in production; a test passes its own. */
+export type ResolveHost = (host: string) => Promise<string[]>;
+
+const systemResolve: ResolveHost = async (host) => (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
+
 /**
  * The reader's request policy for ONE read. `allowPrivateHosts` exempts exact
  * hostnames from the private-address refusal; it exists for the test fixture
- * on 127.0.0.1 and is never set in production. DNS answers are cached for the
- * read, so a page's many sub-resources cost one lookup per host.
+ * on 127.0.0.1 and is never set in production. `resolve` is the DNS lookup,
+ * replaceable only by code (tests), never by a tool input. DNS answers are
+ * cached for the read, so a page's many sub-resources cost one lookup per host.
  */
-export function readPolicy(allowPrivateHosts: readonly string[] = []): ReadPolicy {
+export function readPolicy(allowPrivateHosts: readonly string[] = [], resolve: ResolveHost = systemResolve): ReadPolicy {
 	const allowed = new Set(allowPrivateHosts.map((host) => host.toLowerCase()));
 	const resolved = new Map<string, Promise<string | null>>();
 	const privateHost = (url: string): Promise<string | null> => {
@@ -215,10 +238,11 @@ export function readPolicy(allowPrivateHosts: readonly string[] = []): ReadPolic
 		} catch {
 			return Promise.resolve(null);
 		}
-		if (allowed.has(host)) return Promise.resolve(null);
+		// No host (about:blank, data:) is nothing to reach; an allowed one is the test fixture.
+		if (host === "" || allowed.has(host)) return Promise.resolve(null);
 		let answer = resolved.get(host);
 		if (!answer) {
-			answer = resolveReason(host);
+			answer = resolveReason(host, resolve);
 			resolved.set(host, answer);
 		}
 		return answer;
@@ -248,13 +272,12 @@ export function readPolicy(allowPrivateHosts: readonly string[] = []): ReadPolic
 }
 
 /** A host's refusal: by name, by literal, then by every address it resolves to. */
-async function resolveReason(host: string): Promise<string | null> {
+async function resolveReason(host: string, resolve: ResolveHost): Promise<string | null> {
 	if (LOCAL_NAME.test(host)) return privateReason(host);
 	const literal = host.replace(/^\[|\]$/g, "");
 	if (isIPv4(literal) || isIPv6(literal)) return isPrivateAddress(literal) ? privateReason(host) : null;
 	try {
-		const addresses = await lookup(host, { all: true, verbatim: true });
-		return addresses.some((entry) => isPrivateAddress(entry.address)) ? privateReason(host) : null;
+		return (await resolve(host)).some(isPrivateAddress) ? privateReason(host) : null;
 	} catch {
 		// Unresolvable here: the browser's own lookup fails the same way, and
 		// whatever it does connect to is checked again (`connected`).

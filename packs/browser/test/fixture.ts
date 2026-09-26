@@ -279,6 +279,13 @@ export function startFixture(): Fixture {
 			if (pathname === "/recaptcha/api2/anchor") return html(page("recaptcha", "<p>I'm not a robot</p>"));
 			// reCAPTCHA v3 as sites ship it: the script on every page and the invisible-scoring badge, no challenge.
 			if (pathname === "/recaptcha-v3") return html(page("fixture article", `<article><p>scored, not challenged</p></article><script src="/recaptcha/api.js?render=fixture"></script><div style="position:fixed;right:0;bottom:0;width:256px;height:60px"><iframe src="/recaptcha/api2/anchor?k=fixture&size=invisible" width="256" height="60"></iframe></div>`));
+			// Long public pages that carry a widget, not a wall: a checkbox CAPTCHA in the comment form under
+			// the article, and a quick-login box in the sidebar. And the same article behind a full-viewport
+			// challenge or login dialog, which IS a wall however much text sits behind it.
+			if (pathname === "/article-with-comment-captcha") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><form><p>Leave a comment</p><textarea></textarea><iframe src="/recaptcha/api2/anchor?k=fixture&size=normal" width="304" height="78"></iframe></form>`));
+			if (pathname === "/article-behind-challenge") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><iframe src="/recaptcha/api2/bframe?k=fixture" style="position:fixed;left:0;top:0;width:100vw;height:100vh;border:0"></iframe>`));
+			if (pathname === "/article-with-sidebar-login") return html(page("fixture article", `<aside style="float:right;width:240px"><form><input name="user" /><input name="pass" type="password" /><button>Log in</button></form></aside><article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article>`));
+			if (pathname === "/article-behind-login") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><dialog open style="position:fixed;left:0;top:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0"><form><input name="user" /><input name="pass" type="password" /></form></dialog>`));
 			if (pathname === "/recaptcha/api.js") return new Response("", { headers: { "content-type": "text/javascript" } });
 			// Redirects out of the fixture's allowed host: to a mirror host, and to a private one.
 			if (pathname === "/to-mirror") return new Response(null, { status: 302, headers: { location: `http://redlib.localhost:${url.port}/article` } });

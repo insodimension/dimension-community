@@ -120,14 +120,19 @@ A page that will not serve a logged-out reader returns
 in. The reasons are checked in order:
 
 - **An HTTP refusal.** Status 401, 403, 429, 451 or any 5xx (`HTTP 403`).
-- **A CAPTCHA or bot check.** A visible challenge frame (a `/recaptcha/` path
-  other than reCAPTCHA v3's invisible scoring badge, `recaptcha.net`,
-  `hcaptcha.com`, `challenges.cloudflare.com`), or a "Just a moment" or
-  "Attention Required" title. A provider's script alone is not a challenge:
-  reCAPTCHA v3 and Turnstile load site-wide.
+- **A CAPTCHA or bot check.** A "Just a moment" or "Attention Required"
+  title, or a visible challenge frame (a `/recaptcha/` path other than
+  reCAPTCHA v3's invisible scoring badge, `recaptcha.net`, `hcaptcha.com`,
+  `challenges.cloudflare.com`) that is the page: in the first viewport of a
+  short page (1 500 characters of text or less), or covering 40% of the
+  viewport or more. A provider's script is not a challenge (reCAPTCHA v3 and
+  Turnstile load site-wide), and neither is a checkbox widget in the comment
+  or contact form under a long article.
 - **A login wall.** A log-in, sign-in, sign-up or authwall path segment in the
   final URL (`/login`, `/users/sign_in`, `/sign-in`, `/signup`, `/authwall`),
-  or a visible password field, including one inside an open shadow root.
+  or a visible password field (open shadow roots included) on a short page,
+  or inside a form or dialog covering half the viewport or more. A quick-login
+  box beside a long public page is not a wall.
 - **A timeout.**
 
 The checks run as one fixed page script; no caller JavaScript reaches the

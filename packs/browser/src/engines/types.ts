@@ -37,10 +37,16 @@ export interface PageRead {
   /** `document.body.innerText`, whitespace-collapsed, cut at the limit. */
   text: string;
   truncated: boolean;
-  /** A password input is rendered and visible (open shadow roots included). */
-  passwordVisible: boolean;
-  /** Absolute `src` of the page's VISIBLE iframes, open shadow roots included (bounded). */
-  frames: string[];
+  /** Length of the whole body text, before the cut. */
+  bodyChars: number;
+  /**
+   * A visible password input (open shadow roots included): the largest share
+   * (0..1) of the first viewport covered by a form or dialog around it — the
+   * field itself when there is none. Null when no password input is visible.
+   */
+  passwordShare: number | null;
+  /** The page's VISIBLE iframes, open shadow roots included (bounded): src and the share (0..1) of the first viewport each covers. */
+  frames: Array<{ src: string; share: number }>;
 }
 
 /**

@@ -18,7 +18,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { afterEach, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { isMirrorHost, isPrivateAddress, MIRROR_REASON } from "../src/read";
+import { isMirrorHost, isPrivateAddress, MIRROR_REASON, readPolicy } from "../src/read";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { ARTICLE_TEXT, BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, startFixture, teardown } from "./fixture";
@@ -70,6 +70,24 @@ test("private addresses are told from public ones at the range boundaries", () =
 	const publics = ["8.8.8.8", "1.1.1.1", "172.15.255.255", "172.32.0.1", "100.63.255.255", "100.128.0.1", "169.255.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "fec0::1"];
 	expect(privates.filter((ip) => !isPrivateAddress(ip))).toEqual([]);
 	expect(publics.filter((ip) => isPrivateAddress(ip))).toEqual([]);
+});
+
+test("a public name that resolves to a private address is refused; one that resolves publicly is not", async () => {
+	const answers: Record<string, string[]> = { "intranet.example.com": ["93.184.216.34", "10.0.0.5"], "metadata.example.com": ["169.254.169.254"], "public.example.com": ["93.184.216.34"] };
+	const policy = readPolicy([], async (host) => answers[host] ?? []);
+
+	expect(await policy.navigation("http://intranet.example.com/")).toBe(PRIVATE_REASON("intranet.example.com"));
+	expect(await policy.subresource("http://metadata.example.com/latest/meta-data/")).toBe(PRIVATE_REASON("metadata.example.com"));
+	expect(await policy.navigation("https://public.example.com/post")).toBeNull();
+});
+
+test("a public host whose connection landed on a private address is refused (DNS rebinding)", () => {
+	const policy = readPolicy(["127.0.0.1"]);
+
+	expect(policy.connected("https://public.example.com/post", "127.0.0.1")).toBe(PRIVATE_REASON("public.example.com"));
+	expect(policy.connected("https://public.example.com/post", "::ffff:192.168.1.1")).toBe(PRIVATE_REASON("public.example.com"));
+	expect(policy.connected("https://public.example.com/post", "93.184.216.34")).toBeNull();
+	expect(policy.connected("http://127.0.0.1:8080/", "127.0.0.1")).toBeNull();
 });
 
 describeWithChrome("browser_read", () => {
@@ -187,6 +205,20 @@ describeWithChrome("browser_read", () => {
 	);
 
 	test(
+		"a quick-login box beside a long article is not a login wall; a login dialog over the viewport is",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+
+			const read = await runtime.read({ url: fixture.url("/article-with-sidebar-login") });
+			expect(read).toMatchObject({ status: "ok", url: fixture.url("/article-with-sidebar-login"), title: "fixture article" });
+			expect(read.status === "ok" && read.text.endsWith(ARTICLE_TEXT)).toBe(true);
+			expect(await runtime.read({ url: fixture.url("/article-behind-login") })).toEqual({ status: "blocked", url: fixture.url("/article-behind-login"), reason: "login wall: the page shows a password field" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"a visible CAPTCHA frame is a bot check; reCAPTCHA v3's script and scoring badge are not",
 		async () => {
 			const fixture = startFixture();
@@ -195,6 +227,18 @@ describeWithChrome("browser_read", () => {
 			expect(await runtime.read({ url: fixture.url("/captcha") })).toEqual({ status: "blocked", url: fixture.url("/captcha"), reason: `CAPTCHA or bot check: the page shows a challenge frame from ${fixture.url("/recaptcha/api2/anchor")}` });
 			expect(await runtime.read({ url: fixture.url("/recaptcha-v3") })).toMatchObject({ status: "ok", text: "scored, not challenged" });
 			expect(fixture.hits("/recaptcha/api.js")).toBe(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a CAPTCHA widget in a long article's comment form is not a bot check; a challenge over the viewport is",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+
+			expect(await runtime.read({ url: fixture.url("/article-with-comment-captcha"), maxChars: 11 })).toEqual({ status: "ok", url: fixture.url("/article-with-comment-captcha"), title: "fixture article", text: "Field notes", truncated: true });
+			expect(await runtime.read({ url: fixture.url("/article-behind-challenge") })).toEqual({ status: "blocked", url: fixture.url("/article-behind-challenge"), reason: `CAPTCHA or bot check: the page shows a challenge frame from ${fixture.url("/recaptcha/api2/bframe")}` });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
