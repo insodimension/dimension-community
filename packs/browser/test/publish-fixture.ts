@@ -21,11 +21,15 @@
  *               whose input events count as writes too;
  *  - `shadow`   like `nav`, plus `<compose-box id="box">` whose OPEN shadow root
  *               holds a textarea `#inner`; its input events count as writes and
- *               `#post` submits its value as `text`.
+ *               `#post` submits its value as `text`;
+ *  - `shadow-steal` like `shadow`, but `#inner`'s focus handler moves focus to
+ *               `#decoy` in the same shadow root, whose input events count too;
+ *  - `shadow-toast` like `toast`, but the link goes inside the OPEN shadow root
+ *               of `<toast-host id="toasthost">`, out of reach of plain CSS.
  */
 import { randomBytes } from "node:crypto";
 
-export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite" | "steal" | "shadow";
+export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite" | "steal" | "shadow" | "shadow-steal" | "shadow-toast";
 
 export interface PublishFixture {
 	url(path: string, host?: "127.0.0.1" | "localhost"): string;
@@ -50,8 +54,9 @@ ${signedIn ? `<p id="me">@alice</p>` : `<p>sign in to post</p>`}
 <input id="secret" type="password" />
 <button id="post" type="button">Post</button>
 ${variant === "steal" ? `<input id="other" />` : ""}
-${variant === "shadow" ? `<compose-box id="box"></compose-box>` : ""}
+${variant === "shadow" || variant === "shadow-steal" ? `<compose-box id="box"></compose-box>` : ""}
 <div id="toasts">${stale}</div>
+${variant === "shadow-toast" ? `<toast-host id="toasthost"></toast-host>` : ""}
 <script>
   var variant = ${JSON.stringify(variant)};
   var offsite = ${JSON.stringify(offsiteOrigin)};
@@ -73,12 +78,16 @@ ${variant === "shadow" ? `<compose-box id="box"></compose-box>` : ""}
     other.addEventListener("input", function () { writes++; show(); });
   }
   var inner = null;
-  if (variant === "shadow") {
+  if (variant === "shadow" || variant === "shadow-steal") {
     var root = document.getElementById("box").attachShadow({ mode: "open" });
-    root.innerHTML = '<textarea id="inner"></textarea>';
+    root.innerHTML = '<textarea id="inner"></textarea><textarea id="decoy"></textarea>';
     inner = root.getElementById("inner");
     inner.addEventListener("input", function () { writes++; show(); });
+    var decoy = root.getElementById("decoy");
+    decoy.addEventListener("input", function () { writes++; show(); });
+    if (variant === "shadow-steal") inner.addEventListener("focus", function () { decoy.focus(); });
   }
+  var toastRoot = variant === "shadow-toast" ? document.getElementById("toasthost").attachShadow({ mode: "open" }) : null;
   ["focus", "keydown", "input", "beforeinput"].forEach(function (type) {
     document.getElementById("secret").addEventListener(type, function () { secret++; show(); });
   });
@@ -89,10 +98,10 @@ ${variant === "shadow" ? `<compose-box id="box"></compose-box>` : ""}
     var path = "/alice/status/" + n;
     if (variant === "nav" || variant === "rewrite" || variant === "shadow") location.href = path;
     else if (variant === "offsite") location.href = offsite + path;
-    else if (variant === "toast" || variant === "stale-new") {
+    else if (variant === "toast" || variant === "stale-new" || variant === "shadow-toast") {
       var link = document.createElement("a");
       link.className = "toast"; link.href = path; link.textContent = "view your post";
-      document.getElementById("toasts").appendChild(link);
+      (toastRoot || document.getElementById("toasts")).appendChild(link);
     }
   });
 </script></body></html>`;
@@ -102,7 +111,7 @@ function html(markup: string, headers: Record<string, string> = {}): Response {
 	return new Response(markup, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers } });
 }
 
-const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite", "steal", "shadow"];
+const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite", "steal", "shadow", "shadow-steal", "shadow-toast"];
 
 export function startPublishFixture(): PublishFixture {
 	const hits = new Map<string, number>();

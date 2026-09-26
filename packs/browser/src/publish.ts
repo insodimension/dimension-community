@@ -302,6 +302,8 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 			await driver.perform({ kind: "click", selector: recipe.submit });
 		} catch (error) {
 			if (error instanceof ActionNotDispatched) {
+				const unsure = unsureError(publication);
+				if (unsure) return settle(publication, "unknown", { error: unsure });
 				return settle(publication, "failed", { error: `submit was not clicked: ${describe(error)}; nothing was submitted` });
 			}
 			return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe(error)})` });

@@ -153,8 +153,10 @@ The caller supplies a recipe as data, so the pack stays platform-agnostic:
   use directly, outside the View. The bar's Post still works there, but a
   close, cancel, expiry or changed page settles `unknown`, never `cancelled`,
   `expired` or `failed`.
-- Selectors (`signedIn`, `fields`, `submit`, `receipt.linkSelector`) are CSS,
-  or `pierce/…` to reach into open shadow roots.
+- Recipe selectors (`signedIn`, `fields`, `submit`) accept any puppeteer
+  selector syntax: CSS, `pierce/…` to reach into open shadow roots,
+  `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
+  so it accepts CSS and `pierce/…` only.
 
 Hard lines: publishing never types into a password field, never uses the saved
 passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly

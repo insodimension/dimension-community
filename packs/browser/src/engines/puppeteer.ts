@@ -419,9 +419,11 @@ class PuppeteerDriver implements EngineDriver {
 		await withTimeout(this.#type(this.#activeTab().page, selector, text, true), ACTION_TIMEOUT_MS + 5_000, "fill");
 	}
 
-	// Publish reads resolve the selector through puppeteer's own query handlers
-	// (so `pierce/` reaches into shadow roots), then run a fixed data-only
-	// script on the element handle: no selector ever reaches page JavaScript.
+	// Publish reads: hasElement/readField resolve the selector through
+	// puppeteer's own query handlers (so `pierce/` reaches into shadow roots),
+	// then run a fixed data-only script on the element handle. linkHrefs runs one
+	// fixed script that takes the selector as a data argument (CSS or `pierce/`
+	// only). No selector ever becomes page code.
 	async hasElement(selector: string): Promise<boolean> {
 		const handle = await this.#activeTab().page.$(selector);
 		if (handle === null) return false;
@@ -440,7 +442,7 @@ class PuppeteerDriver implements EngineDriver {
 	}
 
 	async linkHrefs(selector: string, limit: number): Promise<string[]> {
-		return await this.#activeTab().page.$$eval(selector, LINK_HREFS_SCRIPT, limit);
+		return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector, limit);
 	}
 
 	// -----------------------------------------------------------------------

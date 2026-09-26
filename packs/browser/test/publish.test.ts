@@ -19,6 +19,7 @@
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import puppeteer, { type Browser } from "puppeteer-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { BrowserAction, PublishRecipe, PublishRecord } from "../src/contracts";
@@ -27,7 +28,7 @@ import { confirm, prepare, validateRecipe, type Publication } from "../src/publi
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { ActionNotDispatched } from "../src/store";
-import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, failureCode, newRuntime, perform, teardown } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, newRuntime, perform, teardown } from "./fixture";
 import { type ComposeVariant, type PublishFixture, startPublishFixture } from "./publish-fixture";
 
 const CALLER = "ai.insodimension/caller";
@@ -36,6 +37,8 @@ const RICH = "rich line one\nrich line two 👋";
 /** What an outcome that would otherwise say "nothing was posted" says once the human used the page while waiting. */
 const TOUCHED = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 const CLOSED = "The browser was closed. Nothing was submitted.";
+/** The same, on the relay: the human's own Chrome, where the page can be used outside the View. */
+const SHARED = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
 
 interface ToolResult {
 	isError?: boolean;
@@ -46,12 +49,16 @@ type Call = (name: string, args: Record<string, unknown>, caller?: string) => Pr
 
 const clients: Client[] = [];
 const fixtures: PublishFixture[] = [];
+/** Stand-ins for the human's own Chrome, which the relay engine attaches to. */
+const humanChromes: Browser[] = [];
 
 afterEach(async () => {
 	setSystemTime();
 	for (const client of clients.splice(0)) await client.close().catch(() => undefined);
 	for (const fixture of fixtures.splice(0)) await fixture.stop();
 	await teardown();
+	// The runtime detaches first; only then does the human's Chrome go away.
+	for (const chrome of humanChromes.splice(0)) await chrome.close().catch(() => undefined);
 }, BROWSER_TEST_TIMEOUT_MS);
 
 // ---------------------------------------------------------------------------
@@ -65,12 +72,16 @@ interface Session {
 	fixture: PublishFixture;
 }
 
-/** The real MCP server over a real Chrome, a fresh profile, and the fake site. */
-async function session(profile: string, { signIn = true } = {}): Promise<Session> {
+/**
+ * The real MCP server over a real Chrome, a fresh profile, and the fake site.
+ * `relay` attaches the chrome-relay engine to a separately launched Chrome
+ * standing in for the human's own, on its one reserved profile.
+ */
+async function session(profile: string, { signIn = true, relay = false } = {}): Promise<Session> {
 	const fixture = startPublishFixture();
 	fixtures.push(fixture);
 	const rootDir = await createRoot();
-	const runtime = newRuntime(rootDir);
+	const runtime = newRuntime(rootDir, relay ? { relayUrl: await launchHumanChrome() } : {});
 	const viewDir = join(rootDir, "view");
 	await mkdir(viewDir, { recursive: true });
 	await writeFile(join(viewDir, "index.html"), "<!doctype html><title>view</title>");
@@ -81,11 +92,18 @@ async function session(profile: string, { signIn = true } = {}): Promise<Session
 	clients.push(client);
 	const call: Call = async (name, args, caller) =>
 		(await client.callTool({ name, arguments: args, ...(caller === undefined ? {} : { _meta: { [CALLER]: caller } }) })) as ToolResult;
-	const opened = await call("browser_open", { profile });
+	const opened = await call("browser_open", { profile, ...(relay ? { engine: "chrome-relay" } : {}) });
 	expect(opened.isError).toBeFalsy();
 	const browserId = opened.structuredContent?.browserId as string;
 	if (signIn) await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/login") });
 	return { call, runtime, browserId, fixture };
+}
+
+/** A headless Chrome on a throwaway profile with a DevTools port: the endpoint the relay engine attaches to. */
+async function launchHumanChrome(): Promise<string> {
+	const chrome = await puppeteer.launch({ executablePath: chromePath, headless: true, args: ["--no-first-run", "--no-default-browser-check"] });
+	humanChromes.push(chrome);
+	return `http://127.0.0.1:${new URL(chrome.wsEndpoint()).port}`;
 }
 
 function recipe(fixture: PublishFixture, variant: ComposeVariant, overrides: Partial<PublishRecipe> = {}): PublishRecipe {
@@ -342,6 +360,20 @@ describeWithChrome("browser_publish", () => {
 		async () => {
 			const s = await session("pub-link");
 			const parked = await post(s, "stale-new", { receipt: { ...recipe(s.fixture, "stale-new").receipt, linkSelector: "a.toast" } });
+
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
+			expect(s.fixture.submissions()).toHaveLength(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a pierce/ linkSelector finds the receipt link inside an open shadow root",
+		async () => {
+			const s = await session("pub-link-shadow");
+			const parked = await post(s, "shadow-toast", { receipt: { ...recipe(s.fixture, "shadow-toast").receipt, linkSelector: "pierce/a.toast" } });
 
 			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
 
@@ -715,6 +747,73 @@ describeWithChrome("browser_publish", () => {
 
 			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
 			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: "" }]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a shadow-root page that moves focus off the field to another element in the same root fails the post and nothing is typed there",
+		async () => {
+			const s = await session("pub-shadow-steal");
+			const result = await s.call("browser_publish", {
+				browserId: s.browserId,
+				recipe: recipe(s.fixture, "shadow-steal", { fields: [{ selector: "pierce/#inner", value: TEXT }] }),
+				mode: "post",
+			});
+
+			expect(result.structuredContent?.status).toBe("failed");
+			// `#decoy`'s input events count as writes: the document's own activeElement is the host either way.
+			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
+			expect(s.fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"on chrome-relay, a cancel is unknown with the shared-page error, never cancelled, and nothing is submitted",
+		async () => {
+			const s = await session("relay", { relay: true });
+			const parked = await post(s, "nav");
+
+			const cancelled = await s.call("browser_publish_cancel", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(cancelled.structuredContent).toMatchObject({ status: "unknown", error: SHARED });
+			expect(await record(s, parked.publishId)).toMatchObject({ status: "unknown", error: SHARED });
+			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
+			expect(s.fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"on chrome-relay, a page changed since shown is unknown with the shared-page error, and nothing is submitted",
+		async () => {
+			const s = await session("relay", { relay: true });
+			const parked = await post(s, "nav");
+			await humanAct(s, { kind: "navigate", url: parked.composeUrl });
+
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "unknown", error: SHARED });
+			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
+			expect(s.fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"on chrome-relay, the bar's Post still posts, clicking submit exactly once",
+		async () => {
+			const s = await session("relay", { relay: true });
+			const parked = await post(s, "toast", { receipt: { ...recipe(s.fixture, "toast").receipt, linkSelector: "a.toast" } });
+
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
+
+			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
+			// The toast page stays, so its own counter shows the one click.
+			expect((await counters(s.runtime, s.browserId)).clicks).toBe(1);
+			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: RICH }]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

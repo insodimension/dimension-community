@@ -95,10 +95,11 @@ const FAVICON_HREF_SCRIPT = (): string | null => {
 	return null;
 };
 /**
- * Publish scripts. Each runs on elements puppeteer already resolved (its query
- * handlers, so `pierce/` reaches shadow roots) and takes data arguments only
- * (a bound); they read — none of them writes to the page. A password input is
- * recognised and never read.
+ * Publish scripts. The element scripts run on elements puppeteer already
+ * resolved (its query handlers, so `pierce/` reaches shadow roots); the link
+ * reader resolves its own selector in-page. All take data arguments only; they
+ * read — none of them writes to the page. A password input is recognised and
+ * never read.
  */
 const IS_PASSWORD_SCRIPT = (el: Element): boolean =>
 	el.tagName === "INPUT" && ((el as HTMLInputElement).type ?? "").toLowerCase() === "password";
@@ -133,16 +134,40 @@ const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	const text = html.innerText;
 	return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
 };
-/** The resolved hrefs of up to `limit` of `elements`, in document order. */
-const LINK_HREFS_SCRIPT = (elements: Element[], limit: number): string[] => {
+/**
+ * The absolute hrefs of up to `limit` elements matching `selector`. The
+ * selector is data, never code: plain CSS goes to `document.querySelectorAll`
+ * (document order); `pierce/<css>` queries the document, then every open
+ * shadow root beneath it, nested ones too (each root in document order).
+ * Stops at `limit`.
+ */
+const LINK_HREFS_SCRIPT = (selector: string, limit: number): string[] => {
 	const out: string[] = [];
-	for (let i = 0; i < elements.length && out.length < limit; i += 1) {
-		const raw = elements[i].getAttribute("href");
-		if (raw === null) continue;
-		try {
-			out.push(new URL(raw, document.baseURI).href);
-		} catch {
-			// Not a URL: not a receipt.
+	const collect = (root: Document | ShadowRoot, css: string): void => {
+		const matches = root.querySelectorAll(css);
+		for (let i = 0; i < matches.length && out.length < limit; i += 1) {
+			const raw = matches[i].getAttribute("href");
+			if (raw === null) continue;
+			try {
+				out.push(new URL(raw, document.baseURI).href);
+			} catch {
+				// Not a URL: not a receipt.
+			}
+		}
+	};
+	if (!selector.startsWith("pierce/")) {
+		collect(document, selector);
+		return out;
+	}
+	const css = selector.slice("pierce/".length);
+	const roots: Array<Document | ShadowRoot> = [document];
+	for (let r = 0; r < roots.length && out.length < limit; r += 1) {
+		collect(roots[r], css);
+		if (out.length >= limit) break;
+		const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+			const shadow = (node as Element).shadowRoot;
+			if (shadow) roots.push(shadow);
 		}
 	}
 	return out;

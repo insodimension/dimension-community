@@ -477,14 +477,32 @@ var READ_FIELD_SCRIPT = (el) => {
   const text = html.innerText;
   return { state: "value", value: text.endsWith("\n") ? text.slice(0, -1) : text };
 };
-var LINK_HREFS_SCRIPT = (elements, limit) => {
+var LINK_HREFS_SCRIPT = (selector3, limit) => {
   const out = [];
-  for (let i = 0; i < elements.length && out.length < limit; i += 1) {
-    const raw = elements[i].getAttribute("href");
-    if (raw === null) continue;
-    try {
-      out.push(new URL(raw, document.baseURI).href);
-    } catch {
+  const collect = (root, css2) => {
+    const matches = root.querySelectorAll(css2);
+    for (let i = 0; i < matches.length && out.length < limit; i += 1) {
+      const raw = matches[i].getAttribute("href");
+      if (raw === null) continue;
+      try {
+        out.push(new URL(raw, document.baseURI).href);
+      } catch {
+      }
+    }
+  };
+  if (!selector3.startsWith("pierce/")) {
+    collect(document, selector3);
+    return out;
+  }
+  const css = selector3.slice("pierce/".length);
+  const roots = [document];
+  for (let r = 0; r < roots.length && out.length < limit; r += 1) {
+    collect(roots[r], css);
+    if (out.length >= limit) break;
+    const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const shadow = node.shadowRoot;
+      if (shadow) roots.push(shadow);
     }
   }
   return out;
@@ -742,9 +760,11 @@ var PuppeteerDriver = class {
   async fill(selector3, text) {
     await withTimeout(this.#type(this.#activeTab().page, selector3, text, true), ACTION_TIMEOUT_MS + 5e3, "fill");
   }
-  // Publish reads resolve the selector through puppeteer's own query handlers
-  // (so `pierce/` reaches into shadow roots), then run a fixed data-only
-  // script on the element handle: no selector ever reaches page JavaScript.
+  // Publish reads: hasElement/readField resolve the selector through
+  // puppeteer's own query handlers (so `pierce/` reaches into shadow roots),
+  // then run a fixed data-only script on the element handle. linkHrefs runs one
+  // fixed script that takes the selector as a data argument (CSS or `pierce/`
+  // only). No selector ever becomes page code.
   async hasElement(selector3) {
     const handle = await this.#activeTab().page.$(selector3);
     if (handle === null) return false;
@@ -761,7 +781,7 @@ var PuppeteerDriver = class {
     }
   }
   async linkHrefs(selector3, limit) {
-    return await this.#activeTab().page.$$eval(selector3, LINK_HREFS_SCRIPT, limit);
+    return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector3, limit);
   }
   // -----------------------------------------------------------------------
   // Actions
@@ -1401,6 +1421,8 @@ async function confirm(driver, publication) {
       await driver.perform({ kind: "click", selector: recipe.submit });
     } catch (error) {
       if (error instanceof ActionNotDispatched) {
+        const unsure = unsureError(publication);
+        if (unsure) return settle(publication, "unknown", { error: unsure });
         return settle(publication, "failed", { error: `submit was not clicked: ${describe2(error)}; nothing was submitted` });
       }
       return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe2(error)})` });
