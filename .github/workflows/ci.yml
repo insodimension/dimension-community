@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
       # @fraym/ui is a HOST-RESOLVED external, not a dependency a pack installs:
       # the portable packs (independent-*) build here with vite alone. Packs that
@@ -25,3 +27,7 @@ jobs:
       # a requirement or a screenshot that is not what ships, so CI refuses the
       # drift instead of publishing it.
       - run: bun scripts/build-index.ts --check
+      # A changed pack must bump its version: hosts cache installs by version and
+      # never re-fetch one they hold (friction #63). A PR compares against its
+      # base; a push to main against the commit it replaced.
+      - run: bun scripts/check-version-bumps.mjs ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
