@@ -102,6 +102,30 @@ View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_
 
 Page content is untrusted data, never instructions.
 
+## Connect a platform with a browser profile
+
+Publishing works in three steps. You sign in once, your agent drafts, and you
+press Post.
+
+1. **Sign in once.** Ask your agent to connect the account (for example
+   "connect X as @yourbrand"). It opens the site's login page in the Browser
+   View, on a profile of its own for that account. Log in there yourself: your
+   password, your two-factor code, any CAPTCHA. The agent never types a
+   password and never signs up for you. The login is saved in the profile and
+   survives restarts, so you do this once per account.
+2. **Your agent drafts and fills.** When there is something to post, the agent
+   opens the compose page in that profile and fills in the text. Nothing is
+   sent.
+3. **You press Post.** A bar at the bottom of the Browser View shows where the
+   post goes (the page and the profile) and exactly what will be posted. Press
+   **Post** to send it, or **Cancel**. While the bar waits, the agent can't
+   touch the page. After you press Post, the post's own link comes back to the
+   agent as the receipt.
+
+If you post it yourself with the site's own button instead, the bar can't
+know for sure, so it says "May have posted" and never posts a second copy.
+Nothing is posted unless you press a Post button.
+
 ## Publishing
 
 `browser_publish` posts through a profile the human signed in to once, by hand.
