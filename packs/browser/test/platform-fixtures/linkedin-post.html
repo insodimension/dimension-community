@@ -74,12 +74,32 @@
     outlet.appendChild(document.getElementById("share-box").content.cloneNode(true));
     var editor = outlet.querySelector(".ql-editor");
     var post = outlet.querySelector(".share-actions__primary-action");
-    // Quill's getText: one line per paragraph.
+    // Quill's getText: every line (one <p>) is its text plus "\n", so the
+    // whole ends in "\n"; the share box trims that last "\n" when it posts.
+    // Built from the editor's DOM, never innerText: a line's text is its text
+    // nodes' data with each <br> a "\n", except the line's last <br>, Quill's
+    // empty-line marker (<p><br></p>), not text.
+    var lineText = function (p) {
+      var text = "";
+      var trailingBreak = false;
+      var walker = document.createTreeWalker(p, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+      for (var node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          text += node.data;
+          if (node.data !== "") trailingBreak = false;
+        } else if (node.nodeName === "BR") {
+          text += "\n";
+          trailingBreak = true;
+        }
+      }
+      return trailingBreak ? text.slice(0, -1) : text;
+    };
+    var getText = function () {
+      return Array.from(editor.querySelectorAll(":scope > p")).map(function (p) { return lineText(p) + "\n"; }).join("");
+    };
     var plainText = function () {
-      return Array.from(editor.querySelectorAll(":scope > p")).map(function (p) {
-        var text = p.innerText;
-        return text.endsWith("\n") ? text.slice(0, -1) : text;
-      }).join("\n");
+      var text = getText();
+      return text.endsWith("\n") ? text.slice(0, -1) : text;
     };
     editor.addEventListener("input", function () {
       var empty = plainText().trim() === "";

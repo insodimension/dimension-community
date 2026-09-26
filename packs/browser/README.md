@@ -215,6 +215,10 @@ Presets are modelled on each site's page as of 2026-09 and tested against
 fixture copies, not the live sites. A preset becomes verified only after a real
 post is observed through it. Each preset's `notes` say what every selector is
 modelled on; the fixture copies are in `test/platform-fixtures/`.
+`reddit-comment`'s receipt link matches any comment permalink, so another
+user's comment that loads on the thread after submit could be taken as the
+receipt: the receipt checks the path shape and that the link was not on the
+page before submit, not who wrote the comment.
 
 ## Tests and benchmark
 

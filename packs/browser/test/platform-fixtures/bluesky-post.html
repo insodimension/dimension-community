@@ -59,12 +59,29 @@
   // The intent route redirects to the feed with the composer open.
   history.replaceState(null, "", "/");
   var editor = document.querySelector("[role='dialog'] .ProseMirror");
-  // The post text: one line per paragraph.
+  // The post text, as Bluesky's composer serializes ProseMirror's document
+  // (editorJsonToText): each paragraph's text, paragraphs joined by "\n".
+  // Built from the editor's DOM, never innerText: a paragraph's text is its
+  // text nodes' data with each <br> (a hard break) a "\n", except the
+  // paragraph's last <br>, ProseMirror's trailing-break marker
+  // (br.ProseMirror-trailingBreak) that keeps an empty line open, not text.
+  function paragraphText(p) {
+    var text = "";
+    var trailingBreak = false;
+    var walker = document.createTreeWalker(p, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (var node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.data;
+        if (node.data !== "") trailingBreak = false;
+      } else if (node.nodeName === "BR") {
+        text += "\n";
+        trailingBreak = true;
+      }
+    }
+    return trailingBreak ? text.slice(0, -1) : text;
+  }
   function plainText() {
-    return Array.from(editor.querySelectorAll(":scope > p")).map(function (p) {
-      var text = p.innerText;
-      return text.endsWith("\n") ? text.slice(0, -1) : text;
-    }).join("\n");
+    return Array.from(editor.querySelectorAll(":scope > p")).map(paragraphText).join("\n");
   }
   editor.addEventListener("input", function () {
     document.querySelector("[data-testid='charCount']").textContent = String(300 - plainText().length);
