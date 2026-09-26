@@ -1,8 +1,8 @@
 // The frame loop. One sequential walker, never more than one call in flight:
-//   • live            → `browser_frame` jpeg every ~100 ms; the server answers
-//                       the latest screencast frame from memory, so this is
-//                       cheap on both sides. An unchanged frameId is not
-//                       re-decoded.
+//   • live            → `browser_frame` jpeg every ~100 ms, naming the frame on
+//                       screen (`since`); the server answers from memory and,
+//                       while the page is still, sends back only the state — no
+//                       pixels cross the host for a frame already shown.
 //   • frozen          → annotating: the picture MUST NOT move under a drawing,
 //                       so pixels stop and `browser_state` keeps tabs and task
 //                       progress live at a slow cadence.
@@ -87,9 +87,9 @@ export function useBrowserPoll(client: BrowserClient, browserId: string | null, 
 					if (!alive || currentRef.current !== browserId) return;
 					accept(next);
 				} else {
-					const next = await client.frame(browserId, "jpeg");
+					const next = await client.frame(browserId, "jpeg", lastFrameId || undefined);
 					if (!alive || currentRef.current !== browserId) return;
-					if (next.frameId !== lastFrameId && !frozenRef.current) {
+					if (!("unchanged" in next) && next.frameId !== lastFrameId && !frozenRef.current) {
 						lastFrameId = next.frameId;
 						setFrame(next);
 					}

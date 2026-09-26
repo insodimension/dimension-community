@@ -6,7 +6,7 @@
  * library's own `Agent`, points it at our Chrome's CDP endpoint and reports
  * each step as a JSON line. We maintain the protocol, not the agent.
  */
-import { spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
@@ -18,6 +18,8 @@ import { fail } from "./store.js";
 const PYTHON_DIR = fileURLToPath(new URL("../python/", import.meta.url));
 const CANCEL_GRACE_MS = 15_000;
 const STDERR_KEEP = 4_096;
+/** An unused pre-spawned worker is let go after this long, returning its memory. */
+const SPARE_IDLE_MS = 10 * 60_000;
 
 export interface WorkerStep { n: number; action: string; url: string; elapsedMs: number; usage: TaskUsage }
 export interface WorkerResult { status: Exclude<TaskStatus, "running">; summary: string; steps: number; elapsedMs: number; usage: TaskUsage }
@@ -63,10 +65,17 @@ function usageOf(line: Record<string, unknown>): TaskUsage {
 
 const FINAL: Record<string, true> = { done: true, blocked: true, failed: true, cancelled: true };
 
-export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void): RunningWorker {
+/** A worker process whose stderr is already being kept (a spare must not block on a full pipe). */
+interface Spawned {
+  child: ChildProcessWithoutNullStreams;
+  stderr(): string;
+}
+
+/** `spare`: the worker preloads browser-use while it waits (DIM_BROWSER_SPARE); a worker spawned for a job does not. */
+function spawnWorker(spare = false): Spawned {
   const child = spawn(interpreter(), ["-m", "dim_browser_bridge"], {
     cwd: PYTHON_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...(spare ? { DIM_BROWSER_SPARE: "1" } : {}) },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -75,6 +84,71 @@ export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void):
   child.stderr.on("data", (chunk: string) => {
     stderr = (stderr + chunk).slice(-STDERR_KEEP);
   });
+  child.on("error", () => undefined);
+  return { child, stderr: () => stderr };
+}
+
+/**
+ * One pre-spawned worker, waiting on stdin with browser-use already imported
+ * (~4 s of imports), so a browser-use task's clock starts at its first step;
+ * a jev task still imports its harness per task (it reads its env at import
+ * time) and saves only interpreter start-up. Kept only once tasks are in use:
+ * the first task spawns the next spare, every later one takes it and spawns
+ * its successor.
+ */
+let spare: { worker: Spawned; env: string; idle: NodeJS.Timeout } | undefined;
+
+/** The spare is only good for the environment it was spawned in (interpreter, keys, PYTHONPATH). */
+const envKey = (): string => JSON.stringify(process.env);
+
+/** An idle spare must never keep the server process alive; a running task must. */
+function hold(worker: Spawned, held: boolean): void {
+  const { child } = worker;
+  for (const handle of [child, child.stdin, child.stdout, child.stderr] as Array<{ ref?: () => void; unref?: () => void }>) {
+    (held ? handle.ref : handle.unref)?.call(handle);
+  }
+}
+
+function takeSpare(): Spawned | undefined {
+  const taken = spare;
+  spare = undefined;
+  if (!taken) return undefined;
+  clearTimeout(taken.idle);
+  const { child } = taken.worker;
+  if (child.pid !== undefined && child.exitCode === null && child.signalCode === null && taken.env === envKey()) {
+    hold(taken.worker, true);
+    return taken.worker;
+  }
+  child.stdin.end();
+  return undefined;
+}
+
+function keepSpare(): void {
+  if (spare) return;
+  let worker: Spawned;
+  try {
+    worker = spawnWorker(true);
+  } catch {
+    return; // no interpreter: the next task reports it
+  }
+  const idle = setTimeout(() => {
+    if (spare?.worker === worker) spare = undefined;
+    worker.child.stdin.end();
+  }, SPARE_IDLE_MS);
+  idle.unref();
+  worker.child.once("exit", () => {
+    if (spare?.worker === worker) {
+      clearTimeout(spare.idle);
+      spare = undefined;
+    }
+  });
+  hold(worker, false);
+  spare = { worker, env: envKey(), idle };
+}
+
+export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void): RunningWorker {
+  const { child, stderr } = takeSpare() ?? spawnWorker();
+  keepSpare();
   let result: WorkerResult | undefined;
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (text) => {
@@ -109,7 +183,7 @@ export function startWorker(job: WorkerJob, onStep: (step: WorkerStep) => void):
   const done = new Promise<WorkerResult>((resolve) => {
     const finish = (reason: string): void => {
       clearTimeout(killTimer);
-      resolve(result ?? { status: "failed", summary: `${reason}${stderr ? `: ${stderr.trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
+      resolve(result ?? { status: "failed", summary: `${reason}${stderr() ? `: ${stderr().trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
     };
     child.once("error", (error) => finish(`task worker failed to start (${error.message})`));
     // `close` (not `exit`) so every stdout line has been read first.

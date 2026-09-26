@@ -68,10 +68,24 @@ def main():
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
     os.close(devnull)
+    # A pre-spawned spare (src/task.ts sets DIM_BROWSER_SPARE) imports browser-use while it waits
+    # for its job, so that import (~4 s) is never on a task's clock. jev cannot be preloaded: its
+    # harness reads its env at import time. A worker spawned for a job imports only what it needs.
+    # A failed import is left for the task that needs it to report.
+    if os.environ.get("DIM_BROWSER_SPARE"):
+        try:
+            from . import browser_use_task
+
+            browser_use_task.preload()
+        except Exception:
+            pass
+    line = control.readline()
+    if not line:
+        return 0  # an idle spare let go before it was given a job
     report = Report(out)
     cancel = threading.Event()
     try:
-        request = parse(control.readline() or b"null")
+        request = parse(line)
     except ValueError as exc:  # JSONDecodeError is a ValueError
         report.result("failed", f"invalid request: {exc}")
         return 0

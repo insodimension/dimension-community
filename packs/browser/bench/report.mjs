@@ -38,6 +38,11 @@ export function renderReport(run) {
 
   lines.push("## Models", "", "| agent | model |", "| --- | --- |");
   for (const a of agents) lines.push(`| ${a} | ${cell(models[a] ?? "unknown")} |`);
+  const videos = Object.entries(run.videos ?? {});
+  if (videos.length) {
+    lines.push("", "## Videos", "", "What the View showed, in real time, with the stage and run timers burned in.", "");
+    for (const [agent, file] of videos) lines.push(`- **${agent}**: \`${file}\``);
+  }
 
   lines.push("", "## Totals", "", "| agent | passed | accuracy | seconds | steps | model calls | tokens | cost USD |", "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
   for (const t of totals) {
@@ -67,10 +72,10 @@ export function renderReport(run) {
   for (const a of agents) {
     lines.push("", `## ${a}`, "", "| stage | result | seconds | achieved at | steps | model calls | tokens | status |", "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |");
     for (const r of runs.filter((x) => x.agent === a)) {
-      lines.push(`| ${r.stage} | ${r.success ? "pass" : "FAIL"} | ${r.seconds.toFixed(1)} | ${r.solvedSeconds == null ? "-" : r.solvedSeconds.toFixed(1)} | ${r.stepCount ?? 0} | ${r.usage?.modelCalls ?? "-"} | ${r.usage ? tokens(r.usage) : "-"} | ${r.status} |`);
+      lines.push(`| ${r.stage} | ${r.success ? "pass" : "FAIL"} | ${r.seconds.toFixed(1)} | ${r.solvedSeconds == null ? "-" : r.solvedSeconds.toFixed(1)} | ${r.stepCount ?? 0} | ${r.usage?.modelCalls ?? "-"} | ${r.usage ? tokens(r.usage) : "-"} | ${r.status}${r.seeded ? ", then seeded" : ""} |`);
     }
   }
-  lines.push("", "_seconds_: wall time until the agent stopped (done, failed or timed out). _achieved at_: first moment the practice world recorded the stage as correct (polled after every agent step).");
+  lines.push("", "_seconds_: wall time until the agent stopped (done, failed or timed out). _achieved at_: first moment the practice world recorded the stage as correct (polled after every agent step). _then seeded_: the agent failed an account stage, so the harness completed that account from the fixture and signed the browser in; the stage still counts as failed, and the stages after it measure their own task.");
 
   const failures = runs.filter((r) => !r.success);
   lines.push("", "## Failures", "");

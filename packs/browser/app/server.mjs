@@ -1138,6 +1138,7 @@ import { join as join3 } from "node:path";
 var PYTHON_DIR = fileURLToPath(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var STDERR_KEEP = 4096;
+var SPARE_IDLE_MS = 10 * 6e4;
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
@@ -1160,10 +1161,10 @@ function usageOf(line) {
   };
 }
 var FINAL = { done: true, blocked: true, failed: true, cancelled: true };
-function startWorker(job, onStep) {
+function spawnWorker(spare2 = false) {
   const child = spawn(interpreter(), ["-m", "dim_browser_bridge"], {
     cwd: PYTHON_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...spare2 ? { DIM_BROWSER_SPARE: "1" } : {} },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true
   });
@@ -1172,6 +1173,55 @@ function startWorker(job, onStep) {
   child.stderr.on("data", (chunk) => {
     stderr = (stderr + chunk).slice(-STDERR_KEEP);
   });
+  child.on("error", () => void 0);
+  return { child, stderr: () => stderr };
+}
+var spare;
+var envKey = () => JSON.stringify(process.env);
+function hold(worker, held) {
+  const { child } = worker;
+  for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
+    (held ? handle.ref : handle.unref)?.call(handle);
+  }
+}
+function takeSpare() {
+  const taken = spare;
+  spare = void 0;
+  if (!taken) return void 0;
+  clearTimeout(taken.idle);
+  const { child } = taken.worker;
+  if (child.pid !== void 0 && child.exitCode === null && child.signalCode === null && taken.env === envKey()) {
+    hold(taken.worker, true);
+    return taken.worker;
+  }
+  child.stdin.end();
+  return void 0;
+}
+function keepSpare() {
+  if (spare) return;
+  let worker;
+  try {
+    worker = spawnWorker(true);
+  } catch {
+    return;
+  }
+  const idle = setTimeout(() => {
+    if (spare?.worker === worker) spare = void 0;
+    worker.child.stdin.end();
+  }, SPARE_IDLE_MS);
+  idle.unref();
+  worker.child.once("exit", () => {
+    if (spare?.worker === worker) {
+      clearTimeout(spare.idle);
+      spare = void 0;
+    }
+  });
+  hold(worker, false);
+  spare = { worker, env: envKey(), idle };
+}
+function startWorker(job, onStep) {
+  const { child, stderr } = takeSpare() ?? spawnWorker();
+  keepSpare();
   let result2;
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (text) => {
@@ -1206,7 +1256,7 @@ function startWorker(job, onStep) {
   const done = new Promise((resolve3) => {
     const finish = (reason) => {
       clearTimeout(killTimer);
-      resolve3(result2 ?? { status: "failed", summary: `${reason}${stderr ? `: ${stderr.trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
+      resolve3(result2 ?? { status: "failed", summary: `${reason}${stderr() ? `: ${stderr().trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
     };
     child.once("error", (error) => finish(`task worker failed to start (${error.message})`));
     child.once("close", (code, signal) => finish(`task worker exited (${signal ?? code})`));
@@ -1422,17 +1472,13 @@ var BrowserRuntime = class {
   async state(browserId) {
     return await this.serialize(this.require(browserId), (entry) => this.buildState(entry));
   }
-  /**
-   * `png` (default): a fresh capture, retained so it can be annotated.
-   * `jpeg`: the live screencast's newest frame, straight from memory. It is
-   * deliberately NOT queued behind page work — the live view keeps moving
-   * while a navigation or action is in flight — and is not annotatable.
-   */
-  async frame(browserId, format = "png") {
+  async frame(browserId, format = "png", since) {
     if (format === "jpeg") {
       const entry = this.require(browserId);
       const live = await entry.driver.liveFrame();
-      return { state: await this.buildState(entry), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
+      const state = await this.buildState(entry);
+      if (since !== void 0 && since === live.id) return { state, frameId: live.id, unchanged: true };
+      return { state, frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
     }
     if (format !== "png") fail("bad_format", `format must be "jpeg" or "png"`);
     return await this.serialize(this.require(browserId), async (entry) => {
@@ -2057,11 +2103,11 @@ async function createBrowserServer(options = {}) {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
   }, ({ browserId, op, tabId, url }) => result(() => runtime.tab(browserId, { op, ...tabId === void 0 ? {} : { tabId }, ...url === void 0 ? {} : { url } })));
   registerAppTool(server2, "browser_frame", {
-    description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory \u2014 poll it for live view; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
-    inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional() },
+    description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory \u2014 poll it for live view, passing the frameId on screen as `since` so a still page answers { unchanged: true } without pixels; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
+    inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional(), since: z.string().max(128).optional() },
     annotations: READ_ONLY,
     _meta: APP_ONLY
-  }, ({ browserId, format }) => result(() => runtime.frame(browserId, format ?? "jpeg")));
+  }, ({ browserId, format, since }) => result(() => format === "png" ? runtime.frame(browserId, "png") : runtime.frame(browserId, "jpeg", since)));
   registerAppTool(server2, "browser_annotate", {
     description: "Crop a retained frame and describe the selected region. Does not send anything to an agent; the View explicitly updates its model context afterward.",
     inputSchema: {

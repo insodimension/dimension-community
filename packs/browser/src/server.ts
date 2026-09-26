@@ -176,9 +176,9 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, ({ browserId, op, tabId, url }) => result(() => runtime.tab(browserId, { op, ...(tabId === undefined ? {} : { tabId }), ...(url === undefined ? {} : { url }) })));
   registerAppTool(server, "browser_frame", {
-    description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory — poll it for live view; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
-    inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional() }, annotations: READ_ONLY, _meta: APP_ONLY,
-  }, ({ browserId, format }) => result(() => runtime.frame(browserId, format ?? "jpeg")));
+    description: "Read the active tab's rendered frame for the View. jpeg (default): the newest live screencast frame, returned from memory — poll it for live view, passing the frameId on screen as `since` so a still page answers { unchanged: true } without pixels; its frameId is not annotatable. png: a fresh full-quality capture retained for browser_annotate.",
+    inputSchema: { browserId: capability, format: z.enum(["jpeg", "png"]).optional(), since: z.string().max(128).optional() }, annotations: READ_ONLY, _meta: APP_ONLY,
+  }, ({ browserId, format, since }) => result(() => (format === "png" ? runtime.frame(browserId, "png") : runtime.frame(browserId, "jpeg", since))));
   registerAppTool(server, "browser_annotate", {
     description: "Crop a retained frame and describe the selected region. Does not send anything to an agent; the View explicitly updates its model context afterward.",
     inputSchema: {

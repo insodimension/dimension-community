@@ -23,6 +23,11 @@ def run(request, cancel, report):
     return asyncio.run(_run(request, cancel, report))
 
 
+def preload():
+    """Imports what a run needs; a pre-spawned worker calls this while it waits for its job."""
+    from browser_use import Agent, BrowserSession, ChatGoogle, ChatOpenAI  # noqa: F401
+
+
 def _llm():
     """browser-use's own chat class for the configured model: gemini-* uses its native Google
     client (GOOGLE_API_KEY); anything else its OpenAI client, any OpenAI-compatible endpoint."""
@@ -64,12 +69,18 @@ async def _run(request, cancel, report):
     start = request.get("startUrl")
     if start and not start.startswith(("http://", "https://")):
         start = None
+    # flash_mode (no per-step thinking/evaluation), no planner and no judge call: measured on the
+    # 14-stage practice world with gemini-3.1-flash-lite, 14/14 either way, 558 s and 251k tokens
+    # against 726 s and 787k tokens for the library defaults (bench/results, 2026-09-26).
     agent = Agent(
         task=request["task"],
         llm=_llm(),
         browser_session=BrowserSession(cdp_url=request["cdpUrl"], keep_alive=True),
         initial_actions=[{"navigate": {"url": start, "new_tab": False}}] if start else None,
         register_should_stop_callback=should_stop,
+        flash_mode=True,
+        enable_planning=False,
+        use_judge=False,
     )
     history = await agent.run(max_steps=request["maxSteps"], on_step_end=on_step_end)
     await update_usage(agent)
