@@ -10,6 +10,7 @@ import type {
 	BrowserAnnotation,
 	BrowserEngine,
 	BrowserFrame,
+	UnchangedFrame,
 	BrowserRegion,
 	BrowserState,
 	FrameFormat,
@@ -236,17 +237,22 @@ export class BrowserClient {
 		return readState("browser_state", await this.call("browser_state", { browserId }));
 	}
 
-	/** `jpeg`: the latest live screencast frame, answered from memory.
+	/** `jpeg`: the latest live screencast frame, answered from memory; with `since`
+	 *  (the frameId on screen) a still page answers `unchanged` and sends no pixels.
 	 *  `png`: a fresh full-quality capture whose frameId can be annotated. */
-	async frame(browserId: string, format: FrameFormat): Promise<BrowserFrame> {
+	async frame(browserId: string, format: "png"): Promise<BrowserFrame>;
+	async frame(browserId: string, format: "jpeg", since?: string): Promise<BrowserFrame | UnchangedFrame>;
+	async frame(browserId: string, format: FrameFormat, since?: string): Promise<BrowserFrame | UnchangedFrame> {
 		const tool = "browser_frame";
-		const payload = await this.call(tool, { browserId, format });
-		const data = readString(payload, "data");
+		const payload = await this.call(tool, since ? { browserId, format, since } : { browserId, format });
 		const frameId = readString(payload, "frameId");
-		if (data === undefined || data.length === 0) throw new BrowserToolError(tool, "frame carried no image data");
 		if (frameId === undefined) throw new BrowserToolError(tool, "frame carried no frameId");
+		const state = readState(tool, payload.state);
+		if (payload.unchanged === true) return { state, frameId, unchanged: true };
+		const data = readString(payload, "data");
+		if (data === undefined || data.length === 0) throw new BrowserToolError(tool, "frame carried no image data");
 		return {
-			state: readState(tool, payload.state),
+			state,
 			frameId,
 			mimeType: readString(payload, "mimeType") === "image/png" ? "image/png" : "image/jpeg",
 			data,

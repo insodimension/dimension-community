@@ -23,6 +23,7 @@ import type {
 	BrowserAnnotation,
 	BrowserEngine,
 	BrowserFrame,
+	UnchangedFrame,
 	BrowserOpenOptions,
 	BrowserRegion,
 	BrowserRuntimePort,
@@ -322,12 +323,18 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * `jpeg`: the live screencast's newest frame, straight from memory. It is
 	 * deliberately NOT queued behind page work — the live view keeps moving
 	 * while a navigation or action is in flight — and is not annotatable.
+	 * `since`: the frameId the caller already shows; while it is still the
+	 * newest, only the state comes back — a still page costs no pixels.
 	 */
-	async frame(browserId: string, format: FrameFormat = "png"): Promise<BrowserFrame> {
+	async frame(browserId: string, format?: FrameFormat): Promise<BrowserFrame>;
+	async frame(browserId: string, format: "jpeg", since: string | undefined): Promise<BrowserFrame | UnchangedFrame>;
+	async frame(browserId: string, format: FrameFormat = "png", since?: string): Promise<BrowserFrame | UnchangedFrame> {
 		if (format === "jpeg") {
 			const entry = this.require(browserId);
 			const live = await entry.driver.liveFrame();
-			return { state: await this.buildState(entry), frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
+			const state = await this.buildState(entry);
+			if (since !== undefined && since === live.id) return { state, frameId: live.id, unchanged: true };
+			return { state, frameId: live.id, mimeType: "image/jpeg", data: live.data, capturedAt: live.capturedAt };
 		}
 		if (format !== "png") fail("bad_format", `format must be "jpeg" or "png"`);
 		return await this.serialize(this.require(browserId), async (entry) => {

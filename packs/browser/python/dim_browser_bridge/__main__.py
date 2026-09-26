@@ -68,10 +68,22 @@ def main():
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
     os.close(devnull)
+    # The runtime keeps one worker pre-spawned (src/task.ts). Import both agent loops while it
+    # waits for its job, so their import time (browser-use: ~4 s) is never on a task's clock.
+    # A failed import is left for the task that needs it to report.
+    try:
+        from . import browser_use_task, jev_task  # noqa: F401
+
+        browser_use_task.preload()
+    except Exception:
+        pass
+    line = control.readline()
+    if not line:
+        return 0  # an idle spare let go before it was given a job
     report = Report(out)
     cancel = threading.Event()
     try:
-        request = parse(control.readline() or b"null")
+        request = parse(line)
     except ValueError as exc:  # JSONDecodeError is a ValueError
         report.result("failed", f"invalid request: {exc}")
         return 0

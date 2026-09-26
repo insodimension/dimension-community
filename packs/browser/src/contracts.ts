@@ -103,6 +103,12 @@ export interface BrowserFrame {
   data: string;
   capturedAt: string;
 }
+/** The live frame is still the one the caller named in `since`: no pixels are resent. */
+export interface UnchangedFrame {
+  state: BrowserState;
+  frameId: string;
+  unchanged: true;
+}
 export interface BrowserRegion { x: number; y: number; width: number; height: number }
 export interface BrowserAnnotation {
   url: string;
@@ -123,6 +129,7 @@ export interface BrowserRuntimePort {
   open(options: BrowserOpenOptions): Promise<BrowserState>;
   state(browserId: string): Promise<BrowserState>;
   frame(browserId: string, format?: FrameFormat): Promise<BrowserFrame>;
+  frame(browserId: string, format: "jpeg", since: string | undefined): Promise<BrowserFrame | UnchangedFrame>;
   tab(browserId: string, request: TabRequest): Promise<BrowserState>;
   resize(browserId: string, viewport: Viewport, scale?: number): Promise<BrowserState>;
   snapshot(browserId: string): Promise<{ state: BrowserState; text: string }>;

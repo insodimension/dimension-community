@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { renderReport, summarize } from "./report.mjs";
+import { startRecorder } from "./record.mjs";
 
 const USAGE = `Usage: node bench/run.mjs [options]
 
@@ -39,6 +40,8 @@ Options:
   --port <n>          Practice world port; started in-process if not already running (default: 4777)
   --max-steps <n>     maxSteps passed to browser_task (default: 40)
   --timeout <sec>     Hard wall-clock limit per stage (default: 600)
+  --record            Record a video per agent (the View's live frames, with stage and run timers)
+                      to bench/results/<timestamp>-<agent>.mp4; needs ffmpeg on PATH
   -h, --help          Show this help
 
 Output: a scorecard on stdout, bench/results/<timestamp>.md (report) and <timestamp>.json (raw).
@@ -59,6 +62,7 @@ const { values: opts } = parseArgs({
     port: { type: "string", default: "4777" },
     "max-steps": { type: "string", default: "40" },
     timeout: { type: "string", default: "600" },
+    record: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
   },
 });
@@ -196,10 +200,11 @@ Go through every step and press Finish. You are done when your profile page show
 ];
 const jobStages = sites.map((site) => ({ id: site, start: `${base}/`, reset: true, score: (r) => r.jobs[site], task: legacyTask(site) }));
 const stages = full ? fullStages : jobStages;
+stages.forEach((stage, i) => { stage.n = i + 1; });
 
 const models = {
   jev: `TypeSafe Jev${process.env.TEXT_MODEL ? ` + ${process.env.TEXT_MODEL} (field values)` : ""}`,
-  "browser-use": process.env.DIMENSION_BROWSER_USE_MODEL ?? "gpt-4.1-mini",
+  "browser-use": `${process.env.DIMENSION_BROWSER_USE_MODEL ?? "gpt-4.1-mini"} (flash mode)`,
 };
 models.hybrid = `accounts: browser-use (${models["browser-use"]}); jobs: jev (${models.jev}), browser-use if jev fails`;
 /** Stages that create or verify accounts, as opposed to job applications (the Network JOB stage shares the id "network"). */
@@ -246,7 +251,7 @@ const startedAt = new Date();
  * quit on its own - after `idleSeconds` without a step, or `waitSteps`
  * consecutive "wait" actions (jev repeating a wait means it sees no way on).
  */
-async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`, stall = null) {
+async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`, stall = null, rec = null) {
   if (stage.reset) await resetWorld();
   const run = { agent, stage: stage.id, success: false, seconds: 0, solvedSeconds: null, status: "error", stepCount: 0, usage: null, summary: "", error: null, reason: "", check: null };
   const t0 = performance.now();
@@ -261,10 +266,12 @@ async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`,
   try {
     await call("browser_act", { browserId, action: { kind: "navigate", url: stage.start } });
     console.log(`[${label}] task started`);
+    rec?.stage(`${stage.n}/${stages.length}  ${stage.account ? "account" : "job"} · ${stage.id}   [${agent}]`);
     let lastStepAt = performance.now();
     let waits = 0;
     const progress = { onprogress: (p) => {
-      console.log(`[${label}] ${p.progress}: ${p.message ?? ""}`);
+      console.log(`[${label}] +${((performance.now() - t0) / 1000).toFixed(1)}s ${p.progress}: ${p.message ?? ""}`);
+      rec?.step(`${p.progress}. ${p.message ?? ""}`);
       lastStepAt = performance.now();
       waits = /^wait\b/.test(p.message ?? "") ? waits + 1 : 0;
       pollSolved();
@@ -304,8 +311,13 @@ async function runStage(agent, browserId, stage, label = `${agent}/${stage.id}`,
   if (run.success) run.solvedSeconds = Math.min(run.solvedSeconds ?? run.seconds, run.seconds);
   else run.solvedSeconds = null;
   console.log(`[${label}] ${run.status} in ${run.seconds.toFixed(1)}s, ${run.stepCount} steps -> ${run.success ? `PASS (achieved at ${run.solvedSeconds.toFixed(1)}s)` : `FAIL (${check.reason})`}`);
+  rec?.verdict(run.success ? `PASS  ${stage.id} in ${run.seconds.toFixed(1)} s` : `FAIL  ${stage.id}: ${check.reason}`);
   return run;
 }
+
+const stamp = startedAt.toISOString().replace(/[:.]/g, "-");
+const resultsDir = fileURLToPath(new URL("./results/", import.meta.url));
+const videos = {};
 
 for (const agent of agents) {
   console.log(`\n## ${agent}`);
@@ -319,26 +331,50 @@ for (const agent of agents) {
     for (const stage of stages) runs.push({ agent, stage: stage.id, success: false, seconds: 0, status: "error", error: error.message, reason: "browser_open failed", stepCount: 0, usage: null });
     continue;
   }
+  const rec = opts.record
+    ? startRecorder({ call, browserId, dir: join(resultsDir, `${stamp}-${agent}-frames`), title: `${agent}  ·  ${models[agent]}` })
+    : null;
   for (const stage of stages) {
+    let run;
     if (agent !== "hybrid") {
-      runs.push(await runStage(agent, browserId, stage));
-      continue;
+      run = await runStage(agent, browserId, stage, undefined, null, rec);
+    } else {
+      // Hybrid: each stage goes to the agent that does it best. Accounts need
+      // multi-step judgment (browser-use); single forms need speed (jev), with
+      // browser-use finishing whatever jev leaves undone. Time adds up honestly.
+      // jev is handed off after 20 s without a step or two waits in a row; its
+      // good runs take 2-4 s per step, so neither cuts off a working attempt.
+      const account = isAccountStage(stage);
+      const first = await runStage(account ? "browser-use" : "jev", browserId, stage, `hybrid/${stage.id}`, account ? null : { idleSeconds: 20, waitSteps: 2 }, rec);
+      run = first;
+      if (!first.success && !account) {
+        const rescue = await runStage("browser-use", browserId, stage, `hybrid/${stage.id}:browser-use`, null, rec);
+        run = { ...rescue, seconds: first.seconds + rescue.seconds, stepCount: first.stepCount + rescue.stepCount,
+          solvedSeconds: rescue.solvedSeconds === null ? null : first.seconds + rescue.solvedSeconds,
+          usage: sumUsage(first.usage, rescue.usage), summary: `jev: ${first.reason}; then browser-use: ${rescue.summary}` };
+      }
+      run = { ...run, agent: "hybrid", by: run === first ? first.agent : "jev→browser-use" };
     }
-    // Hybrid: each stage goes to the agent that does it best. Accounts need
-    // multi-step judgment (browser-use); single forms need speed (jev), with
-    // browser-use finishing whatever jev leaves undone. Time adds up honestly.
-    // jev is handed off after 20 s without a step or two waits in a row; its
-    // good runs take 2-4 s per step, so neither cuts off a working attempt.
-    const account = isAccountStage(stage);
-    const first = await runStage(account ? "browser-use" : "jev", browserId, stage, `hybrid/${stage.id}`, account ? null : { idleSeconds: 20, waitSteps: 2 });
-    let run = first;
-    if (!first.success && !isAccountStage(stage)) {
-      const rescue = await runStage("browser-use", browserId, stage, `hybrid/${stage.id}:browser-use`);
-      run = { ...rescue, seconds: first.seconds + rescue.seconds, stepCount: first.stepCount + rescue.stepCount,
-        solvedSeconds: rescue.solvedSeconds === null ? null : first.seconds + rescue.solvedSeconds,
-        usage: sumUsage(first.usage, rescue.usage), summary: `jev: ${first.reason}; then browser-use: ${rescue.summary}` };
+    // A failed account stage still counts as failed, but the stages after it
+    // must measure THEIR task, not inherit the failure: the harness completes
+    // the account from the fixture and signs this browser in (/__seed).
+    if (isAccountStage(stage) && !run.success) {
+      await call("browser_act", { browserId, action: { kind: "navigate", url: `${base}/__seed?stage=${stage.id}` } });
+      run.seeded = true;
+      console.log(`[${agent}/${stage.id}] seeded by the harness so later stages start fair`);
     }
-    runs.push({ ...run, agent: "hybrid", by: run === first ? first.agent : "jev→browser-use" });
+    runs.push(run);
+  }
+  if (rec) {
+    const file = join(resultsDir, `${stamp}-${agent}.mp4`);
+    try {
+      videos[agent] = `bench/results/${stamp}-${agent}.mp4`;
+      await rec.finish(file);
+      console.log(`[bench] ${agent}: video ${file}`);
+    } catch (error) {
+      delete videos[agent];
+      console.error(`[bench] ${agent}: video failed: ${error.message}`);
+    }
   }
   await call("browser_close", { browserId }).catch((error) => console.error(`[bench] ${agent}: browser_close failed: ${error.message}`));
 }
@@ -382,13 +418,12 @@ for (const t of agents.map((x) => summarize(runs, x))) console.log(`| ${t.agent}
 
 const outDir = new URL("./results/", import.meta.url);
 await mkdir(outDir, { recursive: true });
-const stamp = startedAt.toISOString().replace(/[:.]/g, "-");
 const jsonFile = new URL(`${stamp}.json`, outDir);
 const mdFile = new URL(`${stamp}.md`, outDir);
 const raw = {
   scenario: opts.scenario, startedAt: startedAt.toISOString(), finishedAt: finishedAt.toISOString(), base, options: opts, models,
   applicant: full ? mailAddress : a.email, agents, stages: stages.map(({ id, account, start, task }) => ({ id, account: account === true, start, task })), runs,
-  rawFile: `bench/results/${stamp}.json`,
+  rawFile: `bench/results/${stamp}.json`, videos,
 };
 await writeFile(jsonFile, JSON.stringify(raw, null, 2));
 await writeFile(mdFile, renderReport(raw));

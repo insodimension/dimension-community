@@ -14,6 +14,9 @@
 // email address the applicant created on Mail (ada@example.test only while no Mail account exists).
 //   GET /__results  -> stages (mailAccount, networkAccount, profile) and per-job correctness with reasons
 //   POST /__reset   -> forget every account, session, mail and submission
+//   GET /__seed?stage=mail|network|verify|profile -> harness only: create whatever the applicant's
+//        accounts lack up to that stage (fixture values), sign this browser in to both, redirect to /.
+//        Lets later stages start fair after an agent failed an account stage; listed in /__results.seeded.
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
@@ -265,7 +268,47 @@ function freshState() {
     drafts: new Map(), // soylent draft id -> { jobId, values }
     confirmTokens: new Map(), // token -> cyberdyne submission
     submissions: Object.fromEntries(JOB_SITES.map((s) => [s, []])),
+    seeded: [], // account stages the harness completed because the agent did not
   };
+}
+
+const SEED_STAGES = ["mail", "network", "verify", "profile"];
+/**
+ * Harness only (GET /__seed): the world the next stage expects once `stage` has succeeded, built from
+ * the fixture wherever the agent left it unfinished, plus fresh Mail and Network sessions for the
+ * browser that asked. Anything it had to complete is recorded in state.seeded.
+ */
+function seed(stage) {
+  const upTo = SEED_STAGES.indexOf(stage);
+  if (upTo < 0) return [];
+  const note = (s) => { if (!state.seeded.includes(s)) state.seeded.push(s); };
+  const address = `${applicant.mailUsername}@${MAIL_DOMAIN}`;
+  if (!state.mail.has(address)) {
+    state.mail.set(address, { address, firstName: applicant.firstName, lastName: applicant.lastName, birthday: applicant.birthday, password: applicant.password, createdAt: new Date().toISOString(), messages: [] });
+    state.mailOrder.push(address);
+    note("mail");
+  }
+  const cookies = [startSession("mail_sid", "/mail", state.mailSessions, address)];
+  if (upTo < 1) return cookies;
+  let account = state.net.get(address);
+  if (!account || account.password !== applicant.password) {
+    account = { email: address, firstName: applicant.firstName, lastName: applicant.lastName, password: applicant.password, verified: false, profile: {}, completed: false, createdAt: new Date().toISOString() };
+    state.net.set(address, account);
+    if (!state.netOrder.includes(address)) state.netOrder.push(address);
+    sendVerification(account);
+    note("network");
+  }
+  if (upTo >= 2 && !account.verified) {
+    account.verified = true;
+    note("verify");
+  }
+  if (upTo >= 3 && !profileStage().success) {
+    Object.assign(account.profile, { headline: applicant.headline, location: applicantCity.id, yearsExperience: String(applicant.yearsExperience), skills: [...applicant.skills] });
+    account.completed = true;
+    note("profile");
+  }
+  cookies.push(startSession("net_sid", "/network", state.netSessions, address));
+  return cookies;
 }
 let state = freshState();
 
@@ -388,6 +431,7 @@ function results(base) {
     applicant: expectedEmail(),
     expectedMailAddress,
     stages: { mailAccount: mailStage(), networkAccount: networkStage(), profile: profileStage() },
+    seeded: state.seeded,
     jobs: Object.fromEntries(JOB_SITES.map((s) => [s, jobResult(s, base)])),
     mail: {
       accounts: [...state.mailOrder],
@@ -1142,6 +1186,7 @@ async function handle(req, res, base) {
     consentEpoch = Date.now().toString(36);
     return json(res, 200, { ok: true });
   }
+  if (path === "/__seed" && req.method === "GET") return redirect(res, "/", seed(u.searchParams.get("stage") ?? ""));
   if (path === "/") return send(res, 200, home());
 
   const parts = path.split("/");
