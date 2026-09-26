@@ -5,7 +5,7 @@ import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@model
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { BrowserRuntimePort, ToolCaller } from "./contracts.js";
+import type { BrowserRuntimePort, TaskRun, ToolCaller } from "./contracts.js";
 import { BROWSER_ENGINES, CREDENTIAL_MODES, PUBLISH_MODES, TASK_AGENTS } from "./contracts.js";
 import { type PublishPreset, loadPresets, resolvePreset, summarizePresets } from "./presets.js";
 import { BrowserRuntime } from "./runtime.js";
@@ -17,14 +17,18 @@ const profile = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,47}$/);
 const coordinate = z.number().finite().min(0).max(4096);
 const selector = z.string().trim().min(1).max(512);
 const point = { x: coordinate, y: coordinate };
+/** `type`/`insert`: exactly one of text, useSavedPassword or generatePassword. */
+const onePasswordSource = (value: { text?: string; useSavedPassword?: true; generatePassword?: true }): boolean =>
+  [value.text, value.useSavedPassword, value.generatePassword].filter(given => given !== undefined).length === 1;
+const PASSWORD_SOURCE_MESSAGE = "Pass exactly one of text, useSavedPassword: true or generatePassword: true";
 const actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: z.url().max(2048).refine(value => ["http:", "https:"].includes(new URL(value).protocol), "Only HTTP and HTTPS navigation is supported") }).strict(),
   z.object({ kind: z.literal("click"), selector: selector.optional(), x: coordinate.optional(), y: coordinate.optional(), button: z.enum(["left", "right", "middle"]).optional(), clickCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() }).strict().refine(value => value.selector !== undefined ? value.x === undefined && value.y === undefined : value.x !== undefined && value.y !== undefined, "Choose a selector OR both coordinates"),
-  z.object({ kind: z.literal("type"), selector, text: z.string().max(4096).optional(), useSavedPassword: z.literal(true).optional() }).strict().refine(value => (value.text === undefined) !== (value.useSavedPassword === undefined), "Pass text OR useSavedPassword: true"),
+  z.object({ kind: z.literal("type"), selector, text: z.string().max(4096).optional(), useSavedPassword: z.literal(true).optional(), generatePassword: z.literal(true).optional() }).strict().refine(onePasswordSource, PASSWORD_SOURCE_MESSAGE),
   z.object({ kind: z.literal("select"), selector, value: z.string().max(4096) }).strict(),
   z.object({ kind: z.literal("press"), key: z.string().min(1).max(64) }).strict(),
   z.object({ kind: z.literal("scroll"), deltaX: z.number().finite().min(-5000).max(5000), deltaY: z.number().finite().min(-5000).max(5000) }).strict(),
-  z.object({ kind: z.literal("insert"), text: z.string().min(1).max(4096).optional(), useSavedPassword: z.literal(true).optional() }).strict().refine(value => (value.text === undefined) !== (value.useSavedPassword === undefined), "Pass text OR useSavedPassword: true"),
+  z.object({ kind: z.literal("insert"), text: z.string().min(1).max(4096).optional(), useSavedPassword: z.literal(true).optional(), generatePassword: z.literal(true).optional() }).strict().refine(onePasswordSource, PASSWORD_SOURCE_MESSAGE),
   z.object({ kind: z.literal("hover"), ...point }).strict(),
   z.object({ kind: z.literal("back") }).strict(),
   z.object({ kind: z.literal("forward") }).strict(),
@@ -64,6 +68,26 @@ async function result(run: () => Promise<object>): Promise<CallToolResult> {
   } catch (error) {
     return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] };
   }
+}
+
+/**
+ * A failed task is a tool ERROR naming the cause and the next step, so the
+ * caller stops instead of reading a "failed" status as progress. The run is
+ * still returned in full; the browser stays open and usable.
+ */
+async function taskResult(run: () => Promise<TaskRun>): Promise<CallToolResult> {
+  const outcome = await result(run);
+  const task = outcome.structuredContent as TaskRun | undefined;
+  if (outcome.isError || task?.status !== "failed") return outcome;
+  return { ...outcome, isError: true, content: [{ type: "text", text: `task failed: ${task.summary}\nNext: ${nextStep(task.summary)}\nThe browser is still open and usable.` }, ...outcome.content] };
+}
+
+const DO_IT_YOURSELF = "or do this step yourself with browser_act (a sign-up's password: type the password field with generatePassword: true — no key needed).";
+function nextStep(summary: string): string {
+  if (/\b(?:HTTP|status|code):? 402\b/i.test(summary)) return `the model provider's key has no credit (HTTP 402). Fund it or set a funded key in the browser server's environment, ${DO_IT_YOURSELF}`;
+  if (/\b(?:HTTP|status|code):? 40[13]\b/i.test(summary)) return `the model provider rejected the key. Fix TYPESAFE_API_KEY / TEXT_MODEL_API_KEY in the browser server's environment, ${DO_IT_YOURSELF}`;
+  if (/API_KEY/.test(summary)) return `set the named key in the browser server's environment, ${DO_IT_YOURSELF}`;
+  return "check the page with browser_snapshot, then retry the task or continue with browser_act.";
 }
 
 export interface BrowserServerOptions {
@@ -138,14 +162,14 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] }; }
   });
   server.registerTool("browser_act", {
-    description: "Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status \"failed\" means nothing happened; \"unknown\" means it was sent and then errored, so it may have taken effect — look at the page before retrying a submission. A selector may start `@<ref> ` (from browser_snapshot) to act inside that iframe, cross-origin included; insert and press go to whatever is focused, in any frame. Password fields: text you type lands in the transcript. To keep a password out of it, use browser_task credential {origin, mode: \"signup\"} (the browser generates the password and saves it in this profile) or, once one is saved for the field's origin, type or insert with useSavedPassword: true instead of text: it replaces the password field's content with the password saved for that field's own frame origin (the result says savedPassword {origin}); the password never enters the transcript. With nothing saved for that origin it fails and types nothing. Without useSavedPassword your text is typed as given.",
+    description: "Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status \"failed\" means nothing happened; \"unknown\" means it was sent and then errored, so it may have taken effect — look at the page before retrying a submission. A selector may start `@<ref> ` (from browser_snapshot) to act inside that iframe, cross-origin included; insert and press go to whatever is focused, in any frame. Refused while a browser_task runs on this browser (task_running). Password fields: text you type lands in the transcript. To keep a password out of it, type or insert with one of these instead of text — both replace a password field's content with a password bound to that field's own frame origin (read from the browser, never the page), and the password never enters the transcript: generatePassword: true for a sign-up (no key needed: the browser generates a strong password, saves it in this profile for that origin, and types it; a password already saved there is reused), then useSavedPassword: true to log in later (with nothing saved for that origin it fails and types nothing). The result says credential {origin, created}, never the value. Either one on a field that is not a password input fails and types nothing. Otherwise your text is typed as given.",
     inputSchema: { browserId: capability, action: actionSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, async ({ browserId, action }, extra) => {
     try {
       const outcome = await runtime.act(browserId, action, callerOf(extra));
       const text = outcome.status === "completed"
-        ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title, ...(outcome.savedPassword ? { savedPassword: { origin: outcome.savedPassword.origin, note: "typed this profile's saved password for that origin" } } : {}) })
+        ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title, ...(outcome.credential ? { credential: { ...outcome.credential, note: outcome.credential.created ? "generated a password, saved it in this profile for that origin, and typed it" : "typed this profile's saved password for that origin" } } : {}) })
         : `${outcome.status}: ${outcome.error}`;
       return { ...(outcome.status === "completed" ? {} : { isError: true }), content: [{ type: "text" as const, text }], structuredContent: outcome as unknown as Record<string, unknown> };
     } catch (error) { return { isError: true, content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }] }; }
@@ -182,14 +206,14 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     }
   };
   server.registerTool("browser_task", {
-    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task — it cannot ask you. Sign-ups and logins are fine to hand over. For a password, prefer credential {origin, mode} (jev) over writing it in task, so it never enters the transcript: the browser fills that origin's password fields itself with a password it holds for this profile — "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account made outside the browser's credential; put that password in task, or log in with browser_act). The value is never shown to you, to jev or in results. browser-use reads password fields, so it takes no credential. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. browser_act is refused while a task runs.`,
+    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task — it cannot ask you. Sign-ups and logins are fine to hand over. For a password, prefer credential {origin, mode} (jev) over writing it in task, so it never enters the transcript: the browser fills that origin's password fields itself with a password it holds for this profile — "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account made outside the browser's credential; put that password in task, or log in with browser_act useSavedPassword). The value is never shown to you, to jev or in results. browser-use reads password fields, so it takes no credential. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. A failed task is a tool error naming the cause and the next step; the browser stays open. jev needs TYPESAFE_API_KEY and TEXT_MODEL_API_KEY in the browser server's environment — without a funded key, sign up yourself with browser_act: type the password field with generatePassword: true (no key needed, the password is saved in this profile and never shown). browser_act and browser_tab are refused while a task runs (task_running).`,
     inputSchema: {
       browserId: capability, agent: z.enum(TASK_AGENTS), task: z.string().min(1).max(8192), maxSteps: z.number().int().min(1).max(200).optional(),
       credential: z.object({ origin: z.string().min(1).max(2048), mode: z.enum(CREDENTIAL_MODES) }).strict().optional(),
       waitSeconds,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-  }, ({ browserId, agent, task, maxSteps, credential, waitSeconds }, extra) => result(async () => {
+  }, ({ browserId, agent, task, maxSteps, credential, waitSeconds }, extra) => taskResult(async () => {
     await runtime.startTask(browserId, { agent, task, ...(maxSteps ? { maxSteps } : {}), ...(credential ? { credential } : {}) }, callerOf(extra));
     return await follow(browserId, waitSeconds, extra);
   }));
@@ -197,7 +221,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     description: `Follow the task in this browser: returns when it finishes or after waitSeconds (default and max ${WAIT_CAP_S}), with its status, recent steps, time, model calls and tokens.`,
     inputSchema: { browserId: capability, waitSeconds },
     annotations: READ_ONLY,
-  }, ({ browserId, waitSeconds }, extra) => result(() => follow(browserId, waitSeconds, extra)));
+  }, ({ browserId, waitSeconds }, extra) => taskResult(() => follow(browserId, waitSeconds, extra)));
   server.registerTool("browser_task_cancel", {
     description: "Stop the task running in this browser. Resolves once the agent has stopped.",
     inputSchema: { browserId: capability },

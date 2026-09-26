@@ -85,10 +85,15 @@ export interface PageReader {
   close(): Promise<void>;
 }
 
-/** The password a profile saved for a document origin, or undefined. May throw (an unreadable store). */
-export type SavedPasswordLookup = (origin: string) => string | undefined;
-/** What `perform` did beyond the action itself: the origin whose saved password it typed, if it did. */
-export interface PerformOutcome { savedPasswordOrigin?: string }
+/**
+ * The password to type for a document origin (`useSavedPassword`: the saved
+ * one; `generatePassword`: the saved one, else one minted and saved first), or
+ * undefined when there is none. May throw (an unreadable store, an origin a
+ * password may not be bound to).
+ */
+export type PasswordSource = (origin: string) => string | undefined;
+/** What `perform` did beyond the action itself: the frame origin whose password it typed, if it did. */
+export interface PerformOutcome { passwordOrigin?: string }
 
 export interface EngineDriver {
   state(): Promise<EngineState>;
@@ -106,13 +111,14 @@ export interface EngineDriver {
    * `ActionNotDispatched` when provably nothing reached the page; any other
    * error means the effect may have happened.
    *
-   * `savedPassword`, for a `type`/`insert` with `useSavedPassword`: asked for
-   * the target password field's own frame origin, read from the browser (an
-   * isolated world, never page script); the value replaces the field's content.
-   * Nothing saved is an error and nothing is typed. The result names the
-   * origin, never the value.
+   * `password`, for a `type`/`insert` with `useSavedPassword` or
+   * `generatePassword`: asked for the target password field's own frame
+   * origin, read from the browser (an isolated world, never page script); the
+   * value replaces the field's content. A field that is not a password input,
+   * or no password for that origin, is an error and nothing is typed. The
+   * result names the origin, never the value.
    */
-  perform(action: BrowserAction, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome>;
+  perform(action: BrowserAction, password?: PasswordSource): Promise<PerformOutcome>;
   /**
    * Replace a field's content exactly as `perform({ kind: "type" })` does. A
    * password input is refused with `ActionNotDispatched` before any input event.

@@ -25,18 +25,30 @@ standard MCP and MCP Apps. No host internals, no browser fork.
   [jev-ultrafast](https://github.com/browser-use/jev-ultrafast) or
   [browser-use](https://github.com/browser-use/browser-use), running in the same
   browser while you watch, and reports steps, time, model calls and tokens.
-  Agents may log in and sign up. Optionally, for a jev sign-up or login, the
-  browser generates and stores the password in the profile and fills password
-  fields itself (`credential: { origin, mode }`), so the value never appears
-  in a transcript. After that, a `browser_act` `type` or `insert` with
-  `useSavedPassword: true` (instead of `text`) replaces a password field's
-  content with the password saved for that field's own frame origin, read from
-  the browser, never from page script; it says so (`savedPassword: { origin }`,
-  never the value) and fails, typing nothing, when nothing is saved there. The
-  View's own typing is always literal. Snapshots, states and act results never
-  carry a password field's value or any saved password, even once a page
-  reveals it as text. `browser_snapshot` and `browser_act` reach iframes,
-  cross-origin ones included, through `@<ref> ` selector prefixes.
+  A failed task (an unfunded model key is HTTP 402) is a tool error naming the
+  cause and the next step, within seconds; the server and the browser keep
+  serving. `browser_act` and `browser_tab` are refused (`task_running`) while a
+  task runs. Agents may log in and sign up. Optionally, for a jev sign-up or
+  login, the browser generates and stores the password in the profile and fills
+  password fields itself (`credential: { origin, mode }`), so the value never
+  appears in a transcript.
+- **Passwords without a task key.** A `browser_act` `type` or `insert` with
+  `generatePassword: true` (instead of `text`) generates a strong password,
+  saves it in the profile (the same store) for the password field's own frame
+  origin (a saved one is reused), and types it, replacing the field's content;
+  `useSavedPassword: true` types the saved one for a later login and fails,
+  typing nothing, when nothing is saved there. The origin is read from the
+  browser, never from page script; the result says `credential: { origin,
+  created }`, never the value, and either flag on a field that is not a
+  password input fails and types nothing. The View's own typing is always
+  literal. Snapshots, states and act results never carry a password field's
+  value or any saved password, even once a page reveals it as text.
+  `browser_snapshot` and `browser_act` reach iframes, cross-origin ones
+  included, through `@<ref> ` selector prefixes.
+- **A View that stops when the host says no.** A third-party install's View
+  calls are consent-gated by the host. When the host refuses one (denied or
+  expired), the live view pauses with a **Resume** button instead of retrying
+  and raising a fresh prompt every few seconds.
 
 ## What we maintain, and what we do not
 

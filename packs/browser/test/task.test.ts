@@ -11,10 +11,14 @@
  *  `startWorker` — only the agent loop is replaced, never the process boundary.
  */
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import type { BrowserRuntime } from "../src/runtime";
+import { createBrowserServer } from "../src/server";
 import type { TaskStep } from "../src/contracts";
 import {
 	BROWSER_TEST_TIMEOUT_MS,
@@ -39,6 +43,24 @@ if (!existsSync(PYTHON)) {
 const describeTasks = chromePath === undefined || !existsSync(PYTHON) ? describe.skip : describe;
 
 // The fake worker's script (see fake-worker/dim_browser_bridge/__main__.py) travels as the task text.
+
+interface ToolResult {
+	isError?: boolean;
+	content: Array<{ type: string; text?: string }>;
+	structuredContent?: Record<string, unknown>;
+}
+
+/** The real MCP server over `runtime`, reached the way a host reaches it. */
+async function connect(runtime: BrowserRuntime, rootDir: string): Promise<(name: string, args: Record<string, unknown>) => Promise<ToolResult>> {
+	const viewDir = join(rootDir, "view");
+	await mkdir(viewDir, { recursive: true });
+	await writeFile(join(viewDir, "index.html"), "<!doctype html><title>view</title>");
+	const server = await createBrowserServer({ runtime, viewDir });
+	const client = new Client({ name: "task-test", version: "0.0.0" });
+	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+	await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
+	return async (name, args) => (await client.callTool({ name, arguments: args })) as ToolResult;
+}
 
 /** A promise that resolves once `onStep` has seen `count` steps. */
 function stepsSeen(count: number): { seen: TaskStep[]; reached: Promise<void>; onStep: (step: TaskStep) => void } {
@@ -139,9 +161,12 @@ describeTasks("tasks", () => {
 			);
 			await progress.reached;
 
-			expect(await failureCode(() => runtime.act(browserId, { kind: "navigate", url: fixture.url("/page2") }))).toBe(
-				"task_running",
-			);
+			for (const refused of [
+				() => runtime.act(browserId, { kind: "navigate", url: fixture.url("/page2") }),
+				() => runtime.tab(browserId, { op: "new", url: fixture.url("/page2") }),
+			]) {
+				expect(await failureCode(refused)).toBe("task_running");
+			}
 			// A crash script: were the second task wrongly admitted, it would resolve at once and fail this.
 			const second = JSON.stringify({ crash: { stderr: "second task ran", exit: 1 } });
 			expect(await failureCode(() => runtime.runTask(browserId, { agent: "jev", task: second }))).toBe("task_running");
@@ -173,6 +198,41 @@ describeTasks("tasks", () => {
 			expect((await runtime.state(browserId)).task?.status).toBe("failed");
 			// The dead worker no longer holds the browser.
 			expect((await runtime.runTask(browserId, { agent: "jev", task: crash })).status).toBe("failed");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a provider 402 or a worker exiting non-zero fails only the task: the tool call errors within seconds naming the cause and the next step, even when the worker's child holds its pipes, and the same server keeps serving",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const call = await connect(runtime, rootDir);
+			const { browserId } = await runtime.open({ profile: "task-402", viewport: VIEWPORT });
+			const failures = [
+				{
+					script: { holdPipes: 30, result: { status: "failed", summary: "Model provider returned HTTP 402; no action executed.", steps: 0 } },
+					cause: "task failed: Model provider returned HTTP 402",
+					next: "Next: the model provider's key has no credit (HTTP 402)",
+				},
+				{
+					script: { holdPipes: 30, crash: { stderr: "openai.APIStatusError: Error code: 402 - insufficient credit", exit: 1 } },
+					cause: "task failed: task worker exited (1): openai.APIStatusError: Error code: 402",
+					next: "Next: the model provider's key has no credit (HTTP 402)",
+				},
+			];
+
+			for (const [i, { script, cause, next }] of failures.entries()) {
+				const failed = await within(10_000, `failed task ${i}'s tool result`, call("browser_task", { browserId, agent: "jev", task: JSON.stringify(script), waitSeconds: 20 }));
+				expect(failed.isError).toBe(true);
+				expect(failed.content[0]?.text).toContain(cause);
+				expect(failed.content[0]?.text).toContain(next);
+				const state = await within(5_000, `browser_state after failed task ${i}`, call("browser_state", { browserId }));
+				expect({ isError: state.isError, browserId: state.structuredContent?.browserId }).toEqual({ isError: undefined, browserId });
+			}
+			const acted = await within(10_000, "browser_act after the failed tasks", call("browser_act", { browserId, action: { kind: "navigate", url: fixture.url("/page2") } }));
+			expect(acted.isError).toBeUndefined();
+			expect(fixture.hits("/page2")).toBe(1);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

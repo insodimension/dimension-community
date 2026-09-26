@@ -10,7 +10,10 @@
  *    strong random one and save it first. Reusing a saved one keeps a retried
  *    sign-up from orphaning the account an earlier attempt created.
  *  - `login`: use the saved password; there is none to invent.
- * The value leaves this process only on the task worker's stdin, and the worker
+ * browser_act's `generatePassword` applies the same `signup` rule to a password
+ * field's own frame origin, and `useSavedPassword` the `login` rule.
+ * The value leaves this process only as those keystrokes, or on the task
+ * worker's stdin, and the worker
  * types it into password fields of that origin alone.
  *
  * Stored as `credentials.json` in the profile's own 0700 directory (mode 0600),

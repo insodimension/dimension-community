@@ -180,7 +180,7 @@ const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
 	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /**
- * For `useSavedPassword`, run in puppeteer's utility world (an isolated world:
+ * For `useSavedPassword` / `generatePassword`, run in puppeteer's utility world (an isolated world:
  * the page's own overrides of `window.origin`, `type`, `activeElement` or any
  * prototype do not reach it). Whether `el` is a password input, whether it has
  * focus in a focused document, and this frame's real origin.

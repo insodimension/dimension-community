@@ -7,6 +7,7 @@
  *  as a clean failure or quietly retried, so a purchase or form post happens
  *  twice. Also: a navigate that becomes script execution or a local file read.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
@@ -126,7 +127,7 @@ describeWithChrome("act", () => {
 			await perform(runtime, browserId, { kind: "type", selector: "#user", text: "ada" });
 			await perform(runtime, browserId, { kind: "type", selector: "#pass", text: "stale-" });
 			const typed = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
-			expect({ status: typed.status, savedPassword: typed.savedPassword }).toEqual({ status: "completed", savedPassword: { origin } });
+			expect({ status: typed.status, credential: typed.credential }).toEqual({ status: "completed", credential: { origin, created: false } });
 			expect(JSON.stringify(typed)).not.toContain(saved);
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await submissionLanded(runtime, browserId, fixture);
@@ -136,14 +137,14 @@ describeWithChrome("act", () => {
 			await perform(runtime, browserId, { kind: "click", selector: "#pass" });
 			await perform(runtime, browserId, { kind: "insert", text: "abc" });
 			const inserted = await runtime.act(browserId, { kind: "insert", useSavedPassword: true });
-			expect(inserted.savedPassword).toEqual({ origin });
+			expect(inserted.credential).toEqual({ origin, created: false });
 			await perform(runtime, browserId, { kind: "press", key: "Enter" });
 			await waitUntil("the second form post", () => fixture.submissions().length, (count) => count === 2);
 
 			// No flag on the saved origin: the text as given.
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/") });
 			const plain = await runtime.act(browserId, { kind: "type", selector: "#pass", text: "model-typed" });
-			expect(plain.savedPassword).toBeUndefined();
+			expect(plain.credential).toBeUndefined();
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await waitUntil("the third form post", () => fixture.submissions().length, (count) => count === 3);
 
@@ -152,7 +153,7 @@ describeWithChrome("act", () => {
 			const missing = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
 			expect({ status: missing.status, error: missing.error }).toEqual({
 				status: "failed",
-				error: `no saved password for ${other}; use browser_task credential signup, or pass text`,
+				error: `no saved password for ${other}; for a sign-up pass generatePassword: true, or pass text`,
 			});
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await waitUntil("the fourth form post", () => fixture.submissions().length, (count) => count === 4);
@@ -206,7 +207,7 @@ describeWithChrome("act", () => {
 			const spoofed = await runtime.act(browserId, { kind: "type", selector: "#pass", useSavedPassword: true });
 			expect({ status: spoofed.status, error: spoofed.error }).toEqual({
 				status: "failed",
-				error: `no saved password for ${real}; use browser_task credential signup, or pass text`,
+				error: `no saved password for ${real}; for a sign-up pass generatePassword: true, or pass text`,
 			});
 			await perform(runtime, browserId, { kind: "click", selector: "#go" });
 			await waitUntil("the first form post", () => fixture.submissions().length, (count) => count === 1);
@@ -265,7 +266,7 @@ describeWithChrome("act", () => {
 
 			await perform(runtime, browserId, { kind: "type", selector: "@1 #user", text: "ada" });
 			const typed = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", useSavedPassword: true });
-			expect({ status: typed.status, savedPassword: typed.savedPassword }).toEqual({ status: "completed", savedPassword: { origin: framed } });
+			expect({ status: typed.status, credential: typed.credential }).toEqual({ status: "completed", credential: { origin: framed, created: false } });
 			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
 			await waitUntil("the iframe's form post", () => fixture.submissions().length, (count) => count === 1);
 
@@ -274,7 +275,7 @@ describeWithChrome("act", () => {
 			await waitUntil("the reloaded iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
 			await perform(runtime, browserId, { kind: "click", selector: "@1 #pass" });
 			const inserted = await runtime.act(browserId, { kind: "insert", useSavedPassword: true });
-			expect(inserted.savedPassword).toEqual({ origin: framed });
+			expect(inserted.credential).toEqual({ origin: framed, created: false });
 			await perform(runtime, browserId, { kind: "press", key: "Enter" });
 			await waitUntil("the second iframe post", () => fixture.submissions().length, (count) => count === 2);
 
@@ -292,6 +293,63 @@ describeWithChrome("act", () => {
 			]);
 			// The top page stayed put: the posts went from inside the iframe.
 			expect((await runtime.state(browserId)).url).toBe(fixture.url("/framed"));
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"generatePassword mints a password for the FRAME's origin, saves it, types it and never returns it; a retry reuses it, useSavedPassword logs in with it, and a non-password field is refused with nothing saved",
+		async () => {
+			const fixture = startFixture();
+			const { runtime, rootDir } = await createRuntime();
+			const { browserId } = await runtime.open({ profile: "act-generate", viewport: VIEWPORT });
+			const store = join(rootDir, "profiles", "act-generate", "credentials.json");
+			const saved = (): Record<string, string> => (existsSync(store) ? JSON.parse(readFileSync(store, "utf8")).origins : {});
+			const framed = new URL(fixture.url("/", "localhost")).origin;
+			const openForm = async (): Promise<void> => {
+				await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });
+				await waitUntil("the iframe's form", async () => (await runtime.snapshot(browserId)).text, (text) => text.includes("@1 #pass"));
+			};
+
+			// Not a password field: refused before anything is minted or typed.
+			await openForm();
+			const refused = await runtime.act(browserId, { kind: "type", selector: "@1 #user", generatePassword: true });
+			expect(refused.status).toBe("failed");
+			expect(refused.error).toContain("generatePassword types only into a password field");
+			expect(saved()).toEqual({});
+
+			// Sign-up: minted for the iframe's origin (never the top page's), replacing what the field held.
+			await perform(runtime, browserId, { kind: "type", selector: "@1 #pass", text: "stale-" });
+			const signup = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", generatePassword: true });
+			expect({ status: signup.status, credential: signup.credential }).toEqual({ status: "completed", credential: { origin: framed, created: true } });
+			expect(Object.keys(saved())).toEqual([framed]);
+			const password = saved()[framed] as string;
+			expect(password).toMatch(/^.{20}$/);
+			const snapshot = await runtime.snapshot(browserId);
+			expect(JSON.stringify([signup, snapshot, await runtime.state(browserId)])).not.toContain(password);
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await waitUntil("the sign-up post", () => fixture.submissions().length, (count) => count === 1);
+
+			// A retried sign-up reuses the saved one (the account it made keeps its password).
+			await openForm();
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #pass" });
+			const retried = await runtime.act(browserId, { kind: "insert", generatePassword: true });
+			expect(retried.credential).toEqual({ origin: framed, created: false });
+			await perform(runtime, browserId, { kind: "press", key: "Enter" });
+			await waitUntil("the retried post", () => fixture.submissions().length, (count) => count === 2);
+
+			// Login later: the saved one.
+			await openForm();
+			const login = await runtime.act(browserId, { kind: "type", selector: "@1 #pass", useSavedPassword: true });
+			expect(login.credential).toEqual({ origin: framed, created: false });
+			await perform(runtime, browserId, { kind: "click", selector: "@1 #go" });
+			await waitUntil("the login post", () => fixture.submissions().length, (count) => count === 3);
+
+			// The View never generates.
+			expect(await failureCode(() => runtime.act(browserId, { kind: "insert", generatePassword: true }, "app"))).toBe("bad_action");
+
+			expect(fixture.submissions().map((post) => post.pass)).toEqual([password, password, password]);
+			expect(saved()).toEqual({ [framed]: password });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

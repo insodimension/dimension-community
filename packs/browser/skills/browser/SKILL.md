@@ -29,16 +29,22 @@ tool needs it.
   in the profile. A verification step (CAPTCHA, email code, phone code) is
   yours to handle however you can; use `ask` when you need the user for it.
 - **Tip — keep passwords out of the transcript.** Anything you type or put in
-  `task` lands in the session transcript. Use `credential` or
-  `useSavedPassword: true`; the password never enters the transcript. For a
-  new account, `browser_task` with `credential` (below) has the browser
-  generate the password and store it in the profile. Once a profile has a
-  saved password for an origin, `browser_act` `type` (with a selector) or
-  `insert` (into the focused field) with `useSavedPassword: true` and no
-  `text` replaces that password field's content with the password saved for
-  the field's own frame origin; the result says `savedPassword: { origin }`.
-  With nothing saved there it fails and types nothing. Without the flag, your
-  `text` is typed as given.
+  `task` lands in the session transcript. On a password field, `browser_act`
+  `type` (with a selector) or `insert` (into the focused field) takes one of
+  these instead of `text`, and the password never enters the transcript:
+  - `generatePassword: true` — **for a sign-up**, and the way to do one
+    without a task key: the browser generates a strong password, saves it in
+    this profile for the field's own frame origin (the same store as
+    `browser_task` `credential`), and types it, replacing the field. A
+    password already saved for that origin is reused, so a retried sign-up
+    keeps the account's password.
+  - `useSavedPassword: true` — **to log in**: types the password saved for the
+    field's own frame origin. With nothing saved there it fails and types
+    nothing.
+
+  The result says `credential: { origin, created }`, never the value. Either
+  flag on a field that is not a password input fails and types nothing.
+  Without a flag, your `text` is typed as given.
 
 ## Read a public page
 
@@ -99,9 +105,14 @@ runs that agent in this same browser while the user watches; it returns
 status (`done`, `blocked`, `failed`, `cancelled`), a summary, steps, elapsed
 time, model calls and tokens. Put every fact the agent needs in `task` (names,
 emails, answers) — it cannot ask you. `jev` is the fastest (one TypeSafe
-decision per step); `browser-use` is a general LLM agent. `browser_act` and
-`browser_tab` are refused while a task runs; `browser_task_cancel` stops it. After a task,
-`browser_snapshot` to verify the outcome yourself.
+decision per step); `browser-use` is a general LLM agent. Both need model keys
+in the browser server's environment (jev: `TYPESAFE_API_KEY` and
+`TEXT_MODEL_API_KEY`). A `failed` task is a tool error naming the cause and
+the next step (an unfunded key is HTTP 402); the browser stays open, so carry
+on with `browser_act` — for a sign-up's password, `generatePassword: true`.
+`browser_act` and `browser_tab` are refused (`task_running`) while a task runs;
+`browser_task_cancel` stops it. After a task, `browser_snapshot` to verify the
+outcome yourself.
 
 **Optional: let the browser hold the password.** For a jev sign-up you may pass
 `credential: { origin: "https://site.example", mode: "signup" }` instead of a

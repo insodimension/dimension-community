@@ -31,6 +31,14 @@ export interface BrowserAction {
    * nothing is typed. Agent-only: the View types exactly what the human typed.
    */
   useSavedPassword?: true;
+  /**
+   * `type`/`insert` INSTEAD of `text`, for a sign-up: as `useSavedPassword`,
+   * but with nothing saved for that frame origin the browser first mints a
+   * strong password and saves it there (the store `browser_task` credential
+   * uses). A saved one is reused, so a retried sign-up never orphans the
+   * account an earlier attempt made. Agent-only; the value is never returned.
+   */
+  generatePassword?: true;
   /** `select`: the option's value or visible text. */
   value?: string;
   key?: string;
@@ -59,8 +67,8 @@ export interface TabRequest { op: TabOp; tabId?: string; url?: string }
 export type FrameFormat = "jpeg" | "png";
 /** `failed`: provably nothing happened. `unknown`: dispatched, then errored — may have taken effect. */
 export type ActionStatus = "completed" | "failed" | "unknown";
-/** `savedPassword`: a `useSavedPassword` action typed this profile's saved password for `origin`. Never the value. */
-export interface ActionResult { status: ActionStatus; error?: string; state: BrowserState; savedPassword?: { origin: string } }
+/** `credential`: a `useSavedPassword`/`generatePassword` action typed this profile's password for `origin` (`created`: minted just now). Never the value. */
+export interface ActionResult { status: ActionStatus; error?: string; state: BrowserState; credential?: CredentialUse }
 export interface TaskStep { n: number; action: string; url: string; elapsedMs: number }
 export interface TaskUsage { modelCalls: number; inputTokens: number; outputTokens: number; costUsd: number | null }
 export type TaskStatus = "running" | "done" | "blocked" | "failed" | "cancelled";

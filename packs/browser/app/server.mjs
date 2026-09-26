@@ -1403,10 +1403,10 @@ var PuppeteerDriver = class {
    * the page (validation, element resolution, empty history) throws
    * ActionNotDispatched before the first input event.
    */
-  async perform(action, savedPassword2) {
-    return await withTimeout(this.#dispatch(action, savedPassword2), NAVIGATE_TIMEOUT_MS + 5e3, `${action.kind}`);
+  async perform(action, password) {
+    return await withTimeout(this.#dispatch(action, password), NAVIGATE_TIMEOUT_MS + 5e3, `${action.kind}`);
   }
-  async #dispatch(action, savedPassword2) {
+  async #dispatch(action, password) {
     const tab = this.#activeTab();
     const page = tab.page;
     switch (action.kind) {
@@ -1451,12 +1451,12 @@ var PuppeteerDriver = class {
         await page.mouse.move(requireNumber(action.x, "hover.x"), requireNumber(action.y, "hover.y"));
         return NONE;
       case "insert":
-        if (action.useSavedPassword) return await this.#typeSaved(page, await this.#focusedField(page), savedPassword2);
+        if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#focusedField(page), action, password);
         await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
         return NONE;
       case "type": {
         const selector3 = requireField(action.selector, "type.selector");
-        if (action.useSavedPassword) return await this.#typeSaved(page, await this.#resolve(page, selector3), savedPassword2);
+        if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#resolve(page, selector3), action, password);
         await this.#type(page, selector3, requireField(action.text, "type.text", true), false);
         return NONE;
       }
@@ -1771,30 +1771,37 @@ var PuppeteerDriver = class {
     }
   }
   /**
-   * `useSavedPassword`: REPLACE `field`'s content with the password this
-   * profile saved for the field's own frame origin. Every check runs in
-   * puppeteer's utility world, an isolated world page script cannot reach, so
-   * the page cannot fake its origin (`window.origin` is replaceable in its own
-   * world), a password type, or focus. The origin is the FRAME's, never the
-   * top page's. Focus and origin are checked again right before typing; if
-   * either changed, nothing is typed. No saved password is an error, never a
-   * fallback. Everything before the one insert is a certain non-event.
+   * `useSavedPassword` / `generatePassword`: REPLACE `field`'s content with
+   * the password `source` gives for the field's own frame origin. Every check
+   * runs in puppeteer's utility world, an isolated world page script cannot
+   * reach, so the page cannot fake its origin (`window.origin` is replaceable
+   * in its own world), a password type, or focus. The origin is the FRAME's,
+   * never the top page's, and a field that is not a password input is refused
+   * before `source` is asked, so nothing is minted for it. Focus and origin
+   * are checked again right before typing; if either changed, nothing is
+   * typed. No password is an error, never a fallback. Everything before the
+   * one insert is a certain non-event.
    */
-  async #typeSaved(page, target, lookup2) {
+  async #typePassword(page, target, action, source) {
     const { handle, frame } = target;
+    const flag = action.generatePassword ? "generatePassword" : "useSavedPassword";
     let field = null;
     try {
-      if (!lookup2) throw new ActionNotDispatched("bad_action", "useSavedPassword needs the profile's saved passwords");
+      if (!source) throw new ActionNotDispatched("bad_action", `${flag} needs the profile's password store`);
       field = await utilityWorld(frame).adoptHandle(handle);
       const before = await field.evaluate(SAVED_PASSWORD_TARGET_SCRIPT);
-      if (!before.password) throw new ActionNotDispatched("not_password_field", "useSavedPassword types only into a password field, and this field is not one; nothing was typed");
+      if (!before.password) {
+        throw new ActionNotDispatched("not_password_field", `${flag} types only into a password field (input type=password), and this field is not one; nothing was typed or saved`);
+      }
       let value;
       try {
-        value = lookup2(before.origin);
+        value = source(before.origin);
       } catch (error) {
-        throw new ActionNotDispatched("credentials_unreadable", describe2(error));
+        throw error instanceof BrowserRuntimeError ? new ActionNotDispatched(error.code, error.message) : new ActionNotDispatched("credentials_unreadable", describe2(error));
       }
-      if (!value) throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; use browser_task credential signup, or pass text`);
+      if (!value) {
+        throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; for a sign-up pass generatePassword: true, or pass text`);
+      }
       await field.focus();
       if (!await field.evaluate(SELECT_ALL_SCRIPT)) {
         throw new ActionNotDispatched("not_password_field", "the password field's content could not be selected to replace; nothing was typed");
@@ -1804,7 +1811,7 @@ var PuppeteerDriver = class {
         throw new ActionNotDispatched("focus_moved", "the password field lost focus or changed origin before typing; nothing was typed");
       }
       await page.keyboard.sendCharacter(value);
-      return { savedPasswordOrigin: before.origin };
+      return { passwordOrigin: before.origin };
     } finally {
       await field?.dispose().catch(() => void 0);
       await handle.dispose().catch(() => void 0);
@@ -2150,6 +2157,7 @@ import { createInterface } from "node:readline";
 import { join as join4 } from "node:path";
 var PYTHON_DIR = fileURLToPath2(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
+var EXIT_DRAIN_MS = 2e3;
 var STDERR_KEEP = 4096;
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
@@ -2213,6 +2221,9 @@ function startWorker(job, onStep) {
     }
   });
   child.stdin.on("error", () => void 0);
+  child.stdout.on("error", () => void 0);
+  child.stderr.on("error", () => void 0);
+  lines.on("error", () => void 0);
   child.stdin.write(`${JSON.stringify(job)}
 `);
   let killTimer;
@@ -2220,9 +2231,15 @@ function startWorker(job, onStep) {
     const finish = (reason) => {
       clearTimeout(killTimer);
       resolve3(result2 ?? { status: "failed", summary: `${reason}${stderr ? `: ${stderr.trim().slice(-600)}` : ""}`, steps: 0, elapsedMs: 0, usage: usageOf({}) });
+      lines.close();
+      child.stdout.destroy();
+      child.stderr.destroy();
     };
     child.once("error", (error) => finish(`task worker failed to start (${error.message})`));
     child.once("close", (code, signal) => finish(`task worker exited (${signal ?? code})`));
+    child.once("exit", (code, signal) => {
+      setTimeout(() => finish(`task worker exited (${signal ?? code})`), EXIT_DRAIN_MS).unref();
+    });
   });
   return {
     done,
@@ -2588,7 +2605,7 @@ var BrowserRuntime = class {
     }
     return await this.serialize(entry, async () => {
       if (entry.task?.status === "running") {
-        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+        fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
       }
       refuseWhilePublishing(entry, caller);
       switch (request.op) {
@@ -2618,24 +2635,30 @@ var BrowserRuntime = class {
     const entry = this.require(browserId);
     return await this.serialize(entry, async () => {
       if (entry.task?.status === "running") {
-        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+        fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
       }
       refuseWhilePublishing(entry, caller);
       const action = normalizeAction(input, entry.viewport);
       const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
       const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
-      if (action.useSavedPassword && caller === "app") {
-        fail("bad_action", "useSavedPassword is for the agent; the Browser View types exactly what the human typed");
+      if ((action.useSavedPassword || action.generatePassword) && caller === "app") {
+        fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
       }
       const profileDir = this.store.profileDir(entry.profile);
-      const lookup2 = action.useSavedPassword ? (origin) => {
+      let created = false;
+      const password = action.generatePassword ? (origin) => {
+        const credential = resolveCredential(profileDir, { origin, mode: "signup" });
+        created = credential.created;
+        entry.secrets.add(credential.password);
+        return credential.password;
+      } : action.useSavedPassword ? (origin) => {
         const value = savedPassword(profileDir, origin);
         if (value) entry.secrets.add(value);
         return value;
       } : void 0;
       let outcome;
       try {
-        outcome = await entry.driver.perform(action, lookup2);
+        outcome = await entry.driver.perform(action, password);
         if (touching) touching.touchedWhilePending = true;
       } catch (error) {
         const dispatched = !(error instanceof ActionNotDispatched);
@@ -2648,7 +2671,7 @@ var BrowserRuntime = class {
         });
       }
       const state = await this.buildState(entry);
-      return this.redact(entry, outcome?.savedPasswordOrigin ? { status: "completed", state, savedPassword: { origin: outcome.savedPasswordOrigin } } : { status: "completed", state });
+      return this.redact(entry, outcome.passwordOrigin ? { status: "completed", state, credential: { origin: outcome.passwordOrigin, created } } : { status: "completed", state });
     });
   }
   // -----------------------------------------------------------------------
@@ -2771,7 +2794,7 @@ var BrowserRuntime = class {
     const selected = validateMode(mode);
     return await this.serialize(entry, async () => {
       if (entry.task?.status === "running") {
-        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+        fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
       }
       refuseWhilePublishing(entry, caller);
       if (isPending(entry.publish)) {
@@ -2790,7 +2813,7 @@ var BrowserRuntime = class {
     return await this.serialize(entry, async () => {
       const publication = requirePending(entry.publish, publishId);
       if (entry.task?.status === "running") {
-        fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+        fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
       }
       await confirm(entry.driver, publication);
       return publishRecord(publication);
@@ -3020,9 +3043,12 @@ function scrub(value, secrets) {
   }
   return value;
 }
-function savedPasswordFlag(action) {
-  if (action.useSavedPassword !== true || action.text !== void 0) fail("bad_action", `${action.kind}: pass text OR useSavedPassword: true`);
-  return true;
+function passwordFlag(action) {
+  const given = [action.text !== void 0, action.useSavedPassword !== void 0, action.generatePassword !== void 0].filter(Boolean).length;
+  if (given !== 1) fail("bad_action", `${action.kind}: pass exactly one of text, useSavedPassword: true or generatePassword: true`);
+  if (action.useSavedPassword === true) return { useSavedPassword: true };
+  if (action.generatePassword === true) return { generatePassword: true };
+  return fail("bad_action", `${action.kind}: useSavedPassword and generatePassword can only be true`);
 }
 function normalizeAction(action, viewport) {
   if (!action || typeof action !== "object") fail("bad_action", "action must be an object");
@@ -3048,7 +3074,7 @@ function normalizeAction(action, viewport) {
       return { kind: "hover", x, y };
     }
     case "insert": {
-      if (action.useSavedPassword !== void 0) return { kind: "insert", useSavedPassword: savedPasswordFlag(action) };
+      if (action.useSavedPassword !== void 0 || action.generatePassword !== void 0) return { kind: "insert", ...passwordFlag(action) };
       if (typeof action.text !== "string" || action.text.length === 0 || action.text.length > MAX_TEXT_INPUT) {
         fail("bad_action", `insert.text must be a string of 1-${MAX_TEXT_INPUT} characters`);
       }
@@ -3060,7 +3086,7 @@ function normalizeAction(action, viewport) {
     case "stop":
       return { kind: action.kind };
     case "type": {
-      if (action.useSavedPassword !== void 0) return { kind: "type", selector: requireSelector(action.selector), useSavedPassword: savedPasswordFlag(action) };
+      if (action.useSavedPassword !== void 0 || action.generatePassword !== void 0) return { kind: "type", selector: requireSelector(action.selector), ...passwordFlag(action) };
       if (typeof action.text !== "string" || action.text.length > MAX_TEXT_INPUT) {
         fail("bad_action", `type.text must be a string of at most ${MAX_TEXT_INPUT} characters`);
       }
@@ -3133,14 +3159,16 @@ var profile = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,47}$/);
 var coordinate = z.number().finite().min(0).max(4096);
 var selector2 = z.string().trim().min(1).max(512);
 var point = { x: coordinate, y: coordinate };
+var onePasswordSource = (value) => [value.text, value.useSavedPassword, value.generatePassword].filter((given) => given !== void 0).length === 1;
+var PASSWORD_SOURCE_MESSAGE = "Pass exactly one of text, useSavedPassword: true or generatePassword: true";
 var actionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: z.url().max(2048).refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "Only HTTP and HTTPS navigation is supported") }).strict(),
   z.object({ kind: z.literal("click"), selector: selector2.optional(), x: coordinate.optional(), y: coordinate.optional(), button: z.enum(["left", "right", "middle"]).optional(), clickCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional() }).strict().refine((value) => value.selector !== void 0 ? value.x === void 0 && value.y === void 0 : value.x !== void 0 && value.y !== void 0, "Choose a selector OR both coordinates"),
-  z.object({ kind: z.literal("type"), selector: selector2, text: z.string().max(4096).optional(), useSavedPassword: z.literal(true).optional() }).strict().refine((value) => value.text === void 0 !== (value.useSavedPassword === void 0), "Pass text OR useSavedPassword: true"),
+  z.object({ kind: z.literal("type"), selector: selector2, text: z.string().max(4096).optional(), useSavedPassword: z.literal(true).optional(), generatePassword: z.literal(true).optional() }).strict().refine(onePasswordSource, PASSWORD_SOURCE_MESSAGE),
   z.object({ kind: z.literal("select"), selector: selector2, value: z.string().max(4096) }).strict(),
   z.object({ kind: z.literal("press"), key: z.string().min(1).max(64) }).strict(),
   z.object({ kind: z.literal("scroll"), deltaX: z.number().finite().min(-5e3).max(5e3), deltaY: z.number().finite().min(-5e3).max(5e3) }).strict(),
-  z.object({ kind: z.literal("insert"), text: z.string().min(1).max(4096).optional(), useSavedPassword: z.literal(true).optional() }).strict().refine((value) => value.text === void 0 !== (value.useSavedPassword === void 0), "Pass text OR useSavedPassword: true"),
+  z.object({ kind: z.literal("insert"), text: z.string().min(1).max(4096).optional(), useSavedPassword: z.literal(true).optional(), generatePassword: z.literal(true).optional() }).strict().refine(onePasswordSource, PASSWORD_SOURCE_MESSAGE),
   z.object({ kind: z.literal("hover"), ...point }).strict(),
   z.object({ kind: z.literal("back") }).strict(),
   z.object({ kind: z.literal("forward") }).strict(),
@@ -3175,6 +3203,21 @@ async function result(run) {
   } catch (error) {
     return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] };
   }
+}
+async function taskResult(run) {
+  const outcome = await result(run);
+  const task = outcome.structuredContent;
+  if (outcome.isError || task?.status !== "failed") return outcome;
+  return { ...outcome, isError: true, content: [{ type: "text", text: `task failed: ${task.summary}
+Next: ${nextStep(task.summary)}
+The browser is still open and usable.` }, ...outcome.content] };
+}
+var DO_IT_YOURSELF = "or do this step yourself with browser_act (a sign-up's password: type the password field with generatePassword: true \u2014 no key needed).";
+function nextStep(summary) {
+  if (/\b(?:HTTP|status|code):? 402\b/i.test(summary)) return `the model provider's key has no credit (HTTP 402). Fund it or set a funded key in the browser server's environment, ${DO_IT_YOURSELF}`;
+  if (/\b(?:HTTP|status|code):? 40[13]\b/i.test(summary)) return `the model provider rejected the key. Fix TYPESAFE_API_KEY / TEXT_MODEL_API_KEY in the browser server's environment, ${DO_IT_YOURSELF}`;
+  if (/API_KEY/.test(summary)) return `set the named key in the browser server's environment, ${DO_IT_YOURSELF}`;
+  return "check the page with browser_snapshot, then retry the task or continue with browser_act.";
 }
 async function createBrowserServer(options = {}) {
   const runtime = options.runtime ?? new BrowserRuntime({
@@ -3242,13 +3285,13 @@ async function createBrowserServer(options = {}) {
     }
   });
   server2.registerTool("browser_act", {
-    description: `Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status "failed" means nothing happened; "unknown" means it was sent and then errored, so it may have taken effect \u2014 look at the page before retrying a submission. A selector may start \`@<ref> \` (from browser_snapshot) to act inside that iframe, cross-origin included; insert and press go to whatever is focused, in any frame. Password fields: text you type lands in the transcript. To keep a password out of it, use browser_task credential {origin, mode: "signup"} (the browser generates the password and saves it in this profile) or, once one is saved for the field's origin, type or insert with useSavedPassword: true instead of text: it replaces the password field's content with the password saved for that field's own frame origin (the result says savedPassword {origin}); the password never enters the transcript. With nothing saved for that origin it fails and types nothing. Without useSavedPassword your text is typed as given.`,
+    description: `Do one thing in the active tab now: navigate (http/https), back, forward, reload, stop, click (selector or x,y; optional button left/right/middle and clickCount 1-3), hover (x,y), type (replaces the field's value), insert (types text into whatever is focused), select (a <select> option by value or text), press a key, or scroll. Status "failed" means nothing happened; "unknown" means it was sent and then errored, so it may have taken effect \u2014 look at the page before retrying a submission. A selector may start \`@<ref> \` (from browser_snapshot) to act inside that iframe, cross-origin included; insert and press go to whatever is focused, in any frame. Refused while a browser_task runs on this browser (task_running). Password fields: text you type lands in the transcript. To keep a password out of it, type or insert with one of these instead of text \u2014 both replace a password field's content with a password bound to that field's own frame origin (read from the browser, never the page), and the password never enters the transcript: generatePassword: true for a sign-up (no key needed: the browser generates a strong password, saves it in this profile for that origin, and types it; a password already saved there is reused), then useSavedPassword: true to log in later (with nothing saved for that origin it fails and types nothing). The result says credential {origin, created}, never the value. Either one on a field that is not a password input fails and types nothing. Otherwise your text is typed as given.`,
     inputSchema: { browserId: capability, action: actionSchema },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
   }, async ({ browserId, action }, extra) => {
     try {
       const outcome = await runtime.act(browserId, action, callerOf(extra));
-      const text = outcome.status === "completed" ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title, ...outcome.savedPassword ? { savedPassword: { origin: outcome.savedPassword.origin, note: "typed this profile's saved password for that origin" } } : {} }) : `${outcome.status}: ${outcome.error}`;
+      const text = outcome.status === "completed" ? JSON.stringify({ status: outcome.status, url: outcome.state.url, title: outcome.state.title, ...outcome.credential ? { credential: { ...outcome.credential, note: outcome.credential.created ? "generated a password, saved it in this profile for that origin, and typed it" : "typed this profile's saved password for that origin" } } : {} }) : `${outcome.status}: ${outcome.error}`;
       return { ...outcome.status === "completed" ? {} : { isError: true }, content: [{ type: "text", text }], structuredContent: outcome };
     } catch (error) {
       return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] };
@@ -3281,7 +3324,7 @@ async function createBrowserServer(options = {}) {
     }
   };
   server2.registerTool("browser_task", {
-    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task \u2014 it cannot ask you. Sign-ups and logins are fine to hand over. For a password, prefer credential {origin, mode} (jev) over writing it in task, so it never enters the transcript: the browser fills that origin's password fields itself with a password it holds for this profile \u2014 "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account made outside the browser's credential; put that password in task, or log in with browser_act). The value is never shown to you, to jev or in results. browser-use reads password fields, so it takes no credential. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. browser_act is refused while a task runs.`,
+    description: `Hand a whole task to a fast browser agent working in this same browser while the human watches: jev (TypeSafe Jev, one model decision per step) or browser-use. Put every fact the agent needs in task \u2014 it cannot ask you. Sign-ups and logins are fine to hand over. For a password, prefer credential {origin, mode} (jev) over writing it in task, so it never enters the transcript: the browser fills that origin's password fields itself with a password it holds for this profile \u2014 "signup" uses the saved one or creates and saves a strong one, "login" uses the saved one (there is none for an account made outside the browser's credential; put that password in task, or log in with browser_act useSavedPassword). The value is never shown to you, to jev or in results. browser-use reads password fields, so it takes no credential. Returns within waitSeconds (default and max ${WAIT_CAP_S}) with the task's status, steps, time, model calls and tokens (and credential {origin, created} when one was used); while status is "running", call browser_task_wait. A failed task is a tool error naming the cause and the next step; the browser stays open. jev needs TYPESAFE_API_KEY and TEXT_MODEL_API_KEY in the browser server's environment \u2014 without a funded key, sign up yourself with browser_act: type the password field with generatePassword: true (no key needed, the password is saved in this profile and never shown). browser_act and browser_tab are refused while a task runs (task_running).`,
     inputSchema: {
       browserId: capability,
       agent: z.enum(TASK_AGENTS),
@@ -3291,7 +3334,7 @@ async function createBrowserServer(options = {}) {
       waitSeconds
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
-  }, ({ browserId, agent, task, maxSteps, credential, waitSeconds: waitSeconds2 }, extra) => result(async () => {
+  }, ({ browserId, agent, task, maxSteps, credential, waitSeconds: waitSeconds2 }, extra) => taskResult(async () => {
     await runtime.startTask(browserId, { agent, task, ...maxSteps ? { maxSteps } : {}, ...credential ? { credential } : {} }, callerOf(extra));
     return await follow(browserId, waitSeconds2, extra);
   }));
@@ -3299,7 +3342,7 @@ async function createBrowserServer(options = {}) {
     description: `Follow the task in this browser: returns when it finishes or after waitSeconds (default and max ${WAIT_CAP_S}), with its status, recent steps, time, model calls and tokens.`,
     inputSchema: { browserId: capability, waitSeconds },
     annotations: READ_ONLY
-  }, ({ browserId, waitSeconds: waitSeconds2 }, extra) => result(() => follow(browserId, waitSeconds2, extra)));
+  }, ({ browserId, waitSeconds: waitSeconds2 }, extra) => taskResult(() => follow(browserId, waitSeconds2, extra)));
   server2.registerTool("browser_task_cancel", {
     description: "Stop the task running in this browser. Resolves once the agent has stopped.",
     inputSchema: { browserId: capability },

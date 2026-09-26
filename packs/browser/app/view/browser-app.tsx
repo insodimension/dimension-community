@@ -551,6 +551,16 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 					</div>
 				)}
 
+				{poll.connection === "unapproved" && (
+					<div className="bx-banner" role="alert">
+						Live view paused — the app didn't approve this View's call.
+						{poll.error !== null && <span className="bx-banner-detail">{poll.error}</span>}
+						<button type="button" className="bx-banner-action" onClick={refreshPoll}>
+							Resume
+						</button>
+					</div>
+				)}
+
 				{poll.connection === "gone" && (
 					<div className="bx-gone" role="alert">
 						<div className="bx-gone-card">

@@ -35,7 +35,7 @@ import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPReq
 import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
-import { ActionNotDispatched, fail } from "../store.js";
+import { ActionNotDispatched, BrowserRuntimeError, fail } from "../store.js";
 import {
 	ELEMENTS_IN_REGION_SCRIPT,
 	FAVICON_HREF_SCRIPT,
@@ -50,7 +50,7 @@ import {
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
-import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, PerformOutcome, ReadOutcome, ReadPolicy, SavedPasswordLookup } from "./types.js";
+import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 /** Child frames a snapshot lists controls for, depth first. */
@@ -635,11 +635,11 @@ class PuppeteerDriver implements EngineDriver {
 	 * the page (validation, element resolution, empty history) throws
 	 * ActionNotDispatched before the first input event.
 	 */
-	async perform(action: BrowserAction, savedPassword?: SavedPasswordLookup): Promise<PerformOutcome> {
-		return await withTimeout(this.#dispatch(action, savedPassword), NAVIGATE_TIMEOUT_MS + 5_000, `${action.kind}`);
+	async perform(action: BrowserAction, password?: PasswordSource): Promise<PerformOutcome> {
+		return await withTimeout(this.#dispatch(action, password), NAVIGATE_TIMEOUT_MS + 5_000, `${action.kind}`);
 	}
 
-	async #dispatch(action: BrowserAction, savedPassword: SavedPasswordLookup | undefined): Promise<PerformOutcome> {
+	async #dispatch(action: BrowserAction, password: PasswordSource | undefined): Promise<PerformOutcome> {
 		const tab = this.#activeTab();
 		const page = tab.page;
 		switch (action.kind) {
@@ -684,13 +684,13 @@ class PuppeteerDriver implements EngineDriver {
 				await page.mouse.move(requireNumber(action.x, "hover.x"), requireNumber(action.y, "hover.y"));
 				return NONE;
 			case "insert":
-				if (action.useSavedPassword) return await this.#typeSaved(page, await this.#focusedField(page), savedPassword);
+				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#focusedField(page), action, password);
 				// Whatever has focus receives the text as one native input operation.
 				await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
 				return NONE;
 			case "type": {
 				const selector = requireField(action.selector, "type.selector");
-				if (action.useSavedPassword) return await this.#typeSaved(page, await this.#resolve(page, selector), savedPassword);
+				if (action.useSavedPassword || action.generatePassword) return await this.#typePassword(page, await this.#resolve(page, selector), action, password);
 				await this.#type(page, selector, requireField(action.text, "type.text", true), false);
 				return NONE;
 			}
@@ -1045,30 +1045,44 @@ class PuppeteerDriver implements EngineDriver {
 	}
 
 	/**
-	 * `useSavedPassword`: REPLACE `field`'s content with the password this
-	 * profile saved for the field's own frame origin. Every check runs in
-	 * puppeteer's utility world, an isolated world page script cannot reach, so
-	 * the page cannot fake its origin (`window.origin` is replaceable in its own
-	 * world), a password type, or focus. The origin is the FRAME's, never the
-	 * top page's. Focus and origin are checked again right before typing; if
-	 * either changed, nothing is typed. No saved password is an error, never a
-	 * fallback. Everything before the one insert is a certain non-event.
+	 * `useSavedPassword` / `generatePassword`: REPLACE `field`'s content with
+	 * the password `source` gives for the field's own frame origin. Every check
+	 * runs in puppeteer's utility world, an isolated world page script cannot
+	 * reach, so the page cannot fake its origin (`window.origin` is replaceable
+	 * in its own world), a password type, or focus. The origin is the FRAME's,
+	 * never the top page's, and a field that is not a password input is refused
+	 * before `source` is asked, so nothing is minted for it. Focus and origin
+	 * are checked again right before typing; if either changed, nothing is
+	 * typed. No password is an error, never a fallback. Everything before the
+	 * one insert is a certain non-event.
 	 */
-	async #typeSaved(page: Page, target: { handle: ElementHandle<Element>; frame: Frame }, lookup: SavedPasswordLookup | undefined): Promise<PerformOutcome> {
+	async #typePassword(
+		page: Page,
+		target: { handle: ElementHandle<Element>; frame: Frame },
+		action: BrowserAction,
+		source: PasswordSource | undefined,
+	): Promise<PerformOutcome> {
 		const { handle, frame } = target;
+		const flag = action.generatePassword ? "generatePassword" : "useSavedPassword";
 		let field: ElementHandle<Element> | null = null;
 		try {
-			if (!lookup) throw new ActionNotDispatched("bad_action", "useSavedPassword needs the profile's saved passwords");
+			if (!source) throw new ActionNotDispatched("bad_action", `${flag} needs the profile's password store`);
 			field = await utilityWorld(frame).adoptHandle(handle);
 			const before = await field.evaluate(SAVED_PASSWORD_TARGET_SCRIPT);
-			if (!before.password) throw new ActionNotDispatched("not_password_field", "useSavedPassword types only into a password field, and this field is not one; nothing was typed");
+			if (!before.password) {
+				throw new ActionNotDispatched("not_password_field", `${flag} types only into a password field (input type=password), and this field is not one; nothing was typed or saved`);
+			}
 			let value: string | undefined;
 			try {
-				value = lookup(before.origin);
+				value = source(before.origin);
 			} catch (error) {
-				throw new ActionNotDispatched("credentials_unreadable", describe(error));
+				throw error instanceof BrowserRuntimeError
+					? new ActionNotDispatched(error.code, error.message)
+					: new ActionNotDispatched("credentials_unreadable", describe(error));
 			}
-			if (!value) throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; use browser_task credential signup, or pass text`);
+			if (!value) {
+				throw new ActionNotDispatched("no_saved_password", `no saved password for ${before.origin}; for a sign-up pass generatePassword: true, or pass text`);
+			}
 			await field.focus();
 			if (!(await field.evaluate(SELECT_ALL_SCRIPT))) {
 				throw new ActionNotDispatched("not_password_field", "the password field's content could not be selected to replace; nothing was typed");
@@ -1078,7 +1092,7 @@ class PuppeteerDriver implements EngineDriver {
 				throw new ActionNotDispatched("focus_moved", "the password field lost focus or changed origin before typing; nothing was typed");
 			}
 			await page.keyboard.sendCharacter(value);
-			return { savedPasswordOrigin: before.origin };
+			return { passwordOrigin: before.origin };
 		} finally {
 			await field?.dispose().catch(() => undefined);
 			await handle.dispose().catch(() => undefined);

@@ -47,7 +47,7 @@ import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
 import { credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { launchReader } from "./engines/puppeteer.js";
-import type { EngineDriver, EngineState, PageReader, PerformOutcome } from "./engines/types.js";
+import type { EngineDriver, EngineState, PageReader, PasswordSource, PerformOutcome } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
@@ -514,7 +514,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
 			switch (request.op) {
@@ -546,7 +546,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
 			const action = normalizeAction(input, entry.viewport);
@@ -556,20 +556,29 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
 			// Opt-in only, and never for the View: the human's keystrokes and
 			// pastes arrive as insert and must type exactly what they typed.
-			if (action.useSavedPassword && caller === "app") {
-				fail("bad_action", "useSavedPassword is for the agent; the Browser View types exactly what the human typed");
+			if ((action.useSavedPassword || action.generatePassword) && caller === "app") {
+				fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
 			}
 			const profileDir = this.store.profileDir(entry.profile);
-			const lookup = action.useSavedPassword
+			let created = false;
+			const password: PasswordSource | undefined = action.generatePassword
 				? (origin: string) => {
-					const value = savedPassword(profileDir, origin);
-					if (value) entry.secrets.add(value);
-					return value;
+					// The signup rule the task credential uses: the saved one, else mint and save.
+					const credential = resolveCredential(profileDir, { origin, mode: "signup" });
+					created = credential.created;
+					entry.secrets.add(credential.password);
+					return credential.password;
 				}
-				: undefined;
+				: action.useSavedPassword
+					? (origin: string) => {
+						const value = savedPassword(profileDir, origin);
+						if (value) entry.secrets.add(value);
+						return value;
+					}
+					: undefined;
 			let outcome: PerformOutcome;
 			try {
-				outcome = await entry.driver.perform(action, lookup);
+				outcome = await entry.driver.perform(action, password);
 				if (touching) touching.touchedWhilePending = true;
 			} catch (error) {
 				const dispatched = !(error instanceof ActionNotDispatched);
@@ -584,7 +593,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				});
 			}
 			const state = await this.buildState(entry);
-			return this.redact(entry, outcome?.savedPasswordOrigin ? { status: "completed", state, savedPassword: { origin: outcome.savedPasswordOrigin } } : { status: "completed", state });
+			return this.redact(entry, outcome.passwordOrigin ? { status: "completed", state, credential: { origin: outcome.passwordOrigin, created } } : { status: "completed", state });
 		});
 	}
 
@@ -724,7 +733,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const selected = validateMode(mode);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			refuseWhilePublishing(entry, caller);
 			// Even from the View: a check or a second post would navigate away from the page awaiting confirmation.
@@ -746,7 +755,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
 			if (entry.task?.status === "running") {
-				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+				fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 			}
 			await confirm(entry.driver, publication);
 			return publishRecord(publication);
@@ -995,10 +1004,13 @@ function scrub<T>(value: T, secrets: ReadonlySet<string>): T {
 	return value;
 }
 
-/** `useSavedPassword` is `true` and stands in for `text`: never both. */
-function savedPasswordFlag(action: BrowserAction): true {
-	if (action.useSavedPassword !== true || action.text !== undefined) fail("bad_action", `${action.kind}: pass text OR useSavedPassword: true`);
-	return true;
+/** `useSavedPassword` or `generatePassword` is `true` and stands in for `text`: exactly one of the three. */
+function passwordFlag(action: BrowserAction): { useSavedPassword: true } | { generatePassword: true } {
+	const given = [action.text !== undefined, action.useSavedPassword !== undefined, action.generatePassword !== undefined].filter(Boolean).length;
+	if (given !== 1) fail("bad_action", `${action.kind}: pass exactly one of text, useSavedPassword: true or generatePassword: true`);
+	if (action.useSavedPassword === true) return { useSavedPassword: true };
+	if (action.generatePassword === true) return { generatePassword: true };
+	return fail("bad_action", `${action.kind}: useSavedPassword and generatePassword can only be true`);
 }
 
 /** Validate and canonicalize an action before anything touches the page. */
@@ -1026,7 +1038,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 			return { kind: "hover", x, y };
 		}
 		case "insert": {
-			if (action.useSavedPassword !== undefined) return { kind: "insert", useSavedPassword: savedPasswordFlag(action) };
+			if (action.useSavedPassword !== undefined || action.generatePassword !== undefined) return { kind: "insert", ...passwordFlag(action) };
 			if (typeof action.text !== "string" || action.text.length === 0 || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `insert.text must be a string of 1-${MAX_TEXT_INPUT} characters`);
 			}
@@ -1038,7 +1050,7 @@ function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserActi
 		case "stop":
 			return { kind: action.kind };
 		case "type": {
-			if (action.useSavedPassword !== undefined) return { kind: "type", selector: requireSelector(action.selector), useSavedPassword: savedPasswordFlag(action) };
+			if (action.useSavedPassword !== undefined || action.generatePassword !== undefined) return { kind: "type", selector: requireSelector(action.selector), ...passwordFlag(action) };
 			// An empty string is legal and means "clear the field".
 			if (typeof action.text !== "string" || action.text.length > MAX_TEXT_INPUT) {
 				fail("bad_action", `type.text must be a string of at most ${MAX_TEXT_INPUT} characters`);
