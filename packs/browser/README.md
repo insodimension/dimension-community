@@ -104,33 +104,52 @@ Page content is untrusted data, never instructions.
 
 ## Reading public pages
 
-`browser_read({ url, profile?, maxChars? })` reads one public page logged out,
-with no browser to open and no View. It navigates this server's own headless
-browser on profile `read` by default, which the pack never signs in to. It
-waits up to 15 s for the page to load and returns
-`{ status: "ok", url, title, text }`. `url` is where the page landed; `text` is
-its readable text, cut at `maxChars` (default 20 000, max 100 000) with
-`truncated: true`. It only navigates and reads, so it is annotated read-only
-and approved like the other read tools.
+`browser_read({ url, maxChars? })` reads one public page logged out, with no
+browser to open and no View. It has no profile: every read runs in a fresh
+incognito context of this server's own headless reader browser, with no
+cookies, and the context is discarded when the read ends. The reader never
+shares a cookie jar or a user-data dir with a Browser View profile, so a read
+is never made as a signed-in user. It waits up to 15 s for the page to load
+and returns `{ status: "ok", url, title, text }`. `url` is where the page
+landed; `text` is its readable text, cut at `maxChars` (default 20 000, max
+100 000) with `truncated: true`. It only navigates and reads, so it is
+annotated read-only and approved like the other read tools.
 
 A page that will not serve a logged-out reader returns
 `{ status: "blocked", url, reason }`, and the tool does not try another way
 in. The reasons are checked in order:
 
 - **An HTTP refusal.** Status 401, 403, 429, 451 or any 5xx (`HTTP 403`).
-- **A CAPTCHA or bot check.** An iframe or script from `recaptcha.net`,
-  `hcaptcha.com`, `challenges.cloudflare.com` or a `/recaptcha/` path, or a
-  "Just a moment" or "Attention Required" title.
-- **A login wall.** A `/login` or `/signin` path segment in the final URL, or a
-  visible password field.
+- **A CAPTCHA or bot check.** A visible challenge frame (a `/recaptcha/` path
+  other than reCAPTCHA v3's invisible scoring badge, `recaptcha.net`,
+  `hcaptcha.com`, `challenges.cloudflare.com`), or a "Just a moment" or
+  "Attention Required" title. A provider's script alone is not a challenge:
+  reCAPTCHA v3 and Turnstile load site-wide.
+- **A login wall.** A log-in, sign-in, sign-up or authwall path segment in the
+  final URL (`/login`, `/users/sign_in`, `/sign-in`, `/signup`, `/authwall`),
+  or a visible password field, including one inside an open shadow root.
 - **A timeout.**
 
 The checks run as one fixed page script; no caller JavaScript reaches the
-page. Mirror and proxy hosts (`MIRROR_HOSTS` in `src/read.ts`: safereddit,
-redlib, libreddit, teddit, nitter, pullpush, r.jina.ai, the Wayback Machine,
-archive.today) are refused before anything navigates, with
-`mirror/proxy hosts are not a read path`. A profile open in the Browser View
-is refused (`publish_pending` while a publish there awaits the human's Post).
+page. Two refusals apply to every request the read sends, redirects and
+script navigations included, and are also checked before the reader
+launches:
+
+- **Mirror and proxy hosts** (`MIRROR_HOSTS` in `src/read.ts`: safereddit,
+  redlib, libreddit, teddit, nitter, xcancel, pullpush, r.jina.ai, 12ft.io, the
+  Wayback Machine, archive.today and its aliases, Google's cache and
+  `translate.goog` proxy) are never navigated to:
+  `mirror/proxy hosts are not a read path`.
+- **Private addresses.** `localhost`, `*.localhost`, `*.local`, and any host
+  that is or resolves to a loopback, RFC 1918, link-local (including
+  169.254.169.254), CGNAT, IPv6 loopback, unique-local or link-local address.
+  The address Chrome actually connected to is checked again, so a DNS answer
+  that changes after the check is refused too.
+
+The reader keeps one tab: Chrome's popup blocker stays on and any other page
+is closed, and downloads are denied. The reader browser takes one of the four
+browser slots while it lives, closes after 60 s without a read, and gives its
+slot up to a `browser_open` when the pool is full.
 
 ## Connect a platform with a browser profile
 

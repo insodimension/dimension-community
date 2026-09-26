@@ -37,10 +37,46 @@ export interface PageRead {
   /** `document.body.innerText`, whitespace-collapsed, cut at the limit. */
   text: string;
   truncated: boolean;
-  /** A password input is rendered and visible. */
+  /** A password input is rendered and visible (open shadow roots included). */
   passwordVisible: boolean;
-  /** Absolute `src` of the page's iframes and scripts (bounded). */
-  embeds: string[];
+  /** Absolute `src` of the page's VISIBLE iframes, open shadow roots included (bounded). */
+  frames: string[];
+}
+
+/**
+ * What the reader may fetch during one read. Each answer is a refusal reason,
+ * or null to let the request through.
+ */
+export interface ReadPolicy {
+  /** A navigation (main frame or subframe, redirects included): mirror hosts and private addresses. */
+  navigation(url: string): Promise<string | null>;
+  /** Any other request: private addresses only. */
+  subresource(url: string): Promise<string | null>;
+  /** The address the browser actually connected to for `url` — catches a DNS answer that changed after the check. */
+  connected(url: string, ip: string): string | null;
+}
+
+/** One read's outcome: the page, a main-frame request the policy refused, or no `load` in time. */
+export type ReadOutcome =
+  | { kind: "read"; page: PageRead }
+  | { kind: "refused"; url: string; reason: string }
+  | { kind: "timeout" };
+
+/**
+ * browser_read's headless reader. No profile, no persistent cookie jar: every
+ * read runs in a fresh incognito context on one tab and is disposed with it.
+ */
+export interface PageReader {
+  /** False once the browser disconnected or began closing; the runtime then replaces it. */
+  readonly usable: boolean;
+  /**
+   * Navigate a fresh context's only tab to `url` (already validated), wait for
+   * `load` up to `timeoutMs`, and read it with the fixed read script. Every
+   * request goes through `policy`; the context is closed before this returns.
+   */
+  read(url: string, limit: number, timeoutMs: number, policy: ReadPolicy): Promise<ReadOutcome>;
+  /** Resolve once the browser process is gone; a failed close may be retried. */
+  close(): Promise<void>;
 }
 
 export interface EngineDriver {
@@ -54,12 +90,6 @@ export interface EngineDriver {
   liveFrame(): Promise<LiveFrame>;
   snapshot(limit: number): Promise<string>;
   elements(region: BrowserRegion, limit: number): Promise<string>;
-  /**
-   * Navigate the active tab to `url` (already validated), wait for `load` up
-   * to `timeoutMs`, and read it with the fixed read script. "timeout" when it
-   * did not load in time (the load is then stopped).
-   */
-  read(url: string, limit: number, timeoutMs: number): Promise<PageRead | "timeout">;
   /**
    * Perform one action on the active tab now, once, never retried. Throws
    * `ActionNotDispatched` when provably nothing reached the page; any other

@@ -46,10 +46,11 @@ import type {
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
 import { credentialOrigin, resolveCredential } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
-import type { EngineDriver, EngineState } from "./engines/types.js";
+import { launchReader } from "./engines/puppeteer.js";
+import type { EngineDriver, EngineState, PageReader } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
-import { blockedReason, DEFAULT_READ_CHARS, isMirrorHost, MAX_READ_CHARS, MIRROR_REASON, READ_PROFILE, READ_TIMEOUT_MS, TIMEOUT_REASON } from "./read.js";
+import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
 
@@ -57,6 +58,8 @@ import { type RunningWorker, startWorker } from "./task.js";
 // Bounds. Every unbounded thing in a long-lived runtime is a leak or a weapon.
 // ---------------------------------------------------------------------------
 const MAX_BROWSERS = 4;
+/** browser_read's reader browser is closed this long after its last read. */
+const READER_IDLE_MS = 60_000;
 const MAX_FRAMES_RETAINED = 8;
 const MAX_SNAPSHOT_CHARS = 20_000;
 const MAX_ELEMENT_CHARS = 4_000;
@@ -111,6 +114,12 @@ export interface BrowserRuntimeOptions {
 	relayUrl?: string;
 	/** Explicit browser visibility; omitted uses each engine's supported default. */
 	headless?: boolean;
+	/**
+	 * TESTS ONLY: exact hostnames browser_read may reach although they are
+	 * loopback/private (the local fixture on 127.0.0.1). Never set in
+	 * production; it is not reachable from any tool input.
+	 */
+	allowPrivateReadHosts?: readonly string[];
 }
 
 interface FrameRecord {
@@ -142,8 +151,6 @@ interface Entry {
 	worker: { process: RunningWorker; finished: Promise<TaskRun> } | null;
 	/** The current or most recent publish (publish.ts). */
 	publish: Publication | null;
-	/** browser_read's headless reader: no capability is ever handed out for it. */
-	reader: boolean;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -153,8 +160,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly byProfile = new Map<string, Entry>();
 	/** In-flight launches, so a second open cannot race a first one. */
 	private readonly opening = new Map<string, Promise<Entry>>();
-	/** In-flight reader launches, by profile; concurrent reads share one. */
-	private readonly readers = new Map<string, Promise<Entry>>();
+	/**
+	 * browser_read's headless reader (no profile; a fresh incognito context per
+	 * read). It takes one slot of MAX_BROWSERS while it lives, closes after
+	 * READER_IDLE_MS without a read, and is evicted for a Browser View open when
+	 * the pool is full. Its launch, its reads and its close run in order on
+	 * `readerQueue`.
+	 */
+	private pageReader: PageReader | null = null;
+	private readerLaunching = false;
+	private readerQueue: Promise<unknown> = Promise.resolve();
+	private readerIdle: NodeJS.Timeout | undefined;
 	/**
 	 * Drivers whose rollback close failed during launch. Their shutdown is
 	 * unconfirmed, so their profile lock is deliberately retained; keeping the
@@ -185,6 +201,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 */
 	async open(options: BrowserOpenOptions): Promise<BrowserState> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
+		// browser_read's reader never keeps the human from a browser: when it
+		// holds the last slot it is closed (after any read in progress) first.
+		if (this.byId.size + this.opening.size >= MAX_BROWSERS - 1 && this.readerHeld()) await this.closeReader();
+		if (this.disposed) fail("disposed", "runtime has been disposed");
 		const profile = validateProfile(options.profile);
 		const engine = normalizeEngine(options.engine);
 		const viewport = normalizeViewport(options.viewport);
@@ -204,9 +224,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			fail("bad_profile", `profile "${RELAY_PROFILE}" is reserved for the chrome-relay engine`);
 		}
 		const live = this.byProfile.get(profile);
-		if (live?.reader || this.readers.has(profile)) {
-			fail("profile_in_use", `profile "${profile}" is browser_read's headless reader in this runtime; open another profile`);
-		}
 		if (live || this.opening.has(profile)) {
 			fail(
 				"profile_in_use",
@@ -215,7 +232,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		// Count launches in flight too: four concurrent opens must not slip past
 		// the bound just because none of them has finished launching yet.
-		if (this.byId.size + this.opening.size + this.readers.size >= MAX_BROWSERS) {
+		if (this.byId.size + this.opening.size + (this.readerHeld() ? 1 : 0) >= MAX_BROWSERS) {
 			fail("too_many_browsers", `at most ${MAX_BROWSERS} browsers may be open at once; close one first`);
 		}
 
@@ -226,7 +243,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.buildState(entry);
 	}
 
-	private async launch(profile: string, engine: BrowserEngine, viewport: Viewport, reader = false): Promise<Entry> {
+	private async launch(profile: string, engine: BrowserEngine, viewport: Viewport): Promise<Entry> {
 		const lock = this.store.acquireLock(profile);
 		let released = false;
 		let entry: Entry | undefined;
@@ -244,8 +261,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				: join(this.store.profileDir(profile), engine);
 			driver = await createEngineDriver(engine, {
 				profileDirectory, viewport, onClosed: release,
-				// The reader is never shown, so it is always headless.
-				...(reader ? { headless: true } : this.options.headless === undefined ? {} : { headless: this.options.headless }),
+				...(this.options.headless === undefined ? {} : { headless: this.options.headless }),
 				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
 				...(this.options.relayUrl && engine === "chrome-relay" ? { relayUrl: this.options.relayUrl } : {}),
 			});
@@ -255,7 +271,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				browserId: randomBytes(24).toString("base64url"),
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), closed: false,
-				task: null, worker: null, publish: null, reader,
+				task: null, worker: null, publish: null,
 			};
 			this.byId.set(entry.browserId, entry);
 			this.byProfile.set(profile, entry);
@@ -308,8 +324,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.disposed = true;
 		// Let in-flight launches finish first: a browser born after we started
 		// disposing would otherwise outlive the runtime holding its lock.
-		await Promise.allSettled([...this.opening.values(), ...this.readers.values()]);
+		await Promise.allSettled(this.opening.values());
 		const errors: string[] = [];
+		// Queued behind any read in flight, so the reader is not closed under it.
+		await this.closeReader().catch((err) => errors.push(describe(err)));
 		for (const entry of [...this.byId.values()]) {
 			await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true }).catch((err) =>
 				errors.push(describe(err)),
@@ -732,9 +750,12 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// -----------------------------------------------------------------------
 
 	/**
-	 * Navigate the profile's reader to `url` and read it. A mirror/proxy host is
-	 * refused before anything launches or navigates; a page that will not serve
-	 * a logged-out reader comes back `blocked` with the reason, never retried.
+	 * Read `url` in a fresh incognito context of the reader browser. A mirror
+	 * or private-address target is refused before anything launches or
+	 * navigates, and every request of the read (redirects included) goes
+	 * through the same policy; a page that will not serve a logged-out reader
+	 * comes back `blocked` with the reason, never retried. No profile and no
+	 * Browser View browser is ever involved.
 	 */
 	async read(request: ReadRequest): Promise<ReadResult> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
@@ -744,42 +765,72 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > MAX_READ_CHARS) {
 			fail("bad_read", `maxChars must be an integer from 1 to ${MAX_READ_CHARS}`);
 		}
-		const profile = validateProfile(request.profile ?? READ_PROFILE);
-		if (profile === RELAY_PROFILE) fail("bad_profile", `profile "${RELAY_PROFILE}" is the human's own Chrome; browser_read uses its own headless browser`);
-		if (isMirrorHost(new URL(url).hostname)) return { status: "blocked", url, reason: MIRROR_REASON };
-		const entry = await this.reader(profile);
-		return await this.serialize(entry, async () => {
-			const seen = await entry.driver.read(url, maxChars, READ_TIMEOUT_MS);
-			entry.revision += 1;
-			if (seen === "timeout") return { status: "blocked", url, reason: TIMEOUT_REASON };
-			const reason = blockedReason(seen);
-			if (reason !== null) return { status: "blocked", url: seen.url, reason };
-			return { status: "ok", url: seen.url, title: seen.title, text: seen.text, ...(seen.truncated ? { truncated: true as const } : {}) };
+		const policy = readPolicy(this.options.allowPrivateReadHosts);
+		const refused = await policy.navigation(url);
+		if (refused !== null) return { status: "blocked", url, reason: refused };
+		return await this.onReader(async () => {
+			if (this.disposed) fail("disposed", "runtime has been disposed");
+			clearTimeout(this.readerIdle);
+			try {
+				const reader = await this.liveReader();
+				const outcome = await reader.read(url, maxChars, READ_TIMEOUT_MS, policy);
+				if (outcome.kind === "timeout") return { status: "blocked", url, reason: TIMEOUT_REASON };
+				if (outcome.kind === "refused") return { status: "blocked", url: outcome.url, reason: outcome.reason };
+				const seen = outcome.page;
+				// The mirror check again, on where the page landed: a redirect the
+				// policy did not see (a same-document URL change) is still a mirror.
+				const landed = await policy.navigation(seen.url);
+				const reason = landed ?? blockedReason(seen);
+				if (reason !== null) return { status: "blocked", url: seen.url, reason };
+				return { status: "ok", url: seen.url, title: seen.title, text: seen.text, ...(seen.truncated ? { truncated: true as const } : {}) };
+			} finally {
+				this.readerIdle = setTimeout(() => void this.closeReader().catch((err) => console.error("browser_read reader close failed:", describe(err))), READER_IDLE_MS);
+				this.readerIdle.unref();
+			}
 		});
 	}
 
-	/**
-	 * The profile's reader: reused when this runtime already has it, launched
-	 * headless otherwise. A profile open in the Browser View is not read on — its
-	 * page is the human's, and never while a publish there awaits confirmation.
-	 */
-	private async reader(profile: string): Promise<Entry> {
-		const live = this.byProfile.get(profile);
-		if (live?.reader) return live;
-		if (live && isPending(live.publish)) {
-			fail("publish_pending", `profile "${profile}" has a publish waiting for the human's confirmation; reading there could disturb it. Read on another profile (the default "${READ_PROFILE}")`);
+	/** The reader, launched when there is none (or the last one died). Runs on `readerQueue`. */
+	private async liveReader(): Promise<PageReader> {
+		const current = this.pageReader;
+		if (current?.usable) return current;
+		if (current) {
+			await current.close();
+			this.pageReader = null;
 		}
-		if (live || this.opening.has(profile)) {
-			fail("profile_in_use", `profile "${profile}" is open in the Browser View; browser_read uses its own headless browser, so read on another profile (the default "${READ_PROFILE}")`);
-		}
-		const launching = this.readers.get(profile);
-		if (launching) return await launching;
-		if (this.byId.size + this.opening.size + this.readers.size >= MAX_BROWSERS) {
+		if (this.byId.size + this.opening.size >= MAX_BROWSERS) {
 			fail("too_many_browsers", `at most ${MAX_BROWSERS} browsers may be open at once; close one first`);
 		}
-		const started = this.launch(profile, "chromium", DEFAULT_VIEWPORT, true).finally(() => this.readers.delete(profile));
-		this.readers.set(profile, started);
-		return await started;
+		this.readerLaunching = true;
+		try {
+			this.pageReader = await launchReader(this.options.executablePath ? { executablePath: this.options.executablePath } : {});
+		} finally {
+			this.readerLaunching = false;
+		}
+		return this.pageReader;
+	}
+
+	/** Whether the reader holds (or is taking) a browser slot. */
+	private readerHeld(): boolean {
+		return this.pageReader !== null || this.readerLaunching;
+	}
+
+	/** Close the reader after any read in flight; a failed close keeps it, to be retried. */
+	private closeReader(): Promise<void> {
+		return this.onReader(async () => {
+			clearTimeout(this.readerIdle);
+			const reader = this.pageReader;
+			if (!reader) return;
+			await reader.close();
+			this.pageReader = null;
+		});
+	}
+
+	/** The reader's launch, reads and close run strictly in order. */
+	private onReader<T>(work: () => Promise<T>): Promise<T> {
+		const next = this.readerQueue.then(work, work);
+		this.readerQueue = next.catch(() => undefined);
+		return next;
 	}
 
 	// -----------------------------------------------------------------------

@@ -49,25 +49,36 @@ const PAGE_TEXT_SCRIPT = (limit: number): string => {
 };
 /**
  * browser_read's evidence: the body's readable text (cut at `limit`), whether
- * a password input is visible, and the `src` of up to `maxEmbeds` iframes and
- * scripts. Judged outside the page (read.ts); nothing here acts on the page.
+ * a password input is visible, and the `src` of up to `maxFrames` VISIBLE
+ * iframes. The document and every open shadow root beneath it are searched,
+ * so a web-component login modal or challenge is seen. A script tag is never
+ * evidence: challenge providers' scripts load site-wide for invisible scoring.
+ * Judged outside the page (read.ts); nothing here acts on the page.
  */
-const READ_PAGE_SCRIPT = (limit: number, maxEmbeds: number): Omit<PageRead, "httpStatus" | "url"> => {
+const READ_PAGE_SCRIPT = (limit: number, maxFrames: number): Omit<PageRead, "httpStatus" | "url"> => {
 	const all = (document.body?.innerText ?? "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	const shown = (el: Element): boolean => {
+		const rect = el.getBoundingClientRect();
+		// Offscreen parking (reCAPTCHA's hidden bframe sits at top:-10000px) is not shown.
+		return rect.width > 0 && rect.height > 0 && rect.right + scrollX > 0 && rect.bottom + scrollY > 0 && getComputedStyle(el).visibility !== "hidden";
+	};
 	let passwordVisible = false;
-	const inputs = document.querySelectorAll("input");
-	for (let i = 0; i < inputs.length && !passwordVisible; i += 1) {
-		const input = inputs[i] as HTMLInputElement;
-		if ((input.type ?? "").toLowerCase() !== "password" || input.getClientRects().length === 0) continue;
-		passwordVisible = getComputedStyle(input).visibility !== "hidden";
+	const frames: string[] = [];
+	const roots: Array<Document | ShadowRoot> = [document];
+	for (let r = 0; r < roots.length; r += 1) {
+		const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+			const el = node as Element;
+			if (el.shadowRoot) roots.push(el.shadowRoot);
+			if (el.tagName === "INPUT") {
+				if (!passwordVisible && ((el as HTMLInputElement).type ?? "").toLowerCase() === "password") passwordVisible = shown(el);
+			} else if (el.tagName === "IFRAME" && frames.length < maxFrames) {
+				const src = (el as HTMLIFrameElement).src;
+				if (src && shown(el)) frames.push(src);
+			}
+		}
 	}
-	const embeds: string[] = [];
-	const sources = document.querySelectorAll("iframe[src], script[src]");
-	for (let i = 0; i < sources.length && embeds.length < maxEmbeds; i += 1) {
-		const src = (sources[i] as HTMLIFrameElement | HTMLScriptElement).src;
-		if (src) embeds.push(src);
-	}
-	return { title: document.title, text: all.slice(0, limit), truncated: all.length > limit, passwordVisible, embeds };
+	return { title: document.title, text: all.slice(0, limit), truncated: all.length > limit, passwordVisible, frames };
 };
 const ELEMENTS_IN_REGION_SCRIPT = (region: BrowserRegion, limit: number): string => {
 	const out: string[] = [];

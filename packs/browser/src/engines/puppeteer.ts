@@ -20,13 +20,18 @@
  *    resource is the attachment itself, so a confirmed disconnect IS a
  *    confirmed release.
  *
+ * browser_read's reader (`launchReader`) is separate from both: a headless
+ * Chrome with no profile of ours (a throwaway user-data dir), one incognito
+ * context per read, one tab, popups blocked, downloads denied, and every
+ * request screened by the read policy before it is sent.
+ *
  * Every page script executed here is a fixed compiled function from
  * `page-scripts.ts`. Caller-supplied JavaScript never reaches `evaluate`.
  */
 import { mkdirSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer, { TimeoutError } from "puppeteer-core";
-import type { Browser, CDPSession, ElementHandle, HTTPResponse, KeyInput, Page, Protocol, Target } from "puppeteer-core";
+import type { Browser, BrowserContext, CDPSession, ElementHandle, HTTPRequest, HTTPResponse, KeyInput, Page, Protocol, Target } from "puppeteer-core";
 import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
@@ -42,15 +47,13 @@ import {
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
-import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead } from "./types.js";
+import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead, PageReader, ReadOutcome, ReadPolicy } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 const ACTION_TIMEOUT_MS = 15_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
 const FAVICON_SCRIPT_TIMEOUT_MS = 2_000;
-/** iframe/script sources the read script reports; enough for any page's challenge widget. */
-const MAX_READ_EMBEDS = 500;
 /** How long a freshly started screencast gets to deliver its first frame before one is captured. */
 const FIRST_FRAME_WAIT_MS = 500;
 const SCREENCAST_QUALITY = 80;
@@ -204,6 +207,146 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
  * renderer). Reads have no effect, so they are retried across that window.
  */
 const READ_RETRY_DELAYS_MS = [25, 50, 100, 200, 400, 800];
+
+// ---------------------------------------------------------------------------
+// browser_read's reader
+// ---------------------------------------------------------------------------
+
+/** The reader's page size; nobody watches it, it only has to lay the page out like a desktop. */
+const READER_VIEWPORT: Viewport = { width: 1_280, height: 800 };
+/** Visible iframes the read script reports; enough for any page's challenge widget. */
+const MAX_READ_FRAMES = 500;
+
+/**
+ * Launch browser_read's headless reader. It has NO profile: puppeteer gives it
+ * a throwaway user-data dir, deleted on close, and every read runs in its own
+ * incognito context besides. Chrome's popup blocker stays ON (puppeteer turns
+ * it off by default), so a page's `window.open` or popunder never opens a tab
+ * or sends a request.
+ */
+export async function launchReader(options: { executablePath?: string }): Promise<PageReader> {
+	const browser = await puppeteer.launch({
+		headless: true,
+		timeout: LAUNCH_TIMEOUT_MS,
+		defaultViewport: READER_VIEWPORT,
+		...(options.executablePath ? { executablePath: options.executablePath } : { channel: "chrome" as const }),
+		args: CHROMIUM_ARGS,
+		ignoreDefaultArgs: ["--disable-popup-blocking"],
+	});
+	return new PuppeteerReader(browser);
+}
+
+class PuppeteerReader implements PageReader {
+	readonly #browser: Browser;
+	/** Set once closing starts, or when a read could not dispose of its context. */
+	#spent = false;
+
+	constructor(browser: Browser) {
+		this.#browser = browser;
+	}
+
+	get usable(): boolean {
+		return !this.#spent && this.#browser.connected;
+	}
+
+	async read(url: string, limit: number, timeoutMs: number, policy: ReadPolicy): Promise<ReadOutcome> {
+		const context = await this.#browser.createBrowserContext();
+		try {
+			return await this.#readIn(context, url, limit, timeoutMs, policy);
+		} finally {
+			// A context that will not close may still hold a page and its cookies:
+			// retire the whole browser rather than read beside it.
+			await withTimeout(context.close(), CLOSE_TIMEOUT_MS, "reader context close").catch(() => {
+				this.#spent = true;
+			});
+		}
+	}
+
+	async #readIn(context: BrowserContext, url: string, limit: number, timeoutMs: number, policy: ReadPolicy): Promise<ReadOutcome> {
+		// Nothing a page serves is written to disk.
+		const cdp = await this.#browser.target().createCDPSession();
+		try {
+			await cdp.send("Browser.setDownloadBehavior", { behavior: "deny", ...(context.id ? { browserContextId: context.id } : {}) });
+		} finally {
+			await cdp.detach().catch(() => undefined);
+		}
+		// One tab: any other page in the context (a popup the blocker let
+		// through) is closed the moment it appears.
+		let primary: Target | undefined;
+		context.on("targetcreated", (target: Target) => {
+			if (primary === undefined || target === primary || target.type() !== "page") return;
+			void target.page().then((page) => page?.close()).catch(() => undefined);
+		});
+		const page = await context.newPage();
+		primary = page.target();
+
+		// Set from event handlers; the cast keeps TypeScript from narrowing it to `null` here.
+		let refusal = null as { url: string; reason: string } | null;
+		const isMainNavigation = (request: HTTPRequest): boolean => {
+			const frame = request.frame();
+			return request.isNavigationRequest() && frame !== null && frame.parentFrame() === null;
+		};
+		await page.setRequestInterception(true);
+		page.on("request", (request) => {
+			const target = request.url();
+			const check = request.isNavigationRequest() ? policy.navigation(target) : policy.subresource(target);
+			void check
+				.then(async (reason) => {
+					if (reason === null) return await request.continue();
+					if (isMainNavigation(request)) refusal ??= { url: target, reason };
+					await request.abort("blockedbyclient");
+				})
+				.catch(() => undefined);
+		});
+		// The address Chrome actually connected to: a DNS answer that changed
+		// after the policy's lookup (rebinding) is refused here, before any text
+		// is returned.
+		page.on("response", (response) => {
+			if (!isMainNavigation(response.request())) return;
+			const ip = response.remoteAddress().ip;
+			const reason = ip ? policy.connected(response.url(), ip) : null;
+			if (reason !== null) refusal ??= { url: response.url(), reason };
+		});
+
+		let response: HTTPResponse | null;
+		try {
+			response = await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
+		} catch (err) {
+			if (refusal) return { kind: "refused", ...refusal };
+			if (err instanceof TimeoutError) return { kind: "timeout" };
+			throw err;
+		}
+		const seen = await withTimeout(settledRead(page, limit), ACTION_TIMEOUT_MS, "read");
+		// A script navigation after `load` that the policy refused still refuses the read.
+		if (refusal) return { kind: "refused", ...refusal };
+		return { kind: "read", page: { httpStatus: response?.status() ?? null, url: page.url(), ...seen } };
+	}
+
+	async close(): Promise<void> {
+		this.#spent = true;
+		try {
+			await withTimeout(this.#browser.close(), CLOSE_TIMEOUT_MS, "reader close");
+		} catch (err) {
+			if (!hasExited(this.#browser)) fail("close_failed", `the reader browser did not shut down (${describe(err)})`);
+		}
+	}
+}
+
+/**
+ * The read script, retried across a navigation's detach window: a redirect
+ * right after `load` (a script sending the reader to a sign-in page) swaps the
+ * document under it. Reading has no effect, so re-reading is safe.
+ */
+async function settledRead(page: Page, limit: number): Promise<Omit<PageRead, "httpStatus" | "url">> {
+	for (const delay of READ_RETRY_DELAYS_MS) {
+		try {
+			return await page.evaluate(READ_PAGE_SCRIPT, limit, MAX_READ_FRAMES);
+		} catch {
+			await sleep(delay);
+		}
+	}
+	return await page.evaluate(READ_PAGE_SCRIPT, limit, MAX_READ_FRAMES);
+}
 
 /**
  * One page tab. `cdp` is a private session on the tab's target. The main
@@ -412,27 +555,6 @@ class PuppeteerDriver implements EngineDriver {
 
 	async elements(region: BrowserRegion, limit: number): Promise<string> {
 		return await this.#activeTab().page.evaluate(ELEMENTS_IN_REGION_SCRIPT, region, limit);
-	}
-
-	async read(url: string, limit: number, timeoutMs: number): Promise<PageRead | "timeout"> {
-		this.#assertOpen();
-		const tab = this.#activeTab();
-		let response: HTTPResponse | null;
-		try {
-			response = await navigating(tab, tab.page.goto(url, { waitUntil: "load", timeout: timeoutMs }));
-		} catch (err) {
-			if (!(err instanceof TimeoutError)) throw err;
-			await tab.cdp.send("Page.stopLoading").catch(() => undefined);
-			return "timeout";
-		}
-		// A redirect right after `load` (a script sending the reader to a sign-in
-		// page) swaps the document under the script; #read re-reads across it.
-		const seen = await withTimeout(
-			this.#read(() => tab.page.evaluate(READ_PAGE_SCRIPT, limit, MAX_READ_EMBEDS)),
-			ACTION_TIMEOUT_MS,
-			"read",
-		);
-		return { httpStatus: response?.status() ?? null, url: tab.page.url(), ...seen };
 	}
 
 	// -----------------------------------------------------------------------

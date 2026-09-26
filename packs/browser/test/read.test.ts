@@ -1,36 +1,40 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: a scout reads a page it was
- *  refused and reports it as read, or goes around the refusal. browser_read is
- *  the one logged-out read path: it returns a page's text, or `blocked` with
- *  the reason — an HTTP refusal, a login wall, a CAPTCHA — and it never reads
- *  through a mirror or proxy host, never on the human's profile while a
- *  publish there awaits the Post.
+ *  refused and reports it as read, reads as a signed-in user, reaches the
+ *  user's own machine or LAN, or goes around a refusal. browser_read is the
+ *  one logged-out read path: it returns a page's text, or `blocked` with the
+ *  reason — an HTTP refusal, a login wall, a CAPTCHA, a mirror/proxy host, a
+ *  private address — and it never keeps the human from their own browsers.
  *
- *  Real Chrome against local fixture pages (fixture.ts). The mirror case uses
- *  `redlib.localhost`, which Chrome resolves to the fixture, so a read that got
- *  past the refusal would show up in the fixture's hit count. The CAPTCHA case
- *  embeds `/recaptcha/…` from the fixture: reCAPTCHA's own signature is that
- *  path (www.google.com/recaptcha/…, www.gstatic.com/recaptcha/…), so the
- *  production matcher sees it on a loopback host without an injected list.
+ *  Real Chrome against local fixture pages (fixture.ts). The fixture lives on
+ *  127.0.0.1, which the reader refuses like any private address, so these
+ *  runtimes exempt exactly that host (`allowPrivateReadHosts`, a test-only
+ *  constructor option). `localhost` and `redlib.localhost` reach the same
+ *  server but are NOT exempt, so a read that got past a refusal shows up in
+ *  the fixture's hit count. The CAPTCHA pages frame `/recaptcha/…` from the
+ *  fixture: reCAPTCHA's signature is that path on any host.
  */
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { afterEach, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { isMirrorHost, MIRROR_REASON } from "../src/read";
+import { isMirrorHost, isPrivateAddress, MIRROR_REASON } from "../src/read";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
-import { ARTICLE_TEXT, BROWSER_TEST_TIMEOUT_MS, createRoot, createRuntime, describeWithChrome, failureCode, newRuntime, perform, startFixture, teardown } from "./fixture";
-import { startPublishFixture, type PublishFixture } from "./publish-fixture";
+import { ARTICLE_TEXT, BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, startFixture, teardown } from "./fixture";
 
 const clients: Client[] = [];
-const publishFixtures: PublishFixture[] = [];
 
 afterEach(async () => {
 	for (const client of clients.splice(0)) await client.close().catch(() => undefined);
-	for (const fixture of publishFixtures.splice(0)) await fixture.stop();
 	await teardown();
 }, BROWSER_TEST_TIMEOUT_MS);
+
+/** A runtime whose reader may reach the fixture's 127.0.0.1 and nothing else private. */
+async function readRuntime(): Promise<{ runtime: BrowserRuntime; rootDir: string }> {
+	const rootDir = await createRoot();
+	return { runtime: newRuntime(rootDir, { allowPrivateReadHosts: ["127.0.0.1"] }), rootDir };
+}
 
 /** The real MCP server over `runtime`, as a host would call it. */
 async function connect(runtime: BrowserRuntime, rootDir: string): Promise<Client> {
@@ -45,23 +49,37 @@ async function connect(runtime: BrowserRuntime, rootDir: string): Promise<Client
 	return client;
 }
 
+const PRIVATE_REASON = (host: string): string => `private address: ${host} is loopback, private or link-local; browser_read reads the public web only`;
+
 test("mirror and proxy hosts are matched by name, not by resemblance", () => {
-	const mirrors = ["safereddit.com", "www.safereddit.com", "redlib.catsarch.com", "libreddit.kavin.rocks", "teddit.net", "nitter.poast.org", "api.pullpush.io", "r.jina.ai", "web.archive.org", "archive.ph", "archive.today", "NITTER.NET."];
-	const sites = ["reddit.com", "old.reddit.com", "x.com", "pullpush.io", "jina.ai", "archive.org", "myredlib.com", "notnitter.net", "safereddit.com.example"];
+	const mirrors = [
+		"safereddit.com", "www.safereddit.com", "redlib.catsarch.com", "libreddit.kavin.rocks", "teddit.net", "nitter.poast.org", "xcancel.com",
+		"api.pullpush.io", "r.jina.ai", "12ft.io", "web.archive.org", "archive.ph", "archive.today", "archive.is", "archive.li", "archive.vn",
+		"archive.md", "archive.fo", "webcache.googleusercontent.com", "www-reddit-com.translate.goog", "NITTER.NET.",
+	];
+	const sites = ["reddit.com", "old.reddit.com", "x.com", "pullpush.io", "jina.ai", "archive.org", "myredlib.com", "notnitter.net", "safereddit.com.example", "translate.google.com", "googleusercontent.com", "cancel.com"];
 	expect(mirrors.filter((host) => !isMirrorHost(host))).toEqual([]);
 	expect(sites.filter((host) => isMirrorHost(host))).toEqual([]);
 });
 
+test("private addresses are told from public ones at the range boundaries", () => {
+	const privates = [
+		"127.0.0.1", "127.255.255.254", "0.0.0.0", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1",
+		"100.127.255.255", "224.0.0.1", "255.255.255.255", "::", "::1", "[::1]", "fd00::1", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:a9fe:a9fe", "64:ff9b::a00:1",
+	];
+	const publics = ["8.8.8.8", "1.1.1.1", "172.15.255.255", "172.32.0.1", "100.63.255.255", "100.128.0.1", "169.255.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "fec0::1"];
+	expect(privates.filter((ip) => !isPrivateAddress(ip))).toEqual([]);
+	expect(publics.filter((ip) => isPrivateAddress(ip))).toEqual([]);
+});
+
 describeWithChrome("browser_read", () => {
 	test(
-		"reads a page's text on the default \"read\" profile, through the tool a model sees as read-only",
+		"reads a page's text through the MCP tool, and uses no profile",
 		async () => {
 			const fixture = startFixture();
-			const { runtime, rootDir } = await createRuntime();
+			const { runtime, rootDir } = await readRuntime();
 			const client = await connect(runtime, rootDir);
 
-			const tool = (await client.listTools()).tools.find((candidate) => candidate.name === "browser_read");
-			expect(tool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false, openWorldHint: true });
 			const result = await client.callTool({ name: "browser_read", arguments: { url: fixture.url("/article") } });
 
 			expect(result.isError).toBeFalsy();
@@ -69,7 +87,7 @@ describeWithChrome("browser_read", () => {
 			expect(read).toMatchObject({ status: "ok", url: fixture.url("/article"), title: "fixture article" });
 			expect(read.text).toBe(`Field notes\n\n${ARTICLE_TEXT}`);
 			expect(read.truncated).toBeUndefined();
-			expect(await runtime.profiles()).toEqual(["read"]);
+			expect(await runtime.profiles()).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -78,7 +96,7 @@ describeWithChrome("browser_read", () => {
 		"cuts the text at maxChars and says so",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
 
 			const read = await runtime.read({ url: fixture.url("/article"), maxChars: 40 });
 
@@ -88,10 +106,42 @@ describeWithChrome("browser_read", () => {
 	);
 
 	test(
+		"a read never carries a cookie: not a signed-in View profile's, not an earlier read's",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+			const opened = await runtime.open({ profile: "signed-in" });
+			await perform(runtime, opened.browserId, { kind: "navigate", url: fixture.url("/set-cookie") });
+			await perform(runtime, opened.browserId, { kind: "navigate", url: fixture.url("/show-cookie") });
+			expect((await runtime.snapshot(opened.browserId)).text).toContain(`COOKIE:${fixture.cookieValue}`);
+
+			expect(await runtime.read({ url: fixture.url("/show-cookie") })).toMatchObject({ status: "ok", text: "COOKIE:none" });
+			expect(await runtime.read({ url: fixture.url("/set-cookie") })).toMatchObject({ status: "ok" });
+			expect(await runtime.read({ url: fixture.url("/show-cookie") })).toMatchObject({ status: "ok", text: "COOKIE:none" });
+			expect(await runtime.profiles()).toEqual(["signed-in"]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the reader never keeps the human from a browser: after a read, all four Browser View slots open",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+			expect(await runtime.read({ url: fixture.url("/article"), maxChars: 10 })).toMatchObject({ status: "ok" });
+
+			for (const profile of ["one", "two", "three", "four"]) {
+				expect((await runtime.open({ profile })).profile).toBe(profile);
+			}
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"an HTTP refusal is blocked with its status",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
 
 			expect(await runtime.read({ url: fixture.url("/forbidden") })).toEqual({ status: "blocked", url: fixture.url("/forbidden"), reason: "HTTP 403" });
 			expect(await runtime.read({ url: fixture.url("/unavailable") })).toEqual({ status: "blocked", url: fixture.url("/unavailable"), reason: "HTTP 503" });
@@ -103,7 +153,7 @@ describeWithChrome("browser_read", () => {
 		"a redirect to a sign-in page is a login wall, reported at the URL it landed on",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
 
 			const read = await runtime.read({ url: fixture.url("/private") });
 
@@ -113,69 +163,111 @@ describeWithChrome("browser_read", () => {
 	);
 
 	test(
-		"a visible password field is a login wall; a hidden one is not",
+		"a Devise-style /users/sign_in page is a login wall",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
+
+			expect(await runtime.read({ url: fixture.url("/users/sign_in") })).toEqual({ status: "blocked", url: fixture.url("/users/sign_in"), reason: "login wall: the page is a sign-in page" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a visible password field is a login wall, inside a shadow root too; a hidden one is not",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
 
 			expect(await runtime.read({ url: fixture.url("/password-gate") })).toEqual({ status: "blocked", url: fixture.url("/password-gate"), reason: "login wall: the page shows a password field" });
+			expect(await runtime.read({ url: fixture.url("/shadow-login") })).toEqual({ status: "blocked", url: fixture.url("/shadow-login"), reason: "login wall: the page shows a password field" });
 			expect(await runtime.read({ url: fixture.url("/hidden-password") })).toMatchObject({ status: "ok", text: "public post" });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
 
 	test(
-		"an embedded CAPTCHA is a bot check",
+		"a visible CAPTCHA frame is a bot check; reCAPTCHA v3's script and scoring badge are not",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
 
-			const read = await runtime.read({ url: fixture.url("/captcha") });
-
-			expect(read).toEqual({ status: "blocked", url: fixture.url("/captcha"), reason: `CAPTCHA or bot check: the page embeds ${fixture.url("/recaptcha/api2/anchor")}` });
+			expect(await runtime.read({ url: fixture.url("/captcha") })).toEqual({ status: "blocked", url: fixture.url("/captcha"), reason: `CAPTCHA or bot check: the page shows a challenge frame from ${fixture.url("/recaptcha/api2/anchor")}` });
+			expect(await runtime.read({ url: fixture.url("/recaptcha-v3") })).toMatchObject({ status: "ok", text: "scored, not challenged" });
+			expect(fixture.hits("/recaptcha/api.js")).toBe(1);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
 
 	test(
-		"a mirror host is refused before anything launches or navigates",
+		"a mirror host is refused before anything navigates",
 		async () => {
 			const fixture = startFixture();
-			const { runtime } = await createRuntime();
+			const { runtime } = await readRuntime();
 			const mirror = fixture.url("/article").replace("127.0.0.1", "redlib.localhost");
 
-			const read = await runtime.read({ url: mirror });
-
-			expect(read).toEqual({ status: "blocked", url: mirror, reason: MIRROR_REASON });
+			expect(await runtime.read({ url: mirror })).toEqual({ status: "blocked", url: mirror, reason: MIRROR_REASON });
 			expect(fixture.hits("/article")).toBe(0);
-			expect(await runtime.profiles()).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
 
 	test(
-		"a profile with a publish awaiting the human's Post is refused, and its page is left alone",
+		"a redirect to a mirror host is refused at the redirect, and the mirror is never fetched",
 		async () => {
-			const site = startPublishFixture();
-			publishFixtures.push(site);
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+			const mirror = fixture.url("/article").replace("127.0.0.1", "redlib.localhost");
+
+			expect(await runtime.read({ url: fixture.url("/to-mirror") })).toEqual({ status: "blocked", url: mirror, reason: MIRROR_REASON });
+			expect(fixture.hits("/to-mirror")).toBe(1);
+			expect(fixture.hits("/article")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"loopback, localhost and link-local targets are refused before anything navigates",
+		async () => {
+			const fixture = startFixture();
 			const runtime = newRuntime(await createRoot());
-			const opened = await runtime.open({ profile: "poster" });
-			await perform(runtime, opened.browserId, { kind: "navigate", url: site.url("/login") });
-			const parked = await runtime.publish(opened.browserId, {
-				origin: site.origin,
-				composeUrl: site.url("/compose?v=nav"),
-				signedIn: "#me",
-				fields: [{ selector: "#text", value: "hello" }],
-				submit: "#post",
-				receipt: { path: "/alice/status/{digits}" },
-			}, "post");
-			expect(parked).toMatchObject({ status: "awaiting-confirmation" });
+			const port = new URL(fixture.url("/")).port;
 
-			const code = await failureCode(() => runtime.read({ url: site.url("/compose?v=nav"), profile: "poster" }));
+			for (const [url, host] of [
+				[fixture.url("/article"), "127.0.0.1"],
+				[fixture.url("/article", "localhost"), "localhost"],
+				[`http://[::1]:${port}/article`, "[::1]"],
+				["http://169.254.169.254/latest/meta-data/", "169.254.169.254"],
+				["http://192.168.1.1/", "192.168.1.1"],
+			] as const) {
+				expect(await runtime.read({ url })).toEqual({ status: "blocked", url, reason: PRIVATE_REASON(host) });
+			}
+			expect(fixture.hits("/article")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
 
-			expect(code).toBe("publish_pending");
-			expect(site.hits("/compose")).toBe(1);
-			expect((await runtime.state(opened.browserId)).url).toBe(site.url("/compose?v=nav"));
+	test(
+		"a public page's redirect into a private address is refused at the redirect",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+
+			expect(await runtime.read({ url: fixture.url("/to-private") })).toEqual({ status: "blocked", url: fixture.url("/article", "localhost"), reason: PRIVATE_REASON("localhost") });
+			expect(fixture.hits("/to-private")).toBe(1);
+			expect(fixture.hits("/article")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a page's popup never opens: the read stays on one tab and the popup's URL is never fetched",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await readRuntime();
+
+			expect(await runtime.read({ url: fixture.url("/popup") })).toMatchObject({ status: "ok", text: "a page with a popunder" });
+			expect(fixture.hits("/page2")).toBe(0);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

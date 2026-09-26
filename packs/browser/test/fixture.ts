@@ -272,8 +272,19 @@ export function startFixture(): Fixture {
 			if (pathname === "/accounts/login") return html(page("sign in", "<p>sign in to continue</p>"));
 			if (pathname === "/password-gate") return html(page("members", `<p>members only</p><input type="password" id="pw" />`));
 			if (pathname === "/hidden-password") return html(page("with a closed login dialog", `<p>public post</p><div style="display:none"><input type="password" /></div><input type="password" style="visibility:hidden" />`));
+			if (pathname === "/users/sign_in") return html(page("sign in", "<p>you need to sign in or sign up before continuing</p>"));
+			// A web-component login modal: the password field lives in an open shadow root.
+			if (pathname === "/shadow-login") return html(page("members", `<p>members only</p><login-box></login-box><script>customElements.define("login-box", class extends HTMLElement { connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = '<input type="password" />'; } });</script>`));
 			if (pathname === "/captcha") return html(page("checking", `<p>one moment</p><iframe src="/recaptcha/api2/anchor?k=fixture"></iframe>`));
 			if (pathname === "/recaptcha/api2/anchor") return html(page("recaptcha", "<p>I'm not a robot</p>"));
+			// reCAPTCHA v3 as sites ship it: the script on every page and the invisible-scoring badge, no challenge.
+			if (pathname === "/recaptcha-v3") return html(page("fixture article", `<article><p>scored, not challenged</p></article><script src="/recaptcha/api.js?render=fixture"></script><div style="position:fixed;right:0;bottom:0;width:256px;height:60px"><iframe src="/recaptcha/api2/anchor?k=fixture&size=invisible" width="256" height="60"></iframe></div>`));
+			if (pathname === "/recaptcha/api.js") return new Response("", { headers: { "content-type": "text/javascript" } });
+			// Redirects out of the fixture's allowed host: to a mirror host, and to a private one.
+			if (pathname === "/to-mirror") return new Response(null, { status: 302, headers: { location: `http://redlib.localhost:${url.port}/article` } });
+			if (pathname === "/to-private") return new Response(null, { status: 302, headers: { location: `${origin("localhost")}/article` } });
+			// Opens a popup as it loads; the reader's popup blocker must keep `/page2` from ever being fetched.
+			if (pathname === "/popup") return html(page("popup opener", `<p>a page with a popunder</p><script>window.open("/page2");</script>`));
 			return new Response("not found", { status: 404 });
 		},
 	});

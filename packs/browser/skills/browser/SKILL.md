@@ -33,14 +33,16 @@ tool needs it.
 ## Read a public page
 
 To read a page, not act on it, use `browser_read({ url, maxChars? })`. You
-need no `browserId` and the user sees no View. It reads logged out on the
-`read` profile and returns `{ status: "ok", url, title, text }`, with
-`truncated: true` when the text was cut at `maxChars` (default 20 000).
+need no `browserId` and the user sees no View. It reads logged out, in a fresh
+incognito context with no cookies (never a signed-in profile), and returns
+`{ status: "ok", url, title, text }`, with `truncated: true` when the text was
+cut at `maxChars` (default 20 000).
 
 `{ status: "blocked", reason }` means the site refused a logged-out reader: an
 HTTP refusal, a login wall, a CAPTCHA or bot check, or a timeout. That is the
 answer. Report it and never route around it through a mirror, proxy, cache,
-archive or reader service. Those hosts are refused anyway.
+archive or reader service. Those hosts are refused anyway, as are localhost and
+private-network addresses, including through a redirect.
 
 ## Tabs
 
