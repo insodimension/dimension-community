@@ -552,11 +552,11 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 				)}
 
 				{poll.connection === "unapproved" && (
-					<div className="bx-banner" role="alert">
-						Live view paused — the app didn't approve this View's call.
-						{poll.error !== null && <span className="bx-banner-detail">{poll.error}</span>}
+					<div className="bx-banner bx-banner-paused" role="status" title={poll.error ?? undefined}>
+						<Icon name="pause" size={14} strokeWidth={2} aria-hidden="true" />
+						Live view paused: permission wasn't granted.
 						<button type="button" className="bx-banner-action" onClick={refreshPoll}>
-							Resume
+							Ask again
 						</button>
 					</div>
 				)}

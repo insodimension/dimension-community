@@ -1705,6 +1705,30 @@ kbd {
 	border-top-color: var(--fr-warn);
 }
 
+/* Paused is a stop, not a load: a neutral strip with a still glyph, so it never
+   reads as the amber Reconnecting state stuck. */
+.bx-banner-paused {
+	background: color-mix(in oklab, var(--fr-accent) 10%, var(--bx-sheet));
+	border-bottom-color: color-mix(in oklab, var(--fr-accent) 28%, transparent);
+}
+
+.bx-banner-paused .bx-banner-action {
+	min-height: 28px;
+	padding: 0 12px;
+	font-size: var(--fr-fs-sm);
+	background: var(--bx-hover);
+	border: 0;
+	border-radius: 8px;
+}
+
+.bx-banner-paused .bx-banner-action:hover {
+	background: var(--bx-press);
+}
+
+.bx-banner-paused .bx-banner-action:focus-visible {
+	outline: 2px solid var(--fr-accent);
+}
+
 .bx-banner-detail {
 	color: var(--fr-text-2);
 	white-space: nowrap;
