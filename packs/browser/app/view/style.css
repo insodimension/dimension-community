@@ -1117,6 +1117,11 @@ kbd {
 }
 
 .bx-publish {
+	/* Bar-local ink. Dark text-2 falls just short of 4.5:1 on the glass over a
+	   light page, so the bar's small copy and its marks step toward the text. */
+	--bx-publish-ink-2: color-mix(in oklab, var(--fr-text-2) 65%, var(--fr-text));
+	--bx-publish-mark: color-mix(in oklab, var(--fr-accent) 40%, var(--fr-text));
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 28%, transparent);
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
@@ -1129,6 +1134,23 @@ kbd {
 	border: 1px solid var(--bx-hairline);
 	box-shadow: var(--bx-shadow);
 	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-root[data-theme="light"] .bx-publish,
+[data-theme="light"] .bx-root .bx-publish {
+	--bx-publish-ink-2: var(--fr-text-2);
+	--bx-publish-mark: var(--fr-accent);
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+}
+
+/* Focused programmatically when it appears, so a keyboard user can Tab into it. */
+.bx-publish:focus {
+	outline: none;
+}
+
+.bx-publish:focus-visible {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 1px;
 }
 
 .bx-publish-row {
@@ -1144,8 +1166,8 @@ kbd {
 	display: grid;
 	place-items: center;
 	border-radius: 8px;
-	color: var(--fr-accent);
-	background: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+	color: var(--bx-publish-mark);
+	background: var(--bx-publish-mark-tile);
 }
 
 .bx-publish[data-status="unknown"] .bx-publish-mark {
@@ -1160,7 +1182,7 @@ kbd {
 
 .bx-publish[data-status="cancelled"] .bx-publish-mark,
 .bx-publish[data-status="expired"] .bx-publish-mark {
-	color: var(--fr-text-2);
+	color: var(--bx-publish-ink-2);
 	background: var(--bx-hover);
 }
 
@@ -1183,7 +1205,7 @@ kbd {
 .bx-publish:not([data-status]) .bx-publish-title {
 	font-size: 13px;
 	font-weight: 400;
-	color: var(--fr-text-2);
+	color: var(--bx-publish-ink-2);
 	overflow-wrap: anywhere;
 }
 
@@ -1198,7 +1220,7 @@ kbd {
 }
 
 .bx-publish-detail {
-	color: var(--fr-text-2);
+	color: var(--bx-publish-ink-2);
 	overflow-wrap: anywhere;
 }
 
@@ -1215,19 +1237,36 @@ kbd {
 	font-size: 11px;
 	font-weight: 600;
 	line-height: 1.3;
-	color: var(--fr-text-2);
+	color: var(--bx-publish-ink-2);
+}
+
+/* The list's focus ring lives on this frame: the list's own fade mask would clip it. */
+.bx-publish-fields-frame {
+	margin: -4px 0 0;
+	border-radius: 8px;
+}
+
+.bx-publish-fields-frame:has(> .bx-publish-fields:focus-visible) {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 1px;
 }
 
 .bx-publish-fields {
+	--bx-fade-top: 0px;
+	--bx-fade-bottom: 0px;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
 	max-height: 180px;
-	margin: -4px 0 0;
+	margin: 0;
 	padding: 0;
 	list-style: none;
 	overflow-y: auto;
 	border-radius: 8px;
+}
+
+.bx-publish-fields:focus-visible {
+	outline: none;
 }
 
 .bx-publish-fields[data-fit] {
@@ -1235,10 +1274,18 @@ kbd {
 	overflow: visible;
 }
 
-/* More below the fold: fade the bottom edge until it is scrolled to the end. */
-.bx-publish-fields[data-clipped] {
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+/* More beyond the fold: fade that edge until it is scrolled to. */
+.bx-publish-fields[data-more-above] {
+	--bx-fade-top: 28px;
+}
+
+.bx-publish-fields[data-more-below] {
+	--bx-fade-bottom: 28px;
+}
+
+.bx-publish-fields:is([data-more-above], [data-more-below]) {
+	mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
+	-webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
 }
 
 .bx-publish-field {
@@ -1252,8 +1299,9 @@ kbd {
 
 .bx-publish-label {
 	font-size: 11px;
+	font-weight: 500;
 	line-height: 1.3;
-	color: var(--fr-text-3);
+	color: var(--bx-publish-ink-2);
 }
 
 .bx-publish-value {
@@ -1266,7 +1314,7 @@ kbd {
 }
 
 .bx-publish-empty {
-	color: var(--fr-text-3);
+	color: var(--bx-publish-ink-2);
 }
 
 .bx-publish-error {
@@ -1282,15 +1330,38 @@ kbd {
 	gap: 8px;
 }
 
-/* The icon slot holds a spinner while posting, so the button keeps its size. */
+/* The icon slot holds a spinner while posting. */
 .bx-publish-post {
-	min-width: 96px;
 	justify-content: center;
+}
+
+/* Every label a button can show shares one cell, so the widest sets the size and nothing moves. */
+.bx-publish-label-slot {
+	display: inline-grid;
+}
+
+.bx-publish-label-slot > * {
+	grid-area: 1 / 1;
+	text-align: center;
+}
+
+.bx-publish-label-slot > [data-hidden] {
+	visibility: hidden;
 }
 
 .bx-publish-post .bx-tab-spinner {
 	border-color: color-mix(in oklab, var(--fr-accent-ink, #fff) 30%, transparent);
 	border-top-color: var(--fr-accent-ink, #fff);
+}
+
+/* Busy, not disabled: "Posting…" stays fully legible through the receipt wait. */
+.bx-publish-post[data-busy]:disabled {
+	opacity: 1;
+	cursor: progress;
+}
+
+.bx-publish .bx-toast-close {
+	color: var(--bx-publish-ink-2);
 }
 
 .bx-publish-cancel {

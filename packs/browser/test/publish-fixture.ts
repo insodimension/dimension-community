@@ -7,19 +7,22 @@
  * is served only when the `/login` cookie is present. The page counts what
  * reaches it in its own title — `writes:<n> clicks:<n> secret:<n>` — so the
  * test can prove "nothing was typed" and "submit was clicked once" from the
- * live document. `#post` POSTs both fields to `/submit` (the server-side write
- * count), then, per variant:
+ * live document. `?text=&rich=` prefill the fields as page content (no write
+ * counted, no human input). `#post` POSTs both fields to `/submit` (the
+ * server-side write count), then, per variant:
  *  - `nav`      navigates to `/alice/status/<n>` (the receipt is the tab URL);
  *  - `offsite`  navigates to the same path on the OTHER origin (`localhost`);
  *  - `toast`    adds `<a class="toast" href="/alice/status/<n>">` to the page;
  *  - `stale`    nothing — but a matching toast link was on the page before submit;
  *  - `stale-new` like `stale`, then adds the new toast link after it;
  *  - `stay`     nothing at all;
- *  - `rewrite`  like `nav`, but `#text`'s input handler upper-cases what is typed.
+ *  - `rewrite`  like `nav`, but `#text`'s input handler upper-cases what is typed;
+ *  - `steal`    `#text`'s focus handler moves focus to another input, `#other`,
+ *               whose input events count as writes too.
  */
 import { randomBytes } from "node:crypto";
 
-export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite";
+export type ComposeVariant = "nav" | "offsite" | "toast" | "stale" | "stale-new" | "stay" | "rewrite" | "steal";
 
 export interface PublishFixture {
 	url(path: string, host?: "127.0.0.1" | "localhost"): string;
@@ -41,6 +44,7 @@ ${signedIn ? `<p id="me">@alice</p>` : `<p>sign in to post</p>`}
 <div id="rich" contenteditable="true" style="min-height:40px;border:1px solid #999"></div>
 <input id="secret" type="password" />
 <button id="post" type="button">Post</button>
+${variant === "steal" ? `<input id="other" />` : ""}
 <div id="toasts">${stale}</div>
 <script>
   var variant = ${JSON.stringify(variant)};
@@ -48,11 +52,20 @@ ${signedIn ? `<p id="me">@alice</p>` : `<p>sign in to post</p>`}
   var writes = 0, clicks = 0, secret = 0;
   var text = document.getElementById("text"), rich = document.getElementById("rich");
   function show() { document.title = "writes:" + writes + " clicks:" + clicks + " secret:" + secret; }
+  // ?text=&rich= prefill the fields as the page's own content, not input: no write is counted.
+  var query = new URLSearchParams(location.search);
+  if (query.has("text")) text.value = query.get("text");
+  if (query.has("rich")) rich.innerText = query.get("rich");
   text.addEventListener("input", function () {
     writes++; show();
     if (variant === "rewrite") text.value = text.value.toUpperCase();
   });
   rich.addEventListener("input", function () { writes++; show(); });
+  if (variant === "steal") {
+    var other = document.getElementById("other");
+    text.addEventListener("focus", function () { other.focus(); });
+    other.addEventListener("input", function () { writes++; show(); });
+  }
   ["focus", "keydown", "input", "beforeinput"].forEach(function (type) {
     document.getElementById("secret").addEventListener(type, function () { secret++; show(); });
   });
@@ -76,7 +89,7 @@ function html(markup: string, headers: Record<string, string> = {}): Response {
 	return new Response(markup, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", ...headers } });
 }
 
-const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite"];
+const VARIANTS: readonly ComposeVariant[] = ["nav", "offsite", "toast", "stale", "stale-new", "stay", "rewrite", "steal"];
 
 export function startPublishFixture(): PublishFixture {
 	const hits = new Map<string, number>();

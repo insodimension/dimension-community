@@ -111,14 +111,20 @@ const IS_PASSWORD_SCRIPT = (el: Element): boolean =>
 /**
  * Where typed text would land right now, relative to the aimed element:
  * "elsewhere" unless the focused element is it (or, for a contenteditable,
- * inside it); "password" if what is focused is a password input.
+ * inside it); "password" if what really has focus is a password input. Focus
+ * is read in the element's own root, so a field inside a shadow root (where
+ * `document.activeElement` is only the host) is found; the password check
+ * walks on down through open shadow roots to the innermost focused element.
  */
 const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
-	const active = document.activeElement;
+	// A detached element is its own root and has no activeElement.
+	const active = (el.getRootNode() as Partial<DocumentOrShadowRoot>).activeElement ?? null;
 	if (active === null) return "elsewhere";
 	const aimed = active === el || ((el as HTMLElement).isContentEditable && el.contains(active));
 	if (!aimed) return "elsewhere";
-	return active.tagName === "INPUT" && ((active as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
+	let focused: Element = active;
+	while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	return focused.tagName === "INPUT" && ((focused as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 /** An input/textarea's `.value`, or a contenteditable's `innerText` minus one trailing newline. */
 const READ_FIELD_SCRIPT = (selector: string): FieldRead => {

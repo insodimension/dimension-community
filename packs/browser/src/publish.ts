@@ -42,6 +42,8 @@ const POLL_MS = 250;
 /** `http:` is allowed only here, for local fixtures and apps. */
 const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "localhost"];
 const TERMINAL: readonly PublishStatus[] = ["posted", "unknown", "failed", "cancelled", "expired"];
+/** Every outcome that would otherwise say "nothing was posted", once the human used the page while waiting. */
+const TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 
 /** A validated recipe, with its receipt path template compiled once. */
 export interface Recipe extends PublishRecipe {
@@ -57,6 +59,12 @@ export interface Publication {
 	shownTabId: string;
 	/** Set once confirm starts: expiry never overtakes a submit already under way. */
 	confirming: boolean;
+	/**
+	 * The human clicked or typed on the pinned tab in the Browser View while
+	 * waiting: they may have hit the site's own submit, so an outcome that
+	 * would say "nothing was posted" is reported `unknown` instead.
+	 */
+	touchedWhilePending: boolean;
 	/** Resolves when the record reaches a terminal status. */
 	settled: PromiseWithResolvers<void>;
 }
@@ -242,6 +250,7 @@ export async function prepare(driver: EngineDriver, profile: string, recipe: Rec
 		recipe,
 		shownTabId: shown.activeTabId,
 		confirming: false,
+		touchedWhilePending: false,
 		settled: Promise.withResolvers<void>(),
 	};
 }
@@ -270,7 +279,10 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 	const { recipe } = publication;
 	try {
 		const changed = await changedSinceShown(driver, publication);
-		if (changed) return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+		if (changed) {
+			if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+			return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+		}
 		// What already looks like a receipt is not one: it predates this submit.
 		const before = new Set(await receipts(driver, recipe).catch(() => []));
 		try {
@@ -336,14 +348,18 @@ function isReceipt(url: string, recipe: Recipe): boolean {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-export function cancel(publication: Publication): void {
-	settle(publication, "cancelled", {});
+/** The human's Cancel, or the browser closing under a pending publish. */
+export function cancel(publication: Publication, error?: string): void {
+	if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+	else settle(publication, "cancelled", error === undefined ? {} : { error });
 }
 
 /** An unconfirmed publish past its deadline is `expired` — terminal; confirm is refused after it. */
 export function expireIfDue(publication: Publication): void {
 	if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
-	if (Date.now() >= Date.parse(publication.record.expiresAt)) settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+	if (Date.now() < Date.parse(publication.record.expiresAt)) return;
+	if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+	else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
 }
 
 /** Resolve once the publication is terminal or `ms` has passed (or it expires), whichever is first. */

@@ -17,6 +17,33 @@ const OUTCOME: Record<Exclude<PublishStatus, "awaiting-confirmation">, string> =
 	expired: "Expired. Nothing was posted.",
 };
 
+/**
+ * The engine's outcome errors, in the human's words. The raw text stays in a
+ * tooltip for debugging; an error not listed here is already user copy (the
+ * browser closing, the page used while waiting) or is shown as it came.
+ */
+const DETAIL_COPY: readonly (readonly [prefix: string, copy: string])[] = [
+	["submitted, but no receipt was seen", "Submitted, but no confirmation appeared. Check the account before posting again."],
+	["submit was clicked, then errored", "Post was pressed on the page, then the page errored. Check the account before posting again."],
+	["publishing errored", "Something went wrong while posting. Check the account before posting again."],
+	["changed since shown", "The page changed after it was shown here, so nothing was submitted."],
+	["submit was not clicked", "The page's post button could not be pressed, so nothing was submitted."],
+	["not confirmed within 10 minutes", "Not confirmed within 10 minutes."],
+];
+
+/** Both labels share one grid cell, so the button is as wide as the longer one and never resizes. */
+function StableLabel({ shown, labels }: { readonly shown: string; readonly labels: readonly string[] }) {
+	return (
+		<span className="bx-publish-label-slot">
+			{labels.map(label => (
+				<span key={label} aria-hidden={label === shown ? undefined : true} data-hidden={label === shown ? undefined : true}>
+					{label}
+				</span>
+			))}
+		</span>
+	);
+}
+
 /** Two or fewer values this short show whole: no scroll box to hunt through. */
 const FIT_MAX_FIELDS = 2;
 const FIT_MAX_CHARS = 280;
@@ -46,12 +73,14 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 	const record = answered?.publishId === publish.publishId && publish.status === "awaiting-confirmation" ? answered : publish;
 	const busy = step !== "idle";
 
-	// The fields list fades its bottom edge while more of it is below the fold.
+	// The fields list fades whichever edge has more of it beyond the fold.
 	const fieldsRef = useRef<HTMLOListElement | null>(null);
-	const [clipped, setClipped] = useState(false);
+	const [more, setMore] = useState({ above: false, below: false });
 	const measure = useCallback(() => {
 		const list = fieldsRef.current;
-		setClipped(list !== null && list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+		const above = list !== null && list.scrollTop > 1;
+		const below = list !== null && list.scrollTop + list.clientHeight < list.scrollHeight - 1;
+		setMore(current => (current.above === above && current.below === below ? current : { above, below }));
 	}, []);
 	useLayoutEffect(() => {
 		const list = fieldsRef.current;
@@ -61,6 +90,18 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 		observer.observe(list);
 		return () => observer.disconnect();
 	}, [measure, record.publishId, record.status]);
+
+	// A keyboard user must be able to reach the bar: when it appears, and only
+	// if this View already has focus (never stealing it from the host), focus
+	// moves to the bar itself. Not to Post: a stray Enter there would post.
+	// The outcome takes focus only when the pressed button's disappearing
+	// dropped it on the body, so Tab carries on from the bar.
+	const barRef = useRef<HTMLDivElement | null>(null);
+	const awaiting = record.status === "awaiting-confirmation";
+	useEffect(() => {
+		if (!document.hasFocus()) return;
+		if (awaiting || document.activeElement === null || document.activeElement === document.body) barRef.current?.focus({ preventScroll: true });
+	}, [awaiting, record.publishId]);
 
 	const decide = async (verb: "post" | "cancel") => {
 		if (busy) return;
@@ -79,15 +120,19 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 
 	if (record.status !== "awaiting-confirmation") {
 		return (
-			<div className="bx-publish" data-status={record.status} role="status">
+			<div ref={barRef} className="bx-publish" data-status={record.status} role="status" tabIndex={-1}>
 				<div className="bx-publish-row">
 					<span className="bx-publish-mark" aria-hidden="true">
-						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" ? "x" : "warnTri"} size={14} strokeWidth={2.25} />
+						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" ? "minus" : "warnTri"} size={14} strokeWidth={2.25} />
 					</span>
 					<span className="bx-publish-text">
 						<span className="bx-publish-title">{OUTCOME[record.status]}</span>
 						{record.status === "posted" && record.url !== undefined && <span className="bx-publish-url">{record.url}</span>}
-						{record.status !== "posted" && record.error !== undefined && <span className="bx-publish-detail">{record.error}</span>}
+						{record.status !== "posted" && record.error !== undefined && (
+							<span className="bx-publish-detail" title={record.error}>
+								{DETAIL_COPY.find(([prefix]) => record.error?.startsWith(prefix))?.[1] ?? record.error}
+							</span>
+						)}
 					</span>
 					<button type="button" className="bx-toast-close" aria-label="Dismiss" onClick={onDismiss}>
 						<Icon name="x" size={13} strokeWidth={2.25} />
@@ -102,7 +147,7 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 		record.fields.length <= FIT_MAX_FIELDS &&
 		record.fields.every(field => field.value.length <= FIT_MAX_CHARS && field.value.split("\n").length <= FIT_MAX_LINES);
 	return (
-		<section className="bx-publish" aria-label="Confirm post" aria-busy={busy || undefined}>
+		<section ref={barRef} className="bx-publish" aria-label="Confirm post" aria-busy={busy || undefined} tabIndex={-1}>
 			<div className="bx-publish-row">
 				<span className="bx-publish-mark" aria-hidden="true">
 					<Icon name="send" size={14} strokeWidth={2.25} />
@@ -126,22 +171,25 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 			<h3 className="bx-publish-heading" id={`bx-publish-heading-${record.publishId}`}>
 				What will be posted
 			</h3>
-			<ol
-				ref={fieldsRef}
-				className="bx-publish-fields"
-				aria-labelledby={`bx-publish-heading-${record.publishId}`}
-				tabIndex={fits ? undefined : 0}
-				data-fit={fits || undefined}
-				data-clipped={clipped || undefined}
-				onScroll={measure}
-			>
-				{record.fields.map((field, index) => (
-					<li key={`${index}:${field.selector}`} className="bx-publish-field">
-						<span className="bx-publish-label">{field.label ?? `Field ${index + 1}`}</span>
-						<span className="bx-publish-value">{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}</span>
-					</li>
-				))}
-			</ol>
+			<div className="bx-publish-fields-frame">
+				<ol
+					ref={fieldsRef}
+					className="bx-publish-fields"
+					aria-labelledby={`bx-publish-heading-${record.publishId}`}
+					tabIndex={fits ? undefined : 0}
+					data-fit={fits || undefined}
+					data-more-above={more.above || undefined}
+					data-more-below={more.below || undefined}
+					onScroll={measure}
+				>
+					{record.fields.map((field, index) => (
+						<li key={`${index}:${field.selector}`} className="bx-publish-field">
+							<span className="bx-publish-label">{field.label ?? `Field ${index + 1}`}</span>
+							<span className="bx-publish-value">{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}</span>
+						</li>
+					))}
+				</ol>
+			</div>
 			{error !== null && (
 				<p className="bx-publish-error" role="alert">
 					{error}
@@ -149,11 +197,12 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 			)}
 			<div className="bx-publish-actions">
 				<button type="button" className="bx-publish-cancel" disabled={busy} onClick={() => void decide("cancel")}>
-					{step === "cancelling" ? "Cancelling…" : "Cancel"}
+					<StableLabel shown={step === "cancelling" ? "Cancelling…" : "Cancel"} labels={["Cancel", "Cancelling…"]} />
 				</button>
-				<button type="button" className="bx-annotate-send bx-publish-post" disabled={busy} onClick={() => void decide("post")}>
+				{/* Busy, not disabled-looking: "Posting…" stays legible for the whole receipt wait. */}
+				<button type="button" className="bx-annotate-send bx-publish-post" disabled={busy} data-busy={step === "posting" || undefined} onClick={() => void decide("post")}>
 					{step === "posting" ? <span className="bx-tab-spinner" aria-hidden="true" /> : <Icon name="send" size={14} strokeWidth={2.25} />}
-					{step === "posting" ? "Posting…" : "Post"}
+					<StableLabel shown={step === "posting" ? "Posting…" : "Post"} labels={["Post", "Posting…"]} />
 				</button>
 			</div>
 		</section>

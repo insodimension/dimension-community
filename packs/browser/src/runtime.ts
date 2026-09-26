@@ -95,6 +95,8 @@ const NAMED_KEYS: Record<string, true> = {
 	PageDown: true,
 	Space: true,
 };
+/** View input that can press the site's own submit; scroll, hover and navigation cannot. */
+const TOUCHING_KINDS: Partial<Record<BrowserAction["kind"], true>> = { click: true, press: true, type: true, insert: true };
 
 export interface BrowserRuntimeOptions {
 	/** Profile root; defaults to `$INSO_HOME/browser` else `~/.inso/browser`. */
@@ -267,16 +269,21 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 
-	async close(browserId: string): Promise<void> {
+	/** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+	async close(browserId: string, caller?: ToolCaller): Promise<void> {
 		// A failed close revokes reads/actions but remains retryable for cleanup.
 		const entry = this.byId.get(browserId);
 		if (!entry) fail("unknown_browser", "Unknown or already closed browserId.");
-		await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true });
+		await this.serialize(entry, async () => {
+			if (!entry.closed) refuseWhilePublishing(entry, caller);
+			await this.teardown(entry);
+		}, { evenIfClosed: true });
 	}
 
 	/** Retain ownership and the lock until the driver confirms shutdown. */
 	private async teardown(entry: Entry): Promise<void> {
 		if (this.byId.get(entry.browserId) !== entry) return;
+		settleOnClose(entry);
 		entry.closed = true;
 		entry.frames.length = 0;
 		// A task agent drives this Chrome; it stops before the browser does.
@@ -310,6 +317,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 	/** Drop in-memory state and make the capability dead. Does NOT free the lock. */
 	private detach(entry: Entry): void {
+		settleOnClose(entry);
 		entry.closed = true;
 		entry.frames.length = 0;
 		entry.worker?.process.cancel();
@@ -503,10 +511,16 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			}
 			refuseWhilePublishing(entry, caller);
 			const action = normalizeAction(input, entry.viewport);
+			// The human driving the pinned page while waiting may hit the site's own submit.
+			const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
+			// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
+			const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.shownTabId) === pinned.shownTabId ? pinned : null;
 			try {
 				await entry.driver.perform(action);
+				if (touching) touching.touchedWhilePending = true;
 			} catch (error) {
 				const dispatched = !(error instanceof ActionNotDispatched);
+				if (dispatched && touching) touching.touchedWhilePending = true;
 				if (dispatched) entry.revision += 1;
 				return {
 					status: dispatched ? "unknown" : "failed",
@@ -903,6 +917,17 @@ function requireDelta(value: unknown, name: string): number {
 function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
 	if (caller !== "app" && isPending(entry.publish)) {
 		fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+	}
+}
+
+/**
+ * The browser is going away under a pending publish: settle it first, so a
+ * `browser_publish_wait` hears the outcome instead of waiting out the expiry.
+ * A confirm already under way settles itself.
+ */
+function settleOnClose(entry: Entry): void {
+	if (entry.publish && !entry.publish.confirming && isPending(entry.publish)) {
+		cancel(entry.publish, "The browser was closed. Nothing was submitted.");
 	}
 }
 

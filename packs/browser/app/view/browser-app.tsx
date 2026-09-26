@@ -517,6 +517,7 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 						onAction={act}
 						onResize={onStageResize}
 						label={label}
+						confirming={publish?.status === "awaiting-confirmation"}
 					>
 						{taskRunning && <span className="bx-drive" aria-hidden="true" />}
 						{floats}

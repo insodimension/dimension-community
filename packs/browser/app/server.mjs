@@ -464,11 +464,13 @@ var ELEMENT_EXISTS_SCRIPT = (selector3) => {
 };
 var IS_PASSWORD_SCRIPT = (el) => el.tagName === "INPUT" && (el.type ?? "").toLowerCase() === "password";
 var TYPE_TARGET_SCRIPT = (el) => {
-  const active = document.activeElement;
+  const active = el.getRootNode().activeElement ?? null;
   if (active === null) return "elsewhere";
   const aimed = active === el || el.isContentEditable && el.contains(active);
   if (!aimed) return "elsewhere";
-  return active.tagName === "INPUT" && (active.type ?? "").toLowerCase() === "password" ? "password" : "ok";
+  let focused = active;
+  while (focused.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+  return focused.tagName === "INPUT" && (focused.type ?? "").toLowerCase() === "password" ? "password" : "ok";
 };
 var READ_FIELD_SCRIPT = (selector3) => {
   let el;
@@ -1227,6 +1229,7 @@ var PUBLISH_PENDING_MS = 10 * 6e4;
 var POLL_MS = 250;
 var LOOPBACK_HOSTS = ["127.0.0.1", "localhost"];
 var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
+var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 function validateMode(mode) {
   const found = PUBLISH_MODES.find((candidate) => candidate === mode);
   if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
@@ -1376,6 +1379,7 @@ async function prepare(driver, profile2, recipe, mode) {
     recipe,
     shownTabId: shown.activeTabId,
     confirming: false,
+    touchedWhilePending: false,
     settled: Promise.withResolvers()
   };
 }
@@ -1393,7 +1397,10 @@ async function confirm(driver, publication) {
   const { recipe } = publication;
   try {
     const changed = await changedSinceShown(driver, publication);
-    if (changed) return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+    if (changed) {
+      if (publication.touchedWhilePending) return settle(publication, "unknown", { error: TOUCHED_ERROR });
+      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+    }
     const before = new Set(await receipts(driver, recipe).catch(() => []));
     try {
       await driver.perform({ kind: "click", selector: recipe.submit });
@@ -1441,12 +1448,15 @@ function isReceipt(url, recipe) {
   }
   return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
 }
-function cancel(publication) {
-  settle(publication, "cancelled", {});
+function cancel(publication, error) {
+  if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+  else settle(publication, "cancelled", error === void 0 ? {} : { error });
 }
 function expireIfDue(publication) {
   if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
-  if (Date.now() >= Date.parse(publication.record.expiresAt)) settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+  if (Date.now() < Date.parse(publication.record.expiresAt)) return;
+  if (publication.touchedWhilePending) settle(publication, "unknown", { error: TOUCHED_ERROR });
+  else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
 }
 async function waitSettled(publication, ms) {
   expireIfDue(publication);
@@ -1620,6 +1630,7 @@ var NAMED_KEYS = {
   PageDown: true,
   Space: true
 };
+var TOUCHING_KINDS = { click: true, press: true, type: true, insert: true };
 var BrowserRuntime = class {
   store;
   options;
@@ -1737,14 +1748,19 @@ var BrowserRuntime = class {
       throw error;
     }
   }
-  async close(browserId) {
+  /** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+  async close(browserId, caller) {
     const entry = this.byId.get(browserId);
     if (!entry) fail("unknown_browser", "Unknown or already closed browserId.");
-    await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true });
+    await this.serialize(entry, async () => {
+      if (!entry.closed) refuseWhilePublishing(entry, caller);
+      await this.teardown(entry);
+    }, { evenIfClosed: true });
   }
   /** Retain ownership and the lock until the driver confirms shutdown. */
   async teardown(entry) {
     if (this.byId.get(entry.browserId) !== entry) return;
+    settleOnClose(entry);
     entry.closed = true;
     entry.frames.length = 0;
     await this.stopTask(entry);
@@ -1773,6 +1789,7 @@ var BrowserRuntime = class {
   }
   /** Drop in-memory state and make the capability dead. Does NOT free the lock. */
   detach(entry) {
+    settleOnClose(entry);
     entry.closed = true;
     entry.frames.length = 0;
     entry.worker?.process.cancel();
@@ -1948,10 +1965,14 @@ var BrowserRuntime = class {
       }
       refuseWhilePublishing(entry, caller);
       const action = normalizeAction(input, entry.viewport);
+      const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
+      const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.shownTabId) === pinned.shownTabId ? pinned : null;
       try {
         await entry.driver.perform(action);
+        if (touching) touching.touchedWhilePending = true;
       } catch (error) {
         const dispatched = !(error instanceof ActionNotDispatched);
+        if (dispatched && touching) touching.touchedWhilePending = true;
         if (dispatched) entry.revision += 1;
         return {
           status: dispatched ? "unknown" : "failed",
@@ -2309,6 +2330,11 @@ function refuseWhilePublishing(entry, caller) {
     fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
   }
 }
+function settleOnClose(entry) {
+  if (entry.publish && !entry.publish.confirming && isPending(entry.publish)) {
+    cancel(entry.publish, "The browser was closed. Nothing was submitted.");
+  }
+}
 function cloneTask(run) {
   return { ...run, steps: run.steps.map((step) => ({ ...step })), usage: { ...run.usage } };
 }
@@ -2557,11 +2583,11 @@ async function createBrowserServer(options = {}) {
     _meta: APP_ONLY
   }, () => result(async () => ({ profiles: await runtime.profiles() })));
   server2.registerTool("browser_close", {
-    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated.",
+    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits the human's confirmation (wait with browser_publish_wait).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-  }, ({ browserId }) => result(async () => {
-    await runtime.close(browserId);
+  }, ({ browserId }, extra) => result(async () => {
+    await runtime.close(browserId, callerOf(extra));
     return { closed: true };
   }));
   const previousOnClose = server2.server.onclose;

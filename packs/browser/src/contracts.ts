@@ -205,7 +205,8 @@ export interface BrowserRuntimePort {
   cancelTask(browserId: string): Promise<TaskRun>;
   annotate(browserId: string, frameId: string, region: BrowserRegion, note: string): Promise<BrowserAnnotation>;
   profiles(): Promise<string[]>;
-  close(browserId: string): Promise<void>;
+  /** Settles a pending publish first. Refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
+  close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. */

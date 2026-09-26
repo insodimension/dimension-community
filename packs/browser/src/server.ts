@@ -258,10 +258,10 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     inputSchema: {}, annotations: READ_ONLY, _meta: APP_ONLY,
   }, () => result(async () => ({ profiles: await runtime.profiles() })));
   server.registerTool("browser_close", {
-    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated.",
+    description: "Close only this owned browser/tab (stopping any task) and release its profile lock. Persisted logins remain; the user's relay browser is never terminated. Refused while a publish awaits the human's confirmation (wait with browser_publish_wait).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, ({ browserId }) => result(async () => { await runtime.close(browserId); return { closed: true }; }));
+  }, ({ browserId }, extra) => result(async () => { await runtime.close(browserId, callerOf(extra)); return { closed: true }; }));
   const previousOnClose = server.server.onclose;
   const closeTransport = server.close.bind(server);
   let disposal: Promise<void> | undefined;
