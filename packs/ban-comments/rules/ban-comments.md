@@ -3,8 +3,7 @@ description: "No code comments — delete the comment and carry its meaning in n
 condition:
   - '(?:^|[\s;{}(\[,])//(?!/? ?<reference|(?:export|line) |lint:|[ \t]*(?:@ts-|@jsx|@(?:jest|vitest)-environment\b|biome-ignore|eslint-|oxlint-|deno-lint-|prettier-|istanbul ignore|c8 ignore|#(?:end)?region\b|go:|nolint\b|\+build\b))'
   - '(?:^|[\s(\[{,;=])/\*(?!!|[\s*]*(?:@license\b|@preserve\b|@jsx|@(?:jest|vitest)-environment\b|biome-ignore|eslint-|oxlint-|deno-lint-|prettier-|@ts-|[#@]__(?:PURE|NO_SIDE_EFFECTS)__|webpack[A-Z]|@vite-ignore|istanbul ignore|c8 ignore|#(?:include|cgo)\b))'
-  - '(?:^|\s)#[ \t](?![ \t]*(?:(?:end)?region\b|type:|noqa\b|pragma\b|pylint:|fmt:|mypy:|ruff:|pyright:|isort:|nosec\b|-\*-))'
-scope: "tool:edit(*.ts), tool:edit(*.tsx), tool:edit(*.js), tool:edit(*.jsx), tool:edit(*.rs), tool:edit(*.go), tool:edit(*.py), tool:write(*.ts), tool:write(*.tsx), tool:write(*.js), tool:write(*.jsx), tool:write(*.rs), tool:write(*.go), tool:write(*.py)"
+scope: "tool:edit(*.ts), tool:edit(*.tsx), tool:edit(*.js), tool:edit(*.jsx), tool:edit(*.rs), tool:edit(*.go), tool:write(*.ts), tool:write(*.tsx), tool:write(*.js), tool:write(*.jsx), tool:write(*.rs), tool:write(*.go)"
 interruptMode: always
 ---
 
@@ -45,6 +44,6 @@ async function sendWithRetry(req: Request): Promise<boolean> {
 
 ## Still allowed
 
-Tool directives are instructions to a tool, not prose, and stay: `@ts-…`, `@jsx…`, `@vitest-environment` / `@jest-environment`, `biome-ignore`, `eslint-…`, `oxlint-…`, `deno-lint-…`, `prettier-…`, `istanbul ignore` / `c8 ignore`, `// #region` / `// #endregion`, `/// <reference …>`, `/* @vite-ignore */`, `/*#__PURE__*/` / `/*#__NO_SIDE_EFFECTS__*/`, Go's `//go:…`, `//export`, `//line`, `//lint:`, `//nolint`, `// +build` and the cgo `/* #include … */` preamble, Python's `# type:`, `# noqa`, `# pragma`, `# isort:`, `# nosec` and the `# -*- coding -*-` cookie. License headers (`/** @license … */`, including the multi-line form, and `/*! … */`) and shebangs stay too.
+Tool directives are instructions to a tool, not prose, and stay: `@ts-…`, `@jsx…`, `@vitest-environment` / `@jest-environment`, `biome-ignore`, `eslint-…`, `oxlint-…`, `deno-lint-…`, `prettier-…`, `istanbul ignore` / `c8 ignore`, `// #region` / `// #endregion`, `/// <reference …>`, `/* @vite-ignore */`, `/*#__PURE__*/` / `/*#__NO_SIDE_EFFECTS__*/`, Go's `//go:…`, `//export`, `//line`, `//lint:`, `//nolint`, `// +build` and the cgo `/* #include … */` preamble. License headers (`/** @license … */`, including the multi-line form, and `/*! … */`) and shebangs stay too.
 
 When you rewrite a whole file, remove the comments already in it along with yours.
