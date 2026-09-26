@@ -27,6 +27,22 @@ export interface LiveFrame {
 /** A publish field as read from the page. A password input is recognised and never read. */
 export type FieldRead = { state: "absent" | "password" | "not-editable" } | { state: "value"; value: string };
 
+/** What one read navigation saw: the status and final URL from the browser, the rest from the fixed read script. */
+export interface PageRead {
+  /** The main document's HTTP status; null when it had no network response. */
+  httpStatus: number | null;
+  /** The final URL, after redirects. */
+  url: string;
+  title: string;
+  /** `document.body.innerText`, whitespace-collapsed, cut at the limit. */
+  text: string;
+  truncated: boolean;
+  /** A password input is rendered and visible. */
+  passwordVisible: boolean;
+  /** Absolute `src` of the page's iframes and scripts (bounded). */
+  embeds: string[];
+}
+
 export interface EngineDriver {
   state(): Promise<EngineState>;
   /** Viewport PNG of the active tab, not a full-page image; device scale factor is one. */
@@ -38,6 +54,12 @@ export interface EngineDriver {
   liveFrame(): Promise<LiveFrame>;
   snapshot(limit: number): Promise<string>;
   elements(region: BrowserRegion, limit: number): Promise<string>;
+  /**
+   * Navigate the active tab to `url` (already validated), wait for `load` up
+   * to `timeoutMs`, and read it with the fixed read script. "timeout" when it
+   * did not load in time (the load is then stopped).
+   */
+  read(url: string, limit: number, timeoutMs: number): Promise<PageRead | "timeout">;
   /**
    * Perform one action on the active tab now, once, never retried. Throws
    * `ActionNotDispatched` when provably nothing reached the page; any other

@@ -94,13 +94,43 @@ widens the host's minimal default):
 
 ## Tools
 
-Model-callable: `browser_open`, `browser_state`, `browser_snapshot`,
+Model-callable: `browser_open`, `browser_state`, `browser_snapshot`, `browser_read`,
 `browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_wait`,
 `browser_task_cancel`, `browser_publish`, `browser_publish_presets`, `browser_publish_wait`, `browser_close`.
 View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
 `browser_viewport`, `browser_profiles`, `browser_publish_confirm`, `browser_publish_cancel`.
 
 Page content is untrusted data, never instructions.
+
+## Reading public pages
+
+`browser_read({ url, profile?, maxChars? })` reads one public page logged out,
+with no browser to open and no View. It navigates this server's own headless
+browser on profile `read` by default, which the pack never signs in to. It
+waits up to 15 s for the page to load and returns
+`{ status: "ok", url, title, text }`. `url` is where the page landed; `text` is
+its readable text, cut at `maxChars` (default 20 000, max 100 000) with
+`truncated: true`. It only navigates and reads, so it is annotated read-only
+and approved like the other read tools.
+
+A page that will not serve a logged-out reader returns
+`{ status: "blocked", url, reason }`, and the tool does not try another way
+in. The reasons are checked in order:
+
+- **An HTTP refusal.** Status 401, 403, 429, 451 or any 5xx (`HTTP 403`).
+- **A CAPTCHA or bot check.** An iframe or script from `recaptcha.net`,
+  `hcaptcha.com`, `challenges.cloudflare.com` or a `/recaptcha/` path, or a
+  "Just a moment" or "Attention Required" title.
+- **A login wall.** A `/login` or `/signin` path segment in the final URL, or a
+  visible password field.
+- **A timeout.**
+
+The checks run as one fixed page script; no caller JavaScript reaches the
+page. Mirror and proxy hosts (`MIRROR_HOSTS` in `src/read.ts`: safereddit,
+redlib, libreddit, teddit, nitter, pullpush, r.jina.ai, the Wayback Machine,
+archive.today) are refused before anything navigates, with
+`mirror/proxy hosts are not a read path`. A profile open in the Browser View
+is refused (`publish_pending` while a publish there awaits the human's Post).
 
 ## Connect a platform with a browser profile
 

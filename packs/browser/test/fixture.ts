@@ -205,9 +205,12 @@ function page(title: string, body: string, head = ""): string {
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>${head}</head><body>${body}</body></html>`;
 }
 
-function html(markup: string, headers: Record<string, string> = {}): Response {
-	return new Response(markup, { headers: { "content-type": "text/html; charset=utf-8", ...headers } });
+function html(markup: string, headers: Record<string, string> = {}, status = 200): Response {
+	return new Response(markup, { status, headers: { "content-type": "text/html; charset=utf-8", ...headers } });
 }
+
+/** `/article`'s body text: long enough to truncate, with a marker at each end. */
+export const ARTICLE_TEXT = `ARTICLE-START ${"lorem ipsum dolor sit amet ".repeat(200)}ARTICLE-END`;
 
 export function startFixture(): Fixture {
 	const hits = new Map<string, number>();
@@ -261,6 +264,16 @@ export function startFixture(): Fixture {
 				const found = /(?:^|;\s*)fixturesid=([^;]+)/.exec(request.headers.get("cookie") ?? "");
 				return html(page("cookie", `<p id="cookie">COOKIE:${found?.[1] ?? "none"}</p>`));
 			}
+			// browser_read pages: one readable, one per way a page refuses a logged-out reader.
+			if (pathname === "/article") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article>`));
+			if (pathname === "/forbidden") return html(page("forbidden", "<p>go away</p>"), {}, 403);
+			if (pathname === "/unavailable") return html(page("unavailable", "<p>try later</p>"), {}, 503);
+			if (pathname === "/private") return new Response(null, { status: 302, headers: { location: "/accounts/login?next=/private" } });
+			if (pathname === "/accounts/login") return html(page("sign in", "<p>sign in to continue</p>"));
+			if (pathname === "/password-gate") return html(page("members", `<p>members only</p><input type="password" id="pw" />`));
+			if (pathname === "/hidden-password") return html(page("with a closed login dialog", `<p>public post</p><div style="display:none"><input type="password" /></div><input type="password" style="visibility:hidden" />`));
+			if (pathname === "/captcha") return html(page("checking", `<p>one moment</p><iframe src="/recaptcha/api2/anchor?k=fixture"></iframe>`));
+			if (pathname === "/recaptcha/api2/anchor") return html(page("recaptcha", "<p>I'm not a robot</p>"));
 			return new Response("not found", { status: 404 });
 		},
 	});

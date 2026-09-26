@@ -25,8 +25,8 @@
  */
 import { mkdirSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import puppeteer from "puppeteer-core";
-import type { Browser, CDPSession, ElementHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
+import puppeteer, { TimeoutError } from "puppeteer-core";
+import type { Browser, CDPSession, ElementHandle, HTTPResponse, KeyInput, Page, Protocol, Target } from "puppeteer-core";
 import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
@@ -38,16 +38,19 @@ import {
 	LINK_HREFS_SCRIPT,
 	PAGE_TEXT_SCRIPT,
 	READ_FIELD_SCRIPT,
+	READ_PAGE_SCRIPT,
 	SELECT_ALL_SCRIPT,
 	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
-import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame } from "./types.js";
+import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame, PageRead } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 const ACTION_TIMEOUT_MS = 15_000;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
 const FAVICON_SCRIPT_TIMEOUT_MS = 2_000;
+/** iframe/script sources the read script reports; enough for any page's challenge widget. */
+const MAX_READ_EMBEDS = 500;
 /** How long a freshly started screencast gets to deliver its first frame before one is captured. */
 const FIRST_FRAME_WAIT_MS = 500;
 const SCREENCAST_QUALITY = 80;
@@ -409,6 +412,27 @@ class PuppeteerDriver implements EngineDriver {
 
 	async elements(region: BrowserRegion, limit: number): Promise<string> {
 		return await this.#activeTab().page.evaluate(ELEMENTS_IN_REGION_SCRIPT, region, limit);
+	}
+
+	async read(url: string, limit: number, timeoutMs: number): Promise<PageRead | "timeout"> {
+		this.#assertOpen();
+		const tab = this.#activeTab();
+		let response: HTTPResponse | null;
+		try {
+			response = await navigating(tab, tab.page.goto(url, { waitUntil: "load", timeout: timeoutMs }));
+		} catch (err) {
+			if (!(err instanceof TimeoutError)) throw err;
+			await tab.cdp.send("Page.stopLoading").catch(() => undefined);
+			return "timeout";
+		}
+		// A redirect right after `load` (a script sending the reader to a sign-in
+		// page) swaps the document under the script; #read re-reads across it.
+		const seen = await withTimeout(
+			this.#read(() => tab.page.evaluate(READ_PAGE_SCRIPT, limit, MAX_READ_EMBEDS)),
+			ACTION_TIMEOUT_MS,
+			"read",
+		);
+		return { httpStatus: response?.status() ?? null, url: tab.page.url(), ...seen };
 	}
 
 	// -----------------------------------------------------------------------

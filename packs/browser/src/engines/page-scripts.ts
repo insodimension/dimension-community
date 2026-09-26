@@ -1,5 +1,5 @@
 import type { BrowserRegion } from "../contracts.js";
-import type { FieldRead } from "./types.js";
+import type { FieldRead, PageRead } from "./types.js";
 const PAGE_TEXT_SCRIPT = (limit: number): string => {
 	const parts: string[] = [`# ${document.title}`, document.location.href, ""];
 	const body = document.body?.innerText ?? "";
@@ -46,6 +46,28 @@ const PAGE_TEXT_SCRIPT = (limit: number): string => {
 	if (controls.length > 0) parts.push("", "## interactive", controls.join("\n"));
 	const text = parts.join("\n");
 	return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
+};
+/**
+ * browser_read's evidence: the body's readable text (cut at `limit`), whether
+ * a password input is visible, and the `src` of up to `maxEmbeds` iframes and
+ * scripts. Judged outside the page (read.ts); nothing here acts on the page.
+ */
+const READ_PAGE_SCRIPT = (limit: number, maxEmbeds: number): Omit<PageRead, "httpStatus" | "url"> => {
+	const all = (document.body?.innerText ?? "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	let passwordVisible = false;
+	const inputs = document.querySelectorAll("input");
+	for (let i = 0; i < inputs.length && !passwordVisible; i += 1) {
+		const input = inputs[i] as HTMLInputElement;
+		if ((input.type ?? "").toLowerCase() !== "password" || input.getClientRects().length === 0) continue;
+		passwordVisible = getComputedStyle(input).visibility !== "hidden";
+	}
+	const embeds: string[] = [];
+	const sources = document.querySelectorAll("iframe[src], script[src]");
+	for (let i = 0; i < sources.length && embeds.length < maxEmbeds; i += 1) {
+		const src = (sources[i] as HTMLIFrameElement | HTMLScriptElement).src;
+		if (src) embeds.push(src);
+	}
+	return { title: document.title, text: all.slice(0, limit), truncated: all.length > limit, passwordVisible, embeds };
 };
 const ELEMENTS_IN_REGION_SCRIPT = (region: BrowserRegion, limit: number): string => {
 	const out: string[] = [];
@@ -186,6 +208,7 @@ const LINK_HREFS_SCRIPT = (selector: string, limit: number): string[] => {
 
 export {
 	PAGE_TEXT_SCRIPT,
+	READ_PAGE_SCRIPT,
 	ELEMENTS_IN_REGION_SCRIPT,
 	SELECT_ALL_SCRIPT,
 	FAVICON_HREF_SCRIPT,

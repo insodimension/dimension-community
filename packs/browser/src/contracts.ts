@@ -201,6 +201,22 @@ export interface BrowserOpenOptions {
   engine?: BrowserEngine;
   viewport?: Viewport;
 }
+/** browser_read: one logged-out read of a public page (see read.ts). */
+export interface ReadRequest {
+  url: string;
+  /** Defaults to "read", a profile the pack never signs in to. */
+  profile?: string;
+  /** Default 20 000, max 100 000. */
+  maxChars?: number;
+}
+/**
+ * `ok`: the final URL, title and readable text (`truncated` when cut at maxChars).
+ * `blocked`: the page will not serve a logged-out reader, or the host is a
+ * mirror/proxy; `reason` says which. A blocked read is final, never worked around.
+ */
+export type ReadResult =
+  | { status: "ok"; url: string; title: string; text: string; truncated?: true }
+  | { status: "blocked"; url: string; reason: string };
 /** Capability is the opaque browserId; it must never appear in global listings. */
 export interface BrowserRuntimePort {
   open(options: BrowserOpenOptions): Promise<BrowserState>;
@@ -226,5 +242,7 @@ export interface BrowserRuntimePort {
   cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;
   /** The publish's record once it is terminal or `ms` has passed, whichever is first. */
   waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord>;
+  /** Navigate this server's own headless reader for the profile and read the page. Refused (`publish_pending`) on a profile with a publish awaiting confirmation. */
+  read(request: ReadRequest): Promise<ReadResult>;
   dispose(): Promise<void>;
 }
