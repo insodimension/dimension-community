@@ -29,6 +29,10 @@ import type {
 	BrowserState,
 	FrameFormat,
 	MouseButton,
+	PublishCheck,
+	PublishMode,
+	PublishRecipe,
+	PublishRecord,
 	TabRequest,
 	TaskRequest,
 	TaskRun,
@@ -40,6 +44,7 @@ import { credentialOrigin, resolveCredential } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import type { EngineDriver, EngineState } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
+import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
 
@@ -128,6 +133,8 @@ interface Entry {
 	task: TaskRun | null;
 	/** The live task worker, while one runs. */
 	worker: { process: RunningWorker; finished: Promise<TaskRun> } | null;
+	/** The current or most recent publish (publish.ts). */
+	publish: Publication | null;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -233,7 +240,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				browserId: randomBytes(24).toString("base64url"),
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), closed: false,
-				task: null, worker: null,
+				task: null, worker: null, publish: null,
 			};
 			this.byId.set(entry.browserId, entry);
 			this.byProfile.set(profile, entry);
@@ -634,6 +641,57 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	// -----------------------------------------------------------------------
+	// Publishing — fill, park for the human's Post, submit once (publish.ts)
+	// -----------------------------------------------------------------------
+
+	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode): Promise<PublishCheck | PublishRecord> {
+		const entry = this.require(browserId);
+		const valid = validateRecipe(recipe);
+		const selected = validateMode(mode);
+		return await this.serialize(entry, async () => {
+			if (entry.task?.status === "running") {
+				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+			}
+			if (selected === "post" && isPending(entry.publish)) {
+				fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
+			}
+			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
+			if (!("record" in outcome)) return outcome;
+			entry.publish = outcome;
+			return publishRecord(outcome);
+		});
+	}
+
+	async confirmPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const entry = this.require(browserId);
+		return await this.serialize(entry, async () => {
+			const publication = requirePending(entry.publish, publishId);
+			if (entry.task?.status === "running") {
+				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
+			}
+			await confirm(entry.driver, publication);
+			return publishRecord(publication);
+		});
+	}
+
+	async cancelPublish(browserId: string, publishId: string): Promise<PublishRecord> {
+		const entry = this.require(browserId);
+		return await this.serialize(entry, async () => {
+			const publication = requirePending(entry.publish, publishId);
+			cancel(publication);
+			return publishRecord(publication);
+		});
+	}
+
+	/** Not queued: it only reads the record, and must not wait behind a confirm. */
+	async waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord> {
+		const publication = this.require(browserId).publish;
+		if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+		await waitSettled(publication, ms);
+		return publishRecord(publication);
+	}
+
+	// -----------------------------------------------------------------------
 	// Internals
 	// -----------------------------------------------------------------------
 
@@ -684,6 +742,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			viewport: state.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: state.tabs, activeTabId: state.activeTabId, loading: state.loading,
 			canGoBack: state.canGoBack, canGoForward: state.canGoForward,
+			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
 
@@ -693,6 +752,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, url: "", title: "",
 			revision: entry.revision, viewport: entry.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false,
+			publish: entry.publish ? publishRecord(entry.publish) : null,
 		};
 	}
 }

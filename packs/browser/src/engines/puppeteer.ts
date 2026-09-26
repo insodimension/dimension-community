@@ -31,8 +31,17 @@ import type { BrowserAction, BrowserRegion, TabInfo, Viewport } from "../contrac
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, fail } from "../store.js";
-import { ELEMENTS_IN_REGION_SCRIPT, FAVICON_HREF_SCRIPT, PAGE_TEXT_SCRIPT, SELECT_ALL_SCRIPT } from "./page-scripts.js";
-import type { EngineDriver, EngineOptions, EngineState, LiveFrame } from "./types.js";
+import {
+	ELEMENT_EXISTS_SCRIPT,
+	ELEMENTS_IN_REGION_SCRIPT,
+	FAVICON_HREF_SCRIPT,
+	IS_PASSWORD_SCRIPT,
+	LINK_HREFS_SCRIPT,
+	PAGE_TEXT_SCRIPT,
+	READ_FIELD_SCRIPT,
+	SELECT_ALL_SCRIPT,
+} from "./page-scripts.js";
+import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 const ACTION_TIMEOUT_MS = 15_000;
@@ -403,6 +412,26 @@ class PuppeteerDriver implements EngineDriver {
 	}
 
 	// -----------------------------------------------------------------------
+	// Publish — reads with fixed scripts, and one guarded fill
+	// -----------------------------------------------------------------------
+
+	async fill(selector: string, text: string): Promise<void> {
+		await withTimeout(this.#type(this.#activeTab().page, selector, text, true), ACTION_TIMEOUT_MS + 5_000, "fill");
+	}
+
+	async hasElement(selector: string): Promise<boolean> {
+		return await this.#activeTab().page.evaluate(ELEMENT_EXISTS_SCRIPT, selector);
+	}
+
+	async readField(selector: string): Promise<FieldRead> {
+		return await this.#activeTab().page.evaluate(READ_FIELD_SCRIPT, selector);
+	}
+
+	async linkHrefs(selector: string, limit: number): Promise<string[]> {
+		return await this.#activeTab().page.evaluate(LINK_HREFS_SCRIPT, selector, limit);
+	}
+
+	// -----------------------------------------------------------------------
 	// Actions
 	// -----------------------------------------------------------------------
 
@@ -465,29 +494,9 @@ class PuppeteerDriver implements EngineDriver {
 				// Whatever has focus receives the text as one native input operation.
 				await page.keyboard.sendCharacter(requireField(action.text, "insert.text"));
 				return;
-			case "type": {
-				const text = requireField(action.text, "type.text", true);
-				const handle = await this.#resolve(page, requireField(action.selector, "type.selector"));
-				try {
-					await handle.focus();
-					if (!(await handle.evaluate(SELECT_ALL_SCRIPT))) {
-						const modifier = process.platform === "darwin" ? "Meta" : "Control";
-						await page.keyboard.down(modifier);
-						try {
-							await page.keyboard.press("KeyA");
-						} finally {
-							await page.keyboard.up(modifier);
-						}
-					}
-					// Replace the selection in ONE native input operation: no transient
-					// empty value, and the text never appears in argv or a log.
-					if (text.length > 0) await page.keyboard.sendCharacter(text);
-					else await page.keyboard.press("Backspace");
-				} finally {
-					await handle.dispose().catch(() => undefined);
-				}
+			case "type":
+				await this.#type(page, requireField(action.selector, "type.selector"), requireField(action.text, "type.text", true), false);
 				return;
-			}
 			case "select": {
 				const wanted = requireField(action.value, "select.value", true);
 				const handle = await this.#resolve(page, requireField(action.selector, "select.selector"));
@@ -801,6 +810,34 @@ class PuppeteerDriver implements EngineDriver {
 		}
 		this.#assertOpen();
 		return await send();
+	}
+
+	/**
+	 * Replace a field's content: focus, select all, and ONE native input
+	 * operation — no transient empty value, and the text never appears in argv
+	 * or a log. `refusePassword` refuses a password input before any input event.
+	 */
+	async #type(page: Page, selector: string, text: string, refusePassword: boolean): Promise<void> {
+		const handle = await this.#resolve(page, selector);
+		try {
+			if (refusePassword && (await handle.evaluate(IS_PASSWORD_SCRIPT))) {
+				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} is a password field; publishing never types into one`);
+			}
+			await handle.focus();
+			if (!(await handle.evaluate(SELECT_ALL_SCRIPT))) {
+				const modifier = process.platform === "darwin" ? "Meta" : "Control";
+				await page.keyboard.down(modifier);
+				try {
+					await page.keyboard.press("KeyA");
+				} finally {
+					await page.keyboard.up(modifier);
+				}
+			}
+			if (text.length > 0) await page.keyboard.sendCharacter(text);
+			else await page.keyboard.press("Backspace");
+		} finally {
+			await handle.dispose().catch(() => undefined);
+		}
 	}
 
 	/** Element resolution is read-only, so a miss here is a certain non-event. */

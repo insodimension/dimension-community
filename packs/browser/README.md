@@ -95,11 +95,37 @@ widens the host's minimal default):
 ## Tools
 
 Model-callable: `browser_open`, `browser_state`, `browser_snapshot`,
-`browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_cancel`,
-`browser_close`. View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
-`browser_profiles`.
+`browser_screenshot`, `browser_act`, `browser_tab`, `browser_task`, `browser_task_wait`,
+`browser_task_cancel`, `browser_publish`, `browser_publish_wait`, `browser_close`.
+View-only: `browser_frame` (live JPEG by default, PNG for annotation), `browser_annotate`,
+`browser_viewport`, `browser_profiles`, `browser_publish_confirm`, `browser_publish_cancel`.
 
 Page content is untrusted data, never instructions.
+
+## Publishing
+
+`browser_publish` posts through a profile the human signed in to once, by hand.
+The caller supplies a recipe as data — origin, compose URL, a signed-in marker,
+the fields and their exact values, the submit control, and how the posted URL
+appears — so the pack stays platform-agnostic.
+
+- `mode: "check"` opens the compose page and reports `signed-in` or
+  `not-signed-in`. Signed out, nothing is typed; the human signs in in the View.
+- `mode: "post"` types each value, reads it back exactly, and parks the publish
+  as `awaiting-confirmation`. **Nothing is submitted.** The Browser View shows a
+  confirm bar with the site, the profile and every value; only the human's
+  **Post** submits (`browser_publish_confirm`, which also refuses any call the
+  host did not stamp as coming from the View). The page is re-checked first — a
+  changed value or a tab that left the origin fails with nothing clicked.
+- The receipt is the posted URL read from the page (the tab's URL, or a link the
+  recipe names), on the recipe's origin and matching its pattern.
+  `browser_publish_wait` follows the outcome: `posted`, `unknown` (may have
+  posted), `failed` (nothing submitted), `cancelled`, or `expired` after 10
+  minutes unconfirmed.
+
+Hard lines: publishing never types into a password field, never uses the saved
+passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly
+once and never retries it.
 
 ## Tests and benchmark
 

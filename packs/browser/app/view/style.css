@@ -1100,6 +1100,162 @@ kbd {
 	}
 }
 
+/* publish confirm bar — the human's gate on every post */
+
+/* The column spans the float; only its cards take the pointer. */
+.bx-float > .bx-float-column {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	pointer-events: none;
+}
+
+.bx-float-column > * {
+	pointer-events: auto;
+}
+
+.bx-publish {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(100%, 560px);
+	padding: 10px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-accent) 25%, transparent);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-publish[data-status] {
+	box-shadow: var(--bx-shadow);
+}
+
+.bx-publish-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.bx-publish-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--fr-accent);
+	background: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+}
+
+.bx-publish[data-status="unknown"] .bx-publish-mark,
+.bx-publish[data-status="failed"] .bx-publish-mark {
+	color: var(--fr-del);
+	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
+}
+
+.bx-publish[data-status="cancelled"] .bx-publish-mark,
+.bx-publish[data-status="expired"] .bx-publish-mark {
+	color: var(--fr-text-2);
+	background: var(--bx-hover);
+}
+
+.bx-publish-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.bx-publish-title {
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-publish-detail {
+	color: var(--fr-text-2);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-url {
+	color: var(--fr-text);
+	overflow-wrap: anywhere;
+	user-select: all;
+	cursor: text;
+}
+
+.bx-publish-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 180px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow-y: auto;
+	border-radius: 8px;
+}
+
+.bx-publish-field {
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: var(--bx-field);
+	color: var(--fr-text);
+	font-size: 13px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.bx-publish-empty {
+	color: var(--fr-text-3);
+}
+
+.bx-publish-error {
+	margin: 0;
+	font-size: 12px;
+	color: var(--fr-del);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.bx-publish-cancel {
+	height: 30px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-publish-cancel:hover:not(:disabled) {
+	background: var(--bx-press);
+}
+
+.bx-publish-cancel:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
 /* agent pill */
 
 .bx-agent {

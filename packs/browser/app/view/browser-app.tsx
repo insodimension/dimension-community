@@ -14,6 +14,7 @@ import { BrowserClient, failureText } from "./browser-client";
 import { type DrawTool, EMPTY_SKETCH, PageView, type Sketch } from "./page-view";
 import { BlankTab, RELAY_PROFILE, StartPage } from "./start-page";
 import { TabStrip } from "./tab-strip";
+import { PublishBar } from "./publish-bar";
 import { type OmniboxHandle, Toolbar } from "./toolbar";
 import { useBrowserPoll } from "./use-browser-poll";
 import { usePageInput } from "./use-page-input";
@@ -70,6 +71,9 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	}, []);
 	/** Tasks this View watched run: only those get a result toast when they end. */
 	const watchedTaskRef = useRef<string | null>(null);
+	/** Publishes this View showed awaiting confirmation: only those get an outcome line. */
+	const watchedPublishRef = useRef<string | null>(null);
+	const [dismissedPublish, setDismissedPublish] = useState<string | null>(null);
 
 	const poll = useBrowserPoll(client, browserId, annotating);
 	const state = poll.state ?? opened;
@@ -153,6 +157,10 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	useEffect(() => {
 		if (task?.status === "running") watchedTaskRef.current = task.id;
 	}, [task?.id, task?.status]);
+	const publish = state?.publish ?? null;
+	useEffect(() => {
+		if (publish?.status === "awaiting-confirmation") watchedPublishRef.current = publish.publishId;
+	}, [publish?.publishId, publish?.status]);
 
 	const live = (bound: string) => mountedRef.current && boundRef.current === bound;
 
@@ -414,6 +422,10 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	const mode = annotating ? "annotate" : locked ? "locked" : "live";
 	const label = `${tabLabel(state.title, state.url)}${state.url.length > 0 ? ` — ${state.url}` : ""}`;
 	const ended = task !== null && task.status !== "running" && watchedTaskRef.current === task.id && dismissedTask !== task.id;
+	const showPublish =
+		publish !== null &&
+		dismissedPublish !== publish.publishId &&
+		(publish.status === "awaiting-confirmation" || watchedPublishRef.current === publish.publishId);
 
 	const floats = (
 		<>
@@ -435,9 +447,21 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 				</div>
 			)}
 
-			{taskRunning && task !== null && (
+			{((taskRunning && task !== null) || showPublish) && (
 				<div className="bx-float bx-float-bottom">
-					<AgentPill task={task} cancelling={cancelling} onCancel={() => void cancelTask()} />
+					<div className="bx-float-column">
+						{showPublish && publish !== null && (
+							<PublishBar
+								key={publish.publishId}
+								client={client}
+								browserId={browserId}
+								publish={publish}
+								onSettled={poll.refresh}
+								onDismiss={() => setDismissedPublish(publish.publishId)}
+							/>
+						)}
+						{taskRunning && task !== null && <AgentPill task={task} cancelling={cancelling} onCancel={() => void cancelTask()} />}
+					</div>
 				</div>
 			)}
 		</>

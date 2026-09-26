@@ -78,6 +78,57 @@ export interface TaskRun {
  * never passes through a tool argument, a result or a model call.
  */
 export interface TaskRequest { agent: TaskAgent; task: string; maxSteps?: number; credential?: CredentialRequest }
+/** One field of a publish recipe: where to type, and exactly what. */
+export interface PublishField { selector: string; value: string }
+/**
+ * How to post on one site, supplied by the caller as data — the pack itself is
+ * platform-agnostic. See publish.ts for the bounds every field is held to.
+ */
+export interface PublishRecipe {
+  /** `https://…`; `http://` only for 127.0.0.1 and localhost. */
+  origin: string;
+  /** On `origin`. */
+  composeUrl: string;
+  /** CSS selector present only when the profile is signed in. */
+  signedIn: string;
+  /** 1-8 fields, each value at most 10 000 characters. */
+  fields: PublishField[];
+  /** CSS selector clicked exactly once, only after the human confirms. */
+  submit: string;
+  receipt: {
+    /** Regex source matched against the WHOLE receipt URL (anchor it yourself); the URL must be on `origin`. */
+    urlPattern: string;
+    /** Receipt is the href of the first matching element whose href matches; else the active tab's URL. */
+    linkSelector?: string;
+  };
+}
+export const PUBLISH_MODES = ["check", "post"] as const;
+export type PublishMode = (typeof PUBLISH_MODES)[number];
+export const PUBLISH_STATUSES = ["awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
+/**
+ * `unknown`: submit was dispatched and then errored, or no receipt appeared —
+ * it may have posted; never retried. `failed`: provably nothing was submitted.
+ */
+export type PublishStatus = (typeof PUBLISH_STATUSES)[number];
+/** The browser's current or most recent publish. `url` is read from the page only. */
+export interface PublishRecord {
+  publishId: string;
+  status: PublishStatus;
+  origin: string;
+  profile: string;
+  fields: PublishField[];
+  createdAt: string;
+  expiresAt: string;
+  url?: string;
+  error?: string;
+}
+/** A `browser_publish` that stopped before anything was parked for confirmation. */
+export interface PublishCheck {
+  status: "not-signed-in" | "signed-in" | "failed";
+  url: string;
+  profile: string;
+  error?: string;
+}
 export interface BrowserState {
   browserId: string;
   profile: string;
@@ -95,6 +146,8 @@ export interface BrowserState {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** The current or most recent publish; the View renders its confirm bar from this. */
+  publish: PublishRecord | null;
 }
 export interface BrowserFrame {
   state: BrowserState;
@@ -134,5 +187,12 @@ export interface BrowserRuntimePort {
   close(browserId: string): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest): Promise<TaskRun>;
+  /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. */
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode): Promise<PublishCheck | PublishRecord>;
+  /** The human's Post: re-verify, click submit exactly once, read the receipt from the page. */
+  confirmPublish(browserId: string, publishId: string): Promise<PublishRecord>;
+  cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;
+  /** The publish's record once it is terminal or `ms` has passed, whichever is first. */
+  waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord>;
   dispose(): Promise<void>;
 }
