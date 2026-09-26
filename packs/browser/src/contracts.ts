@@ -175,10 +175,15 @@ export interface PublishCheck {
   profile: string;
   error?: string;
 }
+/** Which browser a `chromium` View launched: the installed Chrome, else Edge, else a Chromium; `custom` is DIMENSION_BROWSER_EXECUTABLE. */
+export const BROWSER_APPS = ["chrome", "msedge", "chromium", "custom"] as const;
+export type BrowserApp = (typeof BROWSER_APPS)[number];
 export interface BrowserState {
   browserId: string;
   profile: string;
   engine: BrowserEngine;
+  /** The browser application behind this View; null on chrome-relay (the human's own Chrome). */
+  app: BrowserApp | null;
   url: string;
   title: string;
   revision: number;

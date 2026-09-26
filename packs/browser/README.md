@@ -108,10 +108,38 @@ widens the host's minimal default):
 | Variable | Effect |
 | --- | --- |
 | `DIMENSION_BROWSER_ROOT` | Root for profiles. |
-| `DIMENSION_BROWSER_EXECUTABLE` | Chrome/Chromium executable. |
+| `DIMENSION_BROWSER_EXECUTABLE` | Chrome/Chromium executable (overrides the choice below; `browser_state` then reports `app: "custom"`). |
 | `DIMENSION_BROWSER_RELAY_URL` | Relay CDP endpoint (default `http://127.0.0.1:9224`). |
 | `DIMENSION_BROWSER_HEADLESS` | `false` for a visible window. |
 | `DIM_BROWSER_PYTHON` | Interpreter for the task agents. |
+
+### How the browser launches
+
+The View's browser is your real browser, started the way you would start it,
+so sites treat it as one:
+
+- **Which browser.** The installed Google Chrome; if there is none, Microsoft
+  Edge; then a Chromium (a system install, then the newest one puppeteer has
+  already downloaded). Nothing is downloaded. `browser_state.app` says which
+  (`chrome`, `msedge`, `chromium`, `custom`), and the server logs the path.
+- **Headless, with its own User-Agent.** The View is a live picture inside the
+  app, not a desktop window, so the browser runs headless. Headless Chrome
+  calls itself `HeadlessChrome` in its User-Agent, and some sites refuse that
+  outright (x.com answers 403 before any page loads). The browser is started
+  with the User-Agent the same binary sends when it has a window, read from
+  that binary once. Client hints and workers match it.
+- **No automation switch.** puppeteer's `--enable-automation` is dropped.
+  Nothing is added to hide the browser: no stealth plugin, no fingerprint
+  changes, no `AutomationControlled` switch. `navigator.webdriver` stays
+  whatever Chrome itself reports while it is driven over DevTools.
+- **Chrome's own password saving is off** in the profiles the pack owns
+  (`credentials_enable_service` and `profile.password_manager_enabled` in the
+  profile's Preferences, the chrome://settings/passwords toggle). The pack
+  keeps its own credentials; Chrome's save prompt — which `--enable-automation`
+  used to hide — would take focus from the page after every sign-in.
+
+`browser_read`'s reader is unchanged: its own headless browser, logged out and
+throwaway. A site that refuses it is reported `blocked`, never worked around.
 
 ## Tools
 

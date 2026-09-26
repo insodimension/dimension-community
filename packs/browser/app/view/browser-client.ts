@@ -4,7 +4,7 @@
 // the shapes and engine identifiers come from the pack's own contracts module.
 import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import { BROWSER_ENGINES, PUBLISH_STATUSES, TASK_AGENTS } from "../../src/contracts";
+import { BROWSER_APPS, BROWSER_ENGINES, PUBLISH_STATUSES, TASK_AGENTS } from "../../src/contracts";
 import type {
 	BrowserAction,
 	BrowserAnnotation,
@@ -160,6 +160,7 @@ function readState(tool: string, value: unknown): BrowserState {
 		browserId,
 		profile: readString(value, "profile") ?? "",
 		engine,
+		app: BROWSER_APPS.find(candidate => candidate === readString(value, "app")) ?? null,
 		url: readString(value, "url") ?? "",
 		title: readString(value, "title") ?? "",
 		revision: readNumber(value, "revision") ?? 0,

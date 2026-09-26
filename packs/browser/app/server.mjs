@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 // src/server.ts
 import { readFile as readFile2, readdir as readdir2 } from "node:fs/promises";
-import { extname as extname2, join as join6 } from "node:path";
+import { extname as extname2, join as join7 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -586,7 +586,7 @@ function isObject2(value) {
 
 // src/runtime.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 
 // src/credentials.ts
 import { randomInt } from "node:crypto";
@@ -667,7 +667,7 @@ function resolveCredential(profileDir, request) {
 
 // src/engines/puppeteer.ts
 import { createHash } from "node:crypto";
-import { mkdirSync as mkdirSync2 } from "node:fs";
+import { mkdirSync as mkdirSync3 } from "node:fs";
 import { setTimeout as sleep2 } from "node:timers/promises";
 import puppeteer, { TimeoutError } from "puppeteer-core";
 
@@ -1006,6 +1006,114 @@ var LINK_HREFS_SCRIPT = (selector3, limit) => {
   return out;
 };
 
+// src/engines/launch.ts
+import { existsSync, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join4 } from "node:path";
+var systemProbe = {
+  platform: process.platform,
+  env: process.env,
+  home: homedir2(),
+  exists: existsSync,
+  list: (dir) => {
+    try {
+      return readdirSync2(dir);
+    } catch {
+      return [];
+    }
+  }
+};
+function resolveBrowser(explicitPath, probe = systemProbe) {
+  if (explicitPath) return { app: "custom", executablePath: explicitPath };
+  const candidates = installedCandidates(probe);
+  for (const app of ["chrome", "msedge", "chromium"]) {
+    const executablePath = candidates[app].find((path) => probe.exists(path));
+    if (executablePath) return { app, executablePath };
+  }
+  const cached = puppeteerCacheChrome(probe);
+  if (cached) return { app: "chromium", executablePath: cached };
+  return fail(
+    "browser_not_found",
+    `No Google Chrome, Microsoft Edge or Chromium found (looked in ${Object.values(candidates).flat().join(", ")}). Install Google Chrome, or set DIMENSION_BROWSER_EXECUTABLE to a Chrome/Chromium binary.`
+  );
+}
+function installedCandidates(probe) {
+  if (probe.platform === "win32") {
+    const roots = [probe.env.PROGRAMFILES, probe.env["PROGRAMFILES(X86)"], probe.env.LOCALAPPDATA].filter(
+      (root) => typeof root === "string" && root.length > 0
+    );
+    return {
+      chrome: roots.map((root) => join4(root, "Google", "Chrome", "Application", "chrome.exe")),
+      msedge: roots.map((root) => join4(root, "Microsoft", "Edge", "Application", "msedge.exe")),
+      chromium: roots.map((root) => join4(root, "Chromium", "Application", "chrome.exe"))
+    };
+  }
+  if (probe.platform === "darwin") {
+    const apps = ["/Applications", join4(probe.home, "Applications")];
+    return {
+      chrome: apps.map((dir) => join4(dir, "Google Chrome.app", "Contents", "MacOS", "Google Chrome")),
+      msedge: apps.map((dir) => join4(dir, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")),
+      chromium: apps.map((dir) => join4(dir, "Chromium.app", "Contents", "MacOS", "Chromium"))
+    };
+  }
+  return {
+    chrome: ["/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome"],
+    msedge: ["/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge"],
+    chromium: ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"]
+  };
+}
+function puppeteerCacheChrome(probe) {
+  const root = join4(probe.env.PUPPETEER_CACHE_DIR || join4(probe.home, ".cache", "puppeteer"), "chrome");
+  const builds = probe.list(root).map((name) => ({ name, version: /-(\d+(?:\.\d+)*)$/.exec(name)?.[1] })).filter((build) => build.version !== void 0).sort((a, b) => compareVersions(b.version, a.version));
+  for (const { name } of builds) {
+    const platform = name.slice(0, name.lastIndexOf("-"));
+    const path = probe.platform === "win32" ? join4(root, name, `chrome-${platform}`, "chrome.exe") : probe.platform === "darwin" ? join4(root, name, `chrome-${platform}`, "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing") : join4(root, name, `chrome-${platform}`, "chrome");
+    if (probe.exists(path)) return path;
+  }
+  return void 0;
+}
+function compareVersions(a, b) {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+function headfulUserAgent(userAgent) {
+  return userAgent.replace(/\bHeadlessChrome\//, "Chrome/");
+}
+function viewLaunchOptions(input) {
+  return {
+    executablePath: input.browser.executablePath,
+    headless: input.headless,
+    userDataDir: input.userDataDir,
+    timeout: input.timeout,
+    defaultViewport: null,
+    args: [...input.args, ...input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : []],
+    ignoreDefaultArgs: ["--enable-automation"]
+  };
+}
+function turnOffPasswordSaving(userDataDir) {
+  const path = join4(userDataDir, "Default", "Preferences");
+  let prefs = {};
+  if (existsSync(path)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync3(path, "utf8"));
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    prefs = parsed;
+  }
+  const profile2 = prefs.profile && typeof prefs.profile === "object" ? prefs.profile : {};
+  if (prefs.credentials_enable_service === false && profile2.password_manager_enabled === false) return;
+  mkdirSync2(join4(userDataDir, "Default"), { recursive: true, mode: 448 });
+  writeFileSync2(path, JSON.stringify({ ...prefs, credentials_enable_service: false, profile: { ...profile2, password_manager_enabled: false } }), { mode: 384 });
+}
+
 // src/engines/puppeteer.ts
 var NAVIGATE_TIMEOUT_MS = 3e4;
 var MAX_SNAPSHOT_FRAMES = 16;
@@ -1060,7 +1168,7 @@ async function attachRelay(options, release) {
     }
     page = await browser.newPage();
     const tab = await prepareTab(page, options.viewport);
-    return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release });
+    return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release, app: null });
   } catch (err) {
     if (page && !page.isClosed()) await page.close().catch(() => void 0);
     if (browser) await browser.disconnect().catch(() => void 0);
@@ -1068,21 +1176,42 @@ async function attachRelay(options, release) {
     throw err;
   }
 }
+var HEADFUL_USER_AGENTS = /* @__PURE__ */ new Map();
+function binaryUserAgent(executablePath) {
+  let known = HEADFUL_USER_AGENTS.get(executablePath);
+  if (!known) {
+    known = (async () => {
+      const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: CHROMIUM_ARGS });
+      try {
+        return headfulUserAgent(await probe.userAgent());
+      } finally {
+        await probe.close();
+      }
+    })();
+    known.catch(() => HEADFUL_USER_AGENTS.delete(executablePath));
+    HEADFUL_USER_AGENTS.set(executablePath, known);
+  }
+  return known;
+}
 async function launchChromium(options, release) {
   const userDataDir = options.profileDirectory;
   let browser;
+  let resolved;
   try {
-    mkdirSync2(userDataDir, { recursive: true, mode: 448 });
-    browser = await puppeteer.launch({
-      headless: options.headless ?? true,
+    resolved = resolveBrowser(options.executablePath);
+    const headless = options.headless ?? true;
+    const userAgent = headless ? await binaryUserAgent(resolved.executablePath) : void 0;
+    mkdirSync3(userDataDir, { recursive: true, mode: 448 });
+    turnOffPasswordSaving(userDataDir);
+    browser = await puppeteer.launch(viewLaunchOptions({
+      browser: resolved,
       userDataDir,
+      headless,
+      args: CHROMIUM_ARGS,
       timeout: LAUNCH_TIMEOUT_MS,
-      defaultViewport: null,
-      // An explicit binary wins; otherwise the locally installed stable
-      // Chrome channel. Nothing is downloaded at runtime.
-      ...options.executablePath ? { executablePath: options.executablePath } : { channel: "chrome" },
-      args: CHROMIUM_ARGS
-    });
+      ...userAgent ? { userAgent } : {}
+    }));
+    console.error(`[browser] launched ${resolved.app} (${resolved.executablePath})${headless ? ", headless" : ""} on ${userDataDir}`);
   } catch (err) {
     release();
     throw err;
@@ -1093,7 +1222,7 @@ async function launchChromium(options, release) {
     if (pages.length === 0) pages.push(await browser.newPage());
     const tabs = [];
     for (const page of pages) tabs.push(await prepareTab(page, options.viewport));
-    return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release });
+    return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app });
   } catch (err) {
     try {
       await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "failed-launch cleanup");
@@ -1232,6 +1361,7 @@ async function prepareTab(page, viewport, scale = 1) {
 }
 var NONE = Object.freeze({});
 var PuppeteerDriver = class {
+  app;
   #browser;
   /** Every tab this driver owns, in opening order. */
   #tabs = [];
@@ -1256,6 +1386,7 @@ var PuppeteerDriver = class {
   #closing;
   constructor(parts) {
     this.#browser = parts.browser;
+    this.app = parts.app;
     this.#viewport = parts.viewport;
     this.#ownsBrowser = parts.ownsBrowser;
     this.#release = parts.release;
@@ -2176,10 +2307,10 @@ async function resolveReason(host, resolve3) {
 
 // src/task.ts
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync as existsSync2 } from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { createInterface } from "node:readline";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 var PYTHON_DIR = fileURLToPath2(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var EXIT_DRAIN_MS = 2e3;
@@ -2187,8 +2318,8 @@ var STDERR_KEEP = 4096;
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
-  const venv = process.platform === "win32" ? join4(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join4(PYTHON_DIR, ".venv", "bin", "python");
-  if (!existsSync(venv)) {
+  const venv = process.platform === "win32" ? join5(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join5(PYTHON_DIR, ".venv", "bin", "python");
+  if (!existsSync2(venv)) {
     fail(
       "python_env_missing",
       `The jev / browser-use task agents need their pinned Python environment. Run: cd "${PYTHON_DIR}" && uv sync --python 3.12 (or set DIM_BROWSER_PYTHON to an interpreter that has it).`
@@ -2402,7 +2533,7 @@ var BrowserRuntime = class {
       if (entry) this.detach(entry);
     };
     try {
-      const profileDirectory = engine === "chromium" ? this.store.userDataDir(profile2) : join5(this.store.profileDir(profile2), engine);
+      const profileDirectory = engine === "chromium" ? this.store.userDataDir(profile2) : join6(this.store.profileDir(profile2), engine);
       driver = await createEngineDriver(engine, {
         profileDirectory,
         viewport,
@@ -2981,6 +3112,7 @@ var BrowserRuntime = class {
       browserId: entry.browserId,
       profile: entry.profile,
       engine: entry.engine,
+      app: entry.driver.app,
       url: state.url,
       title: state.title,
       revision: entry.revision,
@@ -3000,6 +3132,7 @@ var BrowserRuntime = class {
       browserId: entry.browserId,
       profile: entry.profile,
       engine: entry.engine,
+      app: entry.driver.app,
       url: "",
       title: "",
       revision: entry.revision,
@@ -3265,7 +3398,7 @@ async function createBrowserServer(options = {}) {
   });
   const server2 = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
   const viewDir = options.viewDir ?? fileURLToPath3(new URL("./dist/", import.meta.url));
-  const html = await readFile2(join6(viewDir, "index.html"), "utf8");
+  const html = await readFile2(join7(viewDir, "index.html"), "utf8");
   const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false } };
   registerAppResource(server2, "Browser", BROWSER_VIEW_URI, { _meta: metadata }, async () => ({
@@ -3276,7 +3409,7 @@ async function createBrowserServer(options = {}) {
     const extension = extname2(entry.name);
     const mimeType = MIME[extension];
     if (!mimeType) throw new Error(`Unsupported browser View asset: ${entry.name}`);
-    const path = join6(entry.parentPath, entry.name);
+    const path = join7(entry.parentPath, entry.name);
     const relative = path.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://browser/${relative}`;
     server2.registerResource(relative, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile2(path)).toString("base64") }] }));
