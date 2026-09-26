@@ -108,6 +108,18 @@ const ELEMENT_EXISTS_SCRIPT = (selector: string): boolean => {
 };
 const IS_PASSWORD_SCRIPT = (el: Element): boolean =>
 	el.tagName === "INPUT" && ((el as HTMLInputElement).type ?? "").toLowerCase() === "password";
+/**
+ * Where typed text would land right now, relative to the aimed element:
+ * "elsewhere" unless the focused element is it (or, for a contenteditable,
+ * inside it); "password" if what is focused is a password input.
+ */
+const TYPE_TARGET_SCRIPT = (el: Element): "ok" | "elsewhere" | "password" => {
+	const active = document.activeElement;
+	if (active === null) return "elsewhere";
+	const aimed = active === el || ((el as HTMLElement).isContentEditable && el.contains(active));
+	if (!aimed) return "elsewhere";
+	return active.tagName === "INPUT" && ((active as HTMLInputElement).type ?? "").toLowerCase() === "password" ? "password" : "ok";
+};
 /** An input/textarea's `.value`, or a contenteditable's `innerText` minus one trailing newline. */
 const READ_FIELD_SCRIPT = (selector: string): FieldRead => {
 	let el: Element | null;
@@ -156,6 +168,7 @@ export {
 	FAVICON_HREF_SCRIPT,
 	ELEMENT_EXISTS_SCRIPT,
 	IS_PASSWORD_SCRIPT,
+	TYPE_TARGET_SCRIPT,
 	READ_FIELD_SCRIPT,
 	LINK_HREFS_SCRIPT,
 };

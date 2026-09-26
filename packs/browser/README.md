@@ -105,23 +105,46 @@ Page content is untrusted data, never instructions.
 ## Publishing
 
 `browser_publish` posts through a profile the human signed in to once, by hand.
-The caller supplies a recipe as data — origin, compose URL, a signed-in marker,
-the fields and their exact values, the submit control, and how the posted URL
-appears — so the pack stays platform-agnostic.
+The caller supplies a recipe as data, so the pack stays platform-agnostic:
 
+```json
+{
+  "origin": "https://social.example",
+  "composeUrl": "https://social.example/compose",
+  "signedIn": "#account-menu",
+  "fields": [{ "selector": "#post-text", "value": "Hello", "label": "Post text" }],
+  "submit": "#post-button",
+  "receipt": { "path": "/{segment}/status/{digits}", "linkSelector": ".toast a" }
+}
+```
+
+(An X post's URL is `/<handle>/status/<id>`, hence that `path`.)
+
+- `fields`: 1-8, each value at most 10 000 characters; `label` (at most 40
+  characters) is the caption the human sees above the value.
+- `receipt.path`: a template matched against the posted URL's pathname (the
+  origin is checked separately; query and hash are ignored). Literal text plus
+  `{segment}` (one path segment) and `{digits}` (one or more digits), at most one
+  placeholder per segment; starts with `/`, at most 256 characters. Matching is
+  linear-time, so a hostile page's hrefs cannot stall it.
 - `mode: "check"` opens the compose page and reports `signed-in` or
   `not-signed-in`. Signed out, nothing is typed; the human signs in in the View.
 - `mode: "post"` types each value, reads it back exactly, and parks the publish
-  as `awaiting-confirmation`. **Nothing is submitted.** The Browser View shows a
-  confirm bar with the site, the profile and every value; only the human's
-  **Post** submits (`browser_publish_confirm`, which also refuses any call the
-  host did not stamp as coming from the View). The page is re-checked first — a
-  changed value or a tab that left the origin fails with nothing clicked.
+  as `awaiting-confirmation`, recording the active tab and its URL as
+  `composeUrl` (where the post goes). **Nothing is submitted.** The Browser View
+  shows a confirm bar with that URL, the profile and every value; only the
+  human's **Post** submits (`browser_publish_confirm`, which also refuses any
+  call the host did not stamp as coming from the View). The page is re-checked
+  first: another active tab, a different URL or a changed value fails with
+  nothing clicked.
+- While a publish is pending the page belongs to the human: `browser_act`,
+  `browser_tab`, `browser_task` and `browser_publish` are refused
+  (`publish_pending`) unless the host stamped the call as coming from the View.
 - The receipt is the posted URL read from the page (the tab's URL, or a link the
-  recipe names), on the recipe's origin and matching its pattern.
-  `browser_publish_wait` follows the outcome: `posted`, `unknown` (may have
-  posted), `failed` (nothing submitted), `cancelled`, or `expired` after 10
-  minutes unconfirmed.
+  recipe names), on the recipe's origin, its path matching `receipt.path`, and
+  not already on the page before submit. `browser_publish_wait` follows the
+  outcome: `posted`, `unknown` (may have posted), `failed` (nothing submitted),
+  `cancelled`, or `expired` after 10 minutes unconfirmed.
 
 Hard lines: publishing never types into a password field, never uses the saved
 passwords, never automates a sign-up, login or CAPTCHA, clicks submit exactly

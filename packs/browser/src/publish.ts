@@ -13,8 +13,10 @@
  *  - never touch the credential store; a signed-out profile is reported, and
  *    the human signs in by hand;
  *  - submit exactly once, never retried: an error after dispatch is `unknown`;
- *  - the receipt URL comes only from the page, on the recipe's origin, matching
- *    its pattern, and never something already there before submit;
+ *  - the receipt URL comes only from the page, on the recipe's origin, its
+ *    pathname matching the recipe's path template, and never something
+ *    already there before submit;
+ *  - confirm submits only on the very tab and URL the human was shown;
  *  - page content never chooses a selector or a URL.
  */
 import { randomBytes } from "node:crypto";
@@ -26,10 +28,12 @@ import { ActionNotDispatched, fail } from "./store.js";
 
 const MAX_FIELDS = 8;
 const MAX_VALUE_CHARS = 10_000;
+const MAX_LABEL_CHARS = 40;
 const MAX_SELECTOR_CHARS = 512;
-const MAX_PATTERN_CHARS = 512;
+const MAX_PATH_CHARS = 256;
 const MAX_URL_CHARS = 2_048;
-const MAX_RECEIPT_LINKS = 50;
+/** Receipt links read per snapshot; filtered by origin and path here, never in the page. */
+const MAX_RECEIPT_LINKS = 5_000;
 const SIGNED_IN_WAIT_MS = 15_000;
 const RECEIPT_WAIT_MS = 20_000;
 /** How long a parked publish waits for the human. */
@@ -39,15 +43,18 @@ const POLL_MS = 250;
 const LOOPBACK_HOSTS: readonly string[] = ["127.0.0.1", "localhost"];
 const TERMINAL: readonly PublishStatus[] = ["posted", "unknown", "failed", "cancelled", "expired"];
 
-/** A validated recipe, with its receipt pattern compiled once. */
+/** A validated recipe, with its receipt path template compiled once. */
 export interface Recipe extends PublishRecipe {
-	pattern: RegExp;
+	/** Matches a receipt URL's pathname against `receipt.path`, in linear time. */
+	matchesPath: (pathname: string) => boolean;
 }
 
 /** A parked publish: the record the human sees, and the recipe confirm needs (never shown). */
 export interface Publication {
 	record: PublishRecord;
 	recipe: Recipe;
+	/** The active tab when the fields were last read back: confirm submits only there. */
+	shownTabId: string;
 	/** Set once confirm starts: expiry never overtakes a submit already under way. */
 	confirming: boolean;
 	/** Resolves when the record reaches a terminal status. */
@@ -77,19 +84,18 @@ export function validateRecipe(input: PublishRecipe): Recipe {
 		if (typeof field.value !== "string" || field.value.length > MAX_VALUE_CHARS) {
 			fail("bad_recipe", `fields[${index}].value must be a string of at most ${MAX_VALUE_CHARS} characters`);
 		}
-		return { selector: selector(field.selector, `fields[${index}].selector`), value: field.value };
+		if (field.label !== undefined && (typeof field.label !== "string" || field.label.trim().length === 0 || field.label.length > MAX_LABEL_CHARS)) {
+			fail("bad_recipe", `fields[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
+		}
+		return {
+			selector: selector(field.selector, `fields[${index}].selector`),
+			value: field.value,
+			...(field.label === undefined ? {} : { label: field.label.trim() }),
+		};
 	});
 	const receipt = input.receipt;
 	if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
-	if (typeof receipt.urlPattern !== "string" || receipt.urlPattern.length === 0 || receipt.urlPattern.length > MAX_PATTERN_CHARS) {
-		fail("bad_recipe", `receipt.urlPattern must be a regex source of 1-${MAX_PATTERN_CHARS} characters`);
-	}
-	let pattern: RegExp;
-	try {
-		pattern = new RegExp(receipt.urlPattern);
-	} catch (error) {
-		fail("bad_recipe", `receipt.urlPattern does not compile: ${describe(error)}`);
-	}
+	const path = receiptPath(receipt.path);
 	return {
 		origin,
 		composeUrl: compose.href,
@@ -97,11 +103,50 @@ export function validateRecipe(input: PublishRecipe): Recipe {
 		fields,
 		submit: selector(input.submit, "submit"),
 		receipt: {
-			urlPattern: receipt.urlPattern,
+			path,
 			...(receipt.linkSelector === undefined ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }),
 		},
-		pattern,
+		matchesPath: compilePath(path),
 	};
+}
+
+const PLACEHOLDERS: Readonly<Record<string, string>> = { segment: "[^/]+", digits: "[0-9]+" };
+/** A `{name}` placeholder, a stray brace, or a regex metacharacter to escape. */
+const TEMPLATE_TOKEN = /\{([^{}]*)\}|[{}]|[.*+?^$()|[\]\\]/g;
+
+function receiptPath(value: unknown): string {
+	if (typeof value !== "string" || !value.startsWith("/") || value.length > MAX_PATH_CHARS) {
+		fail("bad_recipe", `receipt.path must start with "/" and be at most ${MAX_PATH_CHARS} characters`);
+	}
+	return value;
+}
+
+/**
+ * Compile a receipt path template to an anchored matcher over a pathname.
+ * Literal text is regex-escaped; `{segment}` and `{digits}` become classes
+ * that cannot cross "/", at most one per segment. Each placeholder is followed
+ * by a fixed literal up to the next "/" (or the end), so it has at most one
+ * end where the rest can match: matching is linear in the pathname.
+ */
+export function compilePath(path: string): (pathname: string) => boolean {
+	const segments = path.split("/").map((segment, index) => {
+		let placeholders = 0;
+		const source = segment.replace(TEMPLATE_TOKEN, (token, placeholder: string | undefined) => {
+			if (placeholder === undefined) {
+				if (token === "{" || token === "}") fail("bad_recipe", `receipt.path has an unmatched brace in segment ${index}`);
+				return `\\${token}`;
+			}
+			// Own keys only: `{constructor}` must not find Object.prototype.
+			const pattern = Object.hasOwn(PLACEHOLDERS, placeholder) ? PLACEHOLDERS[placeholder] : undefined;
+			if (pattern === undefined) fail("bad_recipe", `receipt.path placeholder {${placeholder}} is unknown; use {segment} or {digits}`);
+			placeholders += 1;
+			return pattern;
+		});
+		if (placeholders > 1) fail("bad_recipe", "receipt.path allows at most one placeholder per segment");
+		return source;
+	});
+	const pattern = new RegExp(`^${segments.join("/")}$`);
+	return (pathname) => pattern.test(pathname);
 }
 
 function parseOrigin(value: unknown): string {
@@ -177,18 +222,25 @@ export async function prepare(driver: EngineDriver, profile: string, recipe: Rec
 			return failed(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
 		}
 	}
+	// Where the human is about to be shown the values: this tab, this URL. Confirm submits only there.
+	const shown = await driver.state().catch(() => null);
+	if (!shown || originOf(shown.url) !== recipe.origin) {
+		return { status: "failed", url: shown?.url ?? url, profile, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
+	}
 	const now = Date.now();
 	return {
 		record: {
 			publishId: randomBytes(16).toString("hex"),
 			status: "awaiting-confirmation",
 			origin: recipe.origin,
+			composeUrl: shown.url,
 			profile,
 			fields: recipe.fields.map((field) => ({ ...field })),
 			createdAt: new Date(now).toISOString(),
 			expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString(),
 		},
 		recipe,
+		shownTabId: shown.activeTabId,
 		confirming: false,
 		settled: Promise.withResolvers<void>(),
 	};
@@ -227,7 +279,7 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 			if (error instanceof ActionNotDispatched) {
 				return settle(publication, "failed", { error: `submit was not clicked: ${describe(error)}; nothing was submitted` });
 			}
-			return settle(publication, "unknown", { error: `submit was clicked, then errored — it may have posted; never retried (${describe(error)})` });
+			return settle(publication, "unknown", { error: `submit was clicked, then errored, so it may have posted; never retried (${describe(error)})` });
 		}
 		const deadline = Date.now() + RECEIPT_WAIT_MS;
 		while (Date.now() < deadline) {
@@ -235,18 +287,19 @@ export async function confirm(driver: EngineDriver, publication: Publication): P
 			if (found) return settle(publication, "posted", { url: found });
 			await sleep(POLL_MS);
 		}
-		settle(publication, "unknown", { error: "submitted, no receipt seen — it may have posted; never retried" });
+		settle(publication, "unknown", { error: "submitted, but no receipt was seen, so it may have posted; never retried" });
 	} catch (error) {
 		// Reached only by a fault outside the submit's own try: the click may have landed.
-		settle(publication, "unknown", { error: `publishing errored — it may have posted; never retried (${describe(error)})` });
+		settle(publication, "unknown", { error: `publishing errored, so it may have posted; never retried (${describe(error)})` });
 	}
 }
 
 /** Why the page no longer matches what the human was shown, or null. */
 async function changedSinceShown(driver: EngineDriver, publication: Publication): Promise<string | null> {
 	try {
-		const url = (await driver.state()).url;
-		if (originOf(url) !== publication.recipe.origin) return `the tab left ${publication.recipe.origin}`;
+		const state = await driver.state();
+		if (state.activeTabId !== publication.shownTabId) return "another tab is active";
+		if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
 		for (const field of publication.record.fields) {
 			const read = await driver.readField(field.selector);
 			if (read.state !== "value" || read.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
@@ -257,12 +310,26 @@ async function changedSinceShown(driver: EngineDriver, publication: Publication)
 	}
 }
 
-/** Receipt candidates now on the page: on the origin, matching the pattern, in page order. */
+/**
+ * Receipt candidates now on the page: on the origin, pathname matching the
+ * recipe's template, in page order. Every link is read (bounded) and filtered
+ * here, so a page cannot push the real receipt out of a small window.
+ */
 async function receipts(driver: EngineDriver, recipe: Recipe): Promise<string[]> {
 	const candidates = recipe.receipt.linkSelector === undefined
 		? [(await driver.state()).url]
 		: await driver.linkHrefs(recipe.receipt.linkSelector, MAX_RECEIPT_LINKS);
-	return candidates.filter((url) => url.length <= MAX_URL_CHARS && originOf(url) === recipe.origin && recipe.pattern.test(url));
+	return candidates.filter((url) => url.length <= MAX_URL_CHARS && isReceipt(url, recipe));
+}
+
+function isReceipt(url: string, recipe: Recipe): boolean {
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
 }
 
 // ---------------------------------------------------------------------------

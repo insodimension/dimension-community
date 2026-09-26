@@ -103,7 +103,8 @@ function readPublish(tool: string, value: unknown): PublishRecord {
 		if (!isRecord(field)) continue;
 		const selector = readString(field, "selector");
 		const text = readString(field, "value");
-		if (selector !== undefined && text !== undefined) fields.push({ selector, value: text });
+		const label = readString(field, "label");
+		if (selector !== undefined && text !== undefined) fields.push({ selector, value: text, ...(label === undefined ? {} : { label }) });
 	}
 	const url = readString(value, "url");
 	const error = readString(value, "error");
@@ -111,6 +112,7 @@ function readPublish(tool: string, value: unknown): PublishRecord {
 		publishId,
 		status,
 		origin: readString(value, "origin") ?? "",
+		composeUrl: readString(value, "composeUrl") ?? "",
 		profile: readString(value, "profile") ?? "",
 		fields,
 		createdAt: readString(value, "createdAt") ?? "",

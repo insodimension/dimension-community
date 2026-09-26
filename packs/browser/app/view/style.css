@@ -1127,14 +1127,8 @@ kbd {
 	backdrop-filter: blur(18px) saturate(1.4);
 	-webkit-backdrop-filter: blur(18px) saturate(1.4);
 	border: 1px solid var(--bx-hairline);
-	box-shadow:
-		var(--bx-shadow),
-		0 0 0 1px color-mix(in oklab, var(--fr-accent) 25%, transparent);
-	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
-}
-
-.bx-publish[data-status] {
 	box-shadow: var(--bx-shadow);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
 }
 
 .bx-publish-row {
@@ -1154,7 +1148,11 @@ kbd {
 	background: color-mix(in oklab, var(--fr-accent) 16%, transparent);
 }
 
-.bx-publish[data-status="unknown"] .bx-publish-mark,
+.bx-publish[data-status="unknown"] .bx-publish-mark {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
 .bx-publish[data-status="failed"] .bx-publish-mark {
 	color: var(--fr-del);
 	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
@@ -1181,16 +1179,43 @@ kbd {
 	color: var(--fr-text);
 }
 
+/* The confirm question: connecting words recede, the URL and profile carry it. */
+.bx-publish:not([data-status]) .bx-publish-title {
+	font-size: 13px;
+	font-weight: 400;
+	color: var(--fr-text-2);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-key {
+	font-family: var(--bx-num);
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-publish-num {
+	font-family: var(--bx-num);
+}
+
 .bx-publish-detail {
 	color: var(--fr-text-2);
 	overflow-wrap: anywhere;
 }
 
 .bx-publish-url {
+	font-family: var(--bx-num);
 	color: var(--fr-text);
 	overflow-wrap: anywhere;
 	user-select: all;
 	cursor: text;
+}
+
+.bx-publish-heading {
+	margin: 0;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--fr-text-2);
 }
 
 .bx-publish-fields {
@@ -1198,17 +1223,40 @@ kbd {
 	flex-direction: column;
 	gap: 6px;
 	max-height: 180px;
-	margin: 0;
+	margin: -4px 0 0;
 	padding: 0;
 	list-style: none;
 	overflow-y: auto;
 	border-radius: 8px;
 }
 
+.bx-publish-fields[data-fit] {
+	max-height: none;
+	overflow: visible;
+}
+
+/* More below the fold: fade the bottom edge until it is scrolled to the end. */
+.bx-publish-fields[data-clipped] {
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+
 .bx-publish-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
 	padding: 8px 10px;
 	border-radius: 8px;
 	background: var(--bx-field);
+}
+
+.bx-publish-label {
+	font-size: 11px;
+	line-height: 1.3;
+	color: var(--fr-text-3);
+}
+
+.bx-publish-value {
 	color: var(--fr-text);
 	font-size: 13px;
 	line-height: 1.5;
@@ -1232,6 +1280,17 @@ kbd {
 	display: flex;
 	justify-content: flex-end;
 	gap: 8px;
+}
+
+/* The icon slot holds a spinner while posting, so the button keeps its size. */
+.bx-publish-post {
+	min-width: 96px;
+	justify-content: center;
+}
+
+.bx-publish-post .bx-tab-spinner {
+	border-color: color-mix(in oklab, var(--fr-accent-ink, #fff) 30%, transparent);
+	border-top-color: var(--fr-accent-ink, #fff);
 }
 
 .bx-publish-cancel {

@@ -37,6 +37,7 @@ import type {
 	TaskRequest,
 	TaskRun,
 	TaskStep,
+	ToolCaller,
 	Viewport,
 } from "./contracts.js";
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
@@ -455,7 +456,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * Refused while a task runs: switching away from the agent's tab hides it,
 	 * and a hidden tab renders no frames, so the agent would stall.
 	 */
-	async tab(browserId: string, request: TabRequest): Promise<BrowserState> {
+	async tab(browserId: string, request: TabRequest, caller?: ToolCaller): Promise<BrowserState> {
 		const entry = this.require(browserId);
 		if (!request || typeof request !== "object") fail("bad_tab", "tab request must be an object");
 		const navigate = request.op === "new" && request.url !== undefined
@@ -468,6 +469,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (entry.task?.status === "running") {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
+			refuseWhilePublishing(entry, caller);
 			switch (request.op) {
 				case "new":
 					try {
@@ -493,12 +495,13 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// Actions
 	// -----------------------------------------------------------------------
 
-	async act(browserId: string, input: BrowserAction): Promise<ActionResult> {
+	async act(browserId: string, input: BrowserAction, caller?: ToolCaller): Promise<ActionResult> {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			if (entry.task?.status === "running") {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
+			refuseWhilePublishing(entry, caller);
 			const action = normalizeAction(input, entry.viewport);
 			try {
 				await entry.driver.perform(action);
@@ -531,8 +534,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	/** Start a task and return as soon as it runs; follow it with `waitTask`. */
-	async startTask(browserId: string, request: TaskRequest): Promise<TaskRun> {
-		const { run } = await this.beginTask(browserId, request);
+	async startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun> {
+		const { run } = await this.beginTask(browserId, request, undefined, caller);
 		return cloneTask(run);
 	}
 
@@ -540,6 +543,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		browserId: string,
 		request: TaskRequest,
 		onStep?: (step: TaskStep, run: TaskRun) => void,
+		caller?: ToolCaller,
 	): Promise<{ run: TaskRun; finished: Promise<TaskRun> }> {
 		const entry = this.require(browserId);
 		if (!TASK_AGENTS.includes(request.agent)) fail("bad_agent", `agent must be one of: ${TASK_AGENTS.join(", ")}`);
@@ -561,6 +565,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 		return await this.serialize(entry, async () => {
 			if (entry.worker) fail("task_running", `a ${entry.task?.agent} task is already running on this browser`);
+			refuseWhilePublishing(entry, caller);
 			const state = await this.refreshState(entry);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(entry.profile), request.credential) : undefined;
@@ -644,7 +649,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// Publishing — fill, park for the human's Post, submit once (publish.ts)
 	// -----------------------------------------------------------------------
 
-	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode): Promise<PublishCheck | PublishRecord> {
+	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord> {
 		const entry = this.require(browserId);
 		const valid = validateRecipe(recipe);
 		const selected = validateMode(mode);
@@ -652,7 +657,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (entry.task?.status === "running") {
 				fail("task_running", `a ${entry.task.agent} task is driving this browser; wait for it or cancel it first`);
 			}
-			if (selected === "post" && isPending(entry.publish)) {
+			refuseWhilePublishing(entry, caller);
+			// Even from the View: a check or a second post would navigate away from the page the human is confirming.
+			if (isPending(entry.publish)) {
 				fail("publish_pending", "a publish is already waiting for the human's confirmation in the Browser View; it must be posted, cancelled or expire first");
 			}
 			const outcome = await prepare(entry.driver, entry.profile, valid, selected);
@@ -887,6 +894,17 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * While the human is confirming a post, the page is theirs: only the Browser
+ * View's own input ("app") may drive it. Anything else could change what the
+ * human is approving between their look and their Post.
+ */
+function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
+	if (caller !== "app" && isPending(entry.publish)) {
+		fail("publish_pending", "the human is confirming a post in the Browser View; wait with browser_publish_wait");
+	}
+}
 
 function cloneTask(run: TaskRun): TaskRun {
 	return { ...run, steps: run.steps.map((step) => ({ ...step })), usage: { ...run.usage } };

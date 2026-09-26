@@ -78,8 +78,19 @@ export interface TaskRun {
  * never passes through a tool argument, a result or a model call.
  */
 export interface TaskRequest { agent: TaskAgent; task: string; maxSteps?: number; credential?: CredentialRequest }
-/** One field of a publish recipe: where to type, and exactly what. */
-export interface PublishField { selector: string; value: string }
+/** One field of a publish recipe: where to type, exactly what, and an optional caption for the human. */
+export interface PublishField {
+  selector: string;
+  value: string;
+  /** Shown above the value in the confirm bar (≤ 40 characters); the View falls back to "Field N". */
+  label?: string;
+}
+/**
+ * Who made a tool call, as the host stamped it in request `_meta`: "model"
+ * (an agent turn) or "app" (the Browser View, i.e. the human). A call with no
+ * stamp did not come through the host and is treated as not-the-human.
+ */
+export type ToolCaller = "model" | "app";
 /**
  * How to post on one site, supplied by the caller as data — the pack itself is
  * platform-agnostic. See publish.ts for the bounds every field is held to.
@@ -96,8 +107,14 @@ export interface PublishRecipe {
   /** CSS selector clicked exactly once, only after the human confirms. */
   submit: string;
   receipt: {
-    /** Regex source matched against the WHOLE receipt URL (anchor it yourself); the URL must be on `origin`. */
-    urlPattern: string;
+    /**
+     * Template matched against the receipt URL's PATHNAME (the origin is checked
+     * separately; query and hash are ignored): literal text plus `{segment}`
+     * (one path segment) and `{digits}` (one or more 0-9), at most one
+     * placeholder per segment. Starts with "/", at most 256 characters.
+     * Example: "/{segment}/status/{digits}".
+     */
+    path: string;
     /** Receipt is the href of the first matching element whose href matches; else the active tab's URL. */
     linkSelector?: string;
   };
@@ -115,10 +132,13 @@ export interface PublishRecord {
   publishId: string;
   status: PublishStatus;
   origin: string;
+  /** Where the post goes: the compose page URL the fields were typed into and read back on (confirm requires the tab still there). */
+  composeUrl: string;
   profile: string;
   fields: PublishField[];
   createdAt: string;
   expiresAt: string;
+  /** The posted URL, read from the page after submit. */
   url?: string;
   error?: string;
 }
@@ -176,19 +196,20 @@ export interface BrowserRuntimePort {
   open(options: BrowserOpenOptions): Promise<BrowserState>;
   state(browserId: string): Promise<BrowserState>;
   frame(browserId: string, format?: FrameFormat): Promise<BrowserFrame>;
-  tab(browserId: string, request: TabRequest): Promise<BrowserState>;
+  tab(browserId: string, request: TabRequest, caller?: ToolCaller): Promise<BrowserState>;
   resize(browserId: string, viewport: Viewport, scale?: number): Promise<BrowserState>;
   snapshot(browserId: string): Promise<{ state: BrowserState; text: string }>;
-  act(browserId: string, action: BrowserAction): Promise<ActionResult>;
+  /** Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app". */
+  act(browserId: string, action: BrowserAction, caller?: ToolCaller): Promise<ActionResult>;
   runTask(browserId: string, request: TaskRequest, onStep?: (step: TaskStep, run: TaskRun) => void): Promise<TaskRun>;
   cancelTask(browserId: string): Promise<TaskRun>;
   annotate(browserId: string, frameId: string, region: BrowserRegion, note: string): Promise<BrowserAnnotation>;
   profiles(): Promise<string[]>;
   close(browserId: string): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
-  startTask(browserId: string, request: TaskRequest): Promise<TaskRun>;
+  startTask(browserId: string, request: TaskRequest, caller?: ToolCaller): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for the human's confirmation. Never submits. */
-  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode): Promise<PublishCheck | PublishRecord>;
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller): Promise<PublishCheck | PublishRecord>;
   /** The human's Post: re-verify, click submit exactly once, read the receipt from the page. */
   confirmPublish(browserId: string, publishId: string): Promise<PublishRecord>;
   cancelPublish(browserId: string, publishId: string): Promise<PublishRecord>;

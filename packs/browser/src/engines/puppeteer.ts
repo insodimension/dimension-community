@@ -40,6 +40,7 @@ import {
 	PAGE_TEXT_SCRIPT,
 	READ_FIELD_SCRIPT,
 	SELECT_ALL_SCRIPT,
+	TYPE_TARGET_SCRIPT,
 } from "./page-scripts.js";
 import type { EngineDriver, EngineOptions, EngineState, FieldRead, LiveFrame } from "./types.js";
 
@@ -832,6 +833,13 @@ class PuppeteerDriver implements EngineDriver {
 				} finally {
 					await page.keyboard.up(modifier);
 				}
+			}
+			// The page may have moved focus since `focus()` (or swapped in a
+			// password input): the text goes only where it was aimed.
+			const focus = await handle.evaluate(TYPE_TARGET_SCRIPT);
+			if (focus === "elsewhere") throw new ActionNotDispatched("focus_moved", `${JSON.stringify(selector)} lost focus before typing; nothing was typed`);
+			if (refusePassword && focus === "password") {
+				throw new ActionNotDispatched("password_field", `${JSON.stringify(selector)} has a password field focused; publishing never types into one`);
 			}
 			if (text.length > 0) await page.keyboard.sendCharacter(text);
 			else await page.keyboard.press("Backspace");

@@ -1,29 +1,26 @@
 // The human's gate on every post. The agent filled the compose page and
 // parked the publish; nothing is submitted until Post here. The bar shows
-// where it goes (origin host, profile) and every exact value, and afterwards
-// what the page said: the posted URL, or why it did not (or may not have)
-// posted. Post and Cancel are the only callers of the app-only confirm and
-// cancel tools.
-import { useEffect, useRef, useState } from "react";
+// where it goes (the compose page URL, the profile) and every exact value,
+// and afterwards what the page said: the posted URL, or why it did not (or
+// may not have) posted. Post and Cancel are the only callers of the app-only
+// confirm and cancel tools.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PublishRecord, PublishStatus } from "../../src/contracts";
 import { Icon } from "@fraym/ui/icons";
 import { type BrowserClient, failureText } from "./browser-client";
 
 const OUTCOME: Record<Exclude<PublishStatus, "awaiting-confirmation">, string> = {
 	posted: "Posted",
-	unknown: "May have posted — check the page before trying again",
+	unknown: "May have posted. Check the page before trying again.",
 	failed: "Not posted",
-	cancelled: "Cancelled — nothing was posted",
-	expired: "Expired — nothing was posted",
+	cancelled: "Cancelled. Nothing was posted.",
+	expired: "Expired. Nothing was posted.",
 };
 
-function hostOf(origin: string): string {
-	try {
-		return new URL(origin).host;
-	} catch {
-		return origin;
-	}
-}
+/** Two or fewer values this short show whole: no scroll box to hunt through. */
+const FIT_MAX_FIELDS = 2;
+const FIT_MAX_CHARS = 280;
+const FIT_MAX_LINES = 4;
 
 export interface PublishBarProps {
 	readonly client: BrowserClient;
@@ -46,9 +43,24 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 			mounted.current = false;
 		};
 	}, []);
-
 	const record = answered?.publishId === publish.publishId && publish.status === "awaiting-confirmation" ? answered : publish;
 	const busy = step !== "idle";
+
+	// The fields list fades its bottom edge while more of it is below the fold.
+	const fieldsRef = useRef<HTMLOListElement | null>(null);
+	const [clipped, setClipped] = useState(false);
+	const measure = useCallback(() => {
+		const list = fieldsRef.current;
+		setClipped(list !== null && list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+	}, []);
+	useLayoutEffect(() => {
+		const list = fieldsRef.current;
+		if (list === null) return;
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(list);
+		return () => observer.disconnect();
+	}, [measure, record.publishId, record.status]);
 
 	const decide = async (verb: "post" | "cancel") => {
 		if (busy) return;
@@ -86,6 +98,9 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 	}
 
 	const expires = new Date(record.expiresAt);
+	const fits =
+		record.fields.length <= FIT_MAX_FIELDS &&
+		record.fields.every(field => field.value.length <= FIT_MAX_CHARS && field.value.split("\n").length <= FIT_MAX_LINES);
 	return (
 		<section className="bx-publish" aria-label="Confirm post" aria-busy={busy || undefined}>
 			<div className="bx-publish-row">
@@ -94,18 +109,36 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 				</span>
 				<span className="bx-publish-text">
 					<span className="bx-publish-title">
-						Post to {hostOf(record.origin)} as profile {record.profile}?
+						Post to <span className="bx-publish-key">{record.composeUrl || record.origin}</span> from browser profile{" "}
+						<span className="bx-publish-key">{record.profile}</span>?
 					</span>
 					<span className="bx-publish-detail">
 						Nothing is sent until you press Post.
-						{Number.isFinite(expires.getTime()) && ` Expires ${expires.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`}
+						{Number.isFinite(expires.getTime()) && (
+							<>
+								{" "}
+								Expires <span className="bx-publish-num">{expires.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>.
+							</>
+						)}
 					</span>
 				</span>
 			</div>
-			<ol className="bx-publish-fields" aria-label="What will be posted" tabIndex={0}>
+			<h3 className="bx-publish-heading" id={`bx-publish-heading-${record.publishId}`}>
+				What will be posted
+			</h3>
+			<ol
+				ref={fieldsRef}
+				className="bx-publish-fields"
+				aria-labelledby={`bx-publish-heading-${record.publishId}`}
+				tabIndex={fits ? undefined : 0}
+				data-fit={fits || undefined}
+				data-clipped={clipped || undefined}
+				onScroll={measure}
+			>
 				{record.fields.map((field, index) => (
 					<li key={`${index}:${field.selector}`} className="bx-publish-field">
-						{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}
+						<span className="bx-publish-label">{field.label ?? `Field ${index + 1}`}</span>
+						<span className="bx-publish-value">{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}</span>
 					</li>
 				))}
 			</ol>
@@ -118,15 +151,9 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 				<button type="button" className="bx-publish-cancel" disabled={busy} onClick={() => void decide("cancel")}>
 					{step === "cancelling" ? "Cancelling…" : "Cancel"}
 				</button>
-				<button type="button" className="bx-annotate-send" disabled={busy} onClick={() => void decide("post")}>
-					{step === "posting" ? (
-						"Posting…"
-					) : (
-						<>
-							<Icon name="send" size={14} strokeWidth={2.25} />
-							Post
-						</>
-					)}
+				<button type="button" className="bx-annotate-send bx-publish-post" disabled={busy} onClick={() => void decide("post")}>
+					{step === "posting" ? <span className="bx-tab-spinner" aria-hidden="true" /> : <Icon name="send" size={14} strokeWidth={2.25} />}
+					{step === "posting" ? "Posting…" : "Post"}
 				</button>
 			</div>
 		</section>
