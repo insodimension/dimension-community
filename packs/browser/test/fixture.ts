@@ -205,9 +205,12 @@ function page(title: string, body: string, head = ""): string {
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>${head}</head><body>${body}</body></html>`;
 }
 
-function html(markup: string, headers: Record<string, string> = {}): Response {
-	return new Response(markup, { headers: { "content-type": "text/html; charset=utf-8", ...headers } });
+function html(markup: string, headers: Record<string, string> = {}, status = 200): Response {
+	return new Response(markup, { status, headers: { "content-type": "text/html; charset=utf-8", ...headers } });
 }
+
+/** `/article`'s body text: long enough to truncate, with a marker at each end. */
+export const ARTICLE_TEXT = `ARTICLE-START ${"lorem ipsum dolor sit amet ".repeat(200)}ARTICLE-END`;
 
 export function startFixture(): Fixture {
 	const hits = new Map<string, number>();
@@ -261,6 +264,34 @@ export function startFixture(): Fixture {
 				const found = /(?:^|;\s*)fixturesid=([^;]+)/.exec(request.headers.get("cookie") ?? "");
 				return html(page("cookie", `<p id="cookie">COOKIE:${found?.[1] ?? "none"}</p>`));
 			}
+			// browser_read pages: one readable, one per way a page refuses a logged-out reader.
+			if (pathname === "/article") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article>`));
+			if (pathname === "/forbidden") return html(page("forbidden", "<p>go away</p>"), {}, 403);
+			if (pathname === "/unavailable") return html(page("unavailable", "<p>try later</p>"), {}, 503);
+			if (pathname === "/private") return new Response(null, { status: 302, headers: { location: "/accounts/login?next=/private" } });
+			if (pathname === "/accounts/login") return html(page("sign in", "<p>sign in to continue</p>"));
+			if (pathname === "/password-gate") return html(page("members", `<p>members only</p><input type="password" id="pw" />`));
+			if (pathname === "/hidden-password") return html(page("with a closed login dialog", `<p>public post</p><div style="display:none"><input type="password" /></div><input type="password" style="visibility:hidden" />`));
+			if (pathname === "/users/sign_in") return html(page("sign in", "<p>you need to sign in or sign up before continuing</p>"));
+			// A web-component login modal: the password field lives in an open shadow root.
+			if (pathname === "/shadow-login") return html(page("members", `<p>members only</p><login-box></login-box><script>customElements.define("login-box", class extends HTMLElement { connectedCallback() { this.attachShadow({ mode: "open" }).innerHTML = '<input type="password" />'; } });</script>`));
+			if (pathname === "/captcha") return html(page("checking", `<p>one moment</p><iframe src="/recaptcha/api2/anchor?k=fixture"></iframe>`));
+			if (pathname === "/recaptcha/api2/anchor") return html(page("recaptcha", "<p>I'm not a robot</p>"));
+			// reCAPTCHA v3 as sites ship it: the script on every page and the invisible-scoring badge, no challenge.
+			if (pathname === "/recaptcha-v3") return html(page("fixture article", `<article><p>scored, not challenged</p></article><script src="/recaptcha/api.js?render=fixture"></script><div style="position:fixed;right:0;bottom:0;width:256px;height:60px"><iframe src="/recaptcha/api2/anchor?k=fixture&size=invisible" width="256" height="60"></iframe></div>`));
+			// Long public pages that carry a widget, not a wall: a checkbox CAPTCHA in the comment form under
+			// the article, and a quick-login box in the sidebar. And the same article behind a full-viewport
+			// challenge or login dialog, which IS a wall however much text sits behind it.
+			if (pathname === "/article-with-comment-captcha") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><form><p>Leave a comment</p><textarea></textarea><iframe src="/recaptcha/api2/anchor?k=fixture&size=normal" width="304" height="78"></iframe></form>`));
+			if (pathname === "/article-behind-challenge") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><iframe src="/recaptcha/api2/bframe?k=fixture" style="position:fixed;left:0;top:0;width:100vw;height:100vh;border:0"></iframe>`));
+			if (pathname === "/article-with-sidebar-login") return html(page("fixture article", `<aside style="float:right;width:240px"><form><input name="user" /><input name="pass" type="password" /><button>Log in</button></form></aside><article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article>`));
+			if (pathname === "/article-behind-login") return html(page("fixture article", `<article><h1>Field notes</h1><p>${ARTICLE_TEXT}</p></article><dialog open style="position:fixed;left:0;top:0;width:100vw;height:100vh;max-width:none;max-height:none;margin:0;padding:0;border:0"><form><input name="user" /><input name="pass" type="password" /></form></dialog>`));
+			if (pathname === "/recaptcha/api.js") return new Response("", { headers: { "content-type": "text/javascript" } });
+			// Redirects out of the fixture's allowed host: to a mirror host, and to a private one.
+			if (pathname === "/to-mirror") return new Response(null, { status: 302, headers: { location: `http://redlib.localhost:${url.port}/article` } });
+			if (pathname === "/to-private") return new Response(null, { status: 302, headers: { location: `${origin("localhost")}/article` } });
+			// Opens a popup as it loads; the reader's popup blocker must keep `/page2` from ever being fetched.
+			if (pathname === "/popup") return html(page("popup opener", `<p>a page with a popunder</p><script>window.open("/page2");</script>`));
 			return new Response("not found", { status: 404 });
 		},
 	});

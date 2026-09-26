@@ -1,6 +1,6 @@
 ---
 name: browser
-description: Drive a real browser the user watches live in the Browser View — open sites or localhost on a persistent logged-in profile, read and act on pages, hand whole tasks to the fast jev or browser-use agents, and read the user's circled annotations. Use when the user asks to browse, fill a form, sign up, apply, check a site, test a local app, or "look at this page".
+description: Drive a real browser the user watches live in the Browser View — open sites or localhost on a persistent logged-in profile, read and act on pages, read a public page logged out with browser_read, hand whole tasks to the fast jev or browser-use agents, and read the user's circled annotations. Use when the user asks to browse, read a public page, fill a form, sign up, apply, check a site, test a local app, or "look at this page".
 ---
 
 # Browser
@@ -29,6 +29,20 @@ tool needs it.
   transcript. For a jev sign-up or login use `credential` (below). Never
   create accounts that require defeating CAPTCHAs or phone verification — hand
   that step to the user.
+
+## Read a public page
+
+To read a page, not act on it, use `browser_read({ url, maxChars? })`. You
+need no `browserId` and the user sees no View. It reads logged out, in a fresh
+incognito context with no cookies (never a signed-in profile), and returns
+`{ status: "ok", url, title, text }`, with `truncated: true` when the text was
+cut at `maxChars` (default 20 000).
+
+`{ status: "blocked", reason }` means the site refused a logged-out reader: an
+HTTP refusal, a login wall, a CAPTCHA or bot check, or a timeout. That is the
+answer. Report it and never route around it through a mirror, proxy, cache,
+archive or reader service. Those hosts are refused anyway, as are localhost and
+private-network addresses, including through a redirect.
 
 ## Tabs
 

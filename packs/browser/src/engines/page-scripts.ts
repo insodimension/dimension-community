@@ -1,5 +1,5 @@
 import type { BrowserRegion } from "../contracts.js";
-import type { FieldRead } from "./types.js";
+import type { FieldRead, PageRead } from "./types.js";
 const PAGE_TEXT_SCRIPT = (limit: number): string => {
 	const parts: string[] = [`# ${document.title}`, document.location.href, ""];
 	const body = document.body?.innerText ?? "";
@@ -46,6 +46,56 @@ const PAGE_TEXT_SCRIPT = (limit: number): string => {
 	if (controls.length > 0) parts.push("", "## interactive", controls.join("\n"));
 	const text = parts.join("\n");
 	return text.length > limit ? `${text.slice(0, limit)}\n… [truncated]` : text;
+};
+/**
+ * browser_read's evidence: the body's readable text (cut at `limit`) and its
+ * full length, the share of the first viewport a visible password field's
+ * form or dialog covers, and the `src` of up to `maxFrames` VISIBLE iframes
+ * with the share of the first viewport each covers. The document and every
+ * open shadow root beneath it are searched, so a web-component login modal or
+ * challenge is seen. A script tag is never evidence: challenge providers'
+ * scripts load site-wide for invisible scoring. Judged outside the page
+ * (read.ts); nothing here acts on the page.
+ */
+const READ_PAGE_SCRIPT = (limit: number, maxFrames: number): Omit<PageRead, "httpStatus" | "url"> => {
+	const all = (document.body?.innerText ?? "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	const shown = (el: Element): boolean => {
+		const rect = el.getBoundingClientRect();
+		// Offscreen parking (reCAPTCHA's hidden bframe sits at top:-10000px) is not shown.
+		return rect.width > 0 && rect.height > 0 && rect.right + scrollX > 0 && rect.bottom + scrollY > 0 && getComputedStyle(el).visibility !== "hidden";
+	};
+	// Share (0..1) of the first viewport — the top of the document, what a visitor sees on arrival — that `el` covers.
+	const share = (el: Element): number => {
+		const rect = el.getBoundingClientRect();
+		const left = rect.left + scrollX;
+		const top = rect.top + scrollY;
+		const width = Math.max(0, Math.min(left + rect.width, innerWidth) - Math.max(left, 0));
+		const height = Math.max(0, Math.min(top + rect.height, innerHeight) - Math.max(top, 0));
+		return innerWidth > 0 && innerHeight > 0 ? (width * height) / (innerWidth * innerHeight) : 0;
+	};
+	let passwordShare: number | null = null;
+	const frames: Array<{ src: string; share: number }> = [];
+	const roots: Array<Document | ShadowRoot> = [document];
+	for (let r = 0; r < roots.length; r += 1) {
+		const walker = document.createTreeWalker(roots[r], NodeFilter.SHOW_ELEMENT);
+		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+			const el = node as Element;
+			if (el.shadowRoot) roots.push(el.shadowRoot);
+			if (el.tagName === "INPUT") {
+				if (((el as HTMLInputElement).type ?? "").toLowerCase() !== "password" || !shown(el)) continue;
+				// The largest form or dialog around it: a login form inside a full-screen dialog is the dialog.
+				let covered = share(el);
+				for (let box = el.closest("form, dialog, [role=dialog]"); box !== null; box = box.parentElement?.closest("form, dialog, [role=dialog]") ?? null) {
+					if (shown(box)) covered = Math.max(covered, share(box));
+				}
+				passwordShare = Math.max(passwordShare ?? 0, covered);
+			} else if (el.tagName === "IFRAME" && frames.length < maxFrames) {
+				const src = (el as HTMLIFrameElement).src;
+				if (src && shown(el)) frames.push({ src, share: share(el) });
+			}
+		}
+	}
+	return { title: document.title, text: all.slice(0, limit), truncated: all.length > limit, bodyChars: all.length, passwordShare, frames };
 };
 const ELEMENTS_IN_REGION_SCRIPT = (region: BrowserRegion, limit: number): string => {
 	const out: string[] = [];
@@ -186,6 +236,7 @@ const LINK_HREFS_SCRIPT = (selector: string, limit: number): string[] => {
 
 export {
 	PAGE_TEXT_SCRIPT,
+	READ_PAGE_SCRIPT,
 	ELEMENTS_IN_REGION_SCRIPT,
 	SELECT_ALL_SCRIPT,
 	FAVICON_HREF_SCRIPT,

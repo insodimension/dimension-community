@@ -27,6 +27,64 @@ export interface LiveFrame {
 /** A publish field as read from the page. A password input is recognised and never read. */
 export type FieldRead = { state: "absent" | "password" | "not-editable" } | { state: "value"; value: string };
 
+/** What one read navigation saw: the status and final URL from the browser, the rest from the fixed read script. */
+export interface PageRead {
+  /** The main document's HTTP status; null when it had no network response. */
+  httpStatus: number | null;
+  /** The final URL, after redirects. */
+  url: string;
+  title: string;
+  /** `document.body.innerText`, whitespace-collapsed, cut at the limit. */
+  text: string;
+  truncated: boolean;
+  /** Length of the whole body text, before the cut. */
+  bodyChars: number;
+  /**
+   * A visible password input (open shadow roots included): the largest share
+   * (0..1) of the first viewport covered by a form or dialog around it — the
+   * field itself when there is none. Null when no password input is visible.
+   */
+  passwordShare: number | null;
+  /** The page's VISIBLE iframes, open shadow roots included (bounded): src and the share (0..1) of the first viewport each covers. */
+  frames: Array<{ src: string; share: number }>;
+}
+
+/**
+ * What the reader may fetch during one read. Each answer is a refusal reason,
+ * or null to let the request through.
+ */
+export interface ReadPolicy {
+  /** A navigation (main frame or subframe, redirects included): mirror hosts and private addresses. */
+  navigation(url: string): Promise<string | null>;
+  /** Any other request: private addresses only. */
+  subresource(url: string): Promise<string | null>;
+  /** The address the browser actually connected to for `url` — catches a DNS answer that changed after the check. */
+  connected(url: string, ip: string): string | null;
+}
+
+/** One read's outcome: the page, a main-frame request the policy refused, or no `load` in time. */
+export type ReadOutcome =
+  | { kind: "read"; page: PageRead }
+  | { kind: "refused"; url: string; reason: string }
+  | { kind: "timeout" };
+
+/**
+ * browser_read's headless reader. No profile, no persistent cookie jar: every
+ * read runs in a fresh incognito context on one tab and is disposed with it.
+ */
+export interface PageReader {
+  /** False once the browser disconnected or began closing; the runtime then replaces it. */
+  readonly usable: boolean;
+  /**
+   * Navigate a fresh context's only tab to `url` (already validated), wait for
+   * `load` up to `timeoutMs`, and read it with the fixed read script. Every
+   * request goes through `policy`; the context is closed before this returns.
+   */
+  read(url: string, limit: number, timeoutMs: number, policy: ReadPolicy): Promise<ReadOutcome>;
+  /** Resolve once the browser process is gone; a failed close may be retried. */
+  close(): Promise<void>;
+}
+
 export interface EngineDriver {
   state(): Promise<EngineState>;
   /** Viewport PNG of the active tab, not a full-page image; device scale factor is one. */

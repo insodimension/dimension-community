@@ -34,6 +34,8 @@ import type {
 	PublishMode,
 	PublishRecipe,
 	PublishRecord,
+	ReadRequest,
+	ReadResult,
 	TabRequest,
 	TaskRequest,
 	TaskRun,
@@ -44,9 +46,11 @@ import type {
 import { BROWSER_ENGINES, TASK_AGENTS } from "./contracts.js";
 import { credentialOrigin, resolveCredential } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
-import type { EngineDriver, EngineState } from "./engines/types.js";
+import { launchReader } from "./engines/puppeteer.js";
+import type { EngineDriver, EngineState, PageReader } from "./engines/types.js";
 import { cropRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
+import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
 
@@ -54,6 +58,8 @@ import { type RunningWorker, startWorker } from "./task.js";
 // Bounds. Every unbounded thing in a long-lived runtime is a leak or a weapon.
 // ---------------------------------------------------------------------------
 const MAX_BROWSERS = 4;
+/** browser_read's reader browser is closed this long after its last read. */
+const READER_IDLE_MS = 60_000;
 const MAX_FRAMES_RETAINED = 8;
 const MAX_SNAPSHOT_CHARS = 20_000;
 const MAX_ELEMENT_CHARS = 4_000;
@@ -108,6 +114,12 @@ export interface BrowserRuntimeOptions {
 	relayUrl?: string;
 	/** Explicit browser visibility; omitted uses each engine's supported default. */
 	headless?: boolean;
+	/**
+	 * TESTS ONLY: exact hostnames browser_read may reach although they are
+	 * loopback/private (the local fixture on 127.0.0.1). Never set in
+	 * production; it is not reachable from any tool input.
+	 */
+	allowPrivateReadHosts?: readonly string[];
 }
 
 interface FrameRecord {
@@ -149,6 +161,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** In-flight launches, so a second open cannot race a first one. */
 	private readonly opening = new Map<string, Promise<Entry>>();
 	/**
+	 * browser_read's headless reader (no profile; a fresh incognito context per
+	 * read). It takes one slot of MAX_BROWSERS while it lives, closes after
+	 * READER_IDLE_MS without a read, and is evicted for a Browser View open when
+	 * the pool is full. Its launch, its reads and its close run in order on
+	 * `readerQueue`.
+	 */
+	private pageReader: PageReader | null = null;
+	private readerLaunching = false;
+	private readerQueue: Promise<unknown> = Promise.resolve();
+	private readerIdle: NodeJS.Timeout | undefined;
+	/**
 	 * Drivers whose rollback close failed during launch. Their shutdown is
 	 * unconfirmed, so their profile lock is deliberately retained; keeping the
 	 * driver here is what makes that close retryable instead of orphaning a
@@ -178,6 +201,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 */
 	async open(options: BrowserOpenOptions): Promise<BrowserState> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
+		// browser_read's reader never keeps the human from a browser: when it
+		// holds the last slot it is closed (after any read in progress) first.
+		if (this.byId.size + this.opening.size >= MAX_BROWSERS - 1 && this.readerHeld()) await this.closeReader();
+		if (this.disposed) fail("disposed", "runtime has been disposed");
 		const profile = validateProfile(options.profile);
 		const engine = normalizeEngine(options.engine);
 		const viewport = normalizeViewport(options.viewport);
@@ -205,7 +232,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		// Count launches in flight too: four concurrent opens must not slip past
 		// the bound just because none of them has finished launching yet.
-		if (this.byId.size + this.opening.size >= MAX_BROWSERS) {
+		if (this.byId.size + this.opening.size + (this.readerHeld() ? 1 : 0) >= MAX_BROWSERS) {
 			fail("too_many_browsers", `at most ${MAX_BROWSERS} browsers may be open at once; close one first`);
 		}
 
@@ -297,8 +324,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.disposed = true;
 		// Let in-flight launches finish first: a browser born after we started
 		// disposing would otherwise outlive the runtime holding its lock.
-		await Promise.allSettled([...this.opening.values()]);
+		await Promise.allSettled(this.opening.values());
 		const errors: string[] = [];
+		// Queued behind any read in flight, so the reader is not closed under it.
+		await this.closeReader().catch((err) => errors.push(describe(err)));
 		for (const entry of [...this.byId.values()]) {
 			await this.serialize(entry, () => this.teardown(entry), { evenIfClosed: true }).catch((err) =>
 				errors.push(describe(err)),
@@ -717,6 +746,94 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	// -----------------------------------------------------------------------
+	// Reading — one logged-out read on this runtime's own headless reader (read.ts)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Read `url` in a fresh incognito context of the reader browser. A mirror
+	 * or private-address target is refused before anything launches or
+	 * navigates, and every request of the read (redirects included) goes
+	 * through the same policy; a page that will not serve a logged-out reader
+	 * comes back `blocked` with the reason, never retried. No profile and no
+	 * Browser View browser is ever involved.
+	 */
+	async read(request: ReadRequest): Promise<ReadResult> {
+		if (this.disposed) fail("disposed", "runtime has been disposed");
+		if (!request || typeof request !== "object") fail("bad_read", "read request must be an object");
+		const url = navigationUrl(request.url, "url", "bad_url");
+		const maxChars = request.maxChars ?? DEFAULT_READ_CHARS;
+		if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > MAX_READ_CHARS) {
+			fail("bad_read", `maxChars must be an integer from 1 to ${MAX_READ_CHARS}`);
+		}
+		const policy = readPolicy(this.options.allowPrivateReadHosts);
+		const refused = await policy.navigation(url);
+		if (refused !== null) return { status: "blocked", url, reason: refused };
+		return await this.onReader(async () => {
+			if (this.disposed) fail("disposed", "runtime has been disposed");
+			clearTimeout(this.readerIdle);
+			try {
+				const reader = await this.liveReader();
+				const outcome = await reader.read(url, maxChars, READ_TIMEOUT_MS, policy);
+				if (outcome.kind === "timeout") return { status: "blocked", url, reason: TIMEOUT_REASON };
+				if (outcome.kind === "refused") return { status: "blocked", url: outcome.url, reason: outcome.reason };
+				const seen = outcome.page;
+				// The mirror check again, on where the page landed: a redirect the
+				// policy did not see (a same-document URL change) is still a mirror.
+				const landed = await policy.navigation(seen.url);
+				const reason = landed ?? blockedReason(seen);
+				if (reason !== null) return { status: "blocked", url: seen.url, reason };
+				return { status: "ok", url: seen.url, title: seen.title, text: seen.text, ...(seen.truncated ? { truncated: true as const } : {}) };
+			} finally {
+				this.readerIdle = setTimeout(() => void this.closeReader().catch((err) => console.error("browser_read reader close failed:", describe(err))), READER_IDLE_MS);
+				this.readerIdle.unref();
+			}
+		});
+	}
+
+	/** The reader, launched when there is none (or the last one died). Runs on `readerQueue`. */
+	private async liveReader(): Promise<PageReader> {
+		const current = this.pageReader;
+		if (current?.usable) return current;
+		if (current) {
+			await current.close();
+			this.pageReader = null;
+		}
+		if (this.byId.size + this.opening.size >= MAX_BROWSERS) {
+			fail("too_many_browsers", `at most ${MAX_BROWSERS} browsers may be open at once; close one first`);
+		}
+		this.readerLaunching = true;
+		try {
+			this.pageReader = await launchReader(this.options.executablePath ? { executablePath: this.options.executablePath } : {});
+		} finally {
+			this.readerLaunching = false;
+		}
+		return this.pageReader;
+	}
+
+	/** Whether the reader holds (or is taking) a browser slot. */
+	private readerHeld(): boolean {
+		return this.pageReader !== null || this.readerLaunching;
+	}
+
+	/** Close the reader after any read in flight; a failed close keeps it, to be retried. */
+	private closeReader(): Promise<void> {
+		return this.onReader(async () => {
+			clearTimeout(this.readerIdle);
+			const reader = this.pageReader;
+			if (!reader) return;
+			await reader.close();
+			this.pageReader = null;
+		});
+	}
+
+	/** The reader's launch, reads and close run strictly in order. */
+	private onReader<T>(work: () => Promise<T>): Promise<T> {
+		const next = this.readerQueue.then(work, work);
+		this.readerQueue = next.catch(() => undefined);
+		return next;
+	}
+
+	// -----------------------------------------------------------------------
 	// Internals
 	// -----------------------------------------------------------------------
 
@@ -802,30 +919,34 @@ function normalizeViewport(viewport: Viewport | undefined): Viewport {
 	};
 }
 
+/** An http(s) URL to navigate to, canonicalized; refused (`code`) as anything else. */
+function navigationUrl(url: unknown, name: string, code: string): string {
+	if (typeof url !== "string" || url.length > MAX_URL_LENGTH) {
+		fail(code, `${name} must be a string of at most ${MAX_URL_LENGTH} characters`);
+	}
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		fail(code, `${name} ${JSON.stringify(url)} is not an absolute URL`);
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		// javascript:, file:, data:, blob:, chrome: are all refused — a
+		// navigation must never become script execution or local file reads.
+		fail(code, `only http and https navigations are allowed, got ${parsed.protocol}`);
+	}
+	if (parsed.username || parsed.password) {
+		fail(code, "Credentials in navigation URLs are not supported; sign in through the browser.");
+	}
+	return parsed.toString();
+}
+
 /** Validate and canonicalize an action before anything touches the page. */
 function normalizeAction(action: BrowserAction, viewport: Viewport): BrowserAction {
 	if (!action || typeof action !== "object") fail("bad_action", "action must be an object");
 	switch (action.kind) {
-		case "navigate": {
-			if (typeof action.url !== "string" || action.url.length > MAX_URL_LENGTH) {
-				fail("bad_action", `navigate.url must be a string of at most ${MAX_URL_LENGTH} characters`);
-			}
-			let parsed: URL;
-			try {
-				parsed = new URL(action.url);
-			} catch {
-				fail("bad_action", `navigate.url ${JSON.stringify(action.url)} is not an absolute URL`);
-			}
-			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-				// javascript:, file:, data:, blob:, chrome: are all refused — a
-				// navigation must never become script execution or local file reads.
-				fail("bad_action", `only http and https navigations are allowed, got ${parsed.protocol}`);
-			}
-			if (parsed.username || parsed.password) {
-				fail("bad_action", "Credentials in navigation URLs are not supported; sign in through the browser.");
-			}
-			return { kind: "navigate", url: parsed.toString() };
-		}
+		case "navigate":
+			return { kind: "navigate", url: navigationUrl(action.url, "navigate.url", "bad_action") };
 		case "click": {
 			const button = action.button ?? "left";
 			if (!MOUSE_BUTTONS.includes(button)) fail("bad_action", `click.button must be one of: ${MOUSE_BUTTONS.join(", ")}`);
