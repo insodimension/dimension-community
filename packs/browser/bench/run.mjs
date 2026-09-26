@@ -356,23 +356,27 @@ for (const agent of agents) {
       run = { ...run, agent: "hybrid", by: run === first ? first.agent : "jev→browser-use" };
     }
     // A failed account stage still counts as failed, but the stages after it
-    // must measure THEIR task, not inherit the failure: the harness completes
+    // must measure THEIR task, not inherit the failure: the harness repairs
     // the account from the fixture and signs this browser in (/__seed).
     if (isAccountStage(stage) && !run.success) {
-      await call("browser_act", { browserId, action: { kind: "navigate", url: `${base}/__seed?stage=${stage.id}` } });
-      run.seeded = true;
-      console.log(`[${agent}/${stage.id}] seeded by the harness so later stages start fair`);
+      try {
+        await call("browser_act", { browserId, action: { kind: "navigate", url: `${base}/__seed?stage=${stage.id}` } });
+        run.seeded = (await worldResults()).seeded.includes(stage.id);
+        if (run.seeded) console.log(`[${agent}/${stage.id}] repaired by the harness so later stages start fair`);
+      } catch (error) {
+        console.error(`[${agent}/${stage.id}] seed failed: ${error.message}`);
+      }
     }
     runs.push(run);
   }
   if (rec) {
     const file = join(resultsDir, `${stamp}-${agent}.mp4`);
     try {
-      videos[agent] = `bench/results/${stamp}-${agent}.mp4`;
-      await rec.finish(file);
-      console.log(`[bench] ${agent}: video ${file}`);
+      if (await rec.finish(file)) {
+        videos[agent] = `bench/results/${stamp}-${agent}.mp4`;
+        console.log(`[bench] ${agent}: video ${file}`);
+      }
     } catch (error) {
-      delete videos[agent];
       console.error(`[bench] ${agent}: video failed: ${error.message}`);
     }
   }

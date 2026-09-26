@@ -275,29 +275,35 @@ function freshState() {
 const SEED_STAGES = ["mail", "network", "verify", "profile"];
 /**
  * Harness only (GET /__seed): the world the next stage expects once `stage` has succeeded, built from
- * the fixture wherever the agent left it unfinished, plus fresh Mail and Network sessions for the
- * browser that asked. Anything it had to complete is recorded in state.seeded.
+ * the fixture wherever the agent left it missing or wrong, plus fresh Mail and Network sessions for
+ * the browser that asked. Every stage it had to repair is recorded in state.seeded.
  */
 function seed(stage) {
   const upTo = SEED_STAGES.indexOf(stage);
   if (upTo < 0) return [];
   const note = (s) => { if (!state.seeded.includes(s)) state.seeded.push(s); };
   const address = `${applicant.mailUsername}@${MAIL_DOMAIN}`;
-  if (!state.mail.has(address)) {
-    state.mail.set(address, { address, firstName: applicant.firstName, lastName: applicant.lastName, birthday: applicant.birthday, password: applicant.password, createdAt: new Date().toISOString(), messages: [] });
-    state.mailOrder.push(address);
+  if (!mailStage().success) {
+    const box = state.mail.get(address);
+    state.mail.set(address, { createdAt: new Date().toISOString(), messages: [], ...box, address, firstName: applicant.firstName, lastName: applicant.lastName, birthday: applicant.birthday, password: applicant.password });
+    // The applicant's address is the last Mail account created (expectedEmail).
+    state.mailOrder = [...state.mailOrder.filter((a) => a !== address), address];
     note("mail");
   }
   const cookies = [startSession("mail_sid", "/mail", state.mailSessions, address)];
   if (upTo < 1) return cookies;
   let account = state.net.get(address);
-  if (!account || account.password !== applicant.password) {
+  const net = networkStage();
+  if (!account) {
     account = { email: address, firstName: applicant.firstName, lastName: applicant.lastName, password: applicant.password, verified: false, profile: {}, completed: false, createdAt: new Date().toISOString() };
     state.net.set(address, account);
-    if (!state.netOrder.includes(address)) state.netOrder.push(address);
     sendVerification(account);
     note("network");
+  } else if (networkAccount() !== account || net.missing?.length || net.wrong?.length) {
+    Object.assign(account, { firstName: applicant.firstName, lastName: applicant.lastName, password: applicant.password });
+    note("network");
   }
+  state.netOrder = [...state.netOrder.filter((e) => e !== address), address];
   if (upTo >= 2 && !account.verified) {
     account.verified = true;
     note("verify");

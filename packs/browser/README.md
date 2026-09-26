@@ -82,11 +82,12 @@ widens the host's minimal default):
 | `jev` | `TYPESAFE_API_KEY`, plus `TEXT_MODEL_API_KEY` (and optionally `TEXT_MODEL_BASE_URL`, `TEXT_MODEL`) for the small model that writes field values |
 | `browser-use` | `DIMENSION_BROWSER_USE_MODEL` (default `gpt-4.1-mini`). `gemini-*` models use browser-use's Google client with `DIMENSION_BROWSER_USE_API_KEY` or `GOOGLE_API_KEY`; anything else its OpenAI client with `DIMENSION_BROWSER_USE_API_KEY` or `OPENAI_API_KEY`, and `DIMENSION_BROWSER_USE_BASE_URL` for any OpenAI-compatible endpoint |
 
-Once a task has run, the server keeps one worker pre-spawned with both agent
-libraries already imported (browser-use alone takes ~4 s to import), so the
-next task starts at its first step: 11–12 s to the first step cold, 4 s warm
-(measured through the MCP server, 2026-09-26). An unused spare exits after ten
-minutes. browser-use runs in flash mode, without its planner or judge call:
+Once a task has run, the server keeps one worker pre-spawned with browser-use
+already imported (~4 s of imports), so the next browser-use task starts at its
+first step: 11–12 s to the first step cold, 4 s warm (browser-use, measured
+through the MCP server, 2026-09-26); jev's harness reads its env at import
+time, so a jev task saves only interpreter start-up. An unused spare exits
+after ten minutes. browser-use runs in flash mode, without its planner or judge call:
 on the 14-stage practice world with `gemini-3.1-flash-lite` both configurations
 pass 14/14, in 558 s and 251k tokens against 726 s and 787k for the library
 defaults.

@@ -71,10 +71,11 @@ interface Spawned {
   stderr(): string;
 }
 
-function spawnWorker(): Spawned {
+/** `spare`: the worker preloads browser-use while it waits (DIM_BROWSER_SPARE); a worker spawned for a job does not. */
+function spawnWorker(spare = false): Spawned {
   const child = spawn(interpreter(), ["-m", "dim_browser_bridge"], {
     cwd: PYTHON_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...(spare ? { DIM_BROWSER_SPARE: "1" } : {}) },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -88,10 +89,12 @@ function spawnWorker(): Spawned {
 }
 
 /**
- * One pre-spawned worker, waiting on stdin with both agent libraries already
- * imported (browser-use alone costs ~4 s of imports), so a task's clock starts
- * at its first step. Kept only once tasks are in use: the first task spawns
- * the next spare, every later one takes it and spawns its successor.
+ * One pre-spawned worker, waiting on stdin with browser-use already imported
+ * (~4 s of imports), so a browser-use task's clock starts at its first step;
+ * a jev task still imports its harness per task (it reads its env at import
+ * time) and saves only interpreter start-up. Kept only once tasks are in use:
+ * the first task spawns the next spare, every later one takes it and spawns
+ * its successor.
  */
 let spare: { worker: Spawned; env: string; idle: NodeJS.Timeout } | undefined;
 
@@ -124,7 +127,7 @@ function keepSpare(): void {
   if (spare) return;
   let worker: Spawned;
   try {
-    worker = spawnWorker();
+    worker = spawnWorker(true);
   } catch {
     return; // no interpreter: the next task reports it
   }

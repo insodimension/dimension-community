@@ -1161,10 +1161,10 @@ function usageOf(line) {
   };
 }
 var FINAL = { done: true, blocked: true, failed: true, cancelled: true };
-function spawnWorker() {
+function spawnWorker(spare2 = false) {
   const child = spawn(interpreter(), ["-m", "dim_browser_bridge"], {
     cwd: PYTHON_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...spare2 ? { DIM_BROWSER_SPARE: "1" } : {} },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true
   });
@@ -1201,7 +1201,7 @@ function keepSpare() {
   if (spare) return;
   let worker;
   try {
-    worker = spawnWorker();
+    worker = spawnWorker(true);
   } catch {
     return;
   }
