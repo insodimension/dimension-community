@@ -228,6 +228,91 @@
 			]
 		},
 		{
+			"name": "chat",
+			"source": "./packs/chat",
+			"pluginId": "chat",
+			"title": "Chat",
+			"description": "Chat - your personal assistant, in a room of its own. A calm conversation with Aether, a rail of your past sessions, and a viewer beside it that opens the documents, slides and images it makes. No repo, no branches, no developer chrome: one layout and one space, assembled entirely from marketplace packs.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "layout",
+			"tags": [
+				"layout",
+				"space",
+				"assistant",
+				"personal",
+				"chat"
+			],
+			"channel": "canary",
+			"spaces": [
+				{
+					"id": "chat",
+					"label": "Chat",
+					"tagline": "Your personal assistant in a room of its own: a calm conversation, your past sessions on the left, and whatever it makes for you opening beside it.",
+					"icon": "aether",
+					"accent": "#e8a838",
+					"requires": [
+						"classic-switcher",
+						"chat-rail",
+						"classic-workspace",
+						"chat-thread",
+						"independent-composer",
+						"classic-start",
+						"viewer"
+					]
+				}
+			]
+		},
+		{
+			"name": "chat-rail",
+			"source": "./packs/chat-rail",
+			"pluginId": "chat-rail",
+			"title": "Chat Rail",
+			"icon": "panel",
+			"description": "The Chat session rail: only your conversations, newest first, with a search box, a New session button and collections you make yourself to group them. No repos, branches, PR chips or recaps. Built from @fraym/ui primitives and the rail slot's channels only - no shipped rail inside.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "component",
+			"tags": [
+				"component",
+				"rail",
+				"sessions",
+				"collections",
+				"chat"
+			],
+			"channel": "canary"
+		},
+		{
+			"name": "chat-thread",
+			"source": "./packs/chat-thread",
+			"pluginId": "chat-thread",
+			"title": "Chat Thread",
+			"icon": "messageSquare",
+			"description": "Chat thread - the conversation and nothing else: your words, the assistant's words, and one quiet 'Worked for' line per turn. Built from the kit's StoreThread part; no tool cards, no shipped thread inside.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "component",
+			"tags": [
+				"component",
+				"thread",
+				"conversation",
+				"chat"
+			],
+			"channel": "canary"
+		},
+		{
 			"name": "classic-dock",
 			"source": "./packs/classic-dock",
 			"pluginId": "classic-dock",
@@ -1017,6 +1102,32 @@
 				"polish",
 				"skill"
 			]
+		},
+		{
+			"name": "viewer",
+			"source": "./packs/viewer",
+			"pluginId": "viewer",
+			"title": "Viewer",
+			"icon": "file",
+			"description": "A tabbed document viewer beside the conversation: images, PDF, HTML, Markdown, Word, PowerPoint, Excel and plain text, rendered offline inside a sandboxed frame. Ask the agent to open a file and it appears as a tab.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "artifactory",
+			"tags": [
+				"viewer",
+				"artifactory",
+				"mcp-apps",
+				"documents",
+				"pdf",
+				"docx",
+				"pptx",
+				"xlsx"
+			],
+			"channel": "canary"
 		},
 		{
 			"name": "watch",

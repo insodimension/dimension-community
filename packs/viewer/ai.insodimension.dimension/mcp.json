@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"viewer": {
+			"command": "node",
+			"args": ["app/server.mjs"]
+		}
+	}
+}

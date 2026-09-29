@@ -5,6 +5,7 @@ dist/
 !packs/*/dist/
 !packs/browser/app/dist/
 !packs/artifactory-general-agent/app/dist/
+!packs/viewer/app/dist/
 # Local verification harnesses and cached upstream sources: developer scratch,
 # never part of the published pack.
 .dev/

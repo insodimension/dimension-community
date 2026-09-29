@@ -1,0 +1,21 @@
+{
+	"name": "@dimension/chat-thread",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Chat thread - the conversation and nothing else: your words, the assistant's words, and one quiet 'Worked for' line per turn. Built from the kit's StoreThread part; no tool cards, no shipped thread inside.",
+	"type": "module",
+	"main": "./src/index.tsx",
+	"dimension": {
+		"name": "chat-thread"
+	},
+	"private": true,
+	"scripts": {
+		"build": "vite build"
+	},
+	"peerDependencies": {
+		"react": ">=19"
+	},
+	"devDependencies": {
+		"vite": "8.1.5"
+	}
+}

@@ -1,0 +1,119 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "chat",
+	"version": "0.1.0",
+	"description": "Chat - your personal assistant, in a room of its own. A calm conversation with Aether, a rail of your past sessions, and a viewer beside it that opens the documents, slides and images it makes. No repo, no branches, no developer chrome: one layout and one space, assembled entirely from marketplace packs.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"layout",
+		"space",
+		"assistant",
+		"personal",
+		"chat"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Chat",
+			"category": "layout",
+			"defaultEnabled": true,
+			"channel": "canary",
+			"spaces": [
+				{
+					"specVersion": 1,
+					"id": "chat",
+					"label": "Chat",
+					"icon": "aether",
+					"order": 35,
+					"description": "Your personal assistant in a room of its own: a calm conversation, your past sessions on the left, and whatever it makes for you opening beside it.",
+					"mark": {
+						"accent": "#e8a838"
+					},
+					"layout": "chat",
+					"components": {
+						"ch-switcher": "classic-switcher",
+						"ch-rail": "chat-rail",
+						"ch-workspace": "classic-workspace"
+					},
+					"rail": {
+						"actions": [
+							{
+								"id": "new-session",
+								"label": "New session",
+								"icon": "plus",
+								"target": "new-session",
+								"kbd": "Cmd+N",
+								"primary": true
+							}
+						]
+					},
+					"workspace": {
+						"surfaces": [
+							"session"
+						],
+						"start": "session",
+						"session": "session",
+						"actions": [
+							"sound"
+						],
+						"scope": {
+							"workspace": "inso-personal"
+						},
+						"sections": {
+							"thread": "chat-thread",
+							"composer": "independent-composer",
+							"start": "classic-start"
+						},
+						"startCopy": {
+							"heading": "What can I help you with today?"
+						},
+						"composer": {
+							"startPlaceholder": "Ask anything, or tell me what you need…",
+							"placeholder": "Reply, or ask for something else…",
+							"tips": []
+						}
+					},
+					"generalAgents": {
+						"list": [
+							"aether"
+						],
+						"default": "aether"
+					},
+					"requires": {
+						"plugins": [
+							"classic-switcher",
+							"chat-rail",
+							"classic-workspace",
+							"chat-thread",
+							"independent-composer",
+							"classic-start",
+							"viewer"
+						]
+					}
+				}
+			],
+			"type": "layout",
+			"slots": [
+				{
+					"id": "ch-switcher",
+					"contract": "switcher"
+				},
+				{
+					"id": "ch-rail",
+					"contract": "rail",
+					"items": "sessions"
+				},
+				{
+					"id": "ch-workspace",
+					"contract": "workspace"
+				},
+				{
+					"id": "ch-artifact-view",
+					"contract": "artifact-view"
+				}
+			]
+		}
+	}
+}

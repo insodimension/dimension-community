@@ -1,0 +1,229 @@
+/* The DOM the renderers build. Chrome (toolbar, tabs) is Tailwind in the .tsx
+   files; this is only what a renderer creates with createElement, where a class
+   string in TypeScript would be scanned but not stay next to its rule. Host
+   tokens only (--fr-*): the same rules paint light and dark. */
+
+.vw-image {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	overflow: auto;
+	padding: 16px;
+	background: var(--fr-surface-2);
+}
+.vw-picture {
+	position: relative;
+	flex: none;
+	/* Centred while it fits; starts at the top-left and scrolls once it is larger. */
+	margin: auto;
+}
+.vw-picture > img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	border-radius: 4px;
+}
+
+.vw-text {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+	background: var(--fr-bg);
+	--vw-zoom: 1;
+}
+.vw-text > pre {
+	margin: 0;
+	padding: 16px 20px;
+	font-family: var(--fr-font-code);
+	font-size: calc(var(--fr-code-size) * var(--vw-zoom));
+	line-height: 1.55;
+	color: var(--fr-text);
+	white-space: pre;
+	tab-size: 4;
+}
+
+.vw-html {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	border: 0;
+	transform-origin: 0 0;
+	/* A web page assumes white paper; the sandboxed page draws its own colours on it. */
+	background: white;
+	color-scheme: light;
+}
+
+.vw-card {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 24px;
+	text-align: center;
+}
+.vw-card-title {
+	margin: 0;
+	font-size: var(--fr-fs-md);
+	font-weight: 600;
+	color: var(--fr-text);
+}
+.vw-card-body {
+	margin: 0;
+	max-width: 44ch;
+	font-size: var(--fr-fs-sm);
+	color: var(--fr-text-3);
+	overflow-wrap: anywhere;
+}
+
+.vw-pdf {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+	padding: 16px 0;
+	background: var(--fr-surface-2);
+}
+.vw-pdf-column {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	min-width: min-content;
+}
+.vw-pdf-page {
+	position: relative;
+	flex: none;
+	background: white;
+	outline: 1px solid var(--fr-border);
+}
+.vw-pdf-page > canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.vw-md-scroll {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+	background: var(--fr-bg);
+	--vw-zoom: 1;
+}
+.vw-md {
+	box-sizing: border-box;
+	max-width: 46rem;
+	margin: 0 auto;
+	padding: 24px 28px 48px;
+	font-size: calc(var(--fr-fs-base) * 1.08 * var(--vw-zoom));
+	line-height: 1.65;
+	color: var(--fr-text);
+	overflow-wrap: anywhere;
+}
+.vw-md > :first-child {
+	margin-top: 0;
+}
+.vw-md h1,
+.vw-md h2,
+.vw-md h3,
+.vw-md h4,
+.vw-md h5,
+.vw-md h6 {
+	margin: 1.5em 0 0.5em;
+	font-weight: 600;
+	line-height: 1.25;
+}
+.vw-md h1 { font-size: 1.7em; }
+.vw-md h2 { font-size: 1.4em; padding-bottom: 0.25em; border-bottom: 1px solid var(--fr-border-soft); }
+.vw-md h3 { font-size: 1.2em; }
+.vw-md h4,
+.vw-md h5,
+.vw-md h6 { font-size: 1em; }
+.vw-md p,
+.vw-md ul,
+.vw-md ol,
+.vw-md blockquote,
+.vw-md pre,
+.vw-md table {
+	margin: 0.9em 0;
+}
+.vw-md ul { list-style: disc; padding-left: 1.6em; }
+.vw-md ol { list-style: decimal; padding-left: 1.6em; }
+.vw-md li + li { margin-top: 0.25em; }
+.vw-md li > input[type="checkbox"] { margin-right: 0.5em; }
+.vw-md a { color: var(--fr-accent-text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.vw-md code {
+	padding: 0.1em 0.35em;
+	border-radius: 4px;
+	background: var(--fr-surface-2);
+	font-family: var(--fr-font-code);
+	font-size: 0.9em;
+}
+.vw-md pre {
+	overflow: auto;
+	padding: 12px 14px;
+	border: 1px solid var(--fr-border);
+	border-radius: var(--fr-r);
+	background: var(--fr-surface);
+}
+.vw-md pre code { padding: 0; background: none; font-size: 0.88em; }
+.vw-md blockquote {
+	padding-left: 1em;
+	border-left: 3px solid var(--fr-accent-line);
+	color: var(--fr-text-2);
+}
+.vw-md table { display: block; overflow: auto; border-collapse: collapse; }
+.vw-md th,
+.vw-md td { padding: 6px 12px; border: 1px solid var(--fr-border); text-align: left; }
+.vw-md th { background: var(--fr-surface); font-weight: 600; }
+.vw-md hr { margin: 1.5em 0; border: 0; border-top: 1px solid var(--fr-border); }
+.vw-md img { max-width: 100%; height: auto; }
+.vw-md-missing { color: var(--fr-text-3); font-style: italic; }
+
+/* The PDF text layer: invisible spans laid over each page's canvas so text can be
+   selected, copied and anchored to. The essentials of pdf.js's own `.textLayer`
+   rules (its full stylesheet is 160 KB of annotation editors this View never
+   draws); `--scale-factor` is set on the page by the renderer. */
+.vw-pdf-page .textLayer {
+	position: absolute;
+	inset: 0;
+	overflow: clip;
+	line-height: 1;
+	text-align: initial;
+	text-size-adjust: none;
+	forced-color-adjust: none;
+	transform-origin: 0 0;
+	color-scheme: only light;
+	--total-scale-factor: var(--scale-factor, 1);
+	--min-font-size: 1;
+	--text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+	--min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.vw-pdf-page .textLayer :is(span, br) {
+	position: absolute;
+	color: transparent;
+	white-space: pre;
+	cursor: text;
+	transform-origin: 0 0;
+	user-select: text;
+}
+.vw-pdf-page .textLayer > :not(.markedContent),
+.vw-pdf-page .textLayer .markedContent span:not(.markedContent) {
+	z-index: 1;
+	--font-height: 0;
+	--scale-x: 1;
+	--rotate: 0deg;
+	font-size: calc(var(--text-scale-factor) * var(--font-height));
+	transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.vw-pdf-page .textLayer .markedContent {
+	display: contents;
+}
+.vw-pdf-page .textLayer ::selection {
+	background: var(--fr-accent-dim);
+	color: transparent;
+}

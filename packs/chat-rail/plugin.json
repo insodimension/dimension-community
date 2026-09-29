@@ -1,0 +1,29 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "chat-rail",
+	"version": "0.1.0",
+	"description": "The Chat session rail: only your conversations, newest first, with a search box, a New session button and collections you make yourself to group them. No repos, branches, PR chips or recaps. Built from @fraym/ui primitives and the rail slot's channels only - no shipped rail inside.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"rail",
+		"sessions",
+		"collections",
+		"chat"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Chat Rail",
+			"icon": "panel",
+			"category": "component",
+			"defaultEnabled": true,
+			"channel": "canary",
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "rail"
+		}
+	}
+}

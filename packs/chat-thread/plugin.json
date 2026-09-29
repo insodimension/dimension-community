@@ -1,0 +1,28 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "chat-thread",
+	"version": "0.1.0",
+	"description": "Chat thread - the conversation and nothing else: your words, the assistant's words, and one quiet 'Worked for' line per turn. Built from the kit's StoreThread part; no tool cards, no shipped thread inside.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"component",
+		"thread",
+		"conversation",
+		"chat"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Chat Thread",
+			"icon": "messageSquare",
+			"category": "component",
+			"defaultEnabled": true,
+			"channel": "canary",
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"slot": "thread"
+		}
+	}
+}

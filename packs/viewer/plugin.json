@@ -1,0 +1,40 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "viewer",
+	"version": "0.1.0",
+	"description": "A tabbed document viewer beside the conversation: images, PDF, HTML, Markdown, Word, PowerPoint, Excel and plain text, rendered offline inside a sandboxed frame. Ask the agent to open a file and it appears as a tab.",
+	"author": {
+		"name": "Dimension"
+	},
+	"keywords": [
+		"viewer",
+		"artifactory",
+		"mcp-apps",
+		"documents",
+		"pdf",
+		"docx",
+		"pptx",
+		"xlsx"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Viewer",
+			"icon": "file",
+			"category": "artifactory",
+			"defaultEnabled": false,
+			"channel": "canary",
+			"artifactories": [
+				{
+					"mcpServer": "viewer",
+					"label": "Viewer",
+					"icon": "file",
+					"modelSpaces": [
+						"chat"
+					],
+					"grants": []
+				}
+			]
+		}
+	}
+}

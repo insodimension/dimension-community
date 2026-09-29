@@ -1,0 +1,66 @@
+{
+  "name": "@dimension/community-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "author": "Dimension",
+  "description": "A tabbed document viewer MCP App: images, PDF, HTML, Markdown, Word, PowerPoint, Excel and text, parsed offline inside the sandboxed View.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "bun scripts/build.mjs",
+    "check:types": "tsc --noEmit",
+    "test": "bun test test/",
+    "start": "node app/server.mjs"
+  },
+  "dimension": {
+    "name": "viewer",
+    "description": "A tabbed document viewer beside the conversation: images, PDF, HTML, Markdown, Word, PowerPoint, Excel and text.",
+    "defaultEnabled": false,
+    "category": "artifactory",
+    "keywords": [
+      "viewer",
+      "artifactory",
+      "mcp-apps",
+      "documents"
+    ]
+  },
+  "files": [
+    "plugin.json",
+    "ai.insodimension.dimension/mcp.json",
+    "app/server.mjs",
+    "app/dist/"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "//devDependencies": "Everything below is bundled into app/dist (the View) or app/server.mjs (the server) by scripts/build.mjs, so none of it ships. The document parsers (docx-preview, jszip, @aiden0z/pptx-renderer, xlsx) are declared here even though the docx/pptx/xlsx renderers are written elsewhere: one manifest owns the whole dependency set. `xlsx` is SheetJS CE from SheetJS's own CDN because the npm `xlsx` package is frozen at 0.18.5 (2022) with known advisories.",
+  "devDependencies": {
+    "@aiden0z/pptx-renderer": "1.3.0",
+    "@dimension/mcp-app-kit": "workspace:*",
+    "@dimension/sdk": "workspace:*",
+    "@fraym/ui": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/node": "^26.1.2",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "docx-preview": "0.4.1",
+    "dompurify": "3.4.12",
+    "esbuild": "^0.21.5",
+    "jszip": "3.10.2",
+    "linkedom": "catalog:",
+    "marked": "catalog:",
+    "pdfjs-dist": "^6.1.200",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

@@ -1,0 +1,22 @@
+{
+	"name": "@dimension/chat-rail",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Chat rail — a sessions-only rail with user collections, built from @fraym/ui primitives and the rail channels alone. Imports no shipped rail.",
+	"type": "module",
+	"main": "./src/index.tsx",
+	"dimension": {
+		"name": "chat-rail"
+	},
+	"private": true,
+	"scripts": {
+		"build": "vite build",
+		"test": "bun test test/"
+	},
+	"peerDependencies": {
+		"react": ">=19"
+	},
+	"devDependencies": {
+		"vite": "8.1.5"
+	}
+}
