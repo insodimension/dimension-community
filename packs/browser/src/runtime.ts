@@ -100,6 +100,7 @@ import { type Publication, cancel, confirm, isPending, prepare, publishRecord, r
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
+import type { CodeLifetime, CodeSeam, EndListener, EndWhy } from "./code/host/runtime-port.js";
 
 // ---------------------------------------------------------------------------
 // Bounds. Every unbounded thing in a long-lived runtime is a leak or a weapon.
@@ -295,6 +296,8 @@ interface Entry {
 	retiring: Promise<void> | undefined;
 	/** A throwaway's polite close has failed once: it is killed from then on, because puppeteer treats a second close as already done. */
 	closeFailed: boolean;
+	/** Set when a cell's `browser.open` made it (doc 77 §7.4.3): its own idle clock, and `persist` exempts it from idle close and from being closed to make room. */
+	code?: CodeLifetime;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -345,6 +348,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly released = new Map<string, string>();
 	/** Watches the profile root for deletions while anyone listens for connection changes. */
 	private profileWatcher: FSWatcher | undefined;
+	/** The code host (src/code/host) hears when a browser ends, and when a View joins one. */
+	private readonly endListeners = new Set<EndListener>();
+	private readonly viewListeners = new Set<(browserId: string) => void>();
+	private seam: CodeSeam | undefined;
 
 	constructor(options: BrowserRuntimeOptions = {}) {
 		this.options = options;
@@ -386,7 +393,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * With the pool full, the throwaway used least recently that is neither working nor watched is closed first (its Chrome gone before
 	 * this launches); when there is none, the open is refused (`too_many_browsers`) naming the browsers this chat holds.
 	 */
-	async open(options: BrowserOpenOptions, opener: BrowserOpener = {}): Promise<BrowserState> {
+	async open(options: BrowserOpenOptions, opener: BrowserOpener = {}, code?: CodeLifetime): Promise<BrowserState> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
 		const engine = normalizeEngine(options.engine);
 		const named = options.profile === undefined ? undefined : this.resolveProfile(options.profile, engine);
@@ -436,7 +443,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		assertEngineAvailable(engine);
 		// A throwaway browser has no name to guard; its slot only counts against the bound. `:` is not a slug character.
 		const slot = profile ?? `ephemeral:${randomBytes(8).toString("hex")}`;
-		const started = this.launch(profile, engine, viewport, opener).finally(() => {
+		const started = this.launch(profile, engine, viewport, opener, code).finally(() => {
 			this.opening.delete(slot);
 			this.openers.delete(slot);
 		});
@@ -449,7 +456,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return notice === undefined ? state : { ...state, notice };
 	}
 
-	private async launch(profile: string | null, engine: BrowserEngine, viewport: Viewport, opener: BrowserOpener): Promise<Entry> {
+	private async launch(profile: string | null, engine: BrowserEngine, viewport: Viewport, opener: BrowserOpener, code?: CodeLifetime): Promise<Entry> {
 		// A saved profile is locked while its browser runs; a throwaway one gets a
 		// directory of its own that goes with the browser.
 		let directory: string;
@@ -495,11 +502,12 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				opener, probe: { timer: undefined, running: undefined, again: false },
 				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false,
 			};
+			if (code !== undefined) entry.code = code;
 			if (profile !== null && profile !== RELAY_PROFILE) entry.notice = this.touchProfile(profile, driver.app);
 			this.byId.set(entry.browserId, entry);
 			if (profile !== null) this.byProfile.set(profile, entry);
 			// A person's own Private browser is theirs: no clock closes it (the leak is chats' browsers, and the View stops reading while its tab is hidden).
-			if (profile === null && opener.caller !== "app") this.watchIdle(entry, this.idleMs);
+			if (profile === null && opener.caller !== "app") this.watchIdle(entry, this.idleOf(entry));
 			return entry;
 		} catch (error) {
 			// A factory owns rollback until it returns; only its confirmed-close
@@ -550,7 +558,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private async teardown(entry: Entry): Promise<void> {
 		if (this.byId.get(entry.browserId) !== entry) return;
 		settleOnClose(entry);
+		const ending = !entry.closed;
 		entry.closed = true;
+		if (ending) this.notifyEnd(entry, entry.retiring === undefined ? "closed" : "retired");
 		entry.frames.length = 0;
 		try {
 			// A task agent drives this Chrome; it stops before the browser does.
@@ -694,12 +704,15 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private checkIdle(entry: Entry): void {
 		if (entry.closed || entry.retiring !== undefined) return;
 		const quietMs = performance.now() - entry.lastUsed;
-		// A View joined to its stream is watching it however long the page takes to answer; a call in flight is work.
-		if (this.working(entry) || entry.viewers > 0 || quietMs < this.idleMs) {
-			this.watchIdle(entry, this.working(entry) || entry.viewers > 0 ? this.idleMs : this.idleMs - quietMs);
+		const idleMs = this.idleOf(entry);
+		// A View joined to its stream is watching it however long the page takes to answer; a call in flight is work; a persisted code browser stays.
+		if (this.working(entry) || entry.viewers > 0 || entry.code?.persist === true || quietMs < idleMs) {
+			this.watchIdle(entry, this.working(entry) || entry.viewers > 0 || entry.code?.persist === true ? idleMs : idleMs - quietMs);
 			return;
 		}
-		const reason = `it was a throwaway browser, closed after ${this.idleMs / 1_000} s with no calls; open a new one with browser_open`;
+		const reason = entry.code === undefined
+			? `it was a throwaway browser, closed after ${idleMs / 1_000} s with no calls; open a new one with browser_open`
+			: `it was a code browser, closed after ${idleMs / 1_000} s with no calls; open a new one with browser.open`;
 		void this.retire(entry, reason).catch((error: unknown) => console.error("An idle throwaway browser was not closed:", describe(error)));
 	}
 
@@ -711,7 +724,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private pickVictim(): Entry | undefined {
 		let victim: Entry | undefined;
 		for (const entry of this.byId.values()) {
-			if (entry.profile !== null || entry.closed || entry.viewers > 0 || this.working(entry)) continue;
+			if (entry.profile !== null || entry.closed || entry.viewers > 0 || entry.code?.persist === true || this.working(entry)) continue;
 			const personal = entry.opener.caller === "app";
 			const victimPersonal = victim?.opener.caller === "app";
 			if (victim === undefined || (!personal && victimPersonal) || (personal === victimPersonal && entry.lastUsed < victim.lastUsed)) victim = entry;
@@ -755,6 +768,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	viewing(browserId: string): () => void {
 		const entry = this.require(browserId);
 		entry.viewers += 1;
+		for (const listener of [...this.viewListeners]) listener(browserId);
 		let ended = false;
 		return () => {
 			if (ended) return;
@@ -762,6 +776,66 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			entry.viewers -= 1;
 			entry.lastUsed = performance.now();
 		};
+	}
+
+	/** How long `entry` may go without a call: a cell's browser has its own clock (OMP's 1,800 s); every other throwaway has the pack's. */
+	private idleOf(entry: Entry): number {
+		return entry.code?.idleMs ?? this.idleMs;
+	}
+
+	// -----------------------------------------------------------------------
+	// The code seam (src/code/host): a browser a cell opens is an entry like any other
+	// -----------------------------------------------------------------------
+
+	private notifyEnd(entry: Entry, why: EndWhy): void {
+		const reason = this.released.get(entry.browserId);
+		for (const listener of [...this.endListeners]) {
+			try {
+				listener(entry.browserId, why, reason);
+			} catch (error) {
+				console.error("A browser-end listener failed:", describe(error));
+			}
+		}
+	}
+
+	/** One call in flight on `entry`, for a cell: out of idle close and make-room, refused like a page call while a task or a pending publish owns the page. Returns what ends it. */
+	private holdWork(entry: Entry): () => void {
+		refuseWhileBusy(entry, undefined);
+		entry.pending += 1;
+		let held = true;
+		return () => {
+			if (!held) return;
+			held = false;
+			entry.pending -= 1;
+			entry.lastUsed = performance.now();
+		};
+	}
+
+	/** The closures the code host drives. The runtime stays the one owner of browsers, locks, sessions and the View's stream; the host owns workers and cells. */
+	codeSeam(): CodeSeam {
+		return (this.seam ??= {
+			open: async (options, opener, code) => await this.open(options, opener, code),
+			resize: async (browserId, viewport, scale) => await this.resize(browserId, viewport, scale),
+			close: async (browserId) => await this.close(browserId),
+			require: (browserId) => this.require(browserId),
+			peek: (browserId) => {
+				const entry = this.byId.get(browserId);
+				return entry === undefined || entry.closed ? undefined : entry;
+			},
+			browsersOf: (session) => [...this.byId.values()].filter((entry) => !entry.closed && entry.opener.session === session),
+			viewOf: (session) => this.viewOf(session),
+			bindView: (session, browserId) => this.bindView(session, browserId),
+			hold: (entry) => this.holdWork(entry as Entry),
+			serialize: (entry, work) => this.serialize(entry as Entry, work),
+			onEnd: (listener) => {
+				this.endListeners.add(listener);
+				return () => void this.endListeners.delete(listener);
+			},
+			onViewed: (listener) => {
+				this.viewListeners.add(listener);
+				return () => void this.viewListeners.delete(listener);
+			},
+		});
 	}
 
 	// -----------------------------------------------------------------------

@@ -155,7 +155,23 @@ export interface CodeBrowserPort {
   /** Counts as a call in flight; throws human_driving, publish_pending, task_running. */
   holdWork(browserId: string): () => void;
   release(browserId: string, o: { kill: boolean }): Promise<void>;
-  onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over") => void): () => void;
+  /** `reason` is the runtime's own account when it closed the browser (idle, to make room): what the cell is told in place of "not alive". */
+  onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over", reason?: string) => void): () => void;
+  // ---- ADDED by L2 (the host needs them on reuse, on a View mounting, and for the freeze clock).
+  /** Navigates a tab the session already holds (`browser.open({ name, url })` on a name that exists). A page that has not loaded in `timeoutMs` (or when `signal` aborts) is stopped and the call rejects. */
+  navigateTab(browserId: string, tabId: string, o: { url: string; waitUntil?: WaitUntil; timeoutMs: number }, signal: AbortSignal): Promise<TabRef>;
+  /** How the tab answers its dialogs; `undefined` restores the engine's default. The engine is the only CDP client that answers (doc 77 §7.4.3 rule 7). */
+  setDialogPolicy(browserId: string, tabId: string, policy: "accept" | "dismiss" | undefined): void;
+  /** The page size and pixel ratio of every tab. A View mounted on the browser decides its own size, and this is the cell's ask. */
+  resize(browserId: string, viewport: { width: number; height: number; scale?: number }): Promise<void>;
+  /** `persist: true` exempts the browser from idle close and from being closed to make room. */
+  setPersist(browserId: string, persist: boolean): void;
+  /** What the freeze clock reads; undefined once the browser is gone. `idleMs`: since any call reached it, the View's included. */
+  activity(browserId: string): { idleMs: number; viewers: number; pending: number } | undefined;
+  /** The browser the session already holds (one a cell made, or the person opened in the View), without making one: what `browser.tabs()` and `browser.active()` read. */
+  existing(session: string): { browserId: string; wsEndpoint: string } | undefined;
+  /** A View joined the browser's live stream: a frozen tab draws nothing, so the host thaws before the View looks. */
+  onViewed(l: (browserId: string) => void): () => void;
 }
 
 // ---- inside the worker: L1's dispatcher consumes, L3 implements. `open`/`close` never reach it; `run`/`call` always do.

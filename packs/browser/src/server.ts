@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { CodeHostPort } from "./code/contracts.js";
+import { createRuntimeCodeHost } from "./code/host/code-host.js";
 import { registerCodeTool } from "./code/tool.js";
 import { buildConnectionReport, type ConnectionReportParams, PACK_CONNECTION_REPORT_METHOD } from "./connection.js";
 import type { ActManyResult, BrowserEngine, BrowserOpener, BrowserRuntimePort, BrowserState, TaskRun, ToolCaller } from "./contracts.js";
@@ -228,7 +229,9 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     ...(process.env.DIMENSION_BROWSER_THROWAWAY_IDLE_MS ? { throwawayIdleMs: Number(process.env.DIMENSION_BROWSER_THROWAWAY_IDLE_MS) } : {}),
   });
   const server = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
-  const modelTools = resolveModelTools(options.modelTools ?? process.env[MODEL_TOOLS_ENV], options.codeHost !== undefined);
+  // A real runtime brings its own code host: `browser_run` is on by default (the model's one way of driving a page, doc 77 §7.5a). A runtime that is not the pack's (a test's fake) has no browsers to run code on.
+  const codeHost = options.codeHost ?? (runtime instanceof BrowserRuntime ? createRuntimeCodeHost(runtime) : undefined);
+  const modelTools = resolveModelTools(options.modelTools ?? process.env[MODEL_TOOLS_ENV], codeHost !== undefined);
   const stepMeta = stepToolMeta(modelTools);
   const live = new LiveChannel(runtime);
   const viewDir = options.viewDir ?? fileURLToPath(new URL("./dist/", import.meta.url));
@@ -361,9 +364,9 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     const outcome = await runtime.actMany(browserId, actions, callerOf(extra));
     return { text: actText(outcome), structured: outcome, isError: outcome.status === "failed" || outcome.status === "unknown" };
   }));
-  if (options.codeHost !== undefined && modelTools !== "steps") {
+  if (codeHost !== undefined && modelTools !== "steps") {
     registerCodeTool(server, {
-      host: options.codeHost,
+      host: codeHost,
       sessionOf,
       artifactsDir: () => options.codeArtifactsDir ?? join(process.env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
       meta: { [APPROVAL_META_KEY]: "exec", [SPACES_META_KEY]: CODE_TOOL_SPACES },
@@ -533,7 +536,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   const closeTransport = server.close.bind(server);
   let disposal: Promise<void> | undefined;
   const disposeBackends = async (): Promise<void> => {
-    try { await options.codeHost?.dispose(); }
+    try { await codeHost?.dispose(); }
     finally { await runtime.dispose(); }
   };
   server.close = async () => {
