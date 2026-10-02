@@ -144,6 +144,28 @@ describe("what a failing cell reports", () => {
   test("a rejection that is not a cell's is not claimed", () => {
     expect(cell.consumeRejection(new Error("from somewhere else"))).toBe(false);
   });
+
+  // The realm's own error comes back through the bridge with a stack of realm frames only: nothing in it names the cell that started the call, so only the facade hook knows whose it is.
+  test("a failed bridge call is its run's while that run is live, is nobody's blame once it is done, and an equal-looking error from elsewhere is still not claimed", async () => {
+    const realmError = new ToolError("tab.click failed fast");
+    realmError.stack = "ToolError: tab.click failed fast\n    at runOp (tab-ops.ts:1:1)";
+    const invoke: CellInvoke = async () => {
+      throw realmError;
+    };
+    Reflect.set(globalThis, "claimFloated", (reason: unknown) => cell.consumeRejection(reason));
+    try {
+      const failed = await failure('let caught; try { await browser.tab("x").url(); } catch (error) { caught = error; } globalThis.claimedByRun = claimFloated(caught); "done"', { invoke });
+      expect(failed.error.message).toBe("Unhandled rejection (missing await?): tab.click failed fast");
+      expect(Reflect.get(globalThis, "claimedByRun")).toBe(true);
+      expect(cell.consumeRejection(realmError)).toBe(true);
+      const lookalike = new ToolError("tab.click failed fast");
+      lookalike.stack = realmError.stack;
+      expect(cell.consumeRejection(lookalike)).toBe(false);
+    } finally {
+      Reflect.deleteProperty(globalThis, "claimFloated");
+      Reflect.deleteProperty(globalThis, "claimedByRun");
+    }
+  });
 });
 
 describe("the budget and cancellation", () => {

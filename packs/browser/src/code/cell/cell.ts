@@ -2,11 +2,12 @@
 // packages/coding-agent/src/eval/js/executor.ts (the timeout annotation) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
 // Changed for the Browser pack: one cell per worker and one facade (OMP's prelude.js, verbatim) whose two hooks, `__omp_prelude__` and `__omp_display__`, route by async context to the run that
-// called them; the bridge is a function the worker core gives each run; the eval tool's output sink is `CellOutput`; no cwd, tool bridge or handle machinery.
+// called them; the bridge is a function the worker core gives each run; the eval tool's output sink is `CellOutput`; no cwd, tool bridge or handle machinery; a rejection the tab realm's guard already
+// settled (it shares this process's `unhandledRejection`) is not rethrown by the cell's; a failed bridge call the cell did not await is that run's floating rejection (the facade hook records which run it was).
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { BridgeResponse, CodeEvaluator, EvaluatorHooks, RunError, RunResult, ScreenshotResult } from "../contracts.js";
-import { ToolAbortError, ToolError, throwIfAborted } from "../errors.js";
+import { ToolAbortError, ToolError, isRejectionHandled, throwIfAborted } from "../errors.js";
 import facadeSource from "../facade/prelude.js.txt";
 import extensionsSource from "../facade/pack-extensions.js.txt";
 import { CellOutput, displayValue } from "./display.js";
@@ -55,6 +56,11 @@ interface CellRun {
 }
 
 const callerRun = new AsyncLocalStorage<CellRun>();
+/**
+ * The run whose bridge call failed with a given reason. A cell that floats a `tab.*` call (no `await`) gets the realm's own error back as the rejection nobody handles, and its stack names only the realm's frames:
+ * nothing in it says which cell started the call. The facade hook below knows, because the call ran in that run's async context.
+ */
+const invokeFailures = new WeakMap<object, CellRun>();
 const GLOBAL_KEYS = ["__omp_prelude__", "__omp_display__", "browser"] as const;
 let facadeUsers = 0;
 
@@ -65,8 +71,14 @@ function installFacade(): void {
     const run = callerRun.getStore();
     if (!run || run.ended) throw new ToolError("browser can only be used while a cell is running");
     if (name !== "browser") throw new ToolError(`Unknown prelude ${JSON.stringify(name)}`);
-    throwIfAborted(run.signal);
-    const response = await run.invoke(parameters, { runId: run.runId, signal: run.signal });
+    let response: BridgeResponse;
+    try {
+      throwIfAborted(run.signal);
+      response = await run.invoke(parameters, { runId: run.runId, signal: run.signal });
+    } catch (error) {
+      if (error !== null && typeof error === "object") invokeFailures.set(error, run);
+      throw error;
+    }
     // Images become the cell's own displays; the facade only reads `text` and `details` (OMP: surfaceBridgedToolImages).
     for (const image of response.images ?? []) run.hooks.onDisplay(image);
     if (response.details.screenshots) run.screenshots.push(...response.details.screenshots);
@@ -140,7 +152,8 @@ export class CodeCell {
   #installGuard(): () => void {
     const onRejection = (reason: unknown): void => {
       if (this.consumeRejection(reason)) return;
-      setTimeout(() => { throw reason; }, 0);
+      // The tab realm's guard (worker/run-scope.ts) hears the same event and marks what it settled; look on the next turn so the order the two listeners were added in does not matter.
+      setTimeout(() => { if (!isRejectionHandled(reason)) throw reason; }, 0);
     };
     process.on("unhandledRejection", onRejection);
     return () => process.off("unhandledRejection", onRejection);
@@ -148,6 +161,15 @@ export class CodeCell {
 
   /** Whether `reason` is the cell's: a run floated it (kept for that run) or a finished cell did (only logged by the caller). False: not cell activity. */
   consumeRejection(reason: unknown): boolean {
+    // A bridge call this cell's code started and did not await: its failure is that run's (the run is live: it fails with the text; it is done: nobody is waiting for it, and nobody is blamed).
+    const invoker = reason !== null && typeof reason === "object" ? invokeFailures.get(reason) : undefined;
+    if (invoker) {
+      if (this.#live.get(invoker.runId) === invoker) {
+        invoker.floating.push(reason);
+        return true;
+      }
+      if (this.#recentFiles.has(invoker.filename)) return true;
+    }
     const stack = reason instanceof Error && typeof reason.stack === "string" ? reason.stack : undefined;
     if (stack !== undefined) {
       // The stack can name several cells (a helper an earlier cell defined, called from the live one): the outermost frame owns the promise.

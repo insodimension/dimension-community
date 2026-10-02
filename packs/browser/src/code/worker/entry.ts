@@ -7,5 +7,7 @@ import { serveOnParentPort } from "./serve.js";
 import { createTabRealm } from "./tab-realm.js";
 
 /** The code worker: the second esbuild entry of the pack (app/code-worker.mjs). Everything it does is a reaction to the host's messages on the thread's parent port. */
-// A factory, not an evaluator: each tab name gets its own, so a tab's top-level names persist per tab as in OMP.
-serveOnParentPort(({ env, screenshotDir }) => createTabRealm({ evaluator: createCodeEvaluator, env, ...(screenshotDir === undefined ? {} : { screenshotDir }) }));
+// A factory, not an evaluator: each tab name gets its own, so a tab's top-level names persist per tab as in OMP. Every realm setting the host sends in `init` (RealmInit) reaches the realm here.
+serveOnParentPort(({ env, screenshotDir, cwd, refusePasswordFields, excludeWebP, taskCredential }) =>
+  createTabRealm({ evaluator: createCodeEvaluator, env, screenshotDir, cwd, refusePasswordFields, excludeWebP, taskCredential }),
+);

@@ -1,0 +1,70 @@
+{
+  "article": {
+    "markdown": {
+      "url": "https://example.com/docs/responses",
+      "title": "Docs",
+      "excerpt": "The Responses API stores output only when you opt in. It is a stateful interface, so a later call can refer to an earlier one by its id.",
+      "contentLength": 531,
+      "markdown": "# Responses API\n\n \n\nThe Responses API stores output only when you opt in. It is a **stateful** interface, so a later call can refer to an earlier one by its [id](https://example.com/docs/ids).\n\n \n\nUse it when a conversation must survive a restart; otherwise the plain chat endpoint is simpler and cheaper to run.\n\n \n\n## 1. Opting in\n\n \n\n 1. Create a response with `store: true`.\n 2. Keep the returned _id_.\n 3. Pass it as `previous_response_id` next time.\n \n\n \n\n```\nconst r = await client.responses.create({ store: true });\nconsole.log(r.id);\n```"
+    },
+    "text": {
+      "url": "https://example.com/docs/responses",
+      "title": "Docs",
+      "excerpt": "The Responses API stores output only when you opt in. It is a stateful interface, so a later call can refer to an earlier one by its id.",
+      "contentLength": 531,
+      "text": "Responses API\n      The Responses API stores output only when you opt in. It is a stateful interface, so a later call can refer to an earlier one by its id.\n      Use it when a conversation must survive a restart; otherwise the plain chat endpoint is simpler and cheaper to run.\n      1. Opting in\n      \n        Create a response with store: true.\n        Keep the returned id.\n        Pass it as previous_response_id next time.\n      \n      const r = await client.responses.create({ store: true });\nconsole.log(r.id);"
+    }
+  },
+  "docs": {
+    "markdown": {
+      "url": "https://developers.example.com/apps-sdk/reference",
+      "title": "Reference",
+      "excerpt": "Build once, run in many places.",
+      "contentLength": 115,
+      "markdown": "Navigation\n\n \n\n# Apps SDK\n\n \n\nBuild once, run in many places."
+    },
+    "text": {
+      "url": "https://developers.example.com/apps-sdk/reference",
+      "title": "Reference",
+      "excerpt": "Build once, run in many places.",
+      "contentLength": 115,
+      "text": "Navigation\n      \n        \n          Apps SDK\n          Build once, run in many places."
+    }
+  },
+  "gfm": {
+    "markdown": {
+      "url": "https://example.com/changelog",
+      "title": "Changelog",
+      "excerpt": "Everything that changed in the last release, in the order it landed on the main branch of the project.",
+      "contentLength": 487,
+      "markdown": "Everything that changed in the last release, in the order it landed on the main branch of the project.\n\n \n\n## 2.0 shipped.\n\n \n\n| Area | Change |\n| --- | --- |\n| Browser | Code tool replaces the step tools |\n| Profiles | ~~Cookie import~~ removed |\n\n \n\n - First \n  - Nested one\n  - Nested two \n - Second\n \n\n \n\n3. Third\n4. Fourth\n\n \n\n![Logo](/logo.png) and a line  \nbreak.\n\n \n\n> Quoted text spans a whole sentence so that the extractor keeps it."
+    },
+    "text": {
+      "url": "https://example.com/changelog",
+      "title": "Changelog",
+      "excerpt": "Everything that changed in the last release, in the order it landed on the main branch of the project.",
+      "contentLength": 487,
+      "text": "Everything that changed in the last release, in the order it landed on the main branch of the project.\n      \n      2.0 shipped.\n      \n        AreaChange\n        \n          BrowserCode tool replaces the step tools\n          ProfilesCookie import removed\n        \n      \n      \n        First\n          Nested oneNested two\n        \n        Second\n      \n      ThirdFourth\n       and a linebreak.\n      Quoted text spans a whole sentence so that the extractor keeps it."
+    }
+  },
+  "roleMain": {
+    "markdown": {
+      "url": "https://example.com/app",
+      "title": "App",
+      "excerpt": "3 open items",
+      "contentLength": 41,
+      "markdown": "## Dashboard\n\n3 open items\n\n \n\nSidebar"
+    },
+    "text": {
+      "url": "https://example.com/app",
+      "title": "App",
+      "excerpt": "3 open items",
+      "contentLength": 41,
+      "text": "Dashboard3 open items\n    Sidebar"
+    }
+  },
+  "empty": {
+    "markdown": null,
+    "text": null
+  }
+}
