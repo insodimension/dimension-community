@@ -383,7 +383,9 @@ export interface BrowserOpenOptions {
  * Who opened a browser, from what the HOST stamped on the call: `caller` ("app" is the human, in the View) and the
  * `session` (the chat). Never from tool input. A call without a stamp has neither, and is nobody's "this chat".
  */
-export interface BrowserOpener { caller?: ToolCaller; session?: string }
+/** The tool a model opened a browser with: what it is told to open another with when this one is given up (idle, to make room, left), because those two are not both in every space's list. */
+export type OpeningTool = "browser_open" | "browser_view";
+export interface BrowserOpener { caller?: ToolCaller; session?: string; tool?: OpeningTool }
 /** Who holds a saved profile, as `browser_profiles` tells the asking chat. No ids: only whose it is. */
 export type ProfileHolder = null | "this chat" | "human" | "another chat";
 /**

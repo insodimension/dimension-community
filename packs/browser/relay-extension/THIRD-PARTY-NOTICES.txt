@@ -1,0 +1,21 @@
+THIRD-PARTY NOTICES - Dimension Browser Relay (Chrome extension)
+==================================================================
+
+This folder is a Chrome (Manifest V3) extension. It bundles no third-party code: background.js, options.js and
+options.html are plain JavaScript and HTML with no libraries in them, and the extension uses only Chrome's own
+extension APIs (debugger, tabs, tabGroups, storage, alarms).
+
+All of it is copied from OMP and adapted for the Browser pack:
+
+  OMP (https://github.com/can1357/oh-my-pi), packages/browser-relay/extension and
+  packages/coding-agent/src/tools/browser/relay/extension-assets/
+  Licence: MIT. See the LICENSE file in this folder (verbatim from OMP).
+  Copyright (c) 2025 Mario Zechner
+  Copyright (c) 2025-2026 Can Bölük
+  Copyright (c) 2026 Stencil Labs, Inc.
+
+What changed from OMP's files: the extension's name and texts say "Dimension Browser Relay", and the keepalive alarm is named
+"dimension-relay-keepalive". The behaviour is OMP's.
+
+OMP's own aggregate notice (22,909 lines, covering the whole OMP repository: Rust crates, fonts, Python dependencies) does not apply
+here and is deliberately not shipped: none of what it lists is in this folder.

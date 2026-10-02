@@ -113,7 +113,8 @@ export function pageFact(context: BrowserAnnotationContext): Fact {
 		`Live web page${title.length > 0 ? ` ${JSON.stringify(title)}` : ""} at ${JSON.stringify(clip(context.url, ADDRESS_CHARS))}.`,
 		`Scrolled to x=${scroll.x} y=${scroll.y} of a ${scroll.width}×${scroll.height} page; viewport ${viewport.width}×${viewport.height} px.`,
 		`Picture taken ${context.capturedAt}, elements read ${context.readAt}.`,
-		"Read this page with browser_state (no browserId needed).",
+		// No tool is named: the model that reads this has either the step tools or browser_run, never both in every space (doc 77 §7.5a), and a name it cannot call sends it nowhere.
+		"Read this page with no browserId: the state tool without one, or `await browser.active().observe()` in a cell.",
 	].join(" ");
 	return {
 		summary: clip(summary, MAX_ANNOTATION_SUMMARY),

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import type { TaskStatus, TaskUsage } from "./contracts.js";
+import { launchSecrets } from "./secrets.js";
 import { fail } from "./store.js";
 
 /** `packs/browser/python`, from both `src/task.ts` and the bundled `app/server.mjs`. */
@@ -42,7 +43,7 @@ export interface RunningWorker {
 
 /** jev's key: its task tools are offered, and a spare worker kept, only where it is set (doc 77 §6). */
 export function jevKeyConfigured(): boolean {
-  return Boolean(process.env.TYPESAFE_API_KEY?.trim());
+  return Boolean(launchSecrets.get("TYPESAFE_API_KEY")?.trim());
 }
 
 function interpreter(): string {
@@ -80,7 +81,8 @@ interface Spawned {
 function spawnWorker(): Spawned {
   const child = spawn(interpreter(), ["-m", "dim_browser_bridge"], {
     cwd: PYTHON_DIR,
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
+    // The keys are not in this process's environment any more (secrets.ts took them at start): the worker is handed them here, and nothing else gets them.
+    env: { ...launchSecrets.environment(), PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -110,7 +112,7 @@ function spawnWorker(): Spawned {
 let spare: { worker: Spawned; env: string; idle: NodeJS.Timeout } | undefined;
 
 /** The spare is only good for the environment it was spawned in (interpreter, keys, PYTHONPATH). */
-const envKey = (): string => JSON.stringify(process.env);
+const envKey = (): string => JSON.stringify(launchSecrets.environment());
 
 /** An idle spare must never keep the server process alive; a running task must. */
 function hold(worker: Spawned, held: boolean): void {

@@ -140,6 +140,7 @@ needs a relay that drops them (upstream jev-ultrafast behaviour).
 | `DIMENSION_BROWSER_ROOT` | Root for browser data: saved profiles in `profiles/`, throwaway browsers in `ephemeral/`. Default `$INSO_HOME/browser`, else `~/.inso/browser`. |
 | `DIMENSION_BROWSER_EXECUTABLE` | Chrome/Chromium executable (overrides the choice below; `browser_state` then reports `app: "custom"`). |
 | `DIMENSION_BROWSER_RELAY_URL` | Relay CDP endpoint (default `http://127.0.0.1:9224`). |
+| `DIMENSION_BROWSER_CODE_ALLOW_ATTACH` | `1` lets the model's `browser_run` code drive a browser or an application the pack did not launch: `app.cdp_url` (a Chrome with a debugging port), `app.path` (an application it starts), `app.relay` (your own Chrome through the extension). Off by default: the model is refused with `code_needs_consent` and told to ask you. Read from the server's environment at each open; code cannot set it. It is the interim human gate until the host asks you at the call (the exec approval tier, H1), which will be added on top of it. Kinds you name yourself with `DIMENSION_BROWSER_CDP_URL` or `DIMENSION_BROWSER_RELAY` are not asked twice. |
 | `DIMENSION_BROWSER_HEADLESS` | `false` for a visible window. |
 | `DIMENSION_BROWSER_THROWAWAY_IDLE_MS` | How long a throwaway browser a chat opened may go without a call before it is closed, in milliseconds (default `600000`, 10 minutes; at most `2147483647`, above which a server refuses to start). |
 | `DIM_BROWSER_PYTHON` | Interpreter for the task agent. |

@@ -1,0 +1,80 @@
+// Written for the Browser pack, to run right after prelude.js.txt (OMP's file, byte for byte) in the same realm.
+// What it adds to `browser`, and nothing else: `tabs()` and `active()` (doc 77 matrix B12). OMP's own methods are copied over as they are.
+{
+	const base = globalThis.browser;
+	const invoke = async (action, options) => {
+		const response = await globalThis.__omp_prelude__("browser", { ...options, action });
+		if (response && typeof response.text === "string" && response.text.length > 0) {
+			globalThis.__omp_display__(response.text);
+		}
+		return response && typeof response.details === "object" && response.details !== null ? response.details : {};
+	};
+	// The helper names are read off OMP's own tab and element handles, so a helper the facade gains is on the active handle too.
+	const sampleTab = base.tab("x");
+	const sampleElement = sampleTab.id(0);
+	const helpers = (handle, skip) => Object.keys(handle).filter(key => typeof handle[key] === "function" && !skip.includes(key));
+	const tabMethods = helpers(sampleTab, ["toString", "id", "ref"]);
+	const elementMethods = helpers(sampleElement, ["toString"]);
+
+	// Every tab handle OMP makes has a string `name`, and `browser.tab(handle.name)` is that tab. The active tab's own name is known only after the host has said which tab is active, so its handle is named by an alias
+	// (`active#1`) that `browser.tab` and `browser.close` read back to the handle's pinned tab; a tab nobody asked `active()` about is never called that, and only the newest aliases are kept.
+	const MAX_ALIASES = 256;
+	const aliases = new Map();
+	let minted = 0;
+	const makeActiveTab = () => {
+		// The tab is asked for once, on first use, and kept: ids from one `observe()` belong to one tab, even if the human switches tabs between two calls.
+		let found;
+		const nameOfActive = () => {
+			found ??= invoke("active", {}).then(
+				details => {
+					if (typeof details.name !== "string" || details.name.length === 0) throw new Error("browser.active() found no active tab");
+					return details.name;
+				},
+				error => {
+					found = undefined;
+					throw error;
+				},
+			);
+			return found;
+		};
+		const tab = {};
+		const alias = `active#${++minted}`;
+		Object.defineProperty(tab, "name", { value: alias, enumerable: true });
+		tab.toString = () => "<tab active>";
+		for (const method of tabMethods) {
+			tab[method] = async (...args) => base.tab(await nameOfActive())[method](...args);
+		}
+		for (const handleMethod of ["id", "ref"]) {
+			tab[handleMethod] = (...handleArgs) => {
+				const element = {};
+				element.toString = () => `<element tab.${handleMethod}(${handleArgs.map(value => JSON.stringify(value)).join(", ")}) on active>`;
+				for (const method of elementMethods) {
+					element[method] = async (...args) => base.tab(await nameOfActive())[handleMethod](...handleArgs)[method](...args);
+				}
+				return Object.freeze(element);
+			};
+		}
+		const handle = Object.freeze(tab);
+		aliases.set(alias, { handle, nameOfActive });
+		if (aliases.size > MAX_ALIASES) aliases.delete(aliases.keys().next().value);
+		return handle;
+	};
+
+	globalThis.browser = Object.freeze({
+		...base,
+		async tabs() {
+			const details = await invoke("tabs", {});
+			return Array.isArray(details.value) ? details.value : [];
+		},
+		active() {
+			return makeActiveTab();
+		},
+		tab(...args) {
+			return aliases.get(args[0])?.handle ?? base.tab(...args);
+		},
+		async close(options) {
+			const pinned = options !== null && typeof options === "object" ? aliases.get(options.name) : undefined;
+			await base.close(pinned === undefined ? options : { ...options, name: await pinned.nameOfActive() });
+		},
+	});
+}

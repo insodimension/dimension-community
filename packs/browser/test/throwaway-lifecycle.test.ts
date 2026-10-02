@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import type { BrowserOpener } from "../src/contracts";
+import type { BrowserOpener, OpeningTool } from "../src/contracts";
 import { taskkillArgs } from "../src/engines/puppeteer";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
@@ -91,9 +91,9 @@ interface RunningChrome {
 }
 
 /** Open a throwaway for `session` and learn which directory under `ephemeral/` it runs in (opens here are one at a time). */
-async function openThrowaway(runtime: BrowserRuntime, rootDir: string, session: string, caller: "model" | "app" = "model"): Promise<Throwaway> {
+async function openThrowaway(runtime: BrowserRuntime, rootDir: string, session: string, caller: "model" | "app" = "model", tool?: OpeningTool): Promise<Throwaway> {
 	const before = await entries(join(rootDir, "ephemeral"));
-	const { browserId } = await runtime.open({ viewport: VIEWPORT }, asSession(session, caller));
+	const { browserId } = await runtime.open({ viewport: VIEWPORT }, { ...asSession(session, caller), ...(tool === undefined ? {} : { tool }) });
 	const dir = (await entries(join(rootDir, "ephemeral"))).find((name) => !before.includes(name));
 	if (dir === undefined) throw new Error("the throwaway browser made no directory");
 	return { browserId, dir };
@@ -208,6 +208,50 @@ describeWithChrome("throwaway browsers a session leaves behind", () => {
 			expect((await refusal(() => runtime.state(b.browserId))).code).toBe("unknown_browser");
 			for (const kept of [a, c, d, e]) expect((await runtime.state(kept.browserId)).browserId).toBe(kept.browserId);
 			expect([...(await chromePidsByThrowaway(rootDir)).keys()].sort()).toEqual([a.dir, c.dir, d.dir, e.dir].sort());
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	// A model's tool list has not both `browser_open` and `browser_view`: a code or build model has browser_view only (doc 77 §7.5a). So the reason a given-up browser's owner reads names the tool that owner opened it with.
+	test(
+		"a browser given up to make room tells its owner to open another with the tool the owner opened it with",
+		async () => {
+			const rootDir = await createRoot();
+			const runtime = newRuntime(rootDir);
+			const opened = async (opener: BrowserOpener): Promise<string> => (await runtime.open({ viewport: VIEWPORT }, opener)).browserId;
+			const byView = await opened({ ...asSession("s1"), tool: "browser_view" });
+			const byOpen = await opened({ ...asSession("s2"), tool: "browser_open" });
+			await opened(asSession("s3"));
+			await opened(asSession("s4"));
+			// Two more opens at a full pool give up the two used least recently, in the order they were opened.
+			await opened(asSession("s5"));
+			await opened(asSession("s6"));
+
+			const toldView = (await refusal(() => runtime.state(byView))).message;
+			expect(toldView).toContain("closed to make room for another chat's (at most 4 are open at once); open a new one with browser_view");
+			expect(toldView).not.toContain("browser_open");
+			expect((await refusal(() => runtime.state(byOpen))).message).toContain("open a new one with browser_open");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a throwaway closed on its idle clock says the same: the tool its owner opened it with",
+		async () => {
+			const rootDir = await createRoot();
+			const runtime = newRuntime(rootDir, { throwawayIdleMs: 1_500 });
+			const byView = await openThrowaway(runtime, rootDir, "s1", "model", "browser_view");
+			const byOpen = await openThrowaway(runtime, rootDir, "s2", "model", "browser_open");
+			// Nothing is called meanwhile (a call would restart the idle clock): each is asked after its Chrome is gone, by pid.
+			const chromes = new Map([byView, byOpen].map((browser) => [browser.browserId, chromeOf(rootDir, browser)] as const));
+			const told = async (browser: Throwaway): Promise<string> => {
+				expect(await waitUntilGone((await chromes.get(browser.browserId)!).all, 20_000)).toEqual([]);
+				return (await refusal(() => runtime.state(browser.browserId))).message;
+			};
+			const viewMessage = await told(byView);
+			expect(viewMessage).toContain("closed after 1.5 s with no calls; open a new one with browser_view");
+			expect(viewMessage).not.toContain("browser_open");
+			expect(await told(byOpen)).toContain("closed after 1.5 s with no calls; open a new one with browser_open");
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

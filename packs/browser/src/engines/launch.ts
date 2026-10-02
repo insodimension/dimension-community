@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Browser as CachedBrowser, type BrowserPlatform, detectBrowserPlatform, getInstalledBrowsers } from "@puppeteer/browsers";
+import { BROWSER_PROTOCOL_TIMEOUT_MS } from "./attach.js";
 import type { LaunchOptions, Protocol } from "puppeteer-core";
 import type { BrowserApp } from "../contracts.js";
 import { fail } from "../store.js";
@@ -49,13 +50,14 @@ export const systemProbe: BrowserProbe = {
 };
 
 /**
- * The browser the View launches: an explicit binary when configured; else the
+ * The browser the View launches: an explicit binary when configured; else puppeteer's own standard `PUPPETEER_EXECUTABLE_PATH`; else the
  * installed Google Chrome; else Microsoft Edge; else a Chromium — a system
  * install, then the newest Chrome for Testing puppeteer has downloaded into
  * its cache for this platform. Nothing is downloaded here.
  */
 export async function resolveBrowser(explicitPath: string | undefined, probe: BrowserProbe = systemProbe): Promise<ResolvedBrowser> {
 	if (explicitPath) return { app: "custom", executablePath: explicitPath };
+	if (probe.env.PUPPETEER_EXECUTABLE_PATH) return { app: "custom", executablePath: probe.env.PUPPETEER_EXECUTABLE_PATH };
 	const candidates = installedCandidates(probe);
 	for (const app of ["chrome", "msedge", "chromium"] as const) {
 		const executablePath = candidates[app].find((path) => probe.exists(path));
@@ -92,10 +94,22 @@ function installedCandidates(probe: BrowserProbe): Record<"chrome" | "msedge" | 
 			chromium: apps.map((dir) => join(dir, "Chromium.app", "Contents", "MacOS", "Chromium")),
 		};
 	}
+	const flatpak = ["/var/lib/flatpak/exports/bin", join(probe.home, ".local", "share", "flatpak", "exports", "bin")];
+	const ungoogledFlatpak = "io.github.ungoogled_software.ungoogled_chromium";
 	return {
-		chrome: ["/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome"],
+		chrome: ["/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", ...flatpak.map((dir) => join(dir, "com.google.Chrome"))],
 		msedge: ["/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge"],
-		chromium: ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/snap/bin/chromium"],
+		chromium: [
+			"/usr/bin/chromium",
+			"/usr/bin/chromium-browser",
+			"/snap/bin/chromium",
+			...flatpak.map((dir) => join(dir, "org.chromium.Chromium")),
+			join(probe.home, ".nix-profile", "bin", "chromium"),
+			"/run/current-system/sw/bin/chromium",
+			"/usr/bin/ungoogled-chromium",
+			"/usr/bin/ungoogled-chromium-browser",
+			...flatpak.map((dir) => join(dir, ungoogledFlatpak)),
+		],
 	};
 }
 
@@ -266,6 +280,7 @@ export function viewLaunchOptions(input: {
 		headless: input.headless,
 		userDataDir: input.userDataDir,
 		timeout: input.timeout,
+		protocolTimeout: BROWSER_PROTOCOL_TIMEOUT_MS,
 		defaultViewport: null,
 		args: [...input.args, ...(input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : [])],
 		ignoreDefaultArgs: ["--enable-automation"],

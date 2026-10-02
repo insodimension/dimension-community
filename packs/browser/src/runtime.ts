@@ -97,6 +97,7 @@ import { CredentialKey, credentialOrigin, resolveCredential, savedPassword, save
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
 import { launchReader } from "./engines/puppeteer.js";
+import type { AttachTarget } from "./engines/attach.js";
 import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, PasswordSource, PerformOutcome, WaitCondition } from "./engines/types.js";
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
@@ -106,6 +107,7 @@ import { type Publication, cancel, confirm, isPending, prepare, publishRecord, r
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, releaseSpare, startWorker } from "./task.js";
+import type { CodeLifetime, CodeSeam, EndListener, EndWhy } from "./code/host/runtime-port.js";
 
 // ---------------------------------------------------------------------------
 // Bounds. Every unbounded thing in a long-lived runtime is a leak or a weapon.
@@ -329,6 +331,8 @@ interface Entry {
 	retiring: Promise<void> | undefined;
 	/** A throwaway's polite close has failed once: it is killed from then on, because puppeteer treats a second close as already done. */
 	closeFailed: boolean;
+	/** Set when a cell's `browser.open` made it (doc 77 §7.4.3): its own idle clock, and `persist` exempts it from idle close and from being closed to make room. */
+	code?: CodeLifetime;
 }
 
 export class BrowserRuntime implements BrowserRuntimePort {
@@ -384,6 +388,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly released = new Map<string, string>();
 	/** Watches the profile root for deletions while anyone listens for connection changes. */
 	private profileWatcher: FSWatcher | undefined;
+	/** The code host (src/code/host) hears when a browser ends, and when a View joins one. */
+	private readonly endListeners = new Set<EndListener>();
+	private readonly viewListeners = new Set<(browserId: string) => void>();
+	private seam: CodeSeam | undefined;
 
 	constructor(options: BrowserRuntimeOptions = {}) {
 		this.options = options;
@@ -431,22 +439,25 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * With the pool full, the throwaway used least recently that is neither working nor watched is closed first (its Chrome gone before
 	 * this launches); when there is none, the open is refused (`too_many_browsers`) naming the browsers this chat holds.
 	 */
-	async open(options: BrowserOpenOptions, opener: BrowserOpener = {}): Promise<BrowserState> {
+	async open(options: BrowserOpenOptions, opener: BrowserOpener = {}, code?: CodeLifetime, attach?: AttachTarget): Promise<BrowserState> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
 		// Only the person's own switch names a browser to leave; the host marks the tool app-only, and the runtime holds the rule itself, like `leave`.
 		if (options.leaving !== undefined && opener.caller !== "app") fail("human_only", "only the person in the View can switch to another browser");
 		const engine = normalizeEngine(options.engine);
 		const named = options.profile === undefined ? undefined : this.resolveProfile(options.profile, engine);
 		const viewport = normalizeViewport(options.viewport);
+		// A connected Chrome or a spawned application (a cell's `attach` target) is nobody's saved profile and not the one relay Chrome: it is attached to like
+		// a throwaway browser, with nothing to launch and nothing of the person's to close.
+		const attachedElsewhere = attach !== undefined && attach.kind !== "relay";
 		// The relay is the human's own Chrome: there is nothing to make throwaway,
 		// so no profile means the one it has.
-		const profile = named ?? (engine === "chrome-relay" ? RELAY_PROFILE : null);
+		const profile = named ?? (engine === "chrome-relay" && !attachedElsewhere ? RELAY_PROFILE : null);
 
 		// The relay is ONE already-running Chrome with ONE cookie jar, chosen by
 		// the human inside Chrome. Named relay profiles would imply an isolation
 		// that does not exist, so the slug "relay" is reserved for it and is the
 		// only slug it accepts. Other engines own their persistent profile data.
-		if (engine === "chrome-relay" && profile !== RELAY_PROFILE) {
+		if (engine === "chrome-relay" && profile !== RELAY_PROFILE && !attachedElsewhere) {
 			fail(
 				"bad_profile",
 				`the chrome-relay engine attaches to the one Chrome already running, so it always uses the reserved profile "${RELAY_PROFILE}"; ` +
@@ -485,7 +496,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		assertEngineAvailable(engine);
 		// A throwaway browser has no name to guard; its slot only counts against the bound. `:` is not a slug character.
 		const slot = profile ?? `ephemeral:${randomBytes(8).toString("hex")}`;
-		const started = this.launch(profile, engine, viewport, opener).finally(() => {
+		const started = this.launch(profile, engine, viewport, opener, code, attach).finally(() => {
 			this.opening.delete(slot);
 			this.openers.delete(slot);
 		});
@@ -498,7 +509,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return notice === undefined ? state : { ...state, notice };
 	}
 
-	private async launch(profile: string | null, engine: BrowserEngine, viewport: Viewport, opener: BrowserOpener): Promise<Entry> {
+	private async launch(profile: string | null, engine: BrowserEngine, viewport: Viewport, opener: BrowserOpener, code?: CodeLifetime, attach?: AttachTarget): Promise<Entry> {
 		// A saved profile is locked while its browser runs; a throwaway one gets a
 		// directory of its own that goes with the browser.
 		let directory: string;
@@ -533,6 +544,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				...(this.options.headless === undefined ? {} : { headless: this.options.headless }),
 				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
 				...(this.options.relayUrl && engine === "chrome-relay" ? { relayUrl: this.options.relayUrl } : {}),
+				...(attach === undefined ? {} : { attach }),
 			});
 			const initial = await driver.state();
 			if (released) fail("browser_closed", "The browser closed during initialization.");
@@ -545,11 +557,13 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				probe: { timer: undefined, running: undefined, again: false },
 				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false, wheelTimer: undefined,
 			};
+			if (code !== undefined) entry.code = code;
 			if (profile !== null && profile !== RELAY_PROFILE) entry.notice = this.touchProfile(profile, driver.app);
 			this.byId.set(entry.browserId, entry);
 			if (profile !== null) this.byProfile.set(profile, entry);
 			// A person's own Private browser is theirs: no clock closes it (the leak is chats' browsers, and the View stops reading while its tab is hidden).
-			if (profile === null && opener.caller !== "app") this.watchIdle(entry, this.idleMs);
+			// A cell's browser has its own clock even when it is the person's relay Chrome (letting go of an attachment closes nothing of theirs).
+			if ((profile === null || code !== undefined) && opener.caller !== "app") this.watchIdle(entry, this.idleOf(entry));
 			return entry;
 		} catch (error) {
 			// A factory owns rollback until it returns; only its confirmed-close
@@ -605,7 +619,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (this.byId.get(entry.browserId) !== entry) return;
 		settleOnClose(entry);
 		clearTimeout(entry.wheelTimer);
+		const ending = !entry.closed;
 		entry.closed = true;
+		if (ending) this.notifyEnd(entry, entry.retiring === undefined ? "closed" : "retired");
 		entry.frames.length = 0;
 		try {
 			// A task agent drives this Chrome; it stops before the browser does.
@@ -629,6 +645,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * for done at once, and releasing on that would free the slot of a Chrome that may still be running.
 	 */
 	private async stopBrowser(entry: Entry): Promise<void> {
+		// A cell's `close({ kill: true })` on a spawned application: the driver lets go of it, then ends the process the pack started (only the application is ended on this path; the fallback below never is).
+		if (entry.code?.kill === true) return await entry.driver.kill({ application: true });
 		if (entry.profile !== null) return await entry.driver.close();
 		if (!entry.closeFailed) {
 			try {
@@ -685,6 +703,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		// no notice of the flag, kept a new spare: an interpreter holding jev's key in its environment that belongs to no browser.
 		releaseSpare();
 		if (errors.length > 0) fail("dispose_incomplete", `some browsers did not shut down cleanly: ${errors.join("; ")}`);
+	}
+
+	/**
+	 * The last resort of a server that is being ended hard (stdio.ts, when `dispose` has not finished in time): the process tree of every throwaway browser is killed at once, with no polite close, and the
+	 * call returns when they are gone or `limitMs` has passed. A saved profile's browser is left alone: its lock holds until its own close is confirmed, and a hard kill could cut a write to logins that matter.
+	 * A driver that is already closing is safe to kill (its `kill` is made for a `close` that hung).
+	 */
+	async killThrowaways(limitMs: number): Promise<void> {
+		const drivers = [...this.byId.values()].filter((entry) => entry.profile === null).map((entry) => entry.driver);
+		for (const orphan of this.stranded) drivers.push(orphan.driver);
+		await Promise.allSettled(drivers.map((driver) => withTimeout(driver.kill(), limitMs, "killing a browser")));
 	}
 
 	/** Drop in-memory state and make the capability dead. Does NOT free the lock. */
@@ -772,15 +801,16 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private checkIdle(entry: Entry): void {
 		if (entry.closed || entry.retiring !== undefined) return;
 		const quietMs = performance.now() - entry.lastUsed;
+		const idleMs = this.idleOf(entry);
 		// A View joined to its stream is watching it however long the page takes to answer; a call in flight is work; a person who has the
-		// wheel is using the page with no call and, while their document is hidden, no stream. None of these is idle: only handing the wheel
+		// wheel is using the page with no call and, while their document is hidden, no stream; a persisted code browser stays. None of these is idle: only handing the wheel
 		// back (or its fallback, `watchWheel`) lets the clock count.
-		const occupied = this.working(entry) || entry.viewers > 0 || entry.takenOver;
-		if (occupied || quietMs < this.idleMs) {
-			this.watchIdle(entry, occupied ? this.idleMs : this.idleMs - quietMs);
+		const occupied = this.working(entry) || entry.viewers > 0 || entry.takenOver || entry.code?.persist === true;
+		if (occupied || quietMs < idleMs) {
+			this.watchIdle(entry, occupied ? idleMs : idleMs - quietMs);
 			return;
 		}
-		const reason = `it was a throwaway browser, closed after ${this.idleMs / 1_000} s with no calls; open a new one with browser_open`;
+		const reason = `it was a ${entry.code === undefined ? "throwaway" : "code"} browser, closed after ${idleMs / 1_000} s with no calls; open a new one with ${reopenWith(entry)}`;
 		void this.retire(entry, reason).catch((error: unknown) => console.error("An idle throwaway browser was not closed:", describe(error)));
 	}
 
@@ -792,7 +822,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private pickVictim(): Entry | undefined {
 		let victim: Entry | undefined;
 		for (const entry of this.byId.values()) {
-			if (entry.profile !== null || entry.closed || entry.viewers > 0 || entry.takenOver || this.working(entry)) continue;
+			if (entry.profile !== null || entry.closed || entry.viewers > 0 || entry.takenOver || entry.code?.persist === true || this.working(entry)) continue;
 			const personal = entry.opener.caller === "app";
 			const victimPersonal = victim?.opener.caller === "app";
 			if (victim === undefined || (!personal && victimPersonal) || (personal === victimPersonal && entry.lastUsed < victim.lastUsed)) victim = entry;
@@ -812,7 +842,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		const victim = this.pickVictim();
 		if (victim === undefined) fail("too_many_browsers", this.refusal(asker, "none can be closed to make room: each is running a task, has a call in progress, is open in a View, is one the person has taken over, is still shutting down, or is a saved profile's"));
-		const reason = `it was a throwaway browser, closed to make room for another chat's (at most ${MAX_BROWSERS} are open at once); open a new one with browser_open`;
+		const reason = `it was a ${victim.code === undefined ? "throwaway" : "code"} browser, closed to make room for another chat's (at most ${MAX_BROWSERS} are open at once); open a new one with ${reopenWith(victim)}`;
 		try {
 			await this.retire(victim, reason);
 		} catch (error) {
@@ -829,6 +859,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return held.length > 0 ? `${why}. You hold ${held.join(", ")}: browser_close the ones you are done with` : `${why}. None is yours; try again shortly`;
 	}
 
+	/** Someone other than a cell is about to use the browser live (a View joined, a task agent began): the code host thaws its tabs, because a frozen page draws nothing and answers no timer. */
+	private wake(browserId: string): void {
+		for (const listener of [...this.viewListeners]) listener(browserId);
+	}
+
 	/**
 	 * A View joined `browserId`'s live stream (stream.ts): while any View is joined nobody may give the browser up, and it is not idle.
 	 * Returns what ends that. A count, not a clock: a View whose page answers slowly is still watching.
@@ -837,6 +872,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		entry.viewers += 1;
 		this.watchWheel(entry);
+		this.wake(browserId);
 		let ended = false;
 		return () => {
 			if (ended) return;
@@ -845,6 +881,67 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			entry.lastUsed = performance.now();
 			this.watchWheel(entry);
 		};
+	}
+
+	/** How long `entry` may go without a call: a cell's browser has its own clock (OMP's 1,800 s); every other throwaway has the pack's. */
+	private idleOf(entry: Entry): number {
+		return entry.code?.idleMs ?? this.idleMs;
+	}
+
+	// -----------------------------------------------------------------------
+	// The code seam (src/code/host): a browser a cell opens is an entry like any other
+	// -----------------------------------------------------------------------
+
+	private notifyEnd(entry: Entry, why: EndWhy): void {
+		const reason = this.released.get(entry.browserId);
+		for (const listener of [...this.endListeners]) {
+			try {
+				listener(entry.browserId, why, reason);
+			} catch (error) {
+				console.error("A browser-end listener failed:", describe(error));
+			}
+		}
+	}
+
+	/** One call in flight on `entry`, for a cell: out of idle close and make-room, refused like a page call while a task or a pending publish owns the page. Returns what ends it. */
+	private holdWork(entry: Entry): () => void {
+		refuseWhileBusy(entry, undefined, "code");
+		entry.pending += 1;
+		let held = true;
+		return () => {
+			if (!held) return;
+			held = false;
+			entry.pending -= 1;
+			entry.lastUsed = performance.now();
+		};
+	}
+
+	/** The closures the code host drives. The runtime stays the one owner of browsers, locks, sessions and the View's stream; the host owns workers and cells. */
+	codeSeam(): CodeSeam {
+		return (this.seam ??= {
+			open: async (options, opener, code, attach) => await this.open(options, opener, code, attach),
+			resize: async (browserId, viewport, scale) => await this.resize(browserId, viewport, scale),
+			close: async (browserId) => await this.close(browserId),
+			require: (browserId) => this.require(browserId),
+			peek: (browserId) => {
+				const entry = this.byId.get(browserId);
+				return entry === undefined || entry.closed ? undefined : entry;
+			},
+			browsersOf: (session) => [...this.byId.values()].filter((entry) => !entry.closed && entry.opener.session === session),
+			viewOf: (session) => this.viewOf(session),
+			bindView: (session, browserId) => this.bindView(session, browserId),
+			hold: (entry) => this.holdWork(entry as Entry),
+			working: (entry) => this.working(entry as Entry),
+			serialize: (entry, work) => this.serialize(entry as Entry, work),
+			onEnd: (listener) => {
+				this.endListeners.add(listener);
+				return () => void this.endListeners.delete(listener);
+			},
+			onViewed: (listener) => {
+				this.viewListeners.add(listener);
+				return () => void this.viewListeners.delete(listener);
+			},
+		});
 	}
 
 	// -----------------------------------------------------------------------
@@ -1109,7 +1206,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	async addProfile(request: NewProfileRequest, caller?: ToolCaller): Promise<ProfileListing> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
 		// The tool is app-only at the host, but a plain MCP client does not apply that rule: the runtime holds it itself, like `control`.
-		if (caller !== "app") fail("human_only", "only the person in the View can add a profile; name a new one in browser_open to have a profile of your own");
+		if (caller !== "app") fail("human_only", "only the person in the View can add a profile; to have a profile of your own, name a new short lowercase one when you open a browser");
 		if (typeof request?.name !== "string") fail("bad_profile_name", "Give the profile a name.");
 		if (request.colour !== undefined && !isProfileColour(request.colour)) fail("bad_profile", `colour must be one of: ${PROFILE_COLOURS.join(", ")}`);
 		if (request.avatar !== undefined && cleanAvatar(request.avatar) === undefined) fail("bad_profile", "avatar must be a single emoji");
@@ -1140,6 +1237,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		// Not queued behind page work: it must hold before the agent's next step, not after its whole batch.
 		entry.takenOver = mode === "take";
 		this.watchWheel(entry);
+		// The code host holds this browser's tabs in a worker: it drops them, and stops a cell that is using the page (the cell is told human_driving) before the person's first click lands in the middle of it.
+		if (mode === "take") this.notifyEnd(entry, "taken-over");
 		return this.redact(entry, await this.buildState(entry));
 	}
 
@@ -1158,7 +1257,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		clearTimeout(entry.wheelTimer);
 		entry.wheelTimer = undefined;
 		if (this.keptOnLeave(entry, heldWheel)) return { closed: false };
-		await this.retire(entry, "the person left it for another profile in the Browser View, which closed it; open it again with browser_open");
+		await this.retire(entry, `the person left it for another profile in the Browser View, which closed it; open it again with ${reopenWith(entry)}`);
 		return { closed: true };
 	}
 
@@ -1512,7 +1611,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			for (const [index, step] of plan.entries()) {
 				// The person took over between two steps: the steps not yet sent are not sent.
 				if (index > 0 && caller !== "app" && entry.takenOver) {
-					stopped = { status: "failed", error: TAKEN_OVER_MESSAGE };
+					stopped = { status: "failed", error: TAKEN_OVER_MESSAGES.steps };
 					break;
 				}
 				if (index > 0 && Date.now() >= deadline) {
@@ -1790,6 +1889,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			});
 			entry.task = run;
 			entry.worker = { process: worker, finished };
+			this.wake(entry.browserId);
 			// Returned wrapped so the serializer is released now: the task runs
 			// outside the page queue, and frames keep flowing while it works.
 			return { run, finished };
@@ -2335,20 +2435,36 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 
 /** A task's page is its own, and a pending publish pins the page: neither takes another caller's page work. */
-function refuseWhileBusy(entry: Entry, caller: ToolCaller | undefined): void {
+function refuseWhileBusy(entry: Entry, caller: ToolCaller | undefined, tools: Tools = "steps"): void {
 	if (entry.task?.status === "running") {
 		fail("task_running", "a browser_task owns this page; wait for it or cancel it");
 	}
 	refuseWhilePublishing(entry, caller);
-	refuseWhileTakenOver(entry, caller);
+	refuseWhileTakenOver(entry, caller, tools);
 }
 
+/**
+ * The tools of the model that is refused, because the two sets do not share a name: a cell drives a page with `tab.*` and reads it with `tab.observe()`; the step tools read it with browser_snapshot and browser_state, which
+ * a code or build model does not have (doc 77 §7.5a).
+ */
+type Tools = "steps" | "code";
+
 /** What an agent is told when the person has the wheel: why it was refused, and that reading is still open to it. */
-const TAKEN_OVER_MESSAGE = "the person took over this browser in the View, so your actions on it are paused. You can still read it (browser_snapshot, browser_state); ask them to hand it back before you act.";
+const TAKEN_OVER_MESSAGES: Record<Tools, string> = {
+	steps: "the person took over this browser in the View, so your actions on it are paused. You can still read it (browser_snapshot, browser_state); ask them to hand it back before you act.",
+	code: "the person took over this browser in the View, so your actions on it are paused. You can still read it (tab.observe(), tab.url()); ask them to hand it back before you act.",
+};
+
+/** The way back to a browser that was given up, in the words of the model that has to say it: the tool its opener used (a code or build model has `browser_view` and not `browser_open`), a cell's `browser.open` for a code browser, and `browser_view` for the person's own, which every space has. */
+function reopenWith(entry: Entry): string {
+	if (entry.code !== undefined) return "browser.open";
+	if (entry.opener.caller === "app") return "browser_view";
+	return entry.opener.tool ?? "browser_open";
+}
 
 /** The person's wheel: only the View's own input drives a browser they took over. Refused as `human_driving`. */
-function refuseWhileTakenOver(entry: Entry, caller: ToolCaller | undefined): void {
-	if (caller !== "app" && entry.takenOver) fail("human_driving", TAKEN_OVER_MESSAGE);
+function refuseWhileTakenOver(entry: Entry, caller: ToolCaller | undefined, tools: Tools = "steps"): void {
+	if (caller !== "app" && entry.takenOver) fail("human_driving", TAKEN_OVER_MESSAGES[tools]);
 }
 
 /** `refuseWhileBusy`, then notes that an agent is acting on this browser (the View shows it, with a way to take over). */

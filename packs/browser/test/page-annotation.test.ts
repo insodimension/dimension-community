@@ -88,7 +88,7 @@ describe("the page, as the agent is told it", () => {
 		expect(summary).toContain("2026-10-02T10:00:00.000Z");
 		expect(summary).toContain("2026-10-02T10:00:01.000Z");
 		// The agent finds the page the human is looking at without being handed an id.
-		expect(summary).toContain("browser_state");
+		expect(summary).toContain("no browserId");
 	});
 
 	test("stays one line within the kit's limit however long and strange the page's own words are", () => {
@@ -103,7 +103,7 @@ describe("the page, as the agent is told it", () => {
 		expect(summary).not.toMatch(/[\n\r\u200b\u202e]/);
 		// What was cut is not the part the agent needs: the scroll and the hint to read the page survive.
 		expect(summary).toContain("y=1200");
-		expect(summary).toContain("browser_state");
+		expect(summary).toContain("no browserId");
 	});
 
 	test("keeps the whole address and title in the detail, uncut", () => {

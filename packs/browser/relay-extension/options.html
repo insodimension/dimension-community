@@ -1,0 +1,54 @@
+<!-- Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/relay/extension-assets/options.html.txt @ dc5f95d9e1. Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See LICENSE in this folder. Changed for the Browser pack: the names, and the sentence that says what the extension talks to. -->
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Dimension Browser Relay settings</title>
+		<style>
+			body {
+				font-family: system-ui, sans-serif;
+				max-width: 28rem;
+				margin: 2rem auto;
+				padding: 0 1rem;
+				color: #1f2328;
+			}
+			label {
+				display: block;
+				margin: 1rem 0 0.25rem;
+				font-weight: 600;
+			}
+			input {
+				width: 100%;
+				padding: 0.4rem 0.5rem;
+				font: inherit;
+				box-sizing: border-box;
+			}
+			button {
+				margin-top: 1.25rem;
+				padding: 0.45rem 1.1rem;
+				font: inherit;
+			}
+			#status {
+				margin-left: 0.75rem;
+				color: #1a7f37;
+			}
+			p.hint {
+				color: #57606a;
+				font-size: 0.85rem;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Dimension Browser Relay</h1>
+		<p class="hint">
+			The extension connects to a local <code>Dimension Browser</code> relay (started by the Browser pack, or by
+			<code>node app/server.mjs --relay</code>). Values here must match the port and token the relay was started with.
+		</p>
+		<label for="port">Relay port</label>
+		<input id="port" type="number" min="1" max="65535" />
+		<label for="token">Token (optional)</label>
+		<input id="token" type="text" autocomplete="off" />
+		<button id="save">Save</button><span id="status"></span>
+		<script src="options.js"></script>
+	</body>
+</html>

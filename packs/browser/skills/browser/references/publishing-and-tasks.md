@@ -4,7 +4,7 @@ Traction sessions only. The five `browser_publish*` tools are offered to the
 `traction` space and to no other; `browser_task`, `browser_task_wait` and
 `browser_task_cancel` are offered there too, but only where jev's key is
 configured (`TYPESAFE_API_KEY`). If you cannot see a tool, this file does not
-apply to it. Open, view, snapshot, act, read and close are in [SKILL.md](../SKILL.md).
+apply to it. Open, view, snapshot, act, read and close are in [steps.md](steps.md) and [SKILL.md](../SKILL.md).
 
 ## Connect a platform
 
