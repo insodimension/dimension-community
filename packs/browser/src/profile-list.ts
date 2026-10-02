@@ -1,13 +1,11 @@
 /**
  * The saved profiles as an agent (and the View) reads them: `browser_profiles`.
  *
- * Built from what is already on disk and nothing else: the profile folder
- * names, each one's `profile.json` (label, colour) and its observations
- * (`connections.json`). It never opens a profile's Chrome folder, its
- * credentials or its lock, so a cookie, a password, a path or a browser id has
- * no way into the answer: every field below is named here, one by one, and no
- * stored record is passed through. The relay (the human's own Chrome) and the
- * throwaway browsers are not profiles and never appear.
+ * Built from what is already on disk and what this server holds open: the profile folder names, each one's `profile.json` (label,
+ * colour), its observations (`connections.json`) and who holds its browser. It never opens a profile's Chrome folder, its
+ * credentials or its lock, so a cookie, a password or a path has no way into the answer, and `profilesForModel` is what takes a
+ * browser id out for a model: every field below is named here, one by one, and no stored record is passed through. The relay (the
+ * human's own Chrome) and the throwaway browsers are not profiles and never appear.
  *
  * The sites are the SAME observations the dock panel shows (connection.ts
  * builds that report), read with the same rules (profile-meta.ts): an

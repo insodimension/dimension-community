@@ -212,7 +212,7 @@ which a Traction session reads on demand.
 
 View-only: `browser_stream` (where the View reads its live pictures and state and sends the human's
 mouse and keys: one call to bind a browser, none per picture), `browser_frame` (a PNG capture
-retained for annotation), `browser_annotate` (the page under the marked regions: address, title, the scroll the picture was taken at, elements; no pixels), `browser_annotation_file` (keeps the kit's detail document and answers its path; a Private browser's is deleted with it), `browser_viewport`, `browser_profile_add` (the profile menu's Add profile: a name, a colour, an avatar), `browser_control` (Take over and Hand back).
+retained for annotation), `browser_annotate` (the page under the marked regions: address, title, the scroll the picture was taken at, elements; no pixels), `browser_annotation_file` (keeps the kit's detail document and answers its path; a Private browser's is deleted with it), `browser_viewport`, `browser_profile_add` (the profile menu's Add profile: a name, a colour, an avatar), `browser_control` (Take over and Hand back), `browser_leave` (the person switching profile: closes the browser they leave unless something depends on it).
 
 **The View's direct channel.** The live picture and the human's input do not ride the tool-call
 lane. The server opens one listener on `127.0.0.1` (random port, only while a View holds a token) that
@@ -354,9 +354,17 @@ throwaway browser, Your Chrome for the relay. Its face rides the browser's own s
 costs no call. Opening the menu reads `browser_profiles` and lists the others, Default first and then by
 label, each with where it is signed in or who has it: a profile open here (yours, or your agent's, or one
 an agent task is running on) is one click away; a profile another chat holds, or you hold in another chat's
-View, is shown dimmed and cannot be opened from here (the one-holder lock). A click calls `browser_open`
-for that profile and the View shows it; **the browser you leave stays open**, as Chrome keeps the other
-profile's window (its tabs, its sign-ins, a post awaiting its confirm), and shows as open in the menu.
+View, is shown dimmed and cannot be opened from here (the one-holder lock); its reason is still read out to a
+keyboard, because the row stays on the arrow keys. A click calls `browser_open` for that profile and the View
+shows it, then calls `browser_leave` for the browser it left. **The runtime closes the browser that was left**
+(`closed: true`; a chat that still holds its id is told why, as for any browser the runtime closes) unless
+something depends on it: an agent opened it, a call or a task is running on it, a post awaits confirmation on
+it, the person had taken it over (the wheel goes back to the agent either way), or it is their own Chrome.
+Those stay open and are rows of their own in the menu — a saved profile's row, or "Private browser" / "Your
+Chrome" for the ones that are not profiles — saying what each is doing, one click to go back to it and a close
+button at the end of the row. Nothing accumulates: a person who switches through four profiles holds one browser,
+so the pool of four is never theirs alone. Opening a browser at the pool's cap is still decided by the pool's
+own rule (a chat's idle throwaway is given up first; a saved profile never is).
 **Add profile** is inside the menu: a name, one of the eight colours, an optional emoji. The name is shown
 as typed (any script, up to 48 characters) and the folder is derived from it; a blank name, one that could
 be a path (`\ / : * ? " < > |`, a leading dot), `relay` or a Windows device name, or one that matches
@@ -369,9 +377,13 @@ agent opened is never listed.
 agent's `browser_act`, `browser_task`, publish and `browser_close` on it are refused `human_driving`
 (reads — `browser_snapshot`, `browser_state` — still work, and say `takenOver: true`), an agent batch
 already running stops before its next step, and `browser_profiles` reports the profile as held by the
-human. `return` hands it back. It is refused while a task runs (`task_running`) and while a post awaits
-confirmation (`publish_pending`): taking the wheel must never navigate away from, or lose, the page a post
-is parked on. It lasts until handed back or the browser closes.
+human. `return` hands it back. It is refused while a task runs (`task_running`), while a post awaits
+confirmation (`publish_pending`) and while a post is being filled or a task is starting: taking the wheel must
+never navigate away from, or lose, the page a post is parked on. The menu offers Take over only while an agent
+has acted in the browser in the last few seconds (the page's pill is the same fact, and the two are never on
+screen together), or Hand back while the person holds it. It lasts until handed back, the browser closes, the
+person leaves the browser for another profile (`browser_leave`: the wheel goes back to the agent at once), or no
+View has been joined to its stream for a minute (the View or the chat was closed): then it goes back by itself.
 
 ## Reading public pages
 

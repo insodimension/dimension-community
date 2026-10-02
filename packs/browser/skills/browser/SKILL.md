@@ -50,6 +50,12 @@ hold; give it `url` (and `profile`) instead to open one for them to watch.
   `takenOver: true`: stop acting on it, read it if you need to
   (`browser_snapshot`), and ask the user to hand it back. Do not open another
   browser to get around it.
+- **The user may leave a browser they opened** (switching profile in the View).
+  It is closed unless something depends on it; a browser you opened yourself is
+  never closed that way, and a wheel they held comes back to you. If your id
+  now answers `unknown or already closed browserId: the person left it...`, open
+  the profile again with `browser_open`; its sign-ins are kept. The wheel also
+  comes back by itself after the user's View has been gone for a minute.
 - You may log in or sign up yourself: `browser_act` types into password fields
   like any other. Logins persist in a named profile (a throwaway browser forgets
   them). A verification step (CAPTCHA, email code, phone code) is yours to handle
