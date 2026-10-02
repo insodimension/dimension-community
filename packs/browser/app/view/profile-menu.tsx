@@ -267,18 +267,20 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 									})}
 							</div>
 
-							<div className="bx-menu-sep" role="separator" />
-
-							<button type="button" role="menuitem" className="bx-menu-item" data-menu-initial={firstOpenable === undefined && firstBrowser === undefined ? "" : undefined} disabled={busy} onClick={() => setAdding(true)}>
-								<Icon name="plus" size={14} strokeWidth={2} />
-								Add profile
-							</button>
-							{identity.kind !== "private" && (
-								<button type="button" role="menuitem" className="bx-menu-item" disabled={busy} onClick={choose(() => props.onSwitch(null))}>
-									<Icon name="shield" size={14} strokeWidth={2} />
-									Private browser
+							{/* Add profile and Private browser stay in view however many browsers are left open: the list above scrolls under them. */}
+							<div className="bx-pmenu-foot" role="none">
+								<div className="bx-menu-sep" role="separator" />
+								<button type="button" role="menuitem" className="bx-menu-item" data-menu-initial={firstOpenable === undefined && firstBrowser === undefined ? "" : undefined} disabled={busy} onClick={() => setAdding(true)}>
+									<Icon name="plus" size={14} strokeWidth={2} />
+									Add profile
 								</button>
-							)}
+								{identity.kind !== "private" && (
+									<button type="button" role="menuitem" className="bx-menu-item" disabled={busy} onClick={choose(() => props.onSwitch(null))}>
+										<Icon name="shield" size={14} strokeWidth={2} />
+										Private browser
+									</button>
+								)}
+							</div>
 						</>
 					)}
 				</div>

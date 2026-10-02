@@ -821,6 +821,15 @@ kbd {
 	box-shadow: 0 0 0 2px var(--fr-accent);
 }
 
+/* The menu's actions stay at its bottom edge while a long list scrolls beneath them. */
+.bx-pmenu-foot {
+	position: sticky;
+	bottom: 0;
+	margin: 0 -6px -6px;
+	padding: 0 6px 6px;
+	background: var(--bx-sheet);
+}
+
 .bx-pmenu-list {
 	display: flex;
 	flex-direction: column;
