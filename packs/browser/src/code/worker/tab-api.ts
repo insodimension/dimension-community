@@ -2,7 +2,8 @@
 // #resolveAriaRef, #resolveActionHandle, clickQueryHandlerText and its actionability helpers) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
 // Changed for the Browser pack: the helpers are built over a TabSession (one adopted page) instead of WorkerCore; Bun.sleep is `sleep`; `uploadFile` paths are absolute or resolve against the cwd the host
-// gave the realm (MCP carries none: matrix D21); an opt-in refusal of password fields (matrix D18, off by default = OMP's behaviour); the ARIA, readable and screenshot pieces live in their own modules.
+// gave the realm (MCP carries none: matrix D21); an opt-in refusal of password fields (matrix D18, off by default = OMP's behaviour); the text-selector click names its own loop's timeout instead of letting an AbortError
+// through; the ARIA, readable and screenshot pieces live in their own modules.
 
 import * as os from "node:os";
 import * as path from "node:path";
