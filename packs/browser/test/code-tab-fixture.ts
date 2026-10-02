@@ -139,6 +139,8 @@ export async function launchChrome(browserId = "b1"): Promise<LaunchedChrome> {
     pid: browser.process()?.pid,
     async openTab(url) {
       const page = await browser.newPage();
+      // What the engine's prepareTab does: a tab behind another keeps rendering, or puppeteer's element actions wait for ever on a page that never paints.
+      await page.emulateFocusedPage(true);
       if (url) await page.goto(url);
       const targetId = await targetIdOf(page);
       return {

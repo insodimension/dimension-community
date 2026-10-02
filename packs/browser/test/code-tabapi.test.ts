@@ -3,16 +3,27 @@
  * Every expectation is something the model reads back: a returned value, a printed line, or the exact text of an error. The strings are OMP's
  * (tab-worker.ts); the timings are OMP's (2 s zero-match fail-fast, 8 s action ceiling, 20 s quick ceiling, the cell budget less one second).
  */
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Page } from "puppeteer-core";
 import { createCodeEvaluator } from "../src/code/cell/evaluator";
 import type { RunResult, TabRealm } from "../src/code/contracts";
 import { createTabRealm } from "../src/code/worker/tab-realm";
+import { readImageDimensions } from "../src/code/worker/image-size";
+import { resolveScreenshotDir } from "../src/code/worker/screenshot";
+import { resolveUploadPath } from "../src/code/worker/tab-api";
 import { resolveOpTimeouts, resolveWaitTimeout } from "../src/code/worker/tab-ops";
 import { chromePath, type Fixture, type LaunchedChrome, launchChrome, startFixture } from "./code-tab-fixture";
 import { describeWithChrome } from "./fixture";
 
-const textOf = (result: RunResult): string => result.displays.flatMap(part => (part.type === "text" ? [part.text] : [])).join("\n");
+/** The first printed line group of a run: a screenshot's caption. */
+function captionOf(result: RunResult): string {
+  const first = result.displays[0];
+  if (first?.type !== "text") throw new Error("the run printed no caption");
+  return first.text;
+}
 
 describe("the per-operation ceilings follow the cell budget", () => {
   test("a default cell keeps OMP's 20 s and 8 s, and a short cell pulls both under its own budget less one second", () => {
@@ -38,6 +49,7 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
   let realm: TabRealm;
   /** The engine-side puppeteer page behind each adopted name: the test's way to observe and release a page the realm is driving. */
   const enginePages = new Map<string, Page>();
+  const chromePage = (name: string): Page => enginePages.get(name)!;
 
   const run = (code: string, o: { name?: string; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<RunResult> =>
     realm.run({ name: o.name ?? "main", code, timeoutMs: o.timeoutMs ?? 10_000, signal: o.signal ?? new AbortController().signal });
@@ -191,7 +203,11 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
 
   /** The text of the fixture's `#out` line: what a click or a submit left on the page. */
   const out = (): Promise<unknown> => value("await tab.evaluate(() => document.getElementById('out').textContent)");
-  const goto = (path: string): Promise<RunResult> => run(`await tab.goto(${JSON.stringify(fixture.url(path))})`);
+  /** Navigate the main tab; it is raised first, because input to a page behind another one waits for a frame it never paints (the engine raises the tab it hands over). */
+  const goto = async (path: string): Promise<RunResult> => {
+    await chromePage("main").bringToFront();
+    return run(`await tab.goto(${JSON.stringify(fixture.url(path))})`);
+  };
   interface Observed {
     elements: Array<{ id: number; role: string; name?: string; value?: string; states: string[] }>;
     viewport: { width: number; height: number };
@@ -325,6 +341,205 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       const both = await realm.run({ name: "main", code: "1", fn: "() => 1", timeoutMs: 5_000, signal }).catch((e: Error) => e);
       expect((both as Error).message).toBe("Action 'run' requires exactly one of 'code' or 'fn'.");
     });
+  });
+
+  describe("screenshots (D13, D14, H9)", () => {
+    test("a screenshot prints OMP's caption and picture, returns where the picture is, and the picture fits the model's budget", async () => {
+      await goto("/form");
+      const result = await run("await tab.screenshot()");
+      const [, image] = result.displays;
+      const lines = captionOf(result).split("\n");
+      expect(lines[0]).toBe("Screenshot captured");
+      expect(lines[1]).toMatch(/^Format: image\/webp \(\d+(\.\d+)? KB\)$/);
+      expect(lines[2]).toBe("Dimensions: 1000x700");
+      expect(image).toMatchObject({ type: "image", mimeType: "image/webp" });
+      const [shot] = result.screenshots;
+      expect(typeof result.returnValue).toBe("string");
+      expect(shot!.dest).toBe(result.returnValue as string);
+      expect(shot!.bytes).toBeLessThanOrEqual(150 * 1024);
+      expect(Math.max(shot!.width, shot!.height)).toBeLessThanOrEqual(1024);
+      expect((await readFile(shot!.dest)).length).toBe(shot!.bytes);
+    }, 20_000);
+
+    test("a tall page is shrunk to 1024 on its long edge and the caption says how to map coordinates back", async () => {
+      await goto("/long");
+      const result = await run("await tab.screenshot({ fullPage: true })");
+      expect(captionOf(result)).toMatch(/^Screenshot captured\nFormat: image\/webp \(.+ KB\)\nDimensions: \d+x1024\n\[Image: original 1000x\d+, displayed at \d+x1024\. Multiply coordinates by [\d.]+ to map to original image\.\]$/);
+      const picture = result.displays[1];
+      expect(picture).toMatchObject({ type: "image" });
+      const dims = readImageDimensions(Buffer.from(picture?.type === "image" ? picture.data : "", "base64"));
+      expect(dims?.height).toBe(1024);
+    }, 20_000);
+
+    test("silent keeps the output clean but still returns the path", async () => {
+      await goto("/form");
+      const result = await run("await tab.screenshot({ silent: true })");
+      expect(result.displays).toEqual([]);
+      expect(typeof result.returnValue).toBe("string");
+    }, 20_000);
+
+    test("a selector captures that element alone, and one that matches nothing is refused", async () => {
+      await goto("/form");
+      const result = await run('await tab.screenshot({ selector: "#submit" })');
+      const dims = captionOf(result).match(/Dimensions: (\d+)x(\d+)/)!;
+      expect(Number(dims[1])).toBeLessThan(300);
+      expect(Number(dims[2])).toBeLessThan(100);
+      expect((await failure('await tab.screenshot({ selector: "#nope" })')).message).toBe("Screenshot selector did not resolve to an element");
+    }, 20_000);
+
+    test("a screenshot directory keeps the full-resolution PNG and the caption names where", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "dimension-code-shots-"));
+      const configured = createTabRealm({ evaluator: createCodeEvaluator, screenshotDir: dir });
+      try {
+        const { handle } = await chrome.openTab(fixture.url("/long"));
+        await configured.adopt("shots", handle);
+        const result = await configured.run({ name: "shots", code: "await tab.screenshot({ fullPage: true })", timeoutMs: 15_000, signal: new AbortController().signal });
+        const dest = result.returnValue as string;
+        expect(dirname(dest)).toBe(dir);
+        expect(dest).toEndWith(".png");
+        const saved = readImageDimensions(await readFile(dest));
+        expect(saved?.width).toBe(1000);
+        expect(saved?.height).toBeGreaterThan(4000);
+        const lines = captionOf(result).split("\n");
+        expect(lines[0]).toBe("Screenshot captured");
+        expect(lines[1]).toMatch(/^Saved: image\/png \(.+ KB\) to /);
+        expect(lines[1]).toContain(dest);
+        expect(lines[2]).toMatch(/^Model: image\/webp \(.+ KB, \d+x1024\)$/);
+      } finally {
+        await configured.dispose();
+        await rm(dir, { recursive: true, force: true });
+      }
+    }, 30_000);
+
+    test("the directory setting expands ~ and ignores blank", () => {
+      expect(resolveScreenshotDir({ DIMENSION_BROWSER_SCREENSHOT_DIR: "~/shots" }, "/home/me")).toBe(join("/home/me", "shots"));
+      expect(resolveScreenshotDir({ DIMENSION_BROWSER_SCREENSHOT_DIR: "~" }, "/home/me")).toBe("/home/me");
+      expect(resolveScreenshotDir({ DIMENSION_BROWSER_SCREENSHOT_DIR: "/abs/dir" }, "/home/me")).toBe("/abs/dir");
+      expect(resolveScreenshotDir({ DIMENSION_BROWSER_SCREENSHOT_DIR: "   " }, "/home/me")).toBeUndefined();
+      expect(resolveScreenshotDir({}, "/home/me")).toBeUndefined();
+    });
+  });
+
+  describe("clicking, typing and moving (D17, D18)", () => {
+    test("click, type, fill and press act on the page", async () => {
+      await goto("/form");
+      await run('await tab.fill("#name", "first"); await tab.type("#name", " second"); await tab.click("#submit")');
+      expect(await out()).toBe("submitted:first second");
+      await run('await tab.fill("#name", "again")');
+      expect(await value("await tab.evaluate(() => document.getElementById('name').value)")).toBe("again");
+      await run('await tab.press("Enter", { selector: "#go" })');
+      await run('await tab.waitForUrl("/done")');
+      expect(await value("tab.url()")).toBe(fixture.url("/done"));
+    }, 20_000);
+
+    test("a covered button is not clicked through its cover: the text selector waits for it to become actionable and says why it did not", async () => {
+      await goto("/form");
+      const error = await failure('await tab.click("text/Covered")', { timeoutMs: 4_000 });
+      // The text click's own loop and the per-op deadline end at the same instant; either one names the covered element (the loop with the reason it saw).
+      expect(error.message).toMatch(
+        /^(tab\.click\("text\/Covered"\) timed out after 3000ms; selector currently matches 1 element\(s\) but the action never became possible|Timed out clicking text\/Covered \(seen 1 matches; last reason: obscured\))/,
+      );
+      expect(await out()).toBe("");
+    }, 15_000);
+
+    test("a text selector clicks a visible match by its text", async () => {
+      await goto("/form");
+      await run('await tab.fill("#name", "by text"); await tab.click("text/Submit")');
+      expect(await out()).toBe("submitted:by text");
+    }, 20_000);
+
+    test("scroll turns the wheel over the page", async () => {
+      await goto("/long");
+      await run("await tab.scroll(0, 1500)");
+      await chromePage("main").waitForFunction("window.scrollY > 500");
+    }, 20_000);
+
+    test("drag carries a press from one element to another, by selector and by point", async () => {
+      const log = "await tab.evaluate(() => document.getElementById('log').textContent)";
+      await goto("/drag");
+      await run('await tab.drag("#a", "#b")');
+      expect(await value(log)).toBe("up@260,160");
+      await goto("/drag");
+      await run("await tab.drag({ x: 40, y: 50 }, { x: 300, y: 400 })");
+      expect(await value(log)).toBe("up@300,400");
+      expect((await failure('await tab.drag("#nope", "#b")')).message).toBe("Drag from selector did not resolve: #nope");
+    }, 30_000);
+  });
+
+  describe("waits (D19) and evaluate (D20)", () => {
+    test("each wait gives the type it documents", async () => {
+      await goto("/form");
+      expect(await value('(await tab.waitFor("#submit")).constructor.name !== undefined')).toBe(true);
+      // hidden:true is satisfied by absence (null) or by an element that is there but not shown (its handle).
+      expect(await value('await tab.waitForSelector("#nope", { hidden: true })')).toBeNull();
+      expect(await value('(await tab.waitForSelector("#hidden-btn", { hidden: true })) !== null')).toBe(true);
+      expect(await value('(await tab.waitForSelector("#submit", { visible: true })) !== null')).toBe(true);
+    }, 20_000);
+
+    test("waitForUrl resolves after the page redirects itself, with the address it reached", async () => {
+      await goto("/redirect");
+      expect(await value('await tab.waitForUrl("/done")')).toBe(fixture.url("/done"));
+      await goto("/redirect");
+      expect(await value("await tab.waitForUrl(/done$/)")).toBe(fixture.url("/done"));
+    }, 20_000);
+
+    test("waitForNavigation and waitForResponse resolve on what the page does", async () => {
+      await goto("/redirect");
+      const navigated = (await value('(await tab.waitForNavigation()).url()')) as string;
+      expect(navigated).toBe(fixture.url("/done"));
+      await goto("/xhr");
+      expect(await value('(await tab.waitForResponse("/api/data")).url()')).toBe(fixture.url("/api/data?x=1"));
+      expect(await value("await tab.waitForResponse(r => r.url().includes('/api/data')).then(() => 'matched')").catch(() => "late")).toBeDefined();
+    }, 20_000);
+
+    test("evaluate runs a function or an expression in the page, and a string with a top-level return is a syntax error", async () => {
+      await goto("/form");
+      expect(await value("await tab.evaluate(() => document.title)")).toBe("Fixture form");
+      expect(await value("await tab.evaluate((a, b) => a + b, 2, 3)")).toBe(5);
+      expect(await value('await tab.evaluate("document.title.length")')).toBe("Fixture form".length);
+      const error = await failure('await tab.evaluate("return 1")');
+      expect(error.name === "SyntaxError" || error.message.includes("SyntaxError")).toBe(true);
+    }, 20_000);
+  });
+
+  describe("select, upload and scrolling to an element (D21)", () => {
+    test("select sets the options, fires input and change, and returns the chosen values", async () => {
+      await goto("/form");
+      await run("await tab.evaluate(() => { window.events = []; for (const type of ['input', 'change']) document.getElementById('color').addEventListener(type, () => window.events.push(type)); })");
+      expect(await value('await tab.select("#color", "green")')).toEqual(["green"]);
+      expect(await value("await tab.evaluate(() => [document.getElementById('color').value, window.events])")).toEqual(["green", ["input", "change"]]);
+      expect((await failure('await tab.select("#submit", "x")')).message).toBe("tab.select() requires a <select> element");
+    }, 20_000);
+
+    test("uploadFile attaches the file to an input, wants an absolute path, and refuses an element that is not a file input", async () => {
+      await goto("/form");
+      const dir = await mkdtemp(join(tmpdir(), "dimension-code-upload-"));
+      const file = join(dir, "note.txt");
+      await writeFile(file, "hello");
+      try {
+        await run(`await tab.uploadFile("#file", ${JSON.stringify(file)})`);
+        expect(await value("await tab.evaluate(() => document.getElementById('file').files[0].name)")).toBe("note.txt");
+        expect((await failure('await tab.uploadFile("#file", "relative.txt")')).message).toBe(
+          'tab.uploadFile() needs an absolute path; got "relative.txt". browser_run has no working directory to resolve a relative path against.',
+        );
+        expect((await failure(`await tab.uploadFile("#submit", ${JSON.stringify(file)})`)).message).toBe(
+          'tab.uploadFile() requires an <input type="file"> element (got <button>)',
+        );
+        expect((await failure('await tab.uploadFile("#file")')).message).toBe("tab.uploadFile() requires at least one file path");
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }, 20_000);
+
+    test("a relative upload path resolves against the working directory the host gave the realm", () => {
+      expect(resolveUploadPath("note.txt", resolve("/work/dir"))).toBe(resolve("/work/dir", "note.txt"));
+    });
+
+    test("scrollIntoView centres the element", async () => {
+      await goto("/long");
+      await run('await tab.scrollIntoView("#bottom")');
+      expect(await value("await tab.evaluate(() => window.scrollY)")).toBeGreaterThan(3_000);
+    }, 20_000);
   });
 });
 

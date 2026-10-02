@@ -157,38 +157,46 @@ async function clickQueryHandlerText(page: Page, selector: string, timeoutMs: nu
   const start = Date.now();
   let lastSeen = 0;
   let lastReason: string | null = null;
-  while (Date.now() - start < timeoutMs) {
-    throwIfAborted(clickSignal);
-    const handles = (await untilAborted(clickSignal, () => page.$$(selector))) as ElementHandle[];
-    try {
-      lastSeen = handles.length;
-      const target = await resolveActionableQueryHandlerClickTarget(handles);
-      if (!target) {
-        lastReason = handles.length ? "no-visible-candidate" : "no-matches";
-        await untilAborted(clickSignal, () => sleep(100));
-        continue;
-      }
-      const actionability = await isClickActionable(target);
-      if (!actionability.ok) {
-        lastReason = actionability.reason;
-        await untilAborted(clickSignal, () => sleep(100));
-        continue;
-      }
+  const timedOut = (): ToolError =>
+    new ToolError(
+      `Timed out clicking ${selector} (seen ${lastSeen} matches; last reason: ${lastReason ?? "unknown"}). ` +
+        "If there are multiple matching elements, use observe + tab.id() or a more specific selector.",
+    );
+  try {
+    while (Date.now() - start < timeoutMs) {
+      throwIfAborted(clickSignal);
+      const handles = (await untilAborted(clickSignal, () => page.$$(selector))) as ElementHandle[];
       try {
-        await untilAborted(clickSignal, () => target.click());
-        return;
-      } catch (err) {
-        lastReason = err instanceof Error ? err.message : String(err);
-        await untilAborted(clickSignal, () => sleep(100));
+        lastSeen = handles.length;
+        const target = await resolveActionableQueryHandlerClickTarget(handles);
+        if (!target) {
+          lastReason = handles.length ? "no-visible-candidate" : "no-matches";
+          await untilAborted(clickSignal, () => sleep(100));
+          continue;
+        }
+        const actionability = await isClickActionable(target);
+        if (!actionability.ok) {
+          lastReason = actionability.reason;
+          await untilAborted(clickSignal, () => sleep(100));
+          continue;
+        }
+        try {
+          await untilAborted(clickSignal, () => target.click());
+          return;
+        } catch (err) {
+          lastReason = err instanceof Error ? err.message : String(err);
+          await untilAborted(clickSignal, () => sleep(100));
+        }
+      } finally {
+        await Promise.all(handles.map(async handle => handle.dispose().catch(() => undefined)));
       }
-    } finally {
-      await Promise.all(handles.map(async handle => handle.dispose().catch(() => undefined)));
     }
+  } catch (err) {
+    // The loop's own deadline races the per-op one at the same instant: whichever lands first, the model is told what the element was doing (OMP's loop let its own AbortError through as "Aborted: The operation timed out.").
+    if (timeoutSignal.aborted && !signal?.aborted) throw timedOut();
+    throw err;
   }
-  throw new ToolError(
-    `Timed out clicking ${selector} (seen ${lastSeen} matches; last reason: ${lastReason ?? "unknown"}). ` +
-      "If there are multiple matching elements, use observe + tab.id() or a more specific selector.",
-  );
+  throw timedOut();
 }
 
 /** Relative upload paths need a base: the host's cwd when it gave one, else the rule is named (MCP calls carry no working directory). `~` is the home directory. */
