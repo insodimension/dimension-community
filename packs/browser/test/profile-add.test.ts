@@ -28,7 +28,7 @@ import { checkNewProfile, MAX_LABEL_CHARS, PROFILE_COLOURS } from "../src/profil
 import { PROFILE_NAME } from "../src/profile-name";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
-import { BrowserRuntimeError, ProfileStore } from "../src/store";
+import { BrowserRuntimeError, MAX_PROFILES, ProfileStore } from "../src/store";
 import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, failureCode, newRuntime, teardown } from "./fixture";
 
 const CALLER = "ai.insodimension/caller";
@@ -205,6 +205,22 @@ describe("checkNewProfile: the name a person types for a new profile", () => {
 		expect(again.slug).toBe(first.slug);
 		expect(other.slug).not.toBe(first.slug);
 	});
+
+	test("the same letters in another encoding are the same name: composed or decomposed accents, other case, full-width forms", () => {
+		const composed = [{ slug: "cafe", label: "Café" }];
+		for (const typed of ["Cafe\u0301", "CAFÉ", "Ｃａｆé", "  Cafe\u0301  "]) {
+			expect({ typed, ok: checkNewProfile(typed, composed).ok }).toEqual({ typed, ok: false });
+		}
+		// The other way round: a profile stored decomposed refuses the composed spelling.
+		expect(checkNewProfile("Café", [{ slug: "cafe", label: "Cafe\u0301" }]).ok).toBe(false);
+		// A different word is still a different name.
+		expect(checkNewProfile("Cafés", composed).ok).toBe(true);
+	});
+
+	test("a folder the caller knows exists is never the new profile's: the folder name steps past it", () => {
+		const check = checkNewProfile("Legacy", [], (slug) => slug === "legacy" || slug === "legacy-2");
+		expect(check).toEqual({ ok: true, slug: "legacy-3", label: "Legacy" });
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -247,7 +263,7 @@ describe("what a model is sent of a profile", () => {
 describe("addProfile", () => {
 	test("a good name makes the folder, saves what was chosen, answers the listing, and is still there after a restart", async () => {
 		const { runtime, rootDir, store } = await fresh();
-		const added = await runtime.addProfile({ name: "  Work   Account ", colour: "teal", avatar: "💼" });
+		const added = await runtime.addProfile({ name: "  Work   Account ", colour: "teal", avatar: "💼" }, "app");
 
 		expect(added).toEqual({ name: "work-account", label: "Work Account", colour: "teal", avatar: "💼", heldBy: null, sites: [] });
 		expect(existsSync(join(rootDir, "profiles", "work-account"))).toBe(true);
@@ -260,15 +276,15 @@ describe("addProfile", () => {
 
 	test("a profile added with no colour and no avatar has a colour from the palette and no avatar key", async () => {
 		const { runtime } = await fresh();
-		const added = await runtime.addProfile({ name: "Plain" });
+		const added = await runtime.addProfile({ name: "Plain" }, "app");
 		expect(PROFILE_COLOURS).toContain(added.colour);
 		expect("avatar" in added).toBe(false);
 	});
 
 	test("a second name that derives the same folder is allowed and gets -2; both are listed", async () => {
 		const { runtime, rootDir } = await fresh();
-		const first = await runtime.addProfile({ name: "Work Account" });
-		const second = await runtime.addProfile({ name: "Work account!" });
+		const first = await runtime.addProfile({ name: "Work Account" }, "app");
+		const second = await runtime.addProfile({ name: "Work account!" }, "app");
 
 		expect([first.name, second.name]).toEqual(["work-account", "work-account-2"]);
 		expect([first.label, second.label]).toEqual(["Work Account", "Work account!"]);
@@ -277,8 +293,8 @@ describe("addProfile", () => {
 	});
 
 	test("a name in another script gets a valid folder, the same on a fresh root", async () => {
-		const first = await (await fresh()).runtime.addProfile({ name: "工作" });
-		const again = await (await fresh()).runtime.addProfile({ name: "工作" });
+		const first = await (await fresh()).runtime.addProfile({ name: "工作" }, "app");
+		const again = await (await fresh()).runtime.addProfile({ name: "工作" }, "app");
 		expect(first.label).toBe("工作");
 		expect(PROFILE_NAME.test(first.name)).toBe(true);
 		expect(again.name).toBe(first.name);
@@ -286,7 +302,7 @@ describe("addProfile", () => {
 
 	test("two adds of one name at once make one profile; the other is refused", async () => {
 		const { runtime, store } = await fresh();
-		const settled = await Promise.allSettled([runtime.addProfile({ name: "Twin" }), runtime.addProfile({ name: "twin" })]);
+		const settled = await Promise.allSettled([runtime.addProfile({ name: "Twin" }, "app"), runtime.addProfile({ name: "twin" }, "app")]);
 		expect(settled.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
 		const refused = settled.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
 		expect(refused).toHaveLength(1);
@@ -298,7 +314,7 @@ describe("addProfile", () => {
 	test("every avatar the View offers is accepted, and so is a ZWJ emoji", async () => {
 		const { runtime } = await fresh();
 		for (const [index, avatar] of [...AVATAR_CHOICES, "👨‍💻"].entries()) {
-			const added = await runtime.addProfile({ name: `Profile ${index}`, avatar });
+			const added = await runtime.addProfile({ name: `Profile ${index}`, avatar }, "app");
 			expect({ avatar, saved: added.avatar }).toEqual({ avatar, saved: avatar });
 		}
 	});
@@ -316,7 +332,7 @@ describe("addProfile", () => {
 			"a".repeat(MAX_LABEL_CHARS + 1), "!!!",
 		];
 		for (const name of refused) {
-			expect({ name, code: await failureCode(() => runtime.addProfile({ name })) }).toEqual({ name, code: "bad_profile_name" });
+			expect({ name, code: await failureCode(() => runtime.addProfile({ name }, "app")) }).toEqual({ name, code: "bad_profile_name" });
 			expect({ name, same: JSON.stringify(await tree(rootDir)) === JSON.stringify(before) }).toEqual({ name, same: true });
 			expect({ name, list: store.list() }).toEqual({ name, list: listed });
 		}
@@ -335,12 +351,38 @@ describe("addProfile", () => {
 		];
 		for (const row of refused) {
 			// Reason: the request is deliberately outside the port's types, as a client's input can be.
-			const code = await failureCode(() => runtime.addProfile(row.request as never));
+			const code = await failureCode(() => runtime.addProfile(row.request as never, "app"));
 			expect({ name: row.name, code }).toEqual({ name: row.name, code: "bad_profile" });
 			expect({ name: row.name, same: JSON.stringify(await tree(rootDir)) === JSON.stringify(before) }).toEqual({ name: row.name, same: true });
 		}
 		// The same name is still free: nothing of the refused attempts was kept.
-		expect((await runtime.addProfile({ name: "Fine" })).name).toBe("fine");
+		expect((await runtime.addProfile({ name: "Fine" }, "app")).name).toBe("fine");
+	});
+
+	test("past the cap nothing more is made: add and an agent's new name are too_many_profiles, and a folder the listing no longer shows is never relabelled", async () => {
+		const { runtime, rootDir, store } = await fresh((seed) => {
+			for (let i = 0; i < MAX_PROFILES; i += 1) seed.ensureProfile(`p${String(i).padStart(3, "0")}`);
+			// Sorts after all 256 listed folders, so the listing does not show it.
+			seed.saveMeta("zz-hidden", { label: "Hidden" });
+		});
+		expect(store.list()).toHaveLength(MAX_PROFILES);
+		expect(store.list()).not.toContain("zz-hidden");
+		const before = await tree(rootDir);
+
+		expect(await failureCode(() => runtime.addProfile({ name: "One More" }, "app"))).toBe("too_many_profiles");
+		// The name of the folder that is past the listing: refused, not merged into that profile's label.
+		expect(await failureCode(() => runtime.addProfile({ name: "zz-hidden" }, "app"))).toBe("too_many_profiles");
+		expect(await failureCode(() => runtime.open({ profile: "brand-new" }))).toBe("too_many_profiles");
+		expect(await tree(rootDir)).toEqual(before);
+		expect(store.meta("zz-hidden").label).toBe("Hidden");
+	});
+
+	test("a folder that is not a profile directory is never taken for a free name, and its content is left alone", async () => {
+		const { runtime, rootDir } = await fresh();
+		await writeFile(join(rootDir, "profiles", "notes"), "mine");
+		const added = await runtime.addProfile({ name: "Notes" }, "app");
+		expect(added.name).toBe("notes-2");
+		expect(readFileSync(join(rootDir, "profiles", "notes"), "utf8")).toBe("mine");
 	});
 });
 
@@ -356,6 +398,23 @@ describe("browser_profile_add, as a host offers it", () => {
 		const visibility = (name: string): string[] | undefined => ToolMeta.parse(tools.get(name)?._meta ?? {}).ui?.visibility;
 		expect(visibility("browser_profile_add")).toEqual(["app"]);
 		expect(visibility("browser_profiles")).toBeUndefined();
+	});
+
+	test("a model, or a call no host stamped, is refused even where the host does not hide an app-only tool, and nothing is created", async () => {
+		const { runtime, rootDir, store } = await fresh();
+		const { call } = await connect(runtime, rootDir);
+		const before = await tree(rootDir);
+		for (const who of [MODEL, undefined]) {
+			const refused = await call("browser_profile_add", { name: "Sneaky", colour: "teal" }, who);
+			expect({ who: who?.caller, isError: refused.isError }).toEqual({ who: who?.caller, isError: true });
+			expect(textOf(refused)).toContain("person in the View");
+		}
+		expect(await failureCode(() => runtime.addProfile({ name: "Sneaky" }))).toBe("human_only");
+		expect(await failureCode(() => runtime.addProfile({ name: "Sneaky" }, "model"))).toBe("human_only");
+		expect(await tree(rootDir)).toEqual(before);
+		expect(store.list()).toEqual([]);
+		// The View still can.
+		expect((await call("browser_profile_add", { name: "Sneaky" }, VIEW)).isError).toBeFalsy();
 	});
 
 	test("the View is answered the new profile; a refused name is an error whose text is the sentence the View shows, and nothing is created", async () => {
@@ -398,8 +457,8 @@ describeWithChrome("a profile the person just made", () => {
 		"an agent opens it by the label it was shown as, in any case, and the folder keeps its slug",
 		async () => {
 			const { runtime, rootDir, store } = await fresh();
-			await runtime.addProfile({ name: "Work Account", colour: "teal", avatar: "💼" });
-			await runtime.addProfile({ name: "Work account!" });
+			await runtime.addProfile({ name: "Work Account", colour: "teal", avatar: "💼" }, "app");
+			await runtime.addProfile({ name: "Work account!" }, "app");
 
 			const first = await runtime.open({ profile: "  work ACCOUNT " });
 			expect(first.profile).toBe("work-account");

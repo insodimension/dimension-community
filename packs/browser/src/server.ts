@@ -521,7 +521,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     description: "Create a saved profile from a name the person typed (any script, up to 48 characters, shown as typed; the folder is derived and never renamed), with an optional colour and one emoji avatar. Refused with a plain sentence when the name is empty, already taken (in any case), reserved or could be a path. Opens nothing. Answers {profile}.",
     inputSchema: { name: z.string().max(200), colour: z.enum(PROFILE_COLOURS).optional(), avatar: z.string().max(16).optional() },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, _meta: APP_ONLY,
-  }, ({ name, colour, avatar }) => result(async () => ({ profile: await runtime.addProfile({ name, ...(colour === undefined ? {} : { colour }), ...(avatar === undefined ? {} : { avatar }) }) })));
+  }, ({ name, colour, avatar }, extra) => result(async () => ({ profile: await runtime.addProfile({ name, ...(colour === undefined ? {} : { colour }), ...(avatar === undefined ? {} : { avatar }) }, callerOf(extra)) })));
   // The View's Take over / Hand back. App-only, and the runtime refuses any caller but the View on its own.
   registerAppTool(server, "browser_control", {
     title: "Take Over Browser",

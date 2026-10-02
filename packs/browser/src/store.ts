@@ -17,7 +17,7 @@
  *      profiles: no lock, no listing, no observations.
  */
 import { randomBytes } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -25,6 +25,8 @@ import { type ConnectionObservations, keepFirst, type SiteObservation, type Site
 import { PROFILE_NAME, profileSlug } from "./profile-name.js";
 import { cleanAvatar, cleanLabel, isProfileColour, type StoredProfileMeta } from "./profile-meta.js";
 
+/** The most profiles the pack lists and the View will create. */
+export const MAX_PROFILES = 256;
 const CONNECTIONS_FILE = "connections.json";
 const PROFILE_FILE = "profile.json";
 /** Inside a throwaway directory: the pid of the server that made it. */
@@ -91,13 +93,18 @@ export class ProfileStore {
 		return join(this.profileDir(slug), "chrome");
 	}
 
+	/** Whether a folder for `slug` is on disk, listed or not (the listing stops at MAX_PROFILES). Creates nothing. */
+	exists(slug: string): boolean {
+		return existsSync(this.profileDir(slug));
+	}
+
 	ensureProfile(slug: string): string {
 		const dir = this.profileDir(slug);
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
 		return dir;
 	}
 
-	/** Profiles that have ever been materialized on disk, sorted, bounded. */
+	/** Profiles that have ever been materialized on disk, sorted, at most MAX_PROFILES: beyond that they are not listed (and `addProfile` refuses to make more). */
 	list(): string[] {
 		let entries: string[];
 		try {
@@ -115,7 +122,7 @@ export class ProfileStore {
 				}
 			})
 			.sort()
-			.slice(0, 256);
+			.slice(0, MAX_PROFILES);
 	}
 
 	get ephemeralRoot(): string {

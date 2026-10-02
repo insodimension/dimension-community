@@ -498,9 +498,10 @@ export interface BrowserRuntimePort {
   /**
    * Create a saved profile from a name a person typed (profile-meta.ts `checkNewProfile`): its label, a folder derived from it, the
    * colour and avatar they chose. Refused (`bad_profile_name`) with the sentence the View shows when the name is empty, taken,
-   * reserved or could be a path. Nothing is opened.
+   * reserved or could be a path. Nothing is opened. Only `caller` "app" may: a model (or an unstamped call) is refused
+   * (`human_only`) and nothing is made; an agent that wants a profile of its own names a new one in `open`.
    */
-  addProfile(request: NewProfileRequest): Promise<ProfileListing>;
+  addProfile(request: NewProfileRequest, caller?: ToolCaller): Promise<ProfileListing>;
   /**
    * The person in the View takes `browserId` over (`take`) or hands it back (`return`). Only `caller` "app" may: a model is refused
    * (`human_only`). Taking over is refused while a task runs (`task_running`) or a post awaits confirmation (`publish_pending`: it

@@ -73,7 +73,8 @@ export function resolveProfileMeta(slug: string, stored: StoredProfileMeta = {})
 	};
 }
 
-const fold = (text: string): string => text.replace(/\s+/g, " ").trim().toLowerCase();
+// NFKC first: the same letters typed composed or decomposed (Café), or as a compatibility form (full-width, ligatures), are one name.
+const fold = (text: string): string => text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 
 /**
  * The profiles `query` names, ignoring case and surrounding or repeated
@@ -119,10 +120,12 @@ export type NewProfileCheck = { readonly ok: true; readonly slug: string; readon
  * Names are unique, ignoring case and spacing, against both the labels and the folder names already taken (and the
  * implicit `default`), because an agent opens a profile by either and must never have two answers.
  *
- * `taken` is every profile that exists. Pure and dependency-free, like the rest of this file: the View checks while
- * a person types, and the runtime checks again before it creates anything.
+ * `taken` is every profile that exists. `exists` (the runtime's, from the disk) says a folder is there that `taken` does
+ * not know of (the listing is capped), so a derived folder name never lands on someone else's profile. Pure and
+ * dependency-free, like the rest of this file: the View checks while a person types, and the runtime checks again
+ * before it creates anything.
  */
-export function checkNewProfile(raw: string, taken: readonly { slug: string; label: string }[]): NewProfileCheck {
+export function checkNewProfile(raw: string, taken: readonly { slug: string; label: string }[], exists: (slug: string) => boolean = () => false): NewProfileCheck {
 	const typed = raw.replace(/\s+/g, " ").trim();
 	if (typed.length === 0) return { ok: false, problem: "Give the profile a name." };
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused, not kept
@@ -141,7 +144,7 @@ export function checkNewProfile(raw: string, taken: readonly { slug: string; lab
 	const base = slugOf(label);
 	const stem = base.length > 0 && !DEVICE_NAME.test(base) && base !== RELAY_PROFILE ? base : tagOf(label);
 	let slug = stem;
-	for (let suffix = 2; slugs.has(slug); suffix += 1) slug = `${stem.slice(0, 44)}-${suffix}`;
+	for (let suffix = 2; slugs.has(slug) || exists(slug); suffix += 1) slug = `${stem.slice(0, 44)}-${suffix}`;
 	return { ok: true, slug, label };
 }
 

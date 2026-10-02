@@ -277,7 +277,7 @@ describeWithChrome("taking a browser over in the View", () => {
 		async () => {
 			const r = await rig();
 			const startedAt = Date.now();
-			await r.runtime.addProfile({ name: "Work", colour: "teal", avatar: "💼" });
+			await r.runtime.addProfile({ name: "Work", colour: "teal", avatar: "💼" }, "app");
 			const opened = await open(r, CHAT, { profile: "work" });
 			const id = opened.browserId;
 			expect(opened.takenOver).toBe(false);

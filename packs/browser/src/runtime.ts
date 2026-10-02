@@ -101,7 +101,7 @@ import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
-import { ActionNotDispatched, fail, ProfileStore, validateProfile } from "./store.js";
+import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, startWorker } from "./task.js";
 import type { CodeLifetime, CodeSeam, EndListener, EndWhy } from "./code/host/runtime-port.js";
 
@@ -1099,14 +1099,18 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return meta;
 	}
 
-	async addProfile(request: NewProfileRequest): Promise<ProfileListing> {
+	async addProfile(request: NewProfileRequest, caller?: ToolCaller): Promise<ProfileListing> {
 		if (this.disposed) fail("disposed", "runtime has been disposed");
+		// The tool is app-only at the host, but a plain MCP client does not apply that rule: the runtime holds it itself, like `control`.
+		if (caller !== "app") fail("human_only", "only the person in the View can add a profile; name a new one in browser_open to have a profile of your own");
 		if (typeof request?.name !== "string") fail("bad_profile_name", "Give the profile a name.");
 		if (request.colour !== undefined && !isProfileColour(request.colour)) fail("bad_profile", `colour must be one of: ${PROFILE_COLOURS.join(", ")}`);
 		if (request.avatar !== undefined && cleanAvatar(request.avatar) === undefined) fail("bad_profile", "avatar must be a single emoji");
 		// Read, checked and created without an await between: two adds of one name in this server cannot both pass.
-		const taken = this.store.list().filter((slug) => slug !== RELAY_PROFILE).map((slug) => ({ slug, label: resolveProfileMeta(slug, this.store.meta(slug)).label }));
-		const check = checkNewProfile(request.name, taken);
+		const listed = this.store.list();
+		this.requireRoomForProfile(listed);
+		const taken = listed.filter((slug) => slug !== RELAY_PROFILE).map((slug) => ({ slug, label: resolveProfileMeta(slug, this.store.meta(slug)).label }));
+		const check = checkNewProfile(request.name, taken, (slug) => this.store.exists(slug));
 		if (!check.ok) fail("bad_profile_name", check.problem);
 		this.store.saveMeta(check.slug, { label: check.label, ...(request.colour === undefined ? {} : { colour: request.colour }), ...(request.avatar === undefined ? {} : { avatar: request.avatar }) });
 		const created = (await this.profileList()).find((profile) => profile.name === check.slug);
@@ -1201,6 +1205,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return opener.caller === "app" ? "human" : "another chat";
 	}
 
+	/** Profiles are listed up to MAX_PROFILES; one more would exist where nothing lists it and the duplicate check cannot see it. */
+	private requireRoomForProfile(listed: readonly string[]): void {
+		if (listed.length >= MAX_PROFILES) fail("too_many_profiles", `at most ${MAX_PROFILES} profiles can be kept; delete a profile folder you no longer use before making another`);
+	}
+
 	/** The profile `raw` means: a saved one by its slug or label, else a new one by its slug. */
 	private resolveProfile(raw: unknown, engine: BrowserEngine): string {
 		// The relay has one profile, reserved: nothing to look up.
@@ -1211,7 +1220,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (matches.length > 1) fail("profile_ambiguous", `more than one saved profile answers to ${JSON.stringify(raw)}: ${nameProfiles(matches)}. Ask the human which one; do not guess.`);
 		// No match: a new profile when it is a valid slug (the first sign-in on an account), else nothing to open.
 		const slug = profileSlug(raw);
-		if (slug !== null) return slug;
+		if (slug !== null) {
+			// A folder past the listing's cap is still a profile that exists (it opens as itself); only a new one is refused.
+			if (!this.store.exists(slug)) this.requireRoomForProfile(this.store.list());
+			return slug;
+		}
 		fail("profile_unknown", `no saved profile is named ${JSON.stringify(raw)}. Saved profiles: ${known.length === 0 ? "none" : nameProfiles(known)}. Ask the human which one, or leave profile out for a throwaway browser.`);
 	}
 
