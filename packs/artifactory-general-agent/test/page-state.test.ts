@@ -21,7 +21,7 @@ import {
 	receiveProposal,
 	saveBlockers,
 } from "../page/profile-state";
-import { allowlistOf, type Facet, inFacet, joinRoster } from "../page/roster";
+import { allowlistOf, type Facet, inFacet, isEditable, joinRoster } from "../page/roster";
 import type { AgentFact, FaceBinding } from "../page/types";
 
 function listed(name: string, source: AgentSource, patch: Partial<AgentDraft> = {}): ListedAgent {
@@ -30,7 +30,7 @@ function listed(name: string, source: AgentSource, patch: Partial<AgentDraft> = 
 		name,
 		description: draft.description,
 		source,
-		path: `/agents/${name}/agent.md`,
+		path: `/general-agents/${name}/agent.md`,
 		editable: source !== "pack",
 		...(source === "pack" ? { pack: "dimension-agents", readOnlyReason: "It ships in a pack." } : { revision: "r1" }),
 		draft,
@@ -67,6 +67,15 @@ describe("the roster and its facets", () => {
 	test("Off is the host's word: only agents the host reports disabled, never ones it says nothing about", () => {
 		expect(names("off", [fact("scribe", "local", false), fact("herald", "local")])).toEqual(["scribe"]);
 		expect(names("off", undefined)).toEqual([]);
+	});
+	test("a host-only migration leftover stays visible but cannot be edited; a visible file restores editability", () => {
+		const leftover = { ...fact("stranded-agent", "local"), description: "A project historian" };
+		const [hostOnly] = joinRoster([leftover], []);
+		expect(isEditable(hostOnly!)).toBe(false);
+		expect(hostOnly?.listed).toBeUndefined();
+		expect(hostOnly).toMatchObject({ name: "stranded-agent", tier: "user", fact: { description: "A project historian" } });
+		const [moved] = joinRoster([leftover], [listed("stranded-agent", "user")]);
+		expect(isEditable(moved!)).toBe(true);
 	});
 });
 

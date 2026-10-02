@@ -10,7 +10,7 @@
 // Forge cannot import the coding agent — the tier cases in `server.test.ts`
 // pin them. One agent-level file loads per session, first hit wins:
 //
-//   1. `workspace-copy` — `<project config dir>/agents/<name>/AGENTS.md`, for a
+//   1. `workspace-copy` — `<project config dir>/general-agents/<name>/AGENTS.md`, for a
 //      PACK agent only; any file at all (even empty) claims the tier;
 //   2. `home` — `<homes>/home-<name>/AGENTS.md`, for a pack or user agent; it
 //      claims the tier only when NON-EMPTY, so an empty file never hides the
@@ -22,7 +22,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { agentHomeWorkspaceId, derivesAgentHome, GENERAL_AGENT_FILE } from "@dimension/sdk/general-agent";
+import { agentHomeWorkspaceId, derivesAgentHome, GENERAL_AGENT_FILE, GENERAL_AGENTS_DIR } from "@dimension/sdk/general-agent";
 import type { AgentHome, AgentInstructions, AgentSource, InstructionFile, InstructionsSaved } from "./contracts.js";
 import { LEGACY_DIR, listAgents, pathsOf, type Roots, revisionOf, SaveRefused, WRITE_DIR } from "./store.js";
 
@@ -69,7 +69,7 @@ function candidatesFor(roots: Roots, source: AgentSource, name: string, agentFil
 	const homes = pathsOf(roots.home)?.homes;
 	const home: Candidate[] = homes === undefined ? [] : [{ kind: "home", path: join(homes, agentHomeWorkspaceId(name), AGENTS_MD) }];
 	if (source === "user") return [...home, sibling];
-	const projectDirs = roots.workspace === null ? [] : [...new Set([WRITE_DIR, LEGACY_DIR])].map(dir => join(roots.workspace as string, dir, "agents"));
+	const projectDirs = roots.workspace === null ? [] : [...new Set([WRITE_DIR, LEGACY_DIR])].map(dir => join(roots.workspace as string, dir, GENERAL_AGENTS_DIR));
 	return [...projectDirs.map((dir): Candidate => ({ kind: "workspace-copy", path: join(dir, name, AGENTS_MD) })), ...home, sibling];
 }
 

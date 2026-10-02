@@ -131,8 +131,8 @@ takes one proposal; the next waits on the home.
 | Tier | Path | Home | On this page |
 |---|---|---|---|
 | **pack** | `<pack>/general-agents/<name>/agent.md` | yes (`home-<name>`) | read-only; *Extend as a new agent* |
-| **user** ("Yours") | `$INSO_HOME/agent/agents/<name>/agent.md`, where `agent_create` writes | yes | read, edit, **create here** |
-| **project** | `<workspace>/<PI_CONFIG_DIR>/agents/<name>/agent.md` (legacy `.omp/agents` is read-only) | none: it belongs to one project | read and edit; the page passes the active workspace |
+| **user** ("Yours") | `$INSO_HOME/agent/general-agents/<name>/agent.md`, where `agent_create` writes | yes | read, edit, **create here** |
+| **project** | `<workspace>/<PI_CONFIG_DIR>/general-agents/<name>/agent.md` (legacy `.omp/general-agents` is read-only) | none: it belongs to one project | read and edit; the page passes the active workspace |
 
 Precedence is the engine's: packs own their names, then the project, then the
 user; a shadowed file is reported.

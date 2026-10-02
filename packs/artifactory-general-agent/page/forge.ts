@@ -30,7 +30,7 @@ export function forgeOf(store: PageStore, workspace: string | undefined): Forge 
 		listAgents: () => tool<AgentListing>("list_agents"),
 		validate: draft => tool<DraftCheck>("validate_agent", { draft }),
 		save: (draft, target) =>
-			tool<SaveOutcome>("save_agent", target.create ? { draft, create: true } : { draft, create: false, tier: target.tier, revision: target.revision }),
+			tool<SaveOutcome>("save_agent", target.create ? { draft, create: true, ...(target.tier !== undefined ? { tier: target.tier } : {}) } : { draft, create: false, tier: target.tier, revision: target.revision }),
 		home: name => tool<AgentHome>("agent_home", { name }),
 		saveInstructions: (name, text, revision) => tool<InstructionsSaved>("save_instructions", { name, text, revision }),
 		// The inbox is per workspace: the server hands back this one's proposals, and those made with none.

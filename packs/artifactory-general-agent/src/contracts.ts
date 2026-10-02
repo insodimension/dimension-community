@@ -13,9 +13,9 @@ export interface Part {
 
 /** The tier an agent lives in, in the engine's own words:
  *  `pack` — `<pack>/general-agents/<name>/agent.md` in an installed plugin;
- *  `user` — `$INSO_HOME/agent/agents/<name>/agent.md`, where `agent_create` and
+ *  `user` — `$INSO_HOME/agent/general-agents/<name>/agent.md`, where `agent_create` and
  *  the Forge write: follows the user into every workspace and has a home;
- *  `workspace` — `<root>/<config dir>/agents/<name>/agent.md` (or the legacy
+ *  `workspace` — `<root>/<config dir>/general-agents/<name>/agent.md` (or the legacy
  *  `.omp/`): one project's own agent, with no home. */
 export type AgentSource = "workspace" | "user" | "pack";
 
@@ -50,7 +50,7 @@ export interface AgentListing {
 	readonly workspace: string | null;
 	/** The project config dir agents live under (`.inso`, or the dev engine's `.inso-dev`). */
 	readonly configDir: string;
-	/** Where new agents are written (`$INSO_HOME/agent/agents`); null when the
+	/** Where new agents are written (`$INSO_HOME/agent/general-agents`); null when the
 	 *  engine did not tell this server where its home is. */
 	readonly userAgentsDir: string | null;
 	readonly agents: readonly ListedAgent[];
@@ -69,8 +69,8 @@ export interface PartListing {
 
 /** What `save_agent` is asked to do. */
 export type SaveTarget =
-	/** A new agent — always the user tier, where `agent_create` writes. Refused when the name is taken anywhere. */
-	| { readonly create: true }
+	/** A new agent, in the user tier by default or in the named project tier. Refused when the name is taken anywhere. */
+	| { readonly create: true; readonly tier?: WritableTier }
 	/** Rewrite the agent in `tier`, which must still be the file listed as `revision`. */
 	| { readonly create: false; readonly tier: WritableTier; readonly revision: string };
 
