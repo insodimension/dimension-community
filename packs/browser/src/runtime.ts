@@ -864,6 +864,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** One call in flight on `entry`, for a cell: out of idle close and make-room, refused like a page call while a task or a pending publish owns the page. Returns what ends it. */
 	private holdWork(entry: Entry): () => void {
 		refuseWhileBusy(entry, undefined);
+		refuseWhileTakenOver(entry, undefined);
 		entry.pending += 1;
 		let held = true;
 		return () => {
@@ -1193,6 +1194,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		// Not queued behind page work: it must hold before the agent's next step, not after its whole batch.
 		entry.takenOver = mode === "take";
+		// A cell running on this browser is stopped, and no cell may hold it until the person hands it back (the code host hears this as `taken-over`).
+		if (entry.takenOver) this.notifyEnd(entry, "taken-over");
 		this.watchWheel(entry);
 		return this.redact(entry, await this.buildState(entry));
 	}
