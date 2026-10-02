@@ -118,6 +118,8 @@ export interface RunState {
 	signal: AbortSignal;
 	output: RunOutput;
 	screenshots: ScreenshotResult[];
+	/** The evaluated source's file name: an unhandled rejection whose stack names it belongs to this run. */
+	filename: string;
 	rejectionOwner: object;
 	floatingRejections: unknown[];
 	floatingFailure: { promise: Promise<never>; reject(reason?: unknown): void };
