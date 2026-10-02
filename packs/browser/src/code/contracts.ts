@@ -118,8 +118,8 @@ export interface CodeBrowserPort {
 
 // ---- inside the worker: L1's dispatcher consumes, L3 implements. `open`/`close` never reach it; `run`/`call` always do.
 export interface TabRealm {
-  /** puppeteer.connect once per browser (cached), page by targetId. */
-  adopt(h: TabHandle): Promise<void>;
+  /** puppeteer.connect once per browser (cached), page by targetId, bound to the tab NAME every later run/call/release names. */
+  adopt(name: string, h: TabHandle): Promise<void>;
   /** Drop the page; never closes a foreign browser. */
   release(name: string): Promise<void>;
   run(r: { name: string; code?: string; fn?: string; args?: unknown[]; timeoutMs: number; signal: AbortSignal }): Promise<RunResult>;
