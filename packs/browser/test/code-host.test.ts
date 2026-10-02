@@ -246,6 +246,7 @@ describeWithChrome("open and close", () => {
 
   test("a cell cancelled while its browser launches leaves no Chrome behind", async () => {
     const { host, rootDir } = await start();
+    await valueOf(host, "s1", "0"); // the worker is up, so the cancel below lands while the browser launches, not while the worker starts
     const cancel = new AbortController();
     const waiting = host.run("s1", { code: `await browser.open({ name: "main", url: ${JSON.stringify(pages.url("/other"))} })`, timeoutMs: 30_000, waitMs: 25_000, signal: cancel.signal });
     setTimeout(() => cancel.abort(), 150);
@@ -314,6 +315,8 @@ describeWithChrome("a cell's browser has its own clock", () => {
     await waitUntil("the plain browser is retired", () => seam.browsersOf("plain").length, count => count === 0, 8_000);
     expect(await liveChromes(rootDir)).toBe(2);
     await expect(runtime.state(plain)).rejects.toThrow(/it was a code browser, closed after 1\.5 s with no calls; open a new one with browser\.open/);
+    // The cell is told why its tab is gone, not that it never existed (D33).
+    expect((await failureOf(host, "plain", "await browser.tab('main').url()")).message).toMatch(/Tab "main" is not alive.*closed after 1\.5 s with no calls/);
     // The kept and the viewed one are still driven.
     expect(await valueOf(host, "kept", "browser.tab('main').url()")).toBe(pages.url("/other"));
     expect(await valueOf(host, "seen", "browser.tab('main').url()")).toBe(pages.url("/other"));
