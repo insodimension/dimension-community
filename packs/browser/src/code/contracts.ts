@@ -101,7 +101,13 @@ export interface Transport<In, Out> { send(m: Out): void; onMessage(h: (m: In) =
 
 // ---- L1 consumes, L2 implements. The tool never touches a worker or a runtime directly.
 export interface CodeHostPort {
-  run(session: string, o: { code: string; timeoutMs: number; signal: AbortSignal; onProgress?: (chunk: string) => void }): Promise<RunStarted>;
+  /**
+   * Starts the cell and waits up to `waitMs` for it to finish; past that the run continues in the worker and the answer is `state: "running"` with the output so far.
+   * The tool passes at most 25 s (the host times an MCP call out at 30 s and does not reset it on progress, doc 77 §7.8), however long the cell's own `timeoutMs` is.
+   * A cell still running for this session makes `run` reject with an Error whose message starts `busy` and names that run's id. `signal` cancels the cell while this call waits;
+   * once the answer is `running` the run no longer belongs to the call, and only `resume`'s signal or the cell's own budget stops it.
+   */
+  run(session: string, o: { code: string; timeoutMs: number; waitMs: number; signal: AbortSignal; onProgress?: (chunk: string) => void }): Promise<RunStarted>;
   /** Waits up to `waitMs` for the run to finish; `waitMs` 0 only looks. A finished run stays readable for 10 minutes. An unknown or expired `runId` rejects with an Error whose message says so. */
   resume(session: string, runId: string, waitMs: number, signal: AbortSignal): Promise<RunStarted>;
   dispose(): Promise<void>;
