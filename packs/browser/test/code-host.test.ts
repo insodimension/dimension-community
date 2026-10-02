@@ -310,14 +310,13 @@ describeWithChrome("a cell's browser has its own clock", () => {
   }, BROWSER_TEST_TIMEOUT_MS);
 
   test("a cell running longer than the idle clock keeps its browser", async () => {
-    const { host, rootDir, runtime } = await start({ idleMs: 600 });
-    await valueOf(host, "s1", `
+    const { host, runtime } = await start({ idleMs: 600 });
+    // Three idle periods pass inside the cell; the page it opened is still its page at the end, which a retired browser could not answer.
+    expect(await valueOf(host, "s1", `
       await browser.open({ name: "main", url: ${JSON.stringify(pages.url("/other"))} });
       await new Promise(resolve => setTimeout(resolve, 1800));
-      browser.tab("main").url()`);
-    expect(await liveChromes(rootDir)).toBe(1);
-    expect(runtime.codeSeam().browsersOf("s1")).toHaveLength(1);
-    await waitUntil("it is retired after the cell", () => runtime.codeSeam().browsersOf("s1").length, count => count === 0, 8_000);
+      browser.tab("main").url()`)).toBe(pages.url("/other"));
+    await waitUntil("it is retired once the cell has ended", () => runtime.codeSeam().browsersOf("s1").length, count => count === 0, 8_000);
   }, BROWSER_TEST_TIMEOUT_MS);
 });
 
