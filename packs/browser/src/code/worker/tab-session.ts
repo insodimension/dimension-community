@@ -21,6 +21,8 @@ export class TabSession {
   readonly ops: OpRunner;
   /** The run in flight on this tab, if any. */
   active: RunState | null = null;
+  /** Settles when the last run on this tab has finished unwinding (a closing tab waits a grace for it). */
+  done: Promise<void> = Promise.resolve();
   /** The evaluator that holds this tab's `tab.run` variables (one per tab when the realm is given a factory). */
   evaluator: CodeEvaluator | undefined;
   openDialog: OpenDialogInfo | undefined;
