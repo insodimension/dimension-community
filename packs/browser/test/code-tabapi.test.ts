@@ -126,6 +126,19 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       await openTab("main");
     });
 
+    test("a browser that ended for a stated reason carries it into the failure and into the next call on that tab", async () => {
+      const engine = await openTab("retired");
+      const pending = failure('await tab.evaluate(() => { window.started = true; }); await tab.waitForSelector("#never", { timeout: 20000 })', { name: "retired", timeoutMs: 25_000 });
+      await engine.waitForFunction("window.started === true");
+      await realm.end("b1", "idle for 30 minutes");
+      expect((await pending).message).toBe('Tab "retired" was closed: idle for 30 minutes');
+      expect((await failure("1", { name: "retired" })).message).toBe('Tab "retired" is not alive. Open it first with action:"open". Its browser ended (idle for 30 minutes).');
+      await openTab("retired");
+      expect(await value("tab.url()", { name: "retired" })).toBe(fixture.url("/form"));
+      await realm.release("retired");
+      await openTab("main");
+    }, 20_000);
+
     test("a second run on a busy tab is refused by name, the first one finishes untouched", async () => {
       const engine = enginePages.get("main")!;
       const first = run("await tab.evaluate(() => new Promise(resolve => { window.release = resolve; window.running = true; })); 'first done'");

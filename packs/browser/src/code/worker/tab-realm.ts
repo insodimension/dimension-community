@@ -93,6 +93,8 @@ class BrowserTabRealm implements TabRealm {
   readonly #options: TabRealmOptions;
   readonly #sessions = new Map<string, TabSession>();
   readonly #connections = new Map<string, BrowserConnection>();
+  /** Why a tab's browser ended, by tab name, so a later call on that name can say so instead of just that it is not alive. */
+  readonly #ended = new Map<string, string>();
   readonly #uninstallGuard: (() => void) | undefined;
   #runCounter = 0;
   #disposed = false;
@@ -119,19 +121,24 @@ class BrowserTabRealm implements TabRealm {
     if (handle.kind === "relay") await session.claimRelayTarget();
     // The previous page of this name goes only once the new one is in hand: a failed adopt leaves the name as it was.
     if (held) await this.#drop(held, new ToolError(`Tab "${name}" was closed`));
+    this.#ended.delete(name);
     this.#sessions.set(name, session);
   }
 
   async release(name: string): Promise<void> {
+    this.#ended.delete(name);
     const session = this.#sessions.get(name);
     if (!session) return;
     await this.#drop(session, new ToolError(`Tab "${name}" was closed`));
     await this.#disconnectIfUnused(session.handle.browserId);
   }
 
-  async end(browserId: string): Promise<void> {
+  async end(browserId: string, reason?: string): Promise<void> {
     const sessions = [...this.#sessions.values()].filter(session => session.handle.browserId === browserId);
-    for (const session of sessions) await this.#drop(session, new ToolError(`Tab "${session.name}" was closed`));
+    for (const session of sessions) {
+      if (reason) this.#ended.set(session.name, reason);
+      await this.#drop(session, new ToolError(`Tab "${session.name}" was closed${reason ? `: ${reason}` : ""}`));
+    }
     await this.#disconnectIfUnused(browserId);
   }
 
@@ -159,7 +166,10 @@ class BrowserTabRealm implements TabRealm {
 
   #alive(name: string): TabSession {
     const session = this.#sessions.get(name);
-    if (!session || session.page.isClosed()) throw new ToolError(`Tab ${JSON.stringify(name)} is not alive. Open it first with action:"open".`);
+    if (!session || session.page.isClosed()) {
+      const why = this.#ended.get(name);
+      throw new ToolError(`Tab ${JSON.stringify(name)} is not alive. Open it first with action:"open".${why ? ` Its browser ended (${why}).` : ""}`);
+    }
     return session;
   }
 
@@ -179,7 +189,7 @@ class BrowserTabRealm implements TabRealm {
     try {
       const browser = await connection.browser;
       browser.on("disconnected", () => {
-        if (this.#connections.get(handle.browserId) === connection) void this.end(handle.browserId).catch(() => undefined);
+        if (this.#connections.get(handle.browserId) === connection) void this.end(handle.browserId, "the browser disconnected").catch(() => undefined);
       });
       return browser;
     } catch (error) {
