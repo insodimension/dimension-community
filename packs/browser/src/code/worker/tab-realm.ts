@@ -391,7 +391,10 @@ class BrowserTabRealm implements TabRealm {
       failure = { error };
     } finally {
       runAc.abort(markExpectedCleanupError(new ToolAbortError("Browser run ended")));
-      await sleep(0);
+      // One macrotask turn so rejections the abort just caused settle before the page is cleaned up (OMP's Bun.sleep(0)). setImmediate, not setTimeout(0): a zero timer waits for the clock tick (15 ms on Windows) and every `call` would pay it.
+      const turn = Promise.withResolvers<void>();
+      setImmediate(turn.resolve);
+      await turn.promise;
       try {
         await runPage?.cleanup();
       } catch (error) {
