@@ -904,6 +904,48 @@ kbd {
 	background: var(--fr-accent);
 }
 
+/* A browser left open in the background has a close button at the end of its row: always drawn (a keyboard or a touch has no hover), quiet until it is pressed for. */
+.bx-prow-wrap {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.bx-prow-wrap > .bx-prow {
+	flex: 1;
+	min-width: 0;
+	width: auto;
+}
+
+.bx-prow-close {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-2);
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease), color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-prow-close:hover:not(:disabled) {
+	background: var(--bx-press);
+	color: var(--fr-text);
+}
+
+.bx-prow-close:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+.bx-prow-close:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
 /* adding a profile */
 
 .bx-add {
