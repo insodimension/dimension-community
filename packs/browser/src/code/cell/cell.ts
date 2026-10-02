@@ -168,9 +168,13 @@ export class CodeCell {
     if (this.#disposed) throw new ToolError("The code realm is closed");
     const output = new CellOutput();
     const filename = `browser-cell-${o.runId}.js`;
-    const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new CellTimeoutError(o.timeoutMs)), o.timeoutMs);
-    const signal = AbortSignal.any([o.signal, timeout.signal]);
+    // One signal for everything the run starts. Its reason is either the budget's CellTimeoutError (the model is told the budget ran out) or OMP's ToolAbortError (an MCP cancel arrives as a DOMException).
+    const budget = new AbortController();
+    const timer = setTimeout(() => budget.abort(new CellTimeoutError(o.timeoutMs)), o.timeoutMs);
+    const onCancel = (): void => budget.abort(o.signal.reason instanceof ToolAbortError ? o.signal.reason : new ToolAbortError(undefined, { cause: o.signal.reason }));
+    if (o.signal.aborted) onCancel();
+    else o.signal.addEventListener("abort", onCancel, { once: true });
+    const signal = budget.signal;
     const run: CellRun = {
       runId: o.runId, filename, signal, invoke: o.invoke, screenshots: [], floating: [], ended: false,
       hooks: { onText: () => {}, onDisplay: () => {} },
@@ -181,9 +185,8 @@ export class CodeCell {
     this.#live.set(o.runId, run);
 
     const abandoned = new Promise<never>((_, reject) => {
-      const reject_ = (): void => reject(signal.reason instanceof Error ? signal.reason : new ToolAbortError());
-      if (signal.aborted) reject_();
-      else signal.addEventListener("abort", reject_, { once: true });
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
     // Whichever loses the race must not become an unhandled rejection of its own.
     abandoned.catch(() => {});
@@ -210,6 +213,7 @@ export class CodeCell {
       failure = error;
     } finally {
       clearTimeout(timer);
+      o.signal.removeEventListener("abort", onCancel);
       this.#live.delete(o.runId);
       this.#recentFiles.add(filename);
       if (this.#recentFiles.size > RECENT_CELL_FILES_MAX) this.#recentFiles.delete(this.#recentFiles.values().next().value as string);

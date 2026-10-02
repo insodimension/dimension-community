@@ -66,7 +66,14 @@ export interface BridgeResponse { text: string; details: BridgeDetails; images?:
 
 // ---- one tab, as the worker adopts it
 export interface TabRef { tabId: string; targetId: string; url: string; title: string; active: boolean }
-export interface TabHandle extends TabRef { browserId: string; wsEndpoint: string; kind: BrowserKindTag; created: boolean }
+export interface TabHandle extends TabRef {
+  browserId: string;
+  wsEndpoint: string;
+  kind: BrowserKindTag;
+  created: boolean;
+  /** Raise the tab before a screenshot. Unset: yes, except for a tab adopted (not created) on a connected or relay browser, which is the user's visible tab (OMP's rule). */
+  activateForScreenshot?: boolean;
+}
 
 // ---- host <-> worker (OMP tab-protocol.ts:83-137, minus tool-call/tool-reply, plus bridge for open/close)
 export type HostToWorker =

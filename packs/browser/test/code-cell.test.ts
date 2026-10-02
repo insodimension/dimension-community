@@ -127,9 +127,18 @@ describe("what a failing cell reports", () => {
     expect(textOf(result)).toBe('ToolError: No tab named "x"');
   });
 
-  test("a promise the cell floats and never awaits fails the run that floated it", async () => {
-    const failed = await failure('Promise.reject(new Error("floated")); "done"');
-    expect(failed.error.message).toBe("Unhandled rejection (missing await?): floated");
+  // `bun test` fails a test on ANY unhandled rejection, listener or not, so the cell's `unhandledRejection` hook (a worker thread, under Node) cannot be driven by a real floated promise here.
+  // What the hook decides is `consumeRejection`; this hands it the cell's own error while the run is live, as the hook would.
+  test("a rejection the live run floated is claimed by that run and fails it", async () => {
+    Reflect.set(globalThis, "claimFloated", (reason: unknown) => cell.consumeRejection(reason));
+    try {
+      const failed = await failure('globalThis.claimedByRun = claimFloated(new Error("floated")); "done"');
+      expect(failed.error.message).toBe("Unhandled rejection (missing await?): floated");
+      expect(Reflect.get(globalThis, "claimedByRun")).toBe(true);
+    } finally {
+      Reflect.deleteProperty(globalThis, "claimFloated");
+      Reflect.deleteProperty(globalThis, "claimedByRun");
+    }
   });
 
   test("a rejection that is not a cell's is not claimed", () => {
@@ -223,7 +232,7 @@ describe("OMP's facade, unchanged, in the cell", () => {
   test("tab.run sends a function's source and its arguments, a RegExp as a marker, and returns the value", async () => {
     calls.length = 0;
     const result = await run('await browser.tab().run(({ tab }, suffix, re) => suffix, { args: ["!", /a+/gi], timeout: 9 })', { invoke });
-    expect(textOf(result)).toBe("5");
+    expect(textOf(result)).toBe("ran\n5");
     expect(calls).toEqual([{ name: "main", timeout: 9, fn: "({ tab }, suffix, re) => suffix", args: ["!", { __omp_re: { source: "a+", flags: "gi" } }], action: "run" }]);
     expect(result.displays[0]).toEqual({ type: "image", data: "aGk=", mimeType: "image/png" });
   });
@@ -235,7 +244,7 @@ describe("OMP's facade, unchanged, in the cell", () => {
        await attempt(() => browser.open(5));
        await attempt(() => browser.tab(""));
        await attempt(() => browser.tab().run(42));
-       await attempt(() => browser.tab().run(console.log));
+       await attempt(() => browser.tab().run(Math.max));
        out.push(String(Object.isFrozen(browser)), String(Object.isFrozen(browser.tab())), String(browser.tab("x").id("not-a-number")));
        out.join("\\n")`,
       { invoke },
