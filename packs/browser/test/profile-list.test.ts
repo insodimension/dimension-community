@@ -216,7 +216,7 @@ describe("what the list never contains", () => {
 
 describeWithChrome("who holds a profile", () => {
 	test(
-		"the chat that opened it, the human in a View, another chat — and nobody once it is closed — with no id in any answer",
+		"the chat that opened it, the human in a View, another chat — and nobody once it is closed — with only the asking chat's own ids in an answer",
 		async () => {
 			const { rootDir } = await rootWith((store) => {
 				store.ensureProfile("work");
@@ -235,7 +235,13 @@ describeWithChrome("who holds a profile", () => {
 			expect(await heldBy("s-3")).toEqual({ idle: null, personal: "this chat", work: "another chat" });
 			// A call with no host stamp is nobody's chat.
 			expect(await heldBy()).toEqual({ idle: null, personal: "human", work: "another chat" });
-			for (const id of [mine.browserId, theirs.browserId]) expect(JSON.stringify(await runtime.profileList("s-1"))).not.toContain(id);
+			// An id is a capability: an answer carries the browser ids of the asking chat's own browsers (the View reaches and closes what it left open by them) and never another chat's.
+			const idsIn = async (asker?: string) => JSON.stringify(await runtime.profileList(asker));
+			expect(await idsIn("s-1")).toContain(mine.browserId);
+			expect(await idsIn("s-1")).not.toContain(theirs.browserId);
+			expect(await idsIn("s-3")).toContain(theirs.browserId);
+			expect(await idsIn("s-3")).not.toContain(mine.browserId);
+			for (const stranger of ["s-2", undefined]) for (const id of [mine.browserId, theirs.browserId]) expect(await idsIn(stranger)).not.toContain(id);
 
 			await runtime.close(mine.browserId);
 			expect((await heldBy("s-1")).work).toBeNull();
