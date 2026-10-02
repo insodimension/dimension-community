@@ -1,0 +1,30 @@
+// Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/tab-worker-entry.ts @ dc5f95d9e1 (Dimension omp fork).
+// Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
+// Changed for the Browser pack: one worker thread per session carries the cell realm and every tab realm, so this entry builds both; the transport is the thread's parent port.
+
+import { parentPort } from "node:worker_threads";
+import { createCodeEvaluator } from "../cell/evaluator.js";
+import type { HostToWorker, Transport, WorkerToHost } from "../contracts.js";
+import { WorkerCore } from "./dispatch.js";
+import { createTabRealm } from "./tab-realm.js";
+
+/** The code worker: the second esbuild entry of the pack (app/code-worker.mjs). Everything it does is a reaction to the host's messages on the thread's parent port. */
+const port = parentPort;
+if (!port) throw new Error("The code worker must run in a worker thread");
+
+const transport: Transport<HostToWorker, WorkerToHost> = {
+  send: message => port.postMessage(message),
+  onMessage: handler => {
+    const listener = (message: HostToWorker): void => handler(message);
+    port.on("message", listener);
+    return () => port.off("message", listener);
+  },
+  close: () => port.close(),
+};
+
+// A factory, not an evaluator: each tab name gets its own, so a tab's top-level names persist per tab as in OMP.
+new WorkerCore({
+  transport,
+  guardRejections: true,
+  createRealm: ({ env, screenshotDir }) => createTabRealm({ evaluator: createCodeEvaluator, env, ...(screenshotDir === undefined ? {} : { screenshotDir }) }),
+});

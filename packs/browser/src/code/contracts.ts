@@ -87,13 +87,15 @@ export type WorkerToHost =
   | { t: "log"; level: "debug" | "warn" | "error"; msg: string }
   | { t: "closed" };
 export interface RunResult { displays: Array<{ type: "text"; text: string } | ImageBlock>; returnValue?: unknown; screenshots: ScreenshotResult[] }
-export interface RunError { name: string; message: string; stack?: string; isAbort: boolean; recoverTab?: boolean }
+/** `partial`: what the cell had shown before it failed (its text and images), so a screenshot taken before the step that threw is not lost. */
+export interface RunError { name: string; message: string; stack?: string; isAbort: boolean; recoverTab?: boolean; partial?: RunResult }
 /** tab-protocol.ts:139-143 */
 export interface Transport<In, Out> { send(m: Out): void; onMessage(h: (m: In) => void): () => void; close(): void }
 
 // ---- L1 consumes, L2 implements. The tool never touches a worker or a runtime directly.
 export interface CodeHostPort {
   run(session: string, o: { code: string; timeoutMs: number; signal: AbortSignal; onProgress?: (chunk: string) => void }): Promise<RunStarted>;
+  /** Waits up to `waitMs` for the run to finish; `waitMs` 0 only looks. A finished run stays readable for 10 minutes. An unknown or expired `runId` rejects with an Error whose message says so. */
   resume(session: string, runId: string, waitMs: number, signal: AbortSignal): Promise<RunStarted>;
   dispose(): Promise<void>;
 }
