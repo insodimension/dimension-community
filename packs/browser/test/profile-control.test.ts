@@ -7,8 +7,13 @@
  *  person is typing in, a batch the agent already sent carries on after the
  *  person reached for the wheel, the person's own clicks are refused, an agent
  *  can take the wheel for itself, a post awaiting confirmation is navigated
- *  away from, a task and the person drive the same page — or a model is sent
- *  the person's avatar and look.
+ *  away from, a task and the person drive the same page, the wheel stays taken
+ *  for good after the person switched away or the View went — or a model is sent
+ *  the person's avatar and look. And the other way round: every profile the
+ *  person switches through keeps a browser (the pool of four fills and every
+ *  agent in every chat is refused), or leaving a browser closes one an agent is
+ *  using, a post waits on, or a task runs in, or hands another chat's browser id
+ *  to a View.
  *
  *  Everything goes through the real MCP server over an in-memory transport,
  *  stamped the way a host stamps the View ("app", its session) and a chat
@@ -24,8 +29,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
 import type { PublishRecipe } from "../src/contracts";
-import type { BrowserRuntime } from "../src/runtime";
+import type { BrowserRuntime, BrowserRuntimeOptions } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
+import { chromePidsByThrowaway, waitUntilGone } from "./chrome-processes";
 import { BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, type Fixture, newRuntime, startFixture, teardown, waitUntil } from "./fixture";
 import { type PublishFixture, startPublishFixture } from "./publish-fixture";
 
@@ -88,9 +94,9 @@ interface Rig {
 	rootDir: string;
 }
 
-async function rig(): Promise<Rig> {
+async function rig(options: Omit<BrowserRuntimeOptions, "rootDir"> = {}): Promise<Rig> {
 	const rootDir = await createRoot();
-	const runtime = newRuntime(rootDir);
+	const runtime = newRuntime(rootDir, options);
 	const viewDir = join(rootDir, "view");
 	await mkdir(viewDir, { recursive: true });
 	await writeFile(join(viewDir, "index.html"), "<!doctype html><title>view</title>");
@@ -678,6 +684,297 @@ describeTasks("taking over while a task runs", () => {
 			expect((await stateAs(r, VIEW_OF_CHAT, id)).takenOver).toBe(false);
 			expect(entry(await listAs(r, VIEW_OF_CHAT), "tasked")).toMatchObject({ hold: { by: "agent", task: true, takenOver: false } });
 			expect((await r.call("browser_task_cancel", { browserId: id }, CHAT)).structuredContent).toMatchObject({ status: "cancelled" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"leaving a browser a task runs in keeps it open and listed as running a task; the person's own browser, with the task its agent started, is not closed under it",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, VIEW_OF_CHAT, { profile: "tasked" })).browserId;
+			const running = await r.call("browser_task", { browserId: id, agent: "jev", task: JSON.stringify({ steps: [{ action: "thinking", url: "" }], hold: true }), waitSeconds: 0 }, CHAT);
+			expect(running.structuredContent).toMatchObject({ status: "running" });
+
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+
+			expect(entry(await listAs(r, VIEW_OF_CHAT), "tasked")).toMatchObject({ browserId: id, hold: { by: "person", task: true } });
+			expect((await r.call("browser_task_cancel", { browserId: id }, CHAT)).structuredContent).toMatchObject({ status: "cancelled" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"leaving a browser while a task is starting on it keeps it open: the worker is not spawned onto a page that is being closed",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, VIEW_OF_CHAT, { profile: "tasked" })).browserId;
+			// Hold the task's first look at the page, so the start is provably in flight (the seam of the test above).
+			const seam = r.runtime as unknown as { byId: Map<string, { driver: { state(): Promise<unknown> } }> };
+			const entryOf = seam.byId.get(id);
+			if (!entryOf) throw new Error("no such browser");
+			const realState = entryOf.driver.state.bind(entryOf.driver);
+			const reading = Promise.withResolvers<void>();
+			const resume = Promise.withResolvers<void>();
+			let gated = false;
+			entryOf.driver.state = async () => {
+				if (!gated) {
+					gated = true;
+					reading.resolve();
+					await resume.promise;
+				}
+				return await realState();
+			};
+			const starting = r.call("browser_task", { browserId: id, agent: "jev", task: JSON.stringify({ steps: [{ action: "thinking", url: "" }], hold: true }), waitSeconds: 0 }, CHAT);
+			try {
+				await reading.promise;
+				expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+			} finally {
+				resume.resolve();
+			}
+
+			expect((await starting).structuredContent).toMatchObject({ status: "running" });
+			expect((await stateAs(r, VIEW_OF_CHAT, id)).browserId).toBe(id);
+			expect((await r.call("browser_task_cancel", { browserId: id }, CHAT)).structuredContent).toMatchObject({ status: "cancelled" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+});
+
+// ---------------------------------------------------------------------------
+// Leaving a browser, and a wheel nobody is holding
+// ---------------------------------------------------------------------------
+
+describeWithChrome("leaving a browser for another profile in the View", () => {
+	const LEFT = "left it for another profile";
+	const recipe = (fixture: PublishFixture): PublishRecipe => ({
+		origin: fixture.origin,
+		composeUrl: fixture.url("/compose?v=nav"),
+		signedIn: "#me",
+		fields: [{ selector: "#text", value: "hello" }],
+		submit: "#post",
+		receipt: { path: "/alice/status/{digits}" },
+	});
+
+	test(
+		"a browser the person opened and nothing depends on is closed: its profile is free for any seat at once, and the one that held the id is told why",
+		async () => {
+			const r = await rig();
+			const a = await open(r, VIEW, { profile: "a", engine: "chromium" });
+
+			expect(await r.runtime.leave(a.browserId, "app")).toEqual({ closed: true });
+
+			// A saved profile's lock is released only once its Chrome is gone, so another seat getting it proves no Chrome is left on it.
+			const taken = await open(r, CHAT, { profile: "a" });
+			expect(taken.browserId).not.toBe(a.browserId);
+			expect(entry(await listAs(r, CHAT), "a")?.heldBy).toBe("this chat");
+			expect(refusal(await r.call("browser_state", { browserId: a.browserId }, VIEW))).toContain(LEFT);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a Private browser the person leaves goes with its directory and its Chrome; one an agent opened is not touched",
+		async () => {
+			const r = await rig();
+			const mine = await open(r, VIEW, {});
+			const [dir] = await readdir(join(r.rootDir, "ephemeral"));
+			if (dir === undefined) throw new Error("the Private browser made no directory");
+			const chrome = (await chromePidsByThrowaway(r.rootDir)).get(dir)?.all ?? [];
+			expect(chrome.length).toBeGreaterThan(0);
+
+			expect(await r.runtime.leave(mine.browserId, "app")).toEqual({ closed: true });
+
+			expect(await waitUntilGone(chrome, 20_000)).toEqual([]);
+			expect(await readdir(join(r.rootDir, "ephemeral"))).toEqual([]);
+
+			const theirs = await open(r, CHAT, {});
+			expect(await r.runtime.leave(theirs.browserId, "app")).toEqual({ closed: false });
+			expect((await stateAs(r, CHAT, theirs.browserId)).browserId).toBe(theirs.browserId);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"an agent's own browser stays open when the person leaves it, and a wheel they held goes back to the agent at once; the View's list reaches it, a model's and another seat's do not",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, CHAT, { profile: "w" })).browserId;
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+			expect(refusal(await r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: r.fixture.url("/page2") }] }, CHAT))).toContain(TOOK_OVER);
+
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+
+			expect((await stateAs(r, CHAT, id)).takenOver).toBe(false);
+			await navigate(r, CHAT, id, "/page2");
+			expect(entry(await listAs(r, VIEW_OF_CHAT), "w")).toMatchObject({ heldBy: "this chat", browserId: id });
+			expect(entry(await listAs(r, VIEW_TWO), "w")).toMatchObject({ heldBy: "another chat" });
+			expect(entry(await listAs(r, VIEW_TWO), "w")).not.toHaveProperty("browserId");
+			expect(entry(await listAs(r, CHAT), "w")).not.toHaveProperty("browserId");
+			expect(JSON.stringify(entry(await listAs(r, CHAT), "w"))).not.toContain(id);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the person's own browser they had taken over is not closed under what they were doing: the wheel goes back, it stays listed with its id, and the menu's close closes it",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, VIEW, { profile: "mine" })).browserId;
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW));
+
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+
+			expect(entry(await listAs(r, VIEW), "mine")).toMatchObject({ heldBy: "this chat", browserId: id, hold: { by: "person", takenOver: false } });
+			expect((await r.call("browser_close", { browserId: id }, VIEW)).isError).toBeFalsy();
+			expect(entry(await listAs(r, VIEW), "mine")?.heldBy).toBeNull();
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a post awaiting confirmation keeps its browser open when the person leaves it, and the list says one is waiting",
+		async () => {
+			const r = await rig();
+			const site = startPublishFixture();
+			publishFixtures.push(site);
+			const id = (await open(r, VIEW_OF_CHAT, { profile: "pub" })).browserId;
+			expect((await r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: site.url("/login") }] }, CHAT)).isError).toBeFalsy();
+			const parked = await r.call("browser_publish", { browserId: id, recipe: recipe(site), mode: "post" }, CHAT);
+			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
+
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+
+			expect(entry(await listAs(r, VIEW_OF_CHAT), "pub")).toMatchObject({ browserId: id, hold: { by: "person", post: true } });
+			expect(site.hits("/compose")).toBe(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a call in progress keeps its browser open when the person leaves it: the page the agent is loading is not closed under it",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, VIEW_OF_CHAT, {})).browserId;
+			const loading = r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: r.fixture.url("/slow") }] }, CHAT);
+			await waitUntil("the slow page to be requested", () => r.fixture.hits("/slow"), (hits) => hits === 1);
+
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: false });
+
+			expect(Outcome.parse(JSON.parse(textOf(await loading)))).toMatchObject({ status: "completed", url: r.fixture.url("/slow") });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"switching through profiles keeps one browser, not one per profile: the pool is not filled and an agent can still open one",
+		async () => {
+			const r = await rig();
+			const names = ["a", "b", "c", "d"];
+			let left: string | undefined;
+			for (const name of names) {
+				const now = await open(r, VIEW, { profile: name, engine: "chromium" });
+				if (left !== undefined) expect(await r.runtime.leave(left, "app")).toEqual({ closed: true });
+				left = now.browserId;
+			}
+
+			// Four profiles were opened and three left; had each stayed open the four slots would all be the person's.
+			const listed = await listAs(r, CHAT);
+			expect(names.map((name) => entry(listed, name)?.heldBy)).toEqual([null, null, null, "human"]);
+			const agent = await open(r, CHAT, {});
+			expect(agent.profile).toBeNull();
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the View's list holds the Private browsers this seat has open and never another chat's: with their ids to the View, none in a model's text",
+		async () => {
+			const r = await rig();
+			const mine = await open(r, VIEW, {});
+			const theirs = await open(r, CHAT, {});
+			const taken = await open(r, VIEW, { profile: "p" });
+			stateOf(await r.call("browser_control", { browserId: mine.browserId, mode: "take" }, VIEW));
+
+			const asView = await r.call("browser_profiles", {}, VIEW);
+			expect(asView.structuredContent?.browsers).toEqual([{ browserId: mine.browserId, kind: "private", hold: { by: "person", task: false, takenOver: true, post: false } }]);
+			expect(JSON.stringify((await r.call("browser_profiles", {}, VIEW_TWO)).structuredContent)).not.toMatch(new RegExp(`${mine.browserId}|${theirs.browserId}|${taken.browserId}`));
+			expect(textOf(await r.call("browser_profiles", {}, CHAT))).not.toMatch(new RegExp(`${mine.browserId}|${theirs.browserId}|${taken.browserId}`));
+			// A saved profile is a row of its own, not one of these.
+			expect(asView.structuredContent?.browsers).toHaveLength(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"only the person in the View can leave a browser: a model or an unstamped caller is refused and nothing is closed; an id nobody knows is refused, one the runtime already closed is closed",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, VIEW, { profile: "mine" })).browserId;
+
+			for (const who of [CHAT, OTHER_CHAT, undefined]) {
+				refusal(await r.call("browser_leave", { browserId: id }, who));
+				expect(await failureCode(() => r.runtime.leave(id, who?.caller))).toBe("human_only");
+			}
+			expect((await stateAs(r, VIEW, id)).browserId).toBe(id);
+
+			expect(await failureCode(() => r.runtime.leave("not-a-browser", "app"))).toBe("unknown_browser");
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: true });
+			// Asked again, what was asked for is already true.
+			expect(await r.runtime.leave(id, "app")).toEqual({ closed: true });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+});
+
+describeWithChrome("a wheel nobody is watching", () => {
+	const wheelOf = async (r: Rig, id: string): Promise<boolean> => (await r.runtime.liveState(id)).takenOver;
+	// Real clock on purpose: the wheel is given back by the runtime's own timer, and "still taken a while after the View was joined or came
+	// back in time" is a negative with no signal to await. The window is set to under a second so each wait stays short.
+	const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+	test(
+		"goes back to the agent once the View has been gone for the window; a View joined holds it however long, and one that returns in time keeps it",
+		async () => {
+			const r = await rig({ viewGoneMs: 800 });
+			const id = (await open(r, CHAT, {})).browserId;
+			const joined = r.runtime.viewing(id);
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+
+			// Watched: well past the window and still taken.
+			await sleep(1_800);
+			expect(await wheelOf(r, id)).toBe(true);
+
+			// The View goes and comes back inside the window: still taken, and not given back later by the first timer.
+			joined();
+			await sleep(300);
+			const rejoined = r.runtime.viewing(id);
+			await sleep(1_500);
+			expect(await wheelOf(r, id)).toBe(true);
+
+			// The View goes for good.
+			rejoined();
+			await waitUntil("the wheel to go back", () => wheelOf(r, id), (taken) => !taken);
+			await navigate(r, CHAT, id, "/page2");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"taken before any View ever joined the stream goes back after the window too; handing it back first cancels the wait",
+		async () => {
+			const r = await rig({ viewGoneMs: 700 });
+			const id = (await open(r, CHAT, {})).browserId;
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+			expect(await wheelOf(r, id)).toBe(true);
+			await waitUntil("the wheel to go back", () => wheelOf(r, id), (taken) => !taken);
+
+			// Taken again and handed back by hand: it is the agent's, and stays so past the window.
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+			stateOf(await r.call("browser_control", { browserId: id, mode: "return" }, VIEW_OF_CHAT));
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+			expect(await wheelOf(r, id)).toBe(true);
+			await waitUntil("the second wheel to go back", () => wheelOf(r, id), (taken) => !taken);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

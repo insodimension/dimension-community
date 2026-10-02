@@ -159,6 +159,7 @@ describe("what each caller is sent", () => {
 				{ name: "personal", label: "personal", colour: expect.any(String), heldBy: null, sites: [] },
 				{ name: "work", label: "Work", colour: "blue", heldBy: null, sites: [{ site: "x.com", account: "@acmeco", signedIn: true, seenAt }] },
 			],
+			browsers: [],
 		});
 		// An unstamped call (no host) is treated as a model.
 		expect((await call("browser_profiles", {})).structuredContent).toBeUndefined();
@@ -190,7 +191,7 @@ describe("what each caller is sent", () => {
 		const { client } = await connect(seed);
 		// The View's host is the same server, called as the human: exactly the stamp a host puts on its calls.
 		const host = { callServerTool: (request: { name: string; arguments?: Record<string, unknown> }) => client.callTool({ ...request, _meta: { [CALLER]: "app" } }) } as unknown as App;
-		const profiles = await new BrowserClient(host).profiles();
+		const { profiles } = await new BrowserClient(host).profiles();
 		expect(profiles.map((profile) => [profile.name, profile.label, profile.heldBy])).toEqual([["personal", "personal", null], ["work", "Work", null]]);
 		expect(profiles[1]?.sites.map((site) => [site.site, site.account])).toEqual([["x.com", "@acmeco"]]);
 	});

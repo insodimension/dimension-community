@@ -25,10 +25,11 @@ import type { ProfileStore } from "./store.js";
 /** The most profiles one answer to a model carries; the rest are counted, not listed. */
 export const MAX_PROFILES_FOR_MODEL = 40;
 
-/** Who holds a profile, from the asking side, and what that holder is doing. `hold` is absent for a profile this server holds no browser for. */
+/** Who holds a profile, from the asking side, and what that holder is doing. `hold` is absent for a profile this server holds no browser for; `browserId` is present only for the asking chat's own browser. */
 export interface HoldFact {
 	heldBy: ProfileHolder;
 	hold?: ProfileHold;
+	browserId?: string;
 }
 
 /** Every saved profile, by slug. `holdOf` says who holds each, from the asking chat's side. */
@@ -52,17 +53,17 @@ export function buildProfileList(store: ProfileStore, holdOf: (slug: string) => 
 				});
 			}
 			sites.sort((a, b) => b.seenAt.localeCompare(a.seenAt) || a.site.localeCompare(b.site));
-			const { heldBy, hold } = holdOf(slug);
-			return { name: slug, label, colour, ...(avatar === undefined ? {} : { avatar }), heldBy, ...(hold === undefined ? {} : { hold }), sites };
+			const { heldBy, hold, browserId } = holdOf(slug);
+			return { name: slug, label, colour, ...(avatar === undefined ? {} : { avatar }), heldBy, ...(hold === undefined ? {} : { hold }), ...(browserId === undefined ? {} : { browserId }), sites };
 		});
 }
 
 /** A site as a model reads it: no `account`. An email or a handle names the person, and the person's accounts are not model context until a consent gate exists. */
 export type ModelSiteListing = Omit<ProfileSiteListing, "account">;
-export type ModelProfileListing = Omit<ProfileListing, "sites" | "avatar" | "hold"> & { sites: ModelSiteListing[] };
+export type ModelProfileListing = Omit<ProfileListing, "sites" | "avatar" | "hold" | "browserId"> & { sites: ModelSiteListing[] };
 
-/** The avatar is the person's decoration and `hold` the View's detail; a model is told a profile the person took over is the person's. */
-const forModel = ({ avatar: _avatar, hold, ...profile }: ProfileListing): ModelProfileListing => ({
+/** The avatar is the person's decoration, `hold` the View's detail and `browserId` a capability; a model is told a profile the person took over is the person's. */
+const forModel = ({ avatar: _avatar, hold, browserId: _browserId, ...profile }: ProfileListing): ModelProfileListing => ({
 	...profile,
 	heldBy: hold?.takenOver ? "human" : profile.heldBy,
 	sites: profile.sites.map(({ site, signedIn, seenAt }) => ({ site, signedIn, seenAt })),

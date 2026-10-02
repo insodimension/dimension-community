@@ -50,6 +50,8 @@ import type {
 	ControlMode,
 	NewProfileRequest,
 	ProfileListing,
+	LeaveOutcome,
+	OpenBrowserListing,
 	ActionResult,
 	ActManyResult,
 	BatchStep,
@@ -141,6 +143,12 @@ const GRACEFUL_CLOSE_MS = 20_000;
 const CLOSE_RETRY_MS = 30_000;
 /** Ids of browsers the runtime closed on its own that are remembered, so their chats are told why; the oldest are forgotten first. */
 const MAX_RELEASED = 64;
+/**
+ * The person has taken a browser over and no View has been joined to its stream for this long: they are gone (the View or the chat was
+ * closed, or they left for another browser), and the wheel goes back to the agent. A View that comes back first keeps it. Matches the
+ * live channel's token idle (stream.ts): past it a View could not resume its stream anyway.
+ */
+const VIEW_GONE_MS = 60_000;
 const MAX_FRAMES_RETAINED = 8;
 /** A batch takes no new step after this long: a host times a tool call out (the desktop at 30 s). */
 const ACT_BUDGET_MS = 20_000;
@@ -198,6 +206,8 @@ export interface BrowserRuntimeOptions {
 	actBudgetMs?: number;
 	/** How long a throwaway browser a chat opened may go without a call (and with no View joined) before it is closed; defaults to THROWAWAY_IDLE_MS, at most 2147483647 (a timer's limit). */
 	throwawayIdleMs?: number;
+	/** How long a browser the person took over may go with no View joined before the wheel goes back to the agent; defaults to VIEW_GONE_MS, at most 2147483647. */
+	viewGoneMs?: number;
 	/**
 	 * TESTS ONLY: exact hostnames browser_read may reach although they are
 	 * loopback/private (the local fixture on 127.0.0.1). Never set in
@@ -282,6 +292,8 @@ interface Entry {
 	opener: BrowserOpener;
 	/** The person has the wheel: an agent's page actions are refused until they hand it back (`control`). Reads are not. */
 	takenOver: boolean;
+	/** Gives the wheel back when no View has watched this browser for VIEW_GONE_MS (`watchWheel`). */
+	wheelTimer: NodeJS.Timeout | undefined;
 	/**
 	 * Something an agent is part-way through that parks or drives this page and is not yet visible as `publish` or `task`: a post being
 	 * filled (parked only once the fill ends) or a task being started (its worker spawns only after the page was read). The person cannot
@@ -361,6 +373,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly observedProfiles = new Set<string>();
 	/** How long a throwaway may go without a call before it is closed (see THROWAWAY_IDLE_MS). */
 	private readonly idleMs: number;
+	/** How long a taken-over browser may go unwatched before the wheel is given back (see VIEW_GONE_MS). */
+	private readonly viewGoneMs: number;
 	/** Why a browser the runtime closed on its own is gone, by id, so the chat that held it is told rather than sent "unknown". */
 	private readonly released = new Map<string, string>();
 	/** Watches the profile root for deletions while anyone listens for connection changes. */
@@ -375,6 +389,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.idleMs = options.throwawayIdleMs ?? THROWAWAY_IDLE_MS;
 		if (!Number.isFinite(this.idleMs) || this.idleMs <= 0 || this.idleMs > MAX_TIMER_MS) {
 			throw new RangeError(`throwawayIdleMs must be a number of milliseconds above 0 and at most ${MAX_TIMER_MS}, got ${String(options.throwawayIdleMs)}`);
+		}
+		this.viewGoneMs = options.viewGoneMs ?? VIEW_GONE_MS;
+		if (!Number.isFinite(this.viewGoneMs) || this.viewGoneMs <= 0 || this.viewGoneMs > MAX_TIMER_MS) {
+			throw new RangeError(`viewGoneMs must be a number of milliseconds above 0 and at most ${MAX_TIMER_MS}, got ${String(options.viewGoneMs)}`);
 		}
 		this.store = new ProfileStore(options.rootDir);
 		this.annotationFiles = new AnnotationFiles(join(this.store.rootDir, "annotations"));
@@ -518,7 +536,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				task: null, worker: null, publish: null, secrets: new Set(), logRead: 0, logNoticed: 0, annotations,
 				opener, takenOver: false, starting: null, agentAt: null, look: profile === null || profile === RELAY_PROFILE ? null : resolveProfileMeta(profile, this.store.meta(profile)),
 				probe: { timer: undefined, running: undefined, again: false },
-				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false,
+				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false, wheelTimer: undefined,
 			};
 			if (code !== undefined) entry.code = code;
 			if (profile !== null && profile !== RELAY_PROFILE) entry.notice = this.touchProfile(profile, driver.app);
@@ -581,6 +599,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (this.byId.get(entry.browserId) !== entry) return;
 		settleOnClose(entry);
 		const ending = !entry.closed;
+		clearTimeout(entry.wheelTimer);
 		entry.closed = true;
 		if (ending) this.notifyEnd(entry, entry.retiring === undefined ? "closed" : "retired");
 		entry.frames.length = 0;
@@ -667,6 +686,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		entry.worker?.process.cancel();
 		clearTimeout(entry.probe.timer);
 		clearTimeout(entry.idle);
+		clearTimeout(entry.wheelTimer);
 		this.byId.delete(entry.browserId);
 		if (entry.profile !== null && this.byProfile.get(entry.profile) === entry) this.byProfile.delete(entry.profile);
 		for (const [session, browserId] of this.viewBySession) if (browserId === entry.browserId) this.viewBySession.delete(session);
@@ -715,6 +735,22 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** A call is queued or running, or a task agent is driving it: nothing may close this browser under that work. */
 	private working(entry: Entry): boolean {
 		return entry.pending > 0 || entry.worker !== null;
+	}
+
+	/**
+	 * The wheel the person holds goes back to the agent when no View has been joined to the browser's stream for `viewGoneMs`: the View
+	 * or the chat was closed, or they switched to another browser, and nobody is left to hand it back. A View that joins first keeps it.
+	 * One timer per unwatched stretch; called whenever the wheel is taken or a View joins or leaves.
+	 */
+	private watchWheel(entry: Entry): void {
+		clearTimeout(entry.wheelTimer);
+		entry.wheelTimer = undefined;
+		if (!entry.takenOver || entry.viewers > 0 || entry.closed || this.disposed) return;
+		entry.wheelTimer = setTimeout(() => {
+			entry.wheelTimer = undefined;
+			if (entry.takenOver && entry.viewers === 0) entry.takenOver = false;
+		}, this.viewGoneMs);
+		entry.wheelTimer.unref();
 	}
 
 	/** Look at `entry` again after `afterMs`. One timer per idle period, never one per call: a call only stamps `lastUsed`. */
@@ -791,12 +827,14 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		entry.viewers += 1;
 		for (const listener of [...this.viewListeners]) listener(browserId);
+		this.watchWheel(entry);
 		let ended = false;
 		return () => {
 			if (ended) return;
 			ended = true;
 			entry.viewers -= 1;
 			entry.lastUsed = performance.now();
+			this.watchWheel(entry);
 		};
 	}
 
@@ -1086,11 +1124,31 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.byProfile.get(slug);
 		const opener = entry?.opener ?? this.openers.get(slug);
 		if (opener !== undefined) {
-			const hold: ProfileHold = { by: opener.caller === "app" ? "person" : "agent", task: entry?.task?.status === "running", takenOver: entry?.takenOver === true };
-			return { heldBy: this.holderOf(opener, asker), hold };
+			const heldBy = this.holderOf(opener, asker);
+			// A browser still launching has no id yet; another chat's id is never handed over (it is a capability).
+			return { heldBy, hold: this.holdOf(entry, opener), ...(heldBy === "this chat" && entry !== undefined ? { browserId: entry.browserId } : {}) };
 		}
 		// Open in another server (or another runtime on this root): not ours to name, and not free.
 		return { heldBy: this.store.heldElsewhere(slug) ? "another chat" : null };
+	}
+
+	/** What `entry` (absent while it is still launching) is doing, for the View's menu. */
+	private holdOf(entry: Entry | undefined, opener: BrowserOpener): ProfileHold {
+		return {
+			by: opener.caller === "app" ? "person" : "agent",
+			task: entry?.task?.status === "running",
+			takenOver: entry?.takenOver === true,
+			post: entry !== undefined && (isPending(entry.publish) || entry.starting === "post"),
+		};
+	}
+
+	/** The browsers `asker`'s chat holds that are not saved profiles: Private ones and the person's own Chrome. Nothing of another chat's. */
+	async openBrowsers(asker?: string): Promise<OpenBrowserListing[]> {
+		return [...this.byId.values()].flatMap((entry) =>
+			entry.closed || entry.retiring !== undefined || (entry.profile !== null && entry.profile !== RELAY_PROFILE) || this.holderOf(entry.opener, asker) !== "this chat"
+				? []
+				: [{ browserId: entry.browserId, kind: entry.profile === null ? ("private" as const) : ("chrome" as const), hold: this.holdOf(entry, entry.opener) }],
+		);
 	}
 
 	async profileMeta(): Promise<Record<string, ResolvedProfileMeta>> {
@@ -1132,7 +1190,37 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		// Not queued behind page work: it must hold before the agent's next step, not after its whole batch.
 		entry.takenOver = mode === "take";
+		this.watchWheel(entry);
 		return this.redact(entry, await this.buildState(entry));
+	}
+
+	async leave(browserId: string, caller?: ToolCaller): Promise<LeaveOutcome> {
+		if (caller !== "app") fail("human_only", "only the person in the View can leave a browser for another profile");
+		const entry = this.byId.get(browserId);
+		if (entry === undefined) {
+			// Already closed by the runtime (idle, or to make room): what was asked for is true.
+			if (this.released.has(browserId)) return { closed: true };
+			fail("unknown_browser", "Unknown or already closed browserId.");
+		}
+		if (entry.closed || entry.retiring !== undefined) return { closed: true };
+		// Not queued behind page work, like `control`: a browser nobody is looking at must not stay refused to the agent.
+		const heldWheel = entry.takenOver;
+		entry.takenOver = false;
+		clearTimeout(entry.wheelTimer);
+		entry.wheelTimer = undefined;
+		if (this.keptOnLeave(entry, heldWheel)) return { closed: false };
+		await this.retire(entry, "the person left it for another profile in the Browser View, which closed it; open it again with browser_open");
+		return { closed: true };
+	}
+
+	/**
+	 * Does something outlive the person's interest in `entry`? An agent opened it (it may be using it), a call is in progress or a task runs on
+	 * it (`working`: a post being filled and a task being started are calls too), a post awaits confirmation on it, the person had the wheel
+	 * (they were doing something in it), or it is their own Chrome (closing it would close the tabs they were working in). Whatever stays is
+	 * listed in the View's menu and closed from there.
+	 */
+	private keptOnLeave(entry: Entry, heldWheel: boolean): boolean {
+		return entry.opener.caller !== "app" || entry.profile === RELAY_PROFILE || heldWheel || this.working(entry) || isPending(entry.publish);
 	}
 
 	async connections(): Promise<ConnectionObservations> {

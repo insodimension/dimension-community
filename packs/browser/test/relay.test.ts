@@ -280,4 +280,26 @@ describeWithChrome("chrome-relay", () => {
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
+
+	test(
+		"the person leaving their own Chrome in the View for another profile does not close the tabs they were working in: the relay stays attached and listed, and only an explicit close ends it",
+		async () => {
+			const fixture = startFixture();
+			const userUrl = fixture.url("/signup");
+			const chrome = await launchUserChrome(userUrl, "signup");
+			const runtime = newRuntime(await createRoot(), { relayUrl: chrome.relayUrl });
+			const view = { caller: "app", session: "s-view" } as const;
+			const { browserId } = await runtime.open({ engine: "chrome-relay", viewport: VIEWPORT }, view);
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/page2") });
+
+			expect(await runtime.leave(browserId, "app")).toEqual({ closed: false });
+
+			expect((await runtime.state(browserId)).url).toBe(fixture.url("/page2"));
+			expect(await runtime.openBrowsers("s-view")).toMatchObject([{ browserId, kind: "chrome", hold: { by: "person" } }]);
+			await runtime.close(browserId, "app");
+			expect(await runtime.openBrowsers("s-view")).toEqual([]);
+			expect(chrome.running()).toBe(true);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
 });

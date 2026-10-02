@@ -5,7 +5,7 @@
 // never a URL).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { App } from "@modelcontextprotocol/ext-apps";
-import type { BrowserAction, BrowserFrame, BrowserState, ControlMode, NewProfileRequest, ProfileListing, TabOp } from "../../src/contracts";
+import type { BrowserAction, BrowserFrame, BrowserState, ControlMode, NewProfileRequest, OpenBrowserListing, ProfileListing, TabOp } from "../../src/contracts";
 import { Icon } from "@fraym/ui/icons";
 import { addressParts, tabLabel } from "../../src/address";
 import { AgentPill, ControlPill, ResultToast, useAgentActive } from "./agent-activity";
@@ -43,6 +43,8 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	const [opened, setOpened] = useState<BrowserState | null>(null);
 	/** Every saved profile with who holds it; null until it loads. Read again when the browser changes and when the profile menu opens. */
 	const [profiles, setProfiles] = useState<readonly ProfileListing[] | null>(null);
+	/** The browsers this chat holds that are not saved profiles (a Private one, Your Chrome): read with the profiles. */
+	const [browsers, setBrowsers] = useState<readonly OpenBrowserListing[]>([]);
 	const [profilesError, setProfilesError] = useState<string | null>(null);
 	/** The profile being opened from the menu right now (`""`: a Private browser). */
 	const [switching, setSwitching] = useState<string | null>(null);
@@ -156,9 +158,10 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	const loadProfiles = useCallback(() => {
 		const seq = (profilesSeq.current += 1);
 		client.profiles().then(
-			list => {
+			answer => {
 				if (!mountedRef.current || profilesSeq.current !== seq) return;
-				setProfiles(list);
+				setProfiles(answer.profiles);
+				setBrowsers(answer.browsers);
 				setProfilesError(null);
 			},
 			cause => {
@@ -226,22 +229,44 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 		}
 	};
 
-	// Switching profile opens that profile's browser here, as Chrome does: the one you leave stays open (its tabs, its sign-ins, a post
-	// awaiting its confirm) and the menu shows it as open. A profile somebody else holds is not offered; if one is taken meanwhile, the
-	// runtime's refusal is said once.
-	const switchProfile = async (target: string | null) => {
+	// Switching profile opens that profile's browser here, as Chrome does, and leaves the one it was on: the runtime closes it unless an
+	// agent opened it or something depends on it (a task, a post waiting for confirmation, the person's own take-over). What stays is
+	// listed in the menu, to go back to or close. A profile somebody else holds is not offered; if one is taken meanwhile, the runtime's
+	// refusal is said once.
+	const switchTo = async (key: string, reach: () => Promise<BrowserState>) => {
 		if (switching !== null) return;
-		setSwitching(target ?? "");
+		const left = browserId;
+		setSwitching(key);
 		try {
-			const next = await client.open({ engine: "chromium", ...(target === null ? {} : { profile: target }) });
-			if (mountedRef.current) adopt(next);
+			const next = await reach();
+			if (!mountedRef.current) return;
+			adopt(next);
+			if (left !== null && left !== next.browserId) {
+				client.leave(left).then(
+					() => undefined,
+					cause => {
+						if (mountedRef.current) say("error", failureText(cause));
+					},
+				);
+			}
 		} catch (cause) {
 			if (mountedRef.current) say("error", openFailureText(cause));
 		} finally {
 			if (mountedRef.current) setSwitching(null);
 		}
 	};
+	const switchProfile = (target: string | null) => switchTo(target ?? "", () => client.open({ engine: "chromium", ...(target === null ? {} : { profile: target }) }));
+	const switchBrowser = (target: string) => switchTo(`browser:${target}`, () => client.state(target));
 
+	// A browser left open is closed from the menu; it stays open, and the list is read again either way.
+	const closeOther = async (target: string) => {
+		try {
+			await client.close(target);
+		} catch (cause) {
+			if (mountedRef.current) say("error", failureText(cause));
+		}
+		if (mountedRef.current) loadProfiles();
+	};
 	// Add profile in the menu makes it and opens it, as Chrome does. A name the runtime refuses is the form's to show (this rejects).
 	const addProfile = async (request: NewProfileRequest) => {
 		const created = await client.addProfile(request);
@@ -579,7 +604,10 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 					canTakeOver,
 					onMenu: setMenuOpen,
 					onOpen: loadProfiles,
+					browsers: browsers.filter(item => item.browserId !== browserId),
 					onSwitch: target => void switchProfile(target),
+					onSwitchBrowser: target => void switchBrowser(target),
+					onCloseOther: target => void closeOther(target),
 					onAdd: addProfile,
 					onTakeOver: () => void control("take"),
 					onHandBack: () => void control("return"),

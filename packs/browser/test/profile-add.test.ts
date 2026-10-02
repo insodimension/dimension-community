@@ -234,14 +234,15 @@ describe("what a model is sent of a profile", () => {
 		colour: "blue",
 		avatar: "💼",
 		heldBy: "this chat",
-		hold: { by: "agent", task: false, takenOver: true },
+		hold: { by: "agent", task: false, takenOver: true, post: false },
+		browserId: "b-1",
 		sites: [],
 		...over,
 	});
 
-	test("the person's avatar and the View's hold detail never reach it, and a profile the person took over is the human's — under the cap and over it", () => {
+	test("the person's avatar, the View's hold detail and a browser id never reach it, and a profile the person took over is the human's — under the cap and over it", () => {
 		const keysOf = (profile: object): string[] => Object.keys(profile);
-		const under = profilesForModel([listing("work"), listing("idle", { heldBy: null, hold: undefined }), listing("busy", { hold: { by: "person", task: true, takenOver: false } })]);
+		const under = profilesForModel([listing("work"), listing("idle", { heldBy: null, hold: undefined }), listing("busy", { hold: { by: "person", task: true, takenOver: false, post: false } })]);
 		expect(under.profiles.map((profile) => [profile.name, profile.heldBy])).toEqual([["work", "human"], ["idle", null], ["busy", "this chat"]]);
 		for (const profile of under.profiles) expect(keysOf(profile)).toEqual(["name", "label", "colour", "heldBy", "sites"]);
 

@@ -397,12 +397,20 @@ export interface ProfileSiteListing { site: string; account?: string; signedIn: 
 /**
  * Who holds a profile this server has a browser for, in the detail only the View is sent (profile-list.ts
  * `profilesForModel` takes it out): `by` is who opened it (the person in a View, or an agent), `task` whether a task
- * agent is running on it, `takenOver` whether the person has the wheel. `heldBy` says whose it is from the asker's side;
- * this says what it is doing.
+ * agent is running on it, `takenOver` whether the person has the wheel, `post` whether a post awaits their confirmation
+ * (or is being prepared). `heldBy` says whose it is from the asker's side; this says what it is doing.
  */
-export interface ProfileHold { by: "person" | "agent"; task: boolean; takenOver: boolean }
-/** One saved profile as an agent or the View reads it. Never a cookie, a password, a path or a browser id. `avatar` and `hold` are the View's. */
-export interface ProfileListing { name: string; label: string; colour: ProfileColour; avatar?: string; heldBy: ProfileHolder; hold?: ProfileHold; sites: ProfileSiteListing[] }
+export interface ProfileHold { by: "person" | "agent"; task: boolean; takenOver: boolean; post: boolean }
+/**
+ * One saved profile as an agent or the View reads it. Never a cookie, a password or a path. `avatar`, `hold` and `browserId` are the
+ * View's: `browserId` is the browser this chat holds for the profile (present only when `heldBy` is "this chat", never another chat's:
+ * an id is a capability) so the View can reach it and close it.
+ */
+export interface ProfileListing { name: string; label: string; colour: ProfileColour; avatar?: string; heldBy: ProfileHolder; hold?: ProfileHold; browserId?: string; sites: ProfileSiteListing[] }
+/** A browser this chat holds that is not a saved profile: a Private one, or the person's own Chrome. Only the View is sent these. */
+export interface OpenBrowserListing { browserId: string; kind: "private" | "chrome"; hold: ProfileHold }
+/** What leaving a browser did to it: closed, or kept because something of an agent's (or the person's) still depends on it. */
+export interface LeaveOutcome { closed: boolean }
 /** A new profile as a person typed it in the View: a name to show (the folder is derived from it), and optionally a colour and an avatar emoji. */
 export interface NewProfileRequest { name: string; colour?: ProfileColour; avatar?: string }
 /**
@@ -493,6 +501,8 @@ export interface BrowserRuntimePort {
   onConnectionsChanged(listener: () => void): () => void;
   /** Every saved profile (never the relay's, never a throwaway), with who holds it relative to `asker`, the chat asking. */
   profileList(asker?: string): Promise<ProfileListing[]>;
+  /** The browsers this chat holds that are not saved profiles (Private ones, the person's own Chrome), for the View's menu; never another chat's. */
+  openBrowsers(asker?: string): Promise<OpenBrowserListing[]>;
   /** The label, colour and avatar of every saved profile that has any observation, for the connection report. */
   profileMeta(): Promise<Record<string, ResolvedProfileMeta>>;
   /**
@@ -509,6 +519,13 @@ export interface BrowserRuntimePort {
    * between two steps of an agent's batch. Answers the state after it.
    */
   control(browserId: string, mode: ControlMode, caller?: ToolCaller): Promise<BrowserState>;
+  /**
+   * The person in the View leaves `browserId` for another profile. Only `caller` "app" may (`human_only`). The wheel goes back to the
+   * agent at once if they held it. The browser is closed (by the runtime's own close for a browser nobody holds: its chat is told why)
+   * unless an agent opened it, a task runs on it, a post awaits or is being prepared on it, a call is in progress on it, the person had
+   * taken it over, or it is their own Chrome: those stay open, listed in the View's menu, and are closed from there.
+   */
+  leave(browserId: string, caller?: ToolCaller): Promise<LeaveOutcome>;
   /** Settles a pending publish first. Refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
   close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;

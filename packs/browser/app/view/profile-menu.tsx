@@ -6,7 +6,7 @@
 // window later and this stays as it is.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@fraym/ui/icons";
-import type { BrowserEngine, NewProfileRequest, ProfileListing, ProfileSiteListing } from "../../src/contracts";
+import type { BrowserEngine, NewProfileRequest, OpenBrowserListing, ProfileHold, ProfileListing, ProfileSiteListing } from "../../src/contracts";
 import { defaultColour, type ProfileColour, type ResolvedProfileMeta, resolveProfileMeta } from "../../src/profile-meta";
 import { DEFAULT_PROFILE } from "../../src/profile-name";
 import { AddProfileForm } from "./add-profile-form";
@@ -47,17 +47,28 @@ export function identityOf(profile: string | null, engine: BrowserEngine, look: 
 	return { kind: "profile", label, colour, ...(avatar === undefined ? {} : { avatar }), detail: profiles === null ? null : signInSummary(listed?.sites ?? []) };
 }
 
+/** What a browser this chat holds is doing, in a row's words; the dot's colour says whether it is the person's or an agent's. */
+function holdLine(hold: ProfileHold | undefined): { readonly line: string; readonly tone: "open" | "agent" } {
+	if (hold?.takenOver) return { line: "You have control", tone: "open" };
+	if (hold?.post) return { line: "A post is waiting for you", tone: "open" };
+	if (hold?.task) return { line: "An agent task is running", tone: "agent" };
+	if (hold?.by === "agent") return { line: "Your agent has it open", tone: "agent" };
+	return { line: "Open here", tone: "open" };
+}
+
 /** What a row says about its profile, and whether the person can open it from here. */
 export function profileStatus(profile: ProfileListing): { readonly line: string; readonly openable: boolean; readonly tone?: "open" | "agent" } {
 	const { heldBy, hold } = profile;
 	if (heldBy === null) return { line: signInSummary(profile.sites), openable: true };
-	if (heldBy === "this chat") {
-		if (hold?.takenOver) return { line: "You have control", openable: true, tone: "open" };
-		if (hold?.task) return { line: "An agent task is running", openable: true, tone: "agent" };
-		if (hold?.by === "agent") return { line: "Your agent has it open", openable: true, tone: "agent" };
-		return { line: "Open here", openable: true, tone: "open" };
-	}
+	if (heldBy === "this chat") return { ...holdLine(hold), openable: true };
 	return { line: heldBy === "human" ? "Open in another chat" : "In use by another chat", openable: false };
+}
+
+/** What closing a browser left open here costs, said on the button that does it. */
+function closeTitle(hold: ProfileHold | undefined): string {
+	if (hold?.post) return "Close it: the post waiting for you is discarded";
+	if (hold?.task) return "Close it: the task stops";
+	return "Close it";
 }
 
 export interface ProfileSwitcherProps {
@@ -79,8 +90,14 @@ export interface ProfileSwitcherProps {
 	readonly onMenu: (open: boolean) => void;
 	/** The menu just opened: read the profiles again, who holds each changes. */
 	readonly onOpen: () => void;
+	/** The browsers this chat holds that are not saved profiles and are not the one on screen: a Private browser or Your Chrome left open. */
+	readonly browsers: readonly OpenBrowserListing[];
 	/** Open `profile` here (`null`: a Private browser). */
 	readonly onSwitch: (profile: string | null) => void;
+	/** Show a browser that was left open. */
+	readonly onSwitchBrowser: (browserId: string) => void;
+	/** Close a browser that was left open. The menu stays, so several can be closed. */
+	readonly onCloseOther: (browserId: string) => void;
 	/** Create a profile and open it here. Rejects with the sentence to show. */
 	readonly onAdd: (request: NewProfileRequest) => Promise<void>;
 	readonly onTakeOver: () => void;
@@ -125,6 +142,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 	// Focus lands on a profile, or on Add profile when none can be opened: never on Take over, so Enter pressed straight after
 	// opening cannot pause the agent, whoever is listed and whatever has not loaded.
 	const firstOpenable = profiles === null ? undefined : others.find(candidate => profileStatus(candidate).openable)?.name;
+	const firstBrowser = profiles === null || firstOpenable !== undefined ? undefined : props.browsers[0]?.browserId;
 	const showControl = takenOver || (agentActive && canTakeOver);
 
 	return (
@@ -187,36 +205,71 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 										const state = profileStatus(candidate);
 										const pending = switching === candidate.name;
 										return (
-											<button
-												key={candidate.name}
-												type="button"
-												role="menuitemradio"
-												aria-checked={false}
-												className="bx-prow"
-												data-tone={state.tone}
-												data-menu-initial={candidate.name === firstOpenable ? "" : undefined}
-												aria-disabled={!state.openable || busy}
-												title={state.openable ? undefined : `${candidate.label}: ${state.line}`}
-												onClick={() => {
-													if (!state.openable || busy) return;
-													close();
-													props.onSwitch(candidate.name);
-												}}
-											>
-												<ProfileAvatar label={candidate.label} colour={candidate.colour} avatar={candidate.avatar} />
-												<span className="bx-prow-text">
-													<span className="bx-prow-name">{candidate.label}</span>
-													<span className="bx-prow-sub">{state.line}</span>
-												</span>
-												{pending ? <span className="bx-tab-spinner" aria-hidden="true" /> : state.tone !== undefined && <span className="bx-prow-dot" aria-hidden="true" />}
-											</button>
+											<div className="bx-prow-wrap" role="none" key={candidate.name}>
+												<button
+													type="button"
+													role="menuitemradio"
+													aria-checked={false}
+													className="bx-prow"
+													data-tone={state.tone}
+													data-menu-initial={candidate.name === firstOpenable ? "" : undefined}
+													aria-disabled={!state.openable || busy}
+													title={state.openable ? undefined : `${candidate.label}: ${state.line}`}
+													onClick={() => {
+														if (!state.openable || busy) return;
+														close();
+														props.onSwitch(candidate.name);
+													}}
+												>
+													<ProfileAvatar label={candidate.label} colour={candidate.colour} avatar={candidate.avatar} />
+													<span className="bx-prow-text">
+														<span className="bx-prow-name">{candidate.label}</span>
+														<span className="bx-prow-sub">{state.line}</span>
+													</span>
+													{pending ? <span className="bx-tab-spinner" aria-hidden="true" /> : state.tone !== undefined && <span className="bx-prow-dot" aria-hidden="true" />}
+												</button>
+												{candidate.browserId !== undefined && (
+													<RowClose label={candidate.label} hold={candidate.hold} disabled={busy} onClose={() => props.onCloseOther(candidate.browserId as string)} />
+												)}
+											</div>
+										);
+									})}
+								{profiles !== null &&
+									props.browsers.map(item => {
+										const label = item.kind === "private" ? "Private browser" : "Your Chrome";
+										const state = holdLine(item.hold);
+										return (
+											<div className="bx-prow-wrap" role="none" key={item.browserId}>
+												<button
+													type="button"
+													role="menuitemradio"
+													aria-checked={false}
+													className="bx-prow"
+													data-tone={state.tone}
+													data-menu-initial={item.browserId === firstBrowser ? "" : undefined}
+													aria-disabled={busy}
+													onClick={() => {
+														if (busy) return;
+														close();
+														props.onSwitchBrowser(item.browserId);
+													}}
+												>
+													<ProfileAvatar label={label} colour="grey" icon={item.kind === "private" ? "shield" : "globe"} />
+													<span className="bx-prow-text">
+														<span className="bx-prow-name">{label}</span>
+														<span className="bx-prow-sub">{state.line}</span>
+													</span>
+													<span className="bx-prow-dot" aria-hidden="true" />
+												</button>
+												<RowClose label={label} hold={item.hold} disabled={busy} onClose={() => props.onCloseOther(item.browserId)} />
+											</div>
 										);
 									})}
 							</div>
 
 							<div className="bx-menu-sep" role="separator" />
 
-							<button type="button" role="menuitem" className="bx-menu-item" data-menu-initial={firstOpenable === undefined ? "" : undefined} disabled={busy} onClick={() => setAdding(true)}>
+							<button type="button" role="menuitem" className="bx-menu-item" data-menu-initial={firstOpenable === undefined && firstBrowser === undefined ? "" : undefined} disabled={busy} onClick={() => setAdding(true)}>
 								<Icon name="plus" size={14} strokeWidth={2} />
 								Add profile
 							</button>
@@ -231,5 +284,14 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 				</div>
 			)}
 		</div>
+	);
+}
+
+/** The close button at the end of a row whose browser was left open: pressing it closes that browser, not the one on screen. */
+function RowClose({ label, hold, disabled, onClose }: { readonly label: string; readonly hold: ProfileHold | undefined; readonly disabled: boolean; readonly onClose: () => void }) {
+	return (
+		<button type="button" role="menuitem" className="bx-prow-close" aria-label={`Close ${label}`} title={closeTitle(hold)} disabled={disabled} onClick={onClose}>
+			<Icon name="x" size={13} strokeWidth={2.25} />
+		</button>
 	);
 }
