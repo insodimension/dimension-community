@@ -4,7 +4,7 @@
  */
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, teardown } from "./fixture";
-import { cell, failureOf, isFailure, newRig, startPages, textOf, valueOf, type Pages, type Rig } from "./code-host-fixture";
+import { cell, isFailure, newRig, startPages, textOf, valueOf, type Pages, type Rig } from "./code-host-fixture";
 
 let pages: Pages;
 let rig: Rig | undefined;
@@ -39,11 +39,8 @@ describeWithChrome("the person takes the wheel", () => {
     expect(stopped.result.error.message).toContain("human_driving");
     expect(stopped.result.error.isAbort).toBe(true);
     expect(performance.now() - began).toBeLessThan(3_000);
-    // While the person has the wheel, no cell may hold the browser, whether it names the old tab or opens one.
-    const refused = await failureOf(host, "s1", 'await browser.open({ name: "main" })');
-    expect(refused.message).toContain("human_driving");
-    const refusedRun = await host.run("s1", { code: "0", timeoutMs: 5_000, waitMs: 5_000, signal: NEVER });
-    expect(refusedRun.state).toBe("done");
+    // While the person has the wheel, the next browser_run fails human_driving (matrix J3).
+    await expect(host.run("s1", { code: "0", timeoutMs: 5_000, waitMs: 5_000, signal: NEVER })).rejects.toThrow(/human_driving/);
     // Handed back, it is the cell's again; the tab the person left on is the page it opens.
     await runtime.control(browserId, "return", "app");
     const back = await cell(host, "s1", `await browser.open({ name: "main", url: ${JSON.stringify(pages.url("/form"))} }); await browser.tab("main").url()`);
