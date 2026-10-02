@@ -7,17 +7,12 @@ What the Browser pack copies or depends on beyond its own code, its licence, and
 
 | What | Licence | Where | Source |
 |---|---|---|---|
-| OMP (oh-my-pi) browser: tab realm, run scope, selector rules, call chain, ToolError family, run-code, facade prelude | MIT, (c) 2025 Mario Zechner, (c) 2025-2026 Can Bölük, (c) 2026 Stencil Labs, Inc. | `src/code/**` (every copied file carries the notice in its first lines); licence text in `third-party/omp/LICENSE` | https://github.com/can1357/oh-my-pi @ dc5f95d9e1 |
+| OMP (oh-my-pi) browser: tab realm, run scope, selector rules, call chain, ToolError family, run-code, facade prelude, and the extraction stack (Readability, DOM and HTML-to-markdown reimplementations from `packages/utils`) | MIT, (c) 2025 Mario Zechner, (c) 2025-2026 Can Bölük, (c) 2026 Stencil Labs, Inc. | `src/code/**` (every copied file carries the notice in its first lines); licence text in `third-party/omp/LICENSE` | https://github.com/can1357/oh-my-pi @ dc5f95d9e1 |
 | Playwright injected ARIA-snapshot code, bundled by OMP (`aria-snapshot.bundle.txt`, Playwright v1.61.0), copied verbatim | Apache-2.0, (c) Microsoft Corporation | `src/code/extract/aria-snapshot.bundle.txt`; licence text in `third-party/playwright/LICENSE` | https://github.com/microsoft/playwright (bundled by OMP's `scripts/generate-aria-snapshot.ts`) |
 
-## Dependencies of the code realm (extraction)
+## Dependencies of the code realm
 
-| Package | Version found | Licence | Used by |
-|---|---|---|---|
-| `@mozilla/readability` | 0.6.0 | Apache-2.0 | `src/code/extract/readable.ts` (`tab.extract`): article isolation |
-| `linkedom` | 0.18.13 | ISC | `src/code/extract/readable.ts`: the DOM Readability reads |
-| `turndown` | 7.2.4 | MIT | `src/code/extract/markdown.ts`: HTML to markdown |
-| `turndown-plugin-gfm` | 1.0.2 | MIT | `src/code/extract/markdown.ts`: GFM tables, task lists |
-
-OMP ships behaviour-compatible reimplementations of `@mozilla/readability` and `linkedom` (`omp/packages/utils/src/readability.ts`, `dom.ts`);
-the pack uses the upstream packages, and `test/code-extract.test.ts` compares their output with OMP's on the same HTML.
+None. `tab.extract` (`src/code/extract/`) runs on OMP's own pure-TypeScript reimplementations of Readability (`readability/`), a DOM (`dom/`) and an HTML-to-markdown converter (`turndown/`), copied from
+`packages/utils/src/{readability,dom,turndown}` of https://github.com/can1357/oh-my-pi @ be1cfdab27 under the same MIT notice as the rest of the port. The upstream npm packages (`@mozilla/readability` 0.6.0,
+`linkedom` 0.18.13, `turndown` 7.2.4, `turndown-plugin-gfm` 1.0.2) were tried first and do NOT give OMP's output on the same HTML (they turn `<h1>` into `##`, and put different blank lines between blocks),
+so they are not used and nothing is added to `package.json`; `test/code-extract.test.ts` holds the five pages and what OMP made of them.

@@ -639,6 +639,78 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       await run("await tab.goto(" + JSON.stringify(fixture.url("/form")) + ")", { timeoutMs: 8_000 });
     }, 30_000);
   });
+
+  describe("extract (D15)", () => {
+    test("a page's article comes back as markdown, or as text, without the page furniture", async () => {
+      await goto("/article");
+      const markdown = (await value("await tab.extract()")) as string;
+      expect(markdown).toContain("# A real article");
+      expect(markdown).toContain("The first paragraph carries enough prose");
+      expect(markdown).toContain("- one");
+      expect(markdown).not.toContain("copyright");
+      const text = (await value('await tab.extract("text")')) as string;
+      expect(text).toContain("A real article");
+      expect(text).not.toContain("# ");
+    }, 20_000);
+
+    test("a page with nothing readable says so by name", async () => {
+      const { handle } = await chrome.openTab();
+      await realm.adopt("blank", handle);
+      try {
+        expect((await failure('await tab.extract("markdown")', { name: "blank" })).message).toBe('tab.extract("markdown") found no readable content on about:blank');
+      } finally {
+        await realm.release("blank");
+      }
+    }, 20_000);
+  });
+
+  describe("code the page's owner never awaited (D24)", () => {
+    // `bun test` fails a test on any REAL unhandled rejection, listener or not, so the process event is emitted by hand: what it proves is the routing (owned by this run's source file, then the run fails with the hint).
+    test("a rejection nobody handles fails the run that made it, with the missing-await hint, instead of ending the worker", async () => {
+      const guarded = createTabRealm({ evaluator: createCodeEvaluator, guardRejections: true });
+      try {
+        const { handle } = await chrome.openTab(fixture.url("/form"));
+        await guarded.adopt("main", handle);
+        const failed = await guarded
+          .run({ name: "main", code: `process.emit("unhandledRejection", new Error("dropped on the floor"), Promise.resolve()); await wait(1000); "unreachable"`, timeoutMs: 5_000, signal: new AbortController().signal })
+          .then(() => new Error("the run was expected to fail"), (error: Error) => error);
+        expect(failed.message).toBe("Unhandled rejection (missing await?): dropped on the floor");
+        const after = await guarded.run({ name: "main", code: "tab.url()", timeoutMs: 5_000, signal: new AbortController().signal });
+        expect(after.returnValue).toBe(fixture.url("/form"));
+      } finally {
+        await guarded.dispose();
+      }
+    }, 20_000);
+
+    test("a helper that fails after nobody awaited it stays contained: the run goes on", async () => {
+      await goto("/form");
+      expect(await value('tab.waitForSelector("#nope", { timeout: 200 }); await wait(700); "went on"')).toBe("went on");
+    }, 20_000);
+  });
+
+  describe("password fields (D18)", () => {
+    test("typing into one is allowed as in OMP, and refused by name when the realm is told to refuse", async () => {
+      await goto("/form");
+      await run('await tab.fill("#pw", "hunter2")');
+      expect(await value("await tab.evaluate(() => document.getElementById('pw').value)")).toBe("hunter2");
+      const strict = createTabRealm({ evaluator: createCodeEvaluator, refusePasswordFields: true });
+      try {
+        const { handle } = await chrome.openTab(fixture.url("/form"));
+        await strict.adopt("main", handle);
+        const refused = await strict
+          .run({ name: "main", code: 'await tab.fill("#pw", "hunter2")', timeoutMs: 5_000, signal: new AbortController().signal })
+          .then(() => new Error("the run was expected to fail"), (error: Error) => error);
+        expect(refused.message).toBe('"#pw" is a password field; browser_run does not type into password fields from code.');
+        const typed = await strict
+          .run({ name: "main", code: 'await tab.type("#pw", "x")', timeoutMs: 5_000, signal: new AbortController().signal })
+          .then(() => new Error("the run was expected to fail"), (error: Error) => error);
+        expect(typed.message).toBe('"#pw" is a password field; browser_run does not type into password fields from code.');
+        expect(await strict.run({ name: "main", code: 'await tab.fill("#name", "fine")', timeoutMs: 5_000, signal: new AbortController().signal }).then(r => r.returnValue)).toBeUndefined();
+      } finally {
+        await strict.dispose();
+      }
+    }, 30_000);
+  });
 });
 
 if (chromePath === undefined) test.skip("the tab realm needs a Chrome", () => {});

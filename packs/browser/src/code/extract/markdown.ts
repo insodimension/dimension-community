@@ -1,9 +1,8 @@
 // Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/utils/turndown.ts (createTurndown) and src/web/scrapers/types.ts (htmlToBasicMarkdown) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
-// Changed for the Browser pack: OMP's `@oh-my-pi/pi-utils/turndown` re-export is the upstream `turndown` and `turndown-plugin-gfm` packages, imported lazily on the first
-// extraction (as OMP does, so a cell that never extracts never loads them); the table normaliser only the document engine used is not copied.
+// Changed for the Browser pack: OMP's `@oh-my-pi/pi-utils/turndown` is the copy in ./turndown (OMP's own HTML-to-markdown converter, not the npm package), loaded on first extraction as OMP does, so a cell that never extracts never loads it; the table normaliser only the document engine used is not copied.
 
-import type TurndownService from "turndown";
+import type { TurndownService } from "./turndown/index";
 
 type TurndownListParent = {
   nodeName: string;
@@ -16,7 +15,7 @@ type TurndownListParent = {
  * `~~strikethrough~~`, unescaped heading periods, and single-space list markers.
  */
 export async function createTurndown(): Promise<TurndownService> {
-  const [{ default: Turndown }, { gfm }] = await Promise.all([import("turndown"), import("turndown-plugin-gfm")]);
+  const { default: Turndown, gfm } = await import("./turndown/index");
   const turndown = new Turndown({
     headingStyle: "atx",
     codeBlockStyle: "fenced",

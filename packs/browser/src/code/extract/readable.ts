@@ -1,7 +1,6 @@
 // Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/readable.ts @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
-// Changed for the Browser pack: OMP's `@oh-my-pi/pi-utils/readability` and `/dom` are behaviour-compatible reimplementations of `@mozilla/readability` and `linkedom`
-// (omp/packages/utils/src/readability.ts:1, dom.ts:1); the pack uses the upstream packages, loaded on first use.
+// Changed for the Browser pack: OMP's `@oh-my-pi/pi-utils/readability` and `/dom` are the copies in ./readability and ./dom (the same code, so the same article and the same markdown), loaded on first use.
 
 import { htmlToBasicMarkdown } from "./markdown";
 
@@ -34,7 +33,7 @@ export async function extractReadableFromHtml(
   url: string,
   format: ReadableFormat,
 ): Promise<ReadableResult | null> {
-  const [{ parseHTML }, { Readability }] = await Promise.all([import("linkedom"), import("@mozilla/readability")]);
+  const [{ parseHTML }, { Readability }] = await Promise.all([import("./dom/index"), import("./readability/readability")]);
   const { document } = parseHTML(html);
 
   // --- Primary: Readability article extraction ---
