@@ -58,7 +58,7 @@
 			"produces": "model3d",
 			"accepts": ["image"],
 			"maxImages": 1,
-			"features": ["pbr", "uv-atlas", "single-view", "tris:~1M", "local"],
+			"features": ["pbr", "uv-atlas", "single-view", "tris:~1M", "local", "input:cutout"],
 			"priceBasis": "No charge: runs on this machine's GPU (219 s for a prop, 581 s for a character on an RTX 4080 SUPER, measured 2026-10-01).",
 			"licence": {
 				"id": "MIT+DINOv3",
@@ -137,7 +137,7 @@
 			"produces": "model3d",
 			"accepts": ["image"],
 			"maxImages": 1,
-			"features": ["pbr", "uv-atlas", "tris:~300k", "back-side-fallback", "local"],
+			"features": ["pbr", "uv-atlas", "tris:~300k", "back-side-fallback", "local", "input:cutout"],
 			"priceBasis": "No charge: runs on this machine's GPU (155 s for a prop, 526 s for a character on an RTX 4080 SUPER, measured 2026-10-01).",
 			"licence": {
 				"id": "MIT",

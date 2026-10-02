@@ -18,6 +18,9 @@ pixal3d.cpp's `trellis-cli` and returns a textured `glb`. It is a connector for 
   Both take the options `texture`, `atlas`, `gss` and `gsh`; Pixal3D also takes `fov`. A model whose
   weights folder is missing or incomplete is not offered.
 - **Defaults measured in the lab**: `gss` 10, field of view 20 degrees, 1024, seed 42.
+- **Input needs, as catalogue `features`**: both models carry `input:cutout` (they take only a PNG with a really
+  transparent backdrop; see Limits). A caller that prepares images for a model reads this tag from the catalogue
+  instead of knowing the model. Neither carries `input:square`: nothing here asks for a square canvas.
 - **Output**: the model as `raw.glb` plus its base-colour atlas, `raw_base.png`.
 
 No tools, skills, rules or components.
