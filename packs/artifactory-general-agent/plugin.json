@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "artifactory-general-agent",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "General Agents: every agent you can run, as cards with their real faces and their week at a glance. Open one for its whole profile (face, charter, standing instructions, skills, plugins, MCP, tools, memory, home, models and safety) and edit it there, extend a pack's agent into your own, or ask the Machinist to draft one.",
 	"keywords": [
 		"general-agents",
@@ -11,6 +11,7 @@
 	"extensions": {
 		"ai.insodimension.dimension": {
 			"contractVersion": 1,
+			"requires": { "dimension": ">=0.11.1" },
 			"title": "General Agents",
 			"icon": "bot",
 			"artifactories": [

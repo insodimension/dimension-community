@@ -14,10 +14,11 @@ export interface RosterAgent {
 	readonly tier: AgentSource;
 }
 
-/** The host's record, in the tiers the files are read from. A pack's agent
- *  always names its plugin; `provenance: "local"` alone does not mean the
- *  user's own, because a pack linked from disk is `local` too. */
-export function tierOfFact(fact: Pick<AgentFact, "provenance" | "pluginId">): AgentSource {
+/** Prefer the engine's explicit scope; preserve the previous display for older engines. */
+export function tierOfFact(fact: Pick<AgentFact, "scope" | "provenance" | "pluginId">): AgentSource {
+	if (fact.scope === "plugin") return "pack";
+	if (fact.scope === "project") return "workspace";
+	if (fact.scope === "global") return "user";
 	if (fact.pluginId !== undefined) return "pack";
 	if (fact.provenance === "local") return "user";
 	if (fact.provenance === "workspace") return "workspace";
@@ -80,9 +81,9 @@ export const TIER_LABEL: Readonly<Record<AgentSource, string>> = {
 	workspace: "This project",
 };
 
-/** Whether the page may rewrite this agent's file (and flip its switch). */
+/** A host-only record remains visible, but the page cannot read a file it may edit. */
 export function isEditable(agent: RosterAgent): boolean {
-	return agent.tier !== "pack" && agent.listed?.editable !== false;
+	return agent.tier !== "pack" && agent.listed?.editable === true;
 }
 
 // ── what the extra text says ─────────────────────────────────────────────────

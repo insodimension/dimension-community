@@ -10,7 +10,7 @@
 // engine's home (`INSO_HOME`, `INSO_VAULT_DIR`, `INSO_ENV`) and its project
 // config dir (`PI_CONFIG_DIR`) — `app-host.ts` `engineHomeEnv`. The HOME is
 // enough for the tiers that matter: pack agents (`plugins/`) and the user's own
-// agents (`agent/agents/`), where new agents are written and which have a home.
+// General Agents (`agent/general-agents/`), where new agents are written and which have a home.
 // A project's agents need a workspace, and a call's
 // `_meta["ai.insodimension/session"]` names the session but not its workspace
 // (`workspaceId` is reserved, never emitted). Two parties know it: the agent,
@@ -199,7 +199,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 		"forge_open",
 		{
 			title: "General Agents",
-			description: `Read the General Agents the user sees on the General Agents page (the rail's General Agents entry): every General Agent the installed packs ship, the user's own, and the workspace's, or one agent by name. \`workspace\` is optional: the absolute path of the directory you are working in, which adds that project's agents (\`<workspace>/${WRITE_DIR}/agents/<name>/agent.md\`) for the rest of this session. It writes nothing; to shape an agent, call forge_propose and the user decides on the page.`,
+			description: `Read the General Agents the user sees on the General Agents page (the rail's General Agents entry): every General Agent the installed packs ship, the user's own, and the workspace's, or one agent by name. \`workspace\` is optional: the absolute path of the directory you are working in, which adds that project's General Agents (\`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\`) for the rest of this session. It writes nothing; to shape an agent, call forge_propose and the user decides on the page.`,
 			inputSchema: {
 				agent: agentName.optional().describe("read this agent"),
 				workspace: z.string().min(1).max(1024).optional().describe("absolute path of your working directory"),
@@ -363,14 +363,14 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 	server.registerTool(
 		"save_agent",
 		{
-			description: `Write the draft. \`create: true\` writes a NEW agent into the user's own agents (\`$INSO_HOME/agent/agents/<name>/agent.md\`, where it gets a home) and refuses a name that is taken anywhere. \`create: false\` rewrites the agent of that name in \`tier\` (\`user\`, or \`workspace\`: <workspace>/${WRITE_DIR}/agents), and is refused unless \`revision\` is the one list_agents gave: the file changed since, otherwise. The merged agent.md must load as a General Agent or nothing is written.`,
+			description: `Write the draft. \`create: true\` writes a NEW General Agent into the user's own \`$INSO_HOME/agent/general-agents/<name>/agent.md\` by default, or into \`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\` when \`tier: workspace\` is given, and refuses a name taken anywhere. \`create: false\` rewrites the agent of that name in \`tier\` (\`user\` or \`workspace\`) and is refused unless \`revision\` is the one list_agents gave. The merged agent.md must load as a General Agent or nothing is written.`,
 			inputSchema: { draft: draftSchema, create: z.boolean(), tier: z.enum(["workspace", "user"]).optional(), revision: z.string().max(64).optional(), workspace: workspaceArg },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 			_meta: APP_ONLY,
 		},
 		async ({ draft, create, tier, revision, workspace }, extra) => {
 			let target: SaveTarget;
-			if (create) target = { create: true };
+			if (create) target = { create: true, ...(tier !== undefined ? { tier } : {}) };
 			else if (tier !== undefined && revision !== undefined) target = { create: false, tier, revision };
 			else return fail("Rewriting an agent names its tier and its revision; both come from list_agents.");
 			const roots = rootsOf(extra, workspace);

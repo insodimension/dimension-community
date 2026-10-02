@@ -56,6 +56,8 @@ export interface AgentFact {
 	readonly title?: string;
 	readonly provenance: "dimension" | "community" | "local" | "workspace";
 	readonly pluginId?: string;
+	/** New engines identify the source directly; older engines omit it. */
+	readonly scope?: "plugin" | "project" | "global";
 	readonly enabled: boolean;
 	readonly listed: boolean;
 	readonly defaultEnabled?: boolean;

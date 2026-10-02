@@ -82,9 +82,9 @@ function draft(patch: Partial<AgentDraft> = {}): AgentDraft {
 }
 
 /** The user tier: where a new agent is written and where it has a home. */
-const userFile = (name: string) => join(home, "agent", "agents", name, "agent.md");
-/** The project tier: `<workspace>/<config dir>/agents`. */
-const projectFile = (name: string) => join(workspace, WRITE_DIR, "agents", name, "agent.md");
+const userFile = (name: string) => join(home, "agent", "general-agents", name, "agent.md");
+/** The project tier: `<workspace>/<config dir>/general-agents`. */
+const projectFile = (name: string) => join(workspace, WRITE_DIR, "general-agents", name, "agent.md");
 const homeDirOf = (name: string) => join(home, "workspaces", agentHomeWorkspaceId(name));
 
 async function listing(on: Client = client): Promise<AgentListing> {
@@ -114,7 +114,7 @@ describe("save_agent — the user tier", () => {
 		const result = await call("save_agent", { draft: draft(), create: true });
 		expect(result.isError).toBeFalsy();
 		const outcome = result.structuredContent as unknown as SaveOutcome;
-		expect(outcome).toMatchObject({ path: userFile("release-herald"), relativePath: "agent/agents/release-herald/agent.md", created: true, tier: "user" });
+		expect(outcome).toMatchObject({ path: userFile("release-herald"), relativePath: "agent/general-agents/release-herald/agent.md", created: true, tier: "user" });
 
 		const decl = await manifestAt(outcome.path, "release-herald");
 		expect(decl.description).toBe("Writes changelogs in my voice");
@@ -167,7 +167,7 @@ describe("save_agent — the user tier", () => {
 		expect((await call("save_agent", { draft: draft({ name: "scoped" }), create: true })).isError).toBe(true);
 
 		expect((await call("save_agent", { draft: draft({ name: "helper" }), create: true })).isError).toBe(true);
-		expect(await readdir(join(home, "agent", "agents"))).toEqual(["release-herald"]);
+		expect(await readdir(join(home, "agent", "general-agents"))).toEqual(["release-herald"]);
 	});
 
 	test("refuses a bad name and writes nothing", async () => {
@@ -231,7 +231,7 @@ describe("tiers and the door with no workspace", () => {
 
 		const seen = await listing(bare);
 		expect(seen.workspace).toBeNull();
-		expect(seen.userAgentsDir).toBe(join(home, "agent", "agents"));
+		expect(seen.userAgentsDir).toBe(join(home, "agent", "general-agents"));
 		expect(seen.agents.map(agent => [agent.name, agent.source]).sort()).toEqual([
 			["helper", "pack"],
 			["mine", "user"],
@@ -265,6 +265,18 @@ describe("tiers and the door with no workspace", () => {
 		expect(seen.notices.join("\n")).toContain("shadowed");
 	});
 });
+describe("retired General Agent directories", () => {
+	test("lists the ordinary neighbor, not a valid hidden husk or a flat hidden file, without notices", async () => {
+		const husk = "---\nname: .retired-ghost-42\ndescription: retired\nspecVersion: 1\n---\nRetired.\n";
+		await put(projectFile("keeper"), "---\nname: keeper\ndescription: current\nspecVersion: 1\n---\nCurrent.\n");
+		await put(projectFile(".retired-ghost-42"), husk);
+		await put(join(workspace, WRITE_DIR, "general-agents", ".hidden.md"), husk);
+		const seen = await listing();
+		expect(seen.agents.filter(agent => agent.source === "workspace").map(agent => agent.name)).toEqual(["keeper"]);
+		expect(seen.notices).toEqual([]);
+	});
+});
+
 
 describe("Everything else", () => {
 	const RICH = `---
@@ -535,20 +547,14 @@ describe("an agent's own voice", () => {
 		await manifestAt(userFile("release-herald"), "release-herald");
 	});
 
-	// A `voice:` the profile cannot draw is NOT dropped: its text stays in Everything else and the file is unchanged.
-	test.each(["Warm_Voice", "Warm", "warm--studio", "warm-", "-warm", '"warm studio"', "[warm, calm]", "42"])("a `voice:` of %s is not a profile name: it stays as written in Everything else and the file round trips", async value => {
+	// The SDK rejects an invalid voice, so the Forge cannot offer this file for editing.
+	test.each(["Warm_Voice", "Warm", "warm--studio", "warm-", "-warm", '"warm studio"', "[warm, calm]", "42"])("a file with invalid `voice:` %s is omitted with a diagnostic and left unchanged", async value => {
 		const original = `---\nname: odd\ndescription: Odd voice\nvoice: ${value}\nspecVersion: 1\ngate:\n  approval: write\n---\nBody.\n`;
 		await put(userFile("odd"), original);
-		const opened = await listed("odd");
-		expect(opened.editable).toBe(true);
-		expect(opened.draft.voice).toBe("");
-		expect(opened.draft.extra).toBe(`voice: ${value}`);
-		// Holding it is not an error: the agent can still be saved, and saving keeps the line.
-		expect(await validated({ ...opened.draft })).toEqual([]);
-		expect((await reforge(opened)).isError).toBeFalsy();
-		const text = await readFile(userFile("odd"), "utf8");
-		expect(voiceLines(text)).toEqual([`voice: ${value}`]);
-		expect(frontmatter(text).voice).toEqual(frontmatter(original).voice);
+		const result = await listing();
+		expect(result.agents.some(agent => agent.name === "odd")).toBe(false);
+		expect(result.notices.some(notice => notice.includes(userFile("odd")) && notice.includes("not a valid General Agent"))).toBe(true);
+		expect(await readFile(userFile("odd"), "utf8")).toBe(original);
 	});
 
 	test.each(["Warm", "warm_voice", "warm-", "-warm", "warm--studio", "warm studio"])("a draft whose voice is %j is refused, and nothing is written", async voice => {
@@ -955,22 +961,63 @@ describe("list_agents", () => {
 		expect((await manifestAt(projectFile("tuned"), "tuned")).manifest.loop?.maxTurns).toBe(5);
 	});
 
-	test("the legacy .omp/agents tier is read-only", async () => {
-		await put(join(workspace, ".omp", "agents", "old", "agent.md"), "---\nname: old\ndescription: legacy\nspecVersion: 1\ngate:\n  approval: write\n---\nOld.\n");
+	test("the legacy .omp/general-agents tier is read-only", async () => {
+		await put(join(workspace, ".omp", "general-agents", "old", "agent.md"), "---\nname: old\ndescription: legacy\nspecVersion: 1\ngate:\n  approval: write\n---\nOld.\n");
 		if (WRITE_DIR === ".omp") return;
 		expect(await listed("old")).toMatchObject({ source: "workspace", editable: false });
+	});
+	test("only general-agents directories enter the roster, including the read-only legacy project tier", async () => {
+		const manifest = (name: string) => PACK_AGENT.replace("name: helper", `name: ${name}`);
+		await put(userFile("mine"), manifest("mine"));
+		await put(projectFile("project"), manifest("project"));
+		await put(join(workspace, ".omp", "general-agents", "legacy", "agent.md"), manifest("legacy"));
+		await put(join(home, "agent", "agents", "old-user", "agent.md"), manifest("old-user"));
+		await put(join(workspace, WRITE_DIR, "agents", "old-project", "agent.md"), manifest("old-project"));
+		await put(join(workspace, ".omp", "agents", "old-legacy", "agent.md"), manifest("old-legacy"));
+		const agents = (await listing()).agents;
+		expect(agents.map(agent => [agent.name, agent.source, agent.editable]).sort()).toEqual([
+			["helper", "pack", false], ["legacy", "workspace", false], ["mine", "user", true], ["project", "workspace", true],
+		]);
+		expect(agents.find(agent => agent.name === "legacy")?.readOnlyReason).toContain("general-agents");
+	});
+
+	test("an explicit workspace creation writes a parseable project agent and never writes into the user tier", async () => {
+		const result = await call("save_agent", { draft: draft({ name: "project-herald" }), create: true, tier: "workspace" });
+		expect(result.isError).toBeFalsy();
+		const outcome = result.structuredContent as unknown as SaveOutcome;
+		expect(outcome).toMatchObject({ path: projectFile("project-herald"), tier: "workspace", created: true });
+		expect((await manifestAt(projectFile("project-herald"), "project-herald")).body).toBe("You write the changelog.\n\nNever invent a change.");
+		await expect(stat(userFile("project-herald"))).rejects.toThrow();
+	});
+	test("a workspace creation cannot take a user agent's name, and an update needs its listed revision", async () => {
+		const original = PACK_AGENT.replace("name: helper", "name: shared-agent");
+		await put(userFile("shared-agent"), original);
+		const refused = await call("save_agent", { draft: draft({ name: "shared-agent" }), create: true, tier: "workspace" });
+		expect(refused.isError).toBe(true);
+		await expect(stat(projectFile("shared-agent"))).rejects.toThrow();
+		const stale = await call("save_agent", { draft: draft({ name: "shared-agent" }), create: false, tier: "user", revision: "stale" });
+		expect(stale.isError).toBe(true);
+		expect(await readFile(userFile("shared-agent"), "utf8")).toBe(original);
+	});
+	test("the human-facing Forge tool descriptions point at general-agents", async () => {
+		const tools = (await client.listTools()).tools;
+		for (const name of ["forge_open", "save_agent"]) {
+			const description = tools.find(tool => tool.name === name)?.description ?? "";
+			expect(description).toContain("/general-agents/");
+			expect(description).not.toContain("/agents/<name>/agent.md");
+		}
 	});
 });
 
 describe("the project config dir", () => {
-	// The engine's General Agents catalog reads `<workspace>/<PI_CONFIG_DIR>/agents`
+	// The engine's General Agents catalog reads `<workspace>/<PI_CONFIG_DIR>/general-agents`
 	// (`.inso-dev` on a dev engine). The live proof caught the Forge writing
-	// `.inso/agents` there, where that engine never listed it. WRITE_DIR is fixed
+	// `.inso/general-agents` there, where that engine never listed it. WRITE_DIR is fixed
 	// at module load, so the rule is exercised in a child with the env set.
 	test("the listing reads and a rewrite writes under PI_CONFIG_DIR, where the engine reads", async () => {
 		const ws = await mkdtemp(join(tmpdir(), "forge-cfgdir-"));
 		try {
-			await put(join(ws, ".inso-dev", "agents", "dev-herald", "agent.md"), "---\nname: dev-herald\ndescription: d\nspecVersion: 1\ngate:\n  approval: write\n---\nc\n");
+			await put(join(ws, ".inso-dev", "general-agents", "dev-herald", "agent.md"), "---\nname: dev-herald\ndescription: d\nspecVersion: 1\ngate:\n  approval: write\n---\nc\n");
 			const script = `
 				const { saveAgent, listAgents } = await import(${JSON.stringify(join(import.meta.dir, "../src/store.ts"))});
 				const roots = { workspace: ${JSON.stringify(ws)}, home: ${JSON.stringify(home)} };
@@ -980,8 +1027,8 @@ describe("the project config dir", () => {
 				console.log(JSON.stringify({ rel: saved.relativePath, configDir: listing.configDir, source: found.source }));`;
 			const child = Bun.spawnSync([process.execPath, "-e", script], { env: { ...process.env, PI_CONFIG_DIR: ".inso-dev" } });
 			const out = JSON.parse(new TextDecoder().decode(child.stdout).trim().split("\n").pop() ?? "{}");
-			expect(out).toEqual({ rel: ".inso-dev/agents/dev-herald/agent.md", configDir: ".inso-dev", source: "workspace" });
-			expect(await readdir(join(ws, ".inso-dev", "agents"))).toEqual(["dev-herald"]);
+			expect(out).toEqual({ rel: ".inso-dev/general-agents/dev-herald/agent.md", configDir: ".inso-dev", source: "workspace" });
+			expect(await readdir(join(ws, ".inso-dev", "general-agents"))).toEqual(["dev-herald"]);
 		} finally {
 			await rm(ws, { recursive: true, force: true });
 		}
@@ -1074,7 +1121,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("a user agent runs by its home AGENTS.md when it holds text; an empty one falls through to the sibling", async () => {
 		await call("save_agent", { draft: draft(), create: true });
-		const sibling = join(home, "agent", "agents", "release-herald", "AGENTS.md");
+		const sibling = join(home, "agent", "general-agents", "release-herald", "AGENTS.md");
 		expect(wins(await homeOf("release-herald"))).toBeNull();
 		expect((await homeOf("release-herald")).instructions.text).toBe("");
 
@@ -1094,7 +1141,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("a pack agent: a project's copy beats the home, even empty; a non-empty home beats the pack's own; empty home falls through", async () => {
 		const shipped = join(PACK_DIR(), "AGENTS.md");
-		const copy = join(workspace, WRITE_DIR, "agents", "helper", "AGENTS.md");
+		const copy = join(workspace, WRITE_DIR, "general-agents", "helper", "AGENTS.md");
 		const homeFile = join(homeDirOf("helper"), "AGENTS.md");
 		await put(shipped, "Shipped by the pack.\n");
 		expect(wins(await homeOf("helper"))).toBe("pack");
@@ -1111,6 +1158,14 @@ describe("an agent's home and its standing instructions", () => {
 		expect(strongest.instructions.text).toBe("");
 		await put(copy, "This project's word.\n");
 		expect((await homeOf("helper")).instructions.text).toBe("This project's word.\n");
+	});
+	test("a pack's project copy never reads standing instructions from agents/", async () => {
+		await put(join(workspace, WRITE_DIR, "agents", "helper", "AGENTS.md"), "Old location must not win.\n");
+		await put(join(workspace, ".omp", "agents", "helper", "AGENTS.md"), "Old legacy location must not win.\n");
+		await put(join(home, "plugins", "node_modules", "helper-pack", "general-agents", "helper", "AGENTS.md"), "Shipped instructions.\n");
+		const resolved = await homeOf("helper");
+		expect(resolved.instructions.text).toBe("Shipped instructions.\n");
+		expect(resolved.instructions.files.every(file => !file.path.includes(`${sep}agents${sep}`))).toBe(true);
 	});
 
 	test("a project agent has only the AGENTS.md beside its agent.md", async () => {
@@ -1130,7 +1185,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("saving writes the home AGENTS.md once the home exists, the sibling before; a pack agent's is read-only", async () => {
 		await call("save_agent", { draft: draft(), create: true });
-		const sibling = join(home, "agent", "agents", "release-herald", "AGENTS.md");
+		const sibling = join(home, "agent", "general-agents", "release-herald", "AGENTS.md");
 		const beforeHome = await saveText("release-herald", "Be brief.", await targetRevision("release-herald"));
 		expect(beforeHome.structuredContent as unknown as InstructionsSaved).toEqual({ path: sibling, kind: "agent-dir" });
 		expect(await readFile(sibling, "utf8")).toBe("Be brief.\n");
@@ -1152,7 +1207,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("a save is refused when the file it would write changed since it was read — the edit made elsewhere survives", async () => {
 		await call("save_agent", { draft: draft(), create: true });
-		const sibling = join(home, "agent", "agents", "release-herald", "AGENTS.md");
+		const sibling = join(home, "agent", "general-agents", "release-herald", "AGENTS.md");
 		await put(sibling, "As first read.\n");
 		const seen = await targetRevision("release-herald");
 
@@ -1168,7 +1223,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("a save is refused when the home appeared since the text was read — it would have landed in another file", async () => {
 		await call("save_agent", { draft: draft(), create: true });
-		const sibling = join(home, "agent", "agents", "release-herald", "AGENTS.md");
+		const sibling = join(home, "agent", "general-agents", "release-herald", "AGENTS.md");
 		await put(sibling, "Beside agent.md.\n");
 		const seen = await targetRevision("release-herald");
 		expect((await homeOf("release-herald")).instructions.target?.kind).toBe("agent-dir");
@@ -1188,7 +1243,7 @@ describe("an agent's home and its standing instructions", () => {
 
 	test("a save that names no revision is refused", async () => {
 		await call("save_agent", { draft: draft(), create: true });
-		const sibling = join(home, "agent", "agents", "release-herald", "AGENTS.md");
+		const sibling = join(home, "agent", "general-agents", "release-herald", "AGENTS.md");
 		const outcome = await call("save_instructions", { name: "release-herald", text: "No revision." }).then(
 			result => result.isError === true,
 			() => true,

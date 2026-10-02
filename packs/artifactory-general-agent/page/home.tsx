@@ -225,6 +225,7 @@ const AgentCard = memo(function AgentCard({
 						<LivePill state={state} count={state === "needs-you" ? activity.needsYou : activity.working} />
 					</h3>
 					<p className="m-0 line-clamp-2 min-h-[2lh] text-fr-sm leading-relaxed text-pretty text-fr-text-2">{description || "No description yet."}</p>
+					{agent.listed === undefined ? <p className="m-0 text-fr-xs text-fr-text-3">The page cannot read this agent's file from here, so it is read-only. If it is your own agent, check that its folder is under general-agents/.</p> : null}
 				</div>
 				{onToggle !== undefined ? (
 					<span className="relative z-[1] pt-0.5">

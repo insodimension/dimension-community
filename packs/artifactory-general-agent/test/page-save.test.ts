@@ -10,7 +10,7 @@ import { saveProfile } from "../page/profile-save";
 
 const draft = { ...blankDraft("user::herald"), name: "herald", description: "d", charter: "c" };
 const target: SaveTarget = { create: false, tier: "user", revision: "agent-r1" };
-const WROTE_AGENT: SaveOutcome = { path: "/agents/herald/agent.md", relativePath: "agent/agents/herald/agent.md", created: false, tier: "user" };
+const WROTE_AGENT: SaveOutcome = { path: "/general-agents/herald/agent.md", relativePath: "agent/general-agents/herald/agent.md", created: false, tier: "user" };
 const WROTE_TEXT: InstructionsSaved = { path: "/home/AGENTS.md", kind: "home" };
 
 /** A forge that logs each call and fails the ones named in `fail`. */
