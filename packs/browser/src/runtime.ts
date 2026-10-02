@@ -93,7 +93,7 @@ import type {
 	StepStatus,
 } from "./contracts.js";
 import { BROWSER_ENGINES, CONTROL_MODES, MAX_ANNOTATION_REGIONS, MAX_BATCH_STEPS, MAX_EVAL_EXPRESSION_CHARS, MAX_EVAL_RESULT_CHARS, MAX_VIEWPORT, MAX_WAIT_MS, MIN_VIEWPORT, TASK_AGENTS } from "./contracts.js";
-import { credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
+import { CredentialKey, credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
 import { launchReader } from "./engines/puppeteer.js";
@@ -332,6 +332,8 @@ interface Entry {
 export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly store: ProfileStore;
 	private readonly annotationFiles: AnnotationFiles;
+	/** The key every profile's saved passwords are sealed under: one file in the root, beside `profiles/` (credentials.ts). */
+	private readonly credentialKey: CredentialKey;
 	private readonly options: BrowserRuntimeOptions;
 	private readonly byId = new Map<string, Entry>();
 	private readonly byProfile = new Map<string, Entry>();
@@ -396,6 +398,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		this.store = new ProfileStore(options.rootDir);
 		this.annotationFiles = new AnnotationFiles(join(this.store.rootDir, "annotations"));
+		this.credentialKey = new CredentialKey(this.store.rootDir);
 		// Only what a dead server abandoned: a live server's throwaway browsers are never touched.
 		this.store.sweepEphemeral();
 	}
@@ -1654,13 +1657,13 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			password = action.generatePassword
 				? (origin: string) => {
 					// The signup rule the task credential uses: the saved one, else mint and save.
-					const credential = resolveCredential(profileDir, { origin, mode: "signup" });
+					const credential = resolveCredential(profileDir, { origin, mode: "signup" }, this.credentialKey);
 					created = credential.created;
 					entry.secrets.add(credential.password);
 					return credential.password;
 				}
 				: (origin: string) => {
-					const value = savedPassword(profileDir, origin);
+					const value = savedPassword(profileDir, origin, this.credentialKey);
 					if (value) entry.secrets.add(value);
 					return value;
 				};
@@ -1798,7 +1801,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			// `control` refuses the wheel while the page is read, so this holds; it is the last look before a worker is spawned on the page.
 			refuseWhileTakenOver(entry, caller);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
-			const credential = request.credential ? resolveCredential(this.store.profileDir(this.savedProfile(entry, "a task credential")), request.credential) : undefined;
+			const credential = request.credential ? resolveCredential(this.store.profileDir(this.savedProfile(entry, "a task credential")), request.credential, this.credentialKey) : undefined;
 			if (credential) entry.secrets.add(credential.password);
 			const run: TaskRun = {
 				id: randomBytes(8).toString("hex"), agent: request.agent, task, status: "running", summary: "",
@@ -2131,7 +2134,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const secrets = new Set(entry.secrets);
 		if (entry.profile !== null) {
 			try {
-				for (const secret of savedPasswords(this.store.profileDir(entry.profile))) secrets.add(secret);
+				for (const secret of savedPasswords(this.store.profileDir(entry.profile), this.credentialKey)) secrets.add(secret);
 			} catch {
 				// credentials_unreadable: the in-memory set is all there is to scrub.
 			}

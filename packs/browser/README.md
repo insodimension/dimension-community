@@ -278,6 +278,14 @@ time, and is never deleted. Saved passwords (`generatePassword`,
 saved profile and fail `profile_required` on a throwaway browser, before
 anything reaches the page.
 
+Saved passwords are **encrypted at rest**: AES-256-GCM, each bound to its origin, in the profile's
+`credentials.json`, under one 32-byte key in `<root>/credentials.key` (mode 0600; on Windows an ACL of the
+one account), never inside a profile folder, so a copy, backup or sync of a profile carries nothing
+readable. The pack has no OS credential store accessor, which is why the key is a file. A store that does
+not authenticate (altered, or under another key) is refused with `credentials_unreadable` and left as it
+was; a key file that cannot be read is refused and never replaced. A plain-text store from an earlier
+version is encrypted in place the first time it is read.
+
 **How a throwaway ends.** One server serves every chat on an engine, and the host
 stamps each call with its session (`ai.insodimension/session`) but sends the
 server no word when a session ends, so a forgotten `browser_close` cannot be seen

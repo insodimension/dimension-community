@@ -7,10 +7,10 @@
  *  as a clean failure or quietly retried, so a purchase or form post happens
  *  twice. Also: a navigate that becomes script execution or a local file read.
  */
-import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
+import { CredentialKey, readCredentials } from "../src/credentials";
 import {
 	BROWSER_TEST_TIMEOUT_MS,
 	createRuntime,
@@ -312,8 +312,8 @@ describeWithChrome("act", () => {
 			const fixture = startFixture();
 			const { runtime, rootDir } = await createRuntime();
 			const { browserId } = await runtime.open({ profile: "act-generate", viewport: VIEWPORT });
+			const saved = (): Record<string, string> => readCredentials(join(rootDir, "profiles", "act-generate"), new CredentialKey(rootDir));
 			const store = join(rootDir, "profiles", "act-generate", "credentials.json");
-			const saved = (): Record<string, string> => (existsSync(store) ? JSON.parse(readFileSync(store, "utf8")).origins : {});
 			const framed = new URL(fixture.url("/", "localhost")).origin;
 			const openForm = async (): Promise<string> => {
 				await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/framed") });

@@ -22,7 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "b
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import { resolveCredential } from "../src/credentials";
+import { CredentialKey, readCredentials, resolveCredential } from "../src/credentials";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { BrowserRuntimeError } from "../src/store";
@@ -107,11 +107,9 @@ function captureOutput(): { text(): string; restore(): void } {
 	};
 }
 
+/** What the profile has saved, read back through the module that sealed it. */
 function savedPasswords(rootDir: string, profile: string): Record<string, string> {
-	const file = join(rootDir, "profiles", profile, "credentials.json");
-	if (!existsSync(file)) return {};
-	const stored: { origins: Record<string, string> } = JSON.parse(readFileSync(file, "utf8"));
-	return stored.origins;
+	return readCredentials(join(rootDir, "profiles", profile), new CredentialKey(rootDir));
 }
 
 /** A fake-worker script that records the credential it was handed into `credentialOut`, then finishes. */
@@ -480,7 +478,7 @@ describe("the credential store", () => {
 		const file = join(profileDir, "credentials.json");
 		await writeFile(file, body);
 
-		const refused = await refusal(async () => resolveCredential(profileDir, { origin: "https://new.example", mode: "signup" }));
+		const refused = await refusal(async () => resolveCredential(profileDir, { origin: "https://new.example", mode: "signup" }, new CredentialKey(profileDir)));
 
 		expect(refused.code).toBe("credentials_unreadable");
 		expect(refused.message).not.toContain("Old-Secret-1");
