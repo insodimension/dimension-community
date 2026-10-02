@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "voice-mode",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Voice mode for any agent in any space: the Voice pane in Settings shows which speech engines are ready, which voices exist (yours, your workspace's, a plugin's) and which agent sounds like what. The speaking itself is the engine's reply vocalizer; you switch it on from the speaker beside the microphone in the composer.",
 	"author": {
 		"name": "Dimension"

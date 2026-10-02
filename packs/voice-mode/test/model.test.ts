@@ -159,3 +159,83 @@ describe("the two model roles", () => {
 		expect(modelRows(null).map(row => row.tone)).toEqual(["off", "off"]);
 	});
 });
+
+/** The classifier's words leave the machine, so what the pane says about WHERE is the part that must not be wrong:
+ *  a false "nothing is sent", a dropped host, or a claim on an engine that said nothing would each mislead the user. */
+describe("the classifier row says where the classifier's input goes", () => {
+	const catalog = [{ providerId: "typesafe", modelId: "jev-latest", label: "Jev", available: true, kind: "classify" }];
+	const remote = { provider: "typesafe", model: "jev-latest", leavesDevice: true, host: "api.typesafe.ai" };
+	const rowFor = (classifier: unknown, models: unknown = catalog) => {
+		const view = viewOf({ ...fact(), ...(classifier === undefined ? {} : { classifier }) });
+		return modelRows(readModelsFact(models), view.classifier)[1];
+	};
+
+	test("a remote classifier names the model and the host, what is sent, and that voice mode off sends nothing", () => {
+		const row = rowFor(remote);
+		expect(row?.says).toContain("typesafe/jev-latest");
+		expect(row?.hint).toContain("api.typesafe.ai");
+		expect(row?.hint).toContain("last six messages");
+		expect(row?.hint).toContain("last spoken line");
+		expect(row?.hint).toContain("scrubbed of code, paths and secrets");
+		expect(row?.hint).toContain("While voice mode is on");
+		expect(row?.hint).toContain("With voice mode off, nothing is sent.");
+		expect(row?.disclosure).toBe(true);
+	});
+
+	test("a remote classifier whose host the engine did not name still says it is sent away, never 'on this device'", () => {
+		const row = rowFor({ provider: "typesafe", model: "jev-latest", leavesDevice: true });
+		expect(row?.hint).toContain("go to typesafe");
+		expect(row?.hint).not.toContain("this device");
+	});
+
+	test("a classifier on this device says nothing leaves it, and a stray host does not turn it into a remote one", () => {
+		const row = rowFor({ provider: "local", model: "kev", leavesDevice: false, host: "api.typesafe.ai" });
+		expect(row?.says).toContain("local/kev");
+		expect(row?.hint).toContain("runs on this device; nothing leaves it.");
+		expect(row?.hint).not.toContain("api.typesafe.ai");
+		expect(row?.hint).not.toContain("last six messages");
+	});
+
+	test("null is 'no classifier resolves': a plain rule decides and nothing is sent, even with a classify model connected", () => {
+		const row = rowFor(null);
+		expect(row).toMatchObject({ tone: "off", says: "No classifier is connected: a plain rule decides, and nothing is sent." });
+		expect(row?.disclosure).toBeUndefined();
+	});
+
+	test("an engine that does not say (no key) keeps today's row: the connected classify models, no claim about where", () => {
+		expect("classifier" in viewOf(fact())).toBe(false);
+		const row = rowFor(undefined);
+		expect(row).toEqual(modelRows(readModelsFact(catalog))[1]);
+		expect(row?.says).toBe("Jev can judge what is worth saying.");
+		expect(row?.hint).not.toContain("nothing is sent");
+		expect(row?.disclosure).toBeUndefined();
+	});
+
+	test("the engine's word stands even when the models catalog is not published yet", () => {
+		expect(rowFor(remote, null)?.hint).toContain("api.typesafe.ai");
+		expect(rowFor(null, null)?.says).toContain("nothing is sent");
+	});
+
+	test("a malformed classifier is 'the engine did not say': no throw, and never the reassuring 'nothing is sent'", () => {
+		const malformed: unknown[] = [
+			false,
+			0,
+			"",
+			"typesafe/jev-latest",
+			7,
+			[],
+			{},
+			{ provider: "typesafe", model: "jev-latest" },
+			{ provider: "typesafe", model: "jev-latest", leavesDevice: "true" },
+			{ provider: "typesafe", model: "jev-latest", leavesDevice: 1 },
+			{ provider: "", model: "jev-latest", leavesDevice: true, host: "api.typesafe.ai" },
+			{ provider: "typesafe", model: 3, leavesDevice: true },
+		];
+		for (const value of malformed) {
+			const view = viewOf({ ...fact(), classifier: value });
+			expect(view.classifier).toBeUndefined();
+			expect(view.profiles.map(profile => profile.name)).toEqual(["aether", "local"]);
+			expect(modelRows(readModelsFact(catalog), view.classifier)[1]).toEqual(modelRows(readModelsFact(catalog))[1]);
+		}
+	});
+});

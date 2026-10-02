@@ -39,10 +39,22 @@ export interface DefaultProfile {
 	readonly why: string;
 }
 
+/** Where the `classifier` role resolves, as `speech/profiles.classifier` says it (ids, not display names). */
+export interface ClassifierRoute {
+	readonly provider: string;
+	readonly model: string;
+	/** The classifier's endpoint is not loopback: what it reads is sent off this device. */
+	readonly leavesDevice: boolean;
+	/** The endpoint's hostname, named only when `leavesDevice`. */
+	readonly host?: string;
+}
+
 export interface ProfilesView {
 	readonly profiles: readonly ProfileRow[];
 	readonly providers: readonly ProviderRow[];
 	readonly default: DefaultProfile | null;
+	/** Absent = the engine does not say (an older engine): the pane makes no claim. `null` = no classifier role resolves. */
+	readonly classifier?: ClassifierRoute | null;
 }
 
 /** The on-device provider's id: the built-in `local` profile names it, and a profile with no reachable
@@ -90,16 +102,30 @@ function readProvider(value: unknown): ProviderRow | undefined {
 	return { id, label: text(value.label) ?? id, ...(speak ? { speak } : {}), ...(listen ? { listen } : {}) };
 }
 
+/** `undefined`: the engine does not say, or said something this pane cannot read (no claim either way, never a throw).
+ *  `null`: it said no classifier role resolves. */
+function readClassifier(value: unknown): ClassifierRoute | null | undefined {
+	if (value === null) return null;
+	if (!isRecord(value)) return undefined;
+	const provider = text(value.provider);
+	const model = text(value.model);
+	if (!provider || !model || typeof value.leavesDevice !== "boolean") return undefined;
+	const host = value.leavesDevice ? text(value.host) : undefined;
+	return { provider, model, leavesDevice: value.leavesDevice, ...(host ? { host } : {}) };
+}
+
 /** The `speech/profiles` fact as the pane uses it; null when the engine published none (no speech runtime). */
 export function readProfilesFact(raw: unknown): ProfilesView | null {
 	if (!isRecord(raw)) return null;
 	const profiles = Array.isArray(raw.profiles) ? raw.profiles.flatMap(row => readProfile(row) ?? []) : [];
 	const providers = Array.isArray(raw.providers) ? raw.providers.flatMap(row => readProvider(row) ?? []) : [];
 	const fallback = isRecord(raw.default) ? text(raw.default.name) : undefined;
+	const classifier = readClassifier(raw.classifier);
 	return {
 		profiles,
 		providers,
 		default: fallback ? { name: fallback, why: (isRecord(raw.default) && text(raw.default.why)) || "" } : null,
+		...(classifier !== undefined ? { classifier } : {}),
 	};
 }
 
@@ -270,23 +296,43 @@ export interface ModelRow {
 	readonly tone: Tone;
 	readonly says: string;
 	readonly hint: string;
+	/** The hint states where the classifier's input goes: render it as plain text, not as small print. */
+	readonly disclosure?: true;
 }
 
-/** The two model roles voice mode uses, said in plain words. What a role resolves to right now is not on the
- *  public Store, so the rows state what is CONNECTED and how the role falls back, never a model they cannot know. */
-export function modelRows(models: ModelsView | null): ModelRow[] {
+const CLASSIFIER_HINT = "The classifier is the judge model (Jev by default). It only decides whether a message is worth saying; voice mode works without it.";
+
+/** The Classifier row once the engine says where the role resolves. What the classifier reads leaves this device when its
+ *  endpoint is remote, so the row says what, to whom and when, in a sentence the user can act on. */
+function classifierRow(route: ClassifierRoute | null): ModelRow {
+	if (!route) {
+		return { role: "classifier", title: "Classifier", tone: "off", says: "No classifier is connected: a plain rule decides, and nothing is sent.", hint: CLASSIFIER_HINT };
+	}
+	const name = `${route.provider}/${route.model}`;
+	const hint = route.leavesDevice
+		? `While voice mode is on, the classifier (${name}) reads your mood. On each message, your last six messages to the agent (scrubbed of code, paths and secrets) and the agent's last spoken line go to ${route.host ?? route.provider}. With voice mode off, nothing is sent.`
+		: `While voice mode is on, the classifier (${name}) runs on this device; nothing leaves it.`;
+	return { role: "classifier", title: "Classifier", tone: "ok", says: `${name} reads your mood and judges what is worth saying.`, hint, disclosure: true };
+}
+
+/** The two model roles voice mode uses, said in plain words. The voice role's resolution is not on the public Store, so
+ *  its row states what is CONNECTED and how the role falls back, never a model it cannot know. The classifier's does
+ *  arrive, on `speech/profiles.classifier` from newer engines: pass it as `route` to state where the role resolves
+ *  (`null` = none does); `undefined` (an older engine) keeps the connected-models row and makes no claim. */
+export function modelRows(models: ModelsView | null, route?: ClassifierRoute | null): ModelRow[] {
 	const voiceHint = "Set the voice model in Models to pick the small model that writes what is spoken. Unset, it falls back to your tiny model, then your small one.";
-	const classifierHint = "The classifier is the judge model (Jev by default). It only decides whether a message is worth saying; voice mode works without it.";
 	const voice: ModelRow = !models
 		? { role: "voice", title: "Voice model", tone: "off", says: "Not known yet.", hint: voiceHint }
 		: models.chat > 0
 			? { role: "voice", title: "Voice model", tone: "ok", says: `${models.chat} chat ${models.chat === 1 ? "model is" : "models are"} connected to write spoken replies.`, hint: voiceHint }
 			: { role: "voice", title: "Voice model", tone: "warn", says: "No chat model is connected, so replies are read out as written, only cleaned up.", hint: voiceHint };
-	const classifier: ModelRow = !models
-		? { role: "classifier", title: "Classifier", tone: "off", says: "Not known yet.", hint: classifierHint }
-		: models.classifiers.length > 0
-			? { role: "classifier", title: "Classifier", tone: "ok", says: `${models.classifiers.join(", ")} can judge what is worth saying.`, hint: classifierHint }
-			: { role: "classifier", title: "Classifier", tone: "off", says: "None connected: a plain rule decides what is worth saying.", hint: classifierHint };
+	const classifier: ModelRow = route !== undefined
+		? classifierRow(route)
+		: !models
+			? { role: "classifier", title: "Classifier", tone: "off", says: "Not known yet.", hint: CLASSIFIER_HINT }
+			: models.classifiers.length > 0
+				? { role: "classifier", title: "Classifier", tone: "ok", says: `${models.classifiers.join(", ")} can judge what is worth saying.`, hint: CLASSIFIER_HINT }
+				: { role: "classifier", title: "Classifier", tone: "off", says: "None connected: a plain rule decides what is worth saying.", hint: CLASSIFIER_HINT };
 	return [voice, classifier];
 }
 

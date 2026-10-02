@@ -3,10 +3,12 @@
 // holds no session; it imports nothing but `react`, so there is no ungranted `@fraym/ui` name to refuse it.
 //
 // It is READ-ONLY, and says so by being so. Choosing which agent sounds like what, trying a voice, and showing
-// what the `voice` and `classifier` roles resolve to each need a door the Store does not give a root seat yet
-// (a config write, a say on a seatless pane, the role map as a fact): those are filed SDK gaps, not controls
-// that pretend. What the pane CAN do it does honestly: say whether voice mode can speak right now, which voices
-// exist and what each would really speak with, and how to change any of it.
+// what the `voice` role resolves to each need a door the Store does not give a root seat yet (a config write, a say
+// on a seatless pane, the role map as a fact): those are filed SDK gaps, not controls that pretend. The `classifier`
+// role is the one resolution a newer engine does publish, as `speech/profiles.classifier`: its input leaves the
+// device when the endpoint is remote, so the pane states where it goes, and says nothing new on an older engine that
+// omits it. What the pane CAN do it does honestly: say whether voice mode can speak right now, which voices exist and
+// what each would really speak with, and how to change any of it.
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import {
 	headline,
@@ -199,13 +201,13 @@ export default function VoicePane({ store }: VoicePaneProps) {
 				<h2>Models</h2>
 				<p className="vm-sub">Two small models make voice mode feel attentive. Neither is required.</p>
 				<ul className="vm-list">
-					{modelRows(models).map(row => (
+					{modelRows(models, profiles?.classifier).map(row => (
 						<li className="vm-row" key={row.role}>
 							<Dot tone={row.tone} />
 							<div className="vm-grow">
 								<div className="vm-name">{row.title}</div>
 								<div>{row.says}</div>
-								<div className="vm-meta">{row.hint}</div>
+								<div className={row.disclosure ? "vm-notice" : "vm-meta"}>{row.hint}</div>
 							</div>
 						</li>
 					))}

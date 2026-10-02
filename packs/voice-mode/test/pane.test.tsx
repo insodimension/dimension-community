@@ -126,4 +126,28 @@ describe("the Voice pane", () => {
 		expect(rows.some(row => row.startsWith("Aether") && row.includes("aether"))).toBe(true);
 		expect(rows.some(row => row.startsWith("coding") && row.includes("aether (default)"))).toBe(true);
 	});
+
+	test("the classifier disclosure is on screen as its own line when the engine says it, and absent on an engine that does not", () => {
+		const classify = [{ providerId: "typesafe", modelId: "jev-latest", label: "Jev", available: true, kind: "classify" }];
+		const fake = fakeStore({ "speech/profiles": profilesFact(true), "agents/list": [], models: classify });
+		mount({ store: fake.store });
+		expect(host.textContent).toContain("Jev can judge what is worth saying.");
+		expect(host.textContent).not.toContain("last six messages");
+
+		act(() =>
+			fake.set("speech/profiles", {
+				...profilesFact(true),
+				classifier: { provider: "typesafe", model: "jev-latest", leavesDevice: true, host: "api.typesafe.ai" },
+			}),
+		);
+		const notice = host.querySelector(".vm-notice");
+		expect(notice?.textContent).toContain("api.typesafe.ai");
+		expect(notice?.textContent).toContain("last six messages");
+		expect(notice?.textContent).toContain("With voice mode off, nothing is sent.");
+		expect(host.textContent).not.toContain("Jev can judge what is worth saying.");
+
+		act(() => fake.set("speech/profiles", { ...profilesFact(true), classifier: null }));
+		expect(host.querySelector(".vm-notice")).toBeNull();
+		expect(host.textContent).toContain("No classifier is connected: a plain rule decides, and nothing is sent.");
+	});
 });

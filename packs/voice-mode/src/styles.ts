@@ -75,6 +75,10 @@ export const VOICE_PANE_CSS = `
 	color: var(--fr-text-3);
 	font-size: var(--fr-fs-xs);
 }
+[data-slot="voice-pane"] .vm-notice {
+	margin-top: 2px;
+	color: var(--fr-text-2);
+}
 [data-slot="voice-pane"] .vm-tag {
 	display: inline-block;
 	margin-left: 8px;

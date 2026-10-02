@@ -43,16 +43,30 @@ function readProvider(value) {
   const listen = readReadiness(value.listen);
   return { id, label: text(value.label) ?? id, ...speak ? { speak } : {}, ...listen ? { listen } : {} };
 }
+function readClassifier(value) {
+  if (value === null)
+    return null;
+  if (!isRecord(value))
+    return;
+  const provider = text(value.provider);
+  const model = text(value.model);
+  if (!provider || !model || typeof value.leavesDevice !== "boolean")
+    return;
+  const host = value.leavesDevice ? text(value.host) : undefined;
+  return { provider, model, leavesDevice: value.leavesDevice, ...host ? { host } : {} };
+}
 function readProfilesFact(raw) {
   if (!isRecord(raw))
     return null;
   const profiles = Array.isArray(raw.profiles) ? raw.profiles.flatMap((row) => readProfile(row) ?? []) : [];
   const providers = Array.isArray(raw.providers) ? raw.providers.flatMap((row) => readProvider(row) ?? []) : [];
   const fallback = isRecord(raw.default) ? text(raw.default.name) : undefined;
+  const classifier = readClassifier(raw.classifier);
   return {
     profiles,
     providers,
-    default: fallback ? { name: fallback, why: isRecord(raw.default) && text(raw.default.why) || "" } : null
+    default: fallback ? { name: fallback, why: isRecord(raw.default) && text(raw.default.why) || "" } : null,
+    ...classifier !== undefined ? { classifier } : {}
   };
 }
 var REASONS = {
@@ -158,11 +172,19 @@ function readModelsFact(raw) {
   }
   return { chat, classifiers };
 }
-function modelRows(models) {
+var CLASSIFIER_HINT = "The classifier is the judge model (Jev by default). It only decides whether a message is worth saying; voice mode works without it.";
+function classifierRow(route) {
+  if (!route) {
+    return { role: "classifier", title: "Classifier", tone: "off", says: "No classifier is connected: a plain rule decides, and nothing is sent.", hint: CLASSIFIER_HINT };
+  }
+  const name = `${route.provider}/${route.model}`;
+  const hint = route.leavesDevice ? `While voice mode is on, the classifier (${name}) reads your mood. On each message, your last six messages to the agent (scrubbed of code, paths and secrets) and the agent's last spoken line go to ${route.host ?? route.provider}. With voice mode off, nothing is sent.` : `While voice mode is on, the classifier (${name}) runs on this device; nothing leaves it.`;
+  return { role: "classifier", title: "Classifier", tone: "ok", says: `${name} reads your mood and judges what is worth saying.`, hint, disclosure: true };
+}
+function modelRows(models, route) {
   const voiceHint = "Set the voice model in Models to pick the small model that writes what is spoken. Unset, it falls back to your tiny model, then your small one.";
-  const classifierHint = "The classifier is the judge model (Jev by default). It only decides whether a message is worth saying; voice mode works without it.";
   const voice = !models ? { role: "voice", title: "Voice model", tone: "off", says: "Not known yet.", hint: voiceHint } : models.chat > 0 ? { role: "voice", title: "Voice model", tone: "ok", says: `${models.chat} chat ${models.chat === 1 ? "model is" : "models are"} connected to write spoken replies.`, hint: voiceHint } : { role: "voice", title: "Voice model", tone: "warn", says: "No chat model is connected, so replies are read out as written, only cleaned up.", hint: voiceHint };
-  const classifier = !models ? { role: "classifier", title: "Classifier", tone: "off", says: "Not known yet.", hint: classifierHint } : models.classifiers.length > 0 ? { role: "classifier", title: "Classifier", tone: "ok", says: `${models.classifiers.join(", ")} can judge what is worth saying.`, hint: classifierHint } : { role: "classifier", title: "Classifier", tone: "off", says: "None connected: a plain rule decides what is worth saying.", hint: classifierHint };
+  const classifier = route !== undefined ? classifierRow(route) : !models ? { role: "classifier", title: "Classifier", tone: "off", says: "Not known yet.", hint: CLASSIFIER_HINT } : models.classifiers.length > 0 ? { role: "classifier", title: "Classifier", tone: "ok", says: `${models.classifiers.join(", ")} can judge what is worth saying.`, hint: CLASSIFIER_HINT } : { role: "classifier", title: "Classifier", tone: "off", says: "None connected: a plain rule decides what is worth saying.", hint: CLASSIFIER_HINT };
   return [voice, classifier];
 }
 var TUNING_KEYS = [
@@ -242,6 +264,10 @@ var VOICE_PANE_CSS = `
 [data-slot="voice-pane"] .vm-meta {
 	color: var(--fr-text-3);
 	font-size: var(--fr-fs-xs);
+}
+[data-slot="voice-pane"] .vm-notice {
+	margin-top: 2px;
+	color: var(--fr-text-2);
 }
 [data-slot="voice-pane"] .vm-tag {
 	display: inline-block;
@@ -531,7 +557,7 @@ function VoicePane({ store }) {
           }),
           /* @__PURE__ */ jsx("ul", {
             className: "vm-list",
-            children: modelRows(models).map((row) => /* @__PURE__ */ jsxs("li", {
+            children: modelRows(models, profiles?.classifier).map((row) => /* @__PURE__ */ jsxs("li", {
               className: "vm-row",
               children: [
                 /* @__PURE__ */ jsx(Dot, {
@@ -548,7 +574,7 @@ function VoicePane({ store }) {
                       children: row.says
                     }),
                     /* @__PURE__ */ jsx("div", {
-                      className: "vm-meta",
+                      className: row.disclosure ? "vm-notice" : "vm-meta",
                       children: row.hint
                     })
                   ]
