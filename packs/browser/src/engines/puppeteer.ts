@@ -64,9 +64,13 @@ import {
 	UA_HINTS_SCRIPT,
 } from "./page-scripts.js";
 import { watchPageLog } from "./page-log.js";
+import { ToolError } from "../code/errors.js";
 import { type AdmittedInput, inputCall } from "../input.js";
+import { type AttachTarget, connectAttached, pickAttachedPage, relayTarget } from "./attach.js";
+import { environmentLaunchArgs } from "./launch-env.js";
 import { type HeadfulIdentity, identityPerBinary, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
-import type { EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
+import type { TabRef } from "../code/contracts.js";
+import type { DialogPolicy, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 /** Child frames a snapshot lists controls for, depth first. */
@@ -87,6 +91,8 @@ const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
 /** After a kill, how long the browser process gets to be seen exiting before the kill itself is called unconfirmed. */
 const KILL_CONFIRM_MS = 5_000;
+/** What a hard stop of an attached browser gives the pages this driver opened itself to close before the connection is dropped. */
+const KILL_TAB_CLOSE_MS = 1_000;
 const FAVICON_SCRIPT_TIMEOUT_MS = 2_000;
 /** How long a freshly started screencast gets to deliver its first picture before one is captured: Chrome sends nothing for a page that is not changing. */
 const FIRST_FRAME_WAIT_MS = 150;
@@ -99,7 +105,6 @@ const MODEL_SHOT_EDGE = 1_024;
 /** An eval step gets this long to run its script, plus a grace for a promise it awaits. */
 const EVAL_TIMEOUT_MS = 10_000;
 const EVAL_GROUP = "dimension-eval";
-const DEFAULT_RELAY_URL = "http://127.0.0.1:9224";
 /** Dialogs kept per tab for the model, and the longest message kept (a page's own text: bounded, untrusted). */
 const MAX_DIALOGS = 5;
 const MAX_DIALOG_CHARS = 300;
@@ -159,38 +164,39 @@ export async function createPuppeteerDriver(engine: PuppeteerEngine, options: En
 		options.onClosed();
 	};
 
-	if (engine === "chrome-relay") return await attachRelay(options, release);
+	if (engine === "chrome-relay") return await attachBrowser(options.attach ?? relayTarget(options.relayUrl), options, release);
 	return await launchChromium(options, release);
 }
 
 /**
- * Attach to the human's already-running Chrome and open OUR OWN blank tab.
+ * Attach to a Chrome somebody else owns.
  *
- * The tab the human is looking at is never adopted, inspected or navigated —
- * `newPage()` is where every tab this driver owns begins.
+ * The `chrome-relay` engine (no `options.attach`) opens OUR OWN blank tab: the tab the human is looking at is never adopted, inspected or
+ * navigated — `newPage()` is where every tab this driver owns begins. A cell's kind (`options.attach`: connected, spawned or the relay it asked
+ * for by name) is the other way round, as OMP's is: the page the person is on is adopted as it is (`pickAttachedPage`), because driving that
+ * page is the point. Adopted pages are marked `foreign`: they are not resized, kept rendering, or ever closed by this driver.
  */
-async function attachRelay(options: EngineOptions, release: () => void): Promise<EngineDriver> {
-	const browserURL = options.relayUrl ?? DEFAULT_RELAY_URL;
+async function attachBrowser(target: AttachTarget, options: EngineOptions, release: () => void): Promise<EngineDriver> {
 	let browser: Browser | undefined;
 	let page: Page | undefined;
+	let created = false;
 	try {
-		try {
-			browser = await puppeteer.connect({ browserURL, defaultViewport: null });
-		} catch (err) {
-			fail(
-				"relay_unavailable",
-				`could not attach to chrome-relay at ${browserURL}: ${describe(err)}. ` +
-					`Start the chrome-relay (the relay app/extension that exposes this endpoint), or point relayUrl at the endpoint it is actually listening on.`,
-			);
+		browser = await connectAttached(target);
+		if (options.attach) {
+			// Only a browser a person is using has a page "in front"; an application the pack started gets its first usable page in CDP order, as in OMP.
+			page = await pickAttachedPage(browser, { preferVisible: target.kind !== "spawned" });
+		} else {
+			page = await browser.newPage();
+			created = true;
 		}
-		page = await browser.newPage();
-		const tab = await prepareTab(page, options.viewport);
-		return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release, app: null });
+		const tab = await prepareTab(page, options.viewport, 1, undefined, !created);
+		if (!created) tab.foreign = true;
+		return new PuppeteerDriver({ browser, tabs: [tab], viewport: options.viewport, ownsBrowser: false, release, app: null, ...(target.terminate ? { terminate: target.terminate } : {}), ...(options.attach ? { attached: true } : {}) });
 	} catch (err) {
 		// Roll back exactly what we created. Disconnecting ends the lease, which
-		// is the only resource the relay engine holds — so the release here is
-		// confirmed, not assumed. The human's browser is never closed.
-		if (page && !page.isClosed()) await page.close().catch(() => undefined);
+		// is the only resource an attach engine holds — so the release here is
+		// confirmed, not assumed. The human's browser, and any page of theirs, is never closed.
+		if (created && page && !page.isClosed()) await page.close().catch(() => undefined);
 		if (browser) await browser.disconnect().catch(() => undefined);
 		release();
 		throw err;
@@ -280,7 +286,7 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
 		mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
 		turnOffPasswordSaving(userDataDir);
 		browser = await puppeteer.launch(viewLaunchOptions({
-			browser: resolved, userDataDir, headless, args: CHROMIUM_ARGS, timeout: LAUNCH_TIMEOUT_MS,
+			browser: resolved, userDataDir, headless, args: [...CHROMIUM_ARGS, ...environmentLaunchArgs()], timeout: LAUNCH_TIMEOUT_MS,
 			...(identity ? { userAgent: identity.userAgent } : {}),
 		}));
 		console.error(`[browser] launched ${resolved.app} (${resolved.executablePath})${headless ? ", headless" : ""} on ${userDataDir}`);
@@ -498,12 +504,18 @@ interface Tab {
 	dialogs: DialogLog;
 	/** What went wrong on this page, newest last (bounded); `LogEntry.n` is the driver's, so it orders across tabs. */
 	log: LogEntry[];
+	/** The person's own page, adopted as it was (an attach engine's `adoptTab`): never resized, never kept rendering by us, never closed by this driver. */
+	foreign?: boolean;
 }
 
 /** The last MAX_DIALOGS dialogs answered, oldest first; `seq` counts them since the tab began. */
 interface DialogLog {
 	entries: Array<HandledDialog & { seq: number }>;
 	seq: number;
+	/** How this tab answers its dialogs when its opener asked for one way (`setDialogPolicy`); unset: alert and beforeunload accepted, confirm and prompt dismissed. */
+	policy?: DialogPolicy;
+	/** The page is the person's: dialogs are recorded, and answered only once a policy is set (`setDialogPolicy`). */
+	observeOnly?: boolean;
 }
 
 /** A session that already answers its page's dialogs. */
@@ -512,19 +524,21 @@ interface Guarded {
 	dialogs: DialogLog;
 }
 
-async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded): Promise<Tab> {
-	const { cdp, dialogs } = early ?? (await guardPage(await page.createCDPSession()));
+async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded, foreign = false): Promise<Tab> {
+	const { cdp, dialogs } = early ?? (await guardPage(await page.createCDPSession(), foreign));
 	const tab: Tab = { id: "", documentId: "", page, target: page.target(), cdp, loading: false, navSeq: 0, dialogs, log: [] };
 	// Subscribed before the first read: a commit racing setup is never missed.
 	cdp.on("Page.frameNavigated", ({ frame }) => {
 		if (frame.parentId === undefined) tab.documentId = frame.loaderId;
 	});
 	try {
-		await page.setViewport({ ...viewport, deviceScaleFactor: scale });
-		// A tab behind another (the human's tab in the relay, a background tab)
-		// is not rendered, and puppeteer's element clicks wait on rendering.
-		// Focus emulation keeps our tabs rendering without stealing the window.
-		await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+		// The person's own page is left as it is: no viewport override and no focus emulation (it is the one they are looking at).
+		if (!foreign) {
+			await page.setViewport({ ...viewport, deviceScaleFactor: scale });
+			// A tab behind another (a background tab) is not rendered, and puppeteer's element clicks wait on rendering.
+			// Focus emulation keeps our tabs rendering without stealing the window.
+			await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+		}
 		const { frameTree } = await cdp.send("Page.getFrameTree");
 		// Responses and events share one ordered session: this is at least as
 		// new as any event already handled, and later events override it.
@@ -543,8 +557,9 @@ async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Gua
  * target — for a popup, before puppeteer even initialises its page, which an
  * open dialog would block for good.
  */
-async function guardPage(cdp: CDPSession): Promise<Guarded> {
-	const dialogs: DialogLog = { entries: [], seq: 0 };
+async function guardPage(cdp: CDPSession, foreign = false): Promise<Guarded> {
+	// The person's own page is not answered for: a dialog on it waits for them, or for the cell's own `dialogs` policy, as OMP's worker leaves it.
+	const dialogs: DialogLog = { entries: [], seq: 0, ...(foreign ? { observeOnly: true } : {}) };
 	answerDialogs(cdp, dialogs);
 	try {
 		await cdp.send("Page.enable");
@@ -569,7 +584,8 @@ function answerDialogs(cdp: CDPSession, log: DialogLog): void {
 	let open: { type: DialogType; message: string } | undefined;
 	cdp.on("Page.javascriptDialogOpening", (event) => {
 		open = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
-		const accept = event.type === "alert" || event.type === "beforeunload";
+		if (log.observeOnly === true && log.policy === undefined) return;
+		const accept = log.policy === undefined ? event.type === "alert" || event.type === "beforeunload" : log.policy === "accept";
 		void cdp.send("Page.handleJavaScriptDialog", { accept }).catch(() => undefined);
 	});
 	cdp.on("Page.javascriptDialogClosed", (event) => {
@@ -596,12 +612,25 @@ interface DriverParts {
 	ownsBrowser: boolean;
 	release: () => void;
 	app: BrowserApp | null;
+	/** `AttachTarget.terminate`: what `kill` ends beyond closing (an attached application the pack started). */
+	terminate?: () => Promise<void>;
+	/** A cell's attach target: every page of this browser is the person's (a popup of one included), never resized, raised or answered for. */
+	attached?: boolean;
 	/** See `EngineOptions.onPageLoaded`. */
 	onPageLoaded?: () => void;
 }
 
 /** An action that did nothing beyond itself. */
 const NONE: PerformOutcome = Object.freeze({});
+
+/** The id a code worker adopts the tab by: the page's own target id (the main frame's id is the same string, which is why `Tab.id` can stand in). */
+function targetIdOf(tab: Tab): string {
+	const raw = tab.target as unknown as { _targetId?: unknown };
+	return typeof raw._targetId === "string" ? raw._targetId : tab.id;
+}
+
+/** How long a freeze or thaw gets: a page that will not change lifecycle state must not hold a cell up. */
+const FREEZE_TIMEOUT_MS = 3_000;
 
 class PuppeteerDriver implements EngineDriver {
 	readonly app: BrowserApp | null;
@@ -616,6 +645,8 @@ class PuppeteerDriver implements EngineDriver {
 	/** Device pixel ratio the page renders at, so the live view is crisp on HiDPI. */
 	#scale = 1;
 	readonly #ownsBrowser: boolean;
+	readonly #terminate: (() => Promise<void>) | undefined;
+	readonly #attached: boolean;
 	readonly #release: () => void;
 	readonly #onPageLoaded: (() => void) | undefined;
 	readonly #onTargetCreated: (target: Target) => void;
@@ -629,17 +660,22 @@ class PuppeteerDriver implements EngineDriver {
 	#logSeq = 0;
 	#closed = false;
 	#closing: Promise<void> | undefined;
+	/** The launch tab while it is still blank and has not been handed to a code worker (`openTab` with `reuseBlank`); then undefined. */
+	#fresh: Tab | undefined;
 
 	constructor(parts: DriverParts) {
 		this.#browser = parts.browser;
 		this.app = parts.app;
 		this.#viewport = parts.viewport;
 		this.#ownsBrowser = parts.ownsBrowser;
+		this.#terminate = parts.terminate;
+		this.#attached = parts.attached === true;
 		this.#release = parts.release;
 		this.#onPageLoaded = parts.onPageLoaded;
 		const first = parts.tabs[0];
 		if (!first) fail("no_tab", "the browser has no page tab");
 		this.#active = first;
+		if (parts.tabs.length === 1) this.#fresh = first;
 		for (const tab of parts.tabs) {
 			this.#tabs.push(tab);
 			this.#adopting.set(tab.target, Promise.resolve(tab));
@@ -649,7 +685,7 @@ class PuppeteerDriver implements EngineDriver {
 			if (target.type() !== "page" || this.#closed || !this.#owns(target)) return;
 			// A site's popup / target=_blank and a task agent's tab become the
 			// active tab, so the human watches where the work happens.
-			void this.#adopt(target, true).catch(() => undefined);
+			void this.#adopt(target, true, this.#attached).catch(() => undefined);
 		};
 		this.#onDisconnected = (): void => {
 			if (this.#ownsBrowser) {
@@ -665,7 +701,8 @@ class PuppeteerDriver implements EngineDriver {
 		};
 		parts.browser.on("targetcreated", this.#onTargetCreated);
 		parts.browser.on("disconnected", this.#onDisconnected);
-		void first.page.bringToFront().catch(() => undefined);
+		// The person's own page is already where they left it: it is not raised.
+		if (!first.foreign) void first.page.bringToFront().catch(() => undefined);
 	}
 
 	// -----------------------------------------------------------------------
@@ -1148,16 +1185,85 @@ class PuppeteerDriver implements EngineDriver {
 	// Tabs
 	// -----------------------------------------------------------------------
 
-	async openTab(url?: string): Promise<void> {
+	async openTab(url?: string, options: OpenTabOptions = {}): Promise<TabRef> {
 		this.#assertOpen();
-		const page = await this.#browser.newPage();
-		const tab = await this.#adopt(page.target(), true);
-		if (!tab) fail("tab_closed", "the new tab closed before it could be shown");
-		if (url === undefined) return;
-		await navigating(tab, page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATE_TIMEOUT_MS }));
+		const fresh = options.reuseBlank === true ? this.#fresh : undefined;
+		let tab: Tab;
+		if (fresh !== undefined && !fresh.page.isClosed() && fresh.page.url() === "about:blank") {
+			this.#fresh = undefined;
+			tab = fresh;
+			await this.#activate(tab);
+		} else {
+			const page = await this.#browser.newPage();
+			const adopted = await this.#adopt(page.target(), true);
+			if (!adopted) fail("tab_closed", "the new tab closed before it could be shown");
+			tab = adopted;
+		}
+		if (options.dialogs !== undefined) tab.dialogs.policy = options.dialogs;
+		if (url === undefined) return await this.#refOf(tab);
+		await this.#goto(tab, url, options);
 		// A tab opened at a URL starts there: the blank page it was born on is
 		// not a place "back" should lead to.
 		await tab.cdp.send("Page.resetNavigationHistory").catch(() => undefined);
+		return await this.#refOf(tab);
+	}
+
+	async tabs(): Promise<TabRef[]> {
+		this.#assertOpen();
+		return await Promise.all(this.#tabs.map((tab) => this.#refOf(tab)));
+	}
+
+	async navigateTab(tabId: string, url: string, options: NavigateTabOptions): Promise<TabRef> {
+		this.#assertOpen();
+		const tab = this.#tabById(tabId);
+		await this.#goto(tab, url, options);
+		return await this.#refOf(tab);
+	}
+
+	setDialogPolicy(tabId: string, policy: DialogPolicy | undefined): void {
+		this.#assertOpen();
+		const dialogs = this.#tabById(tabId).dialogs;
+		if (policy === undefined) delete dialogs.policy;
+		else dialogs.policy = policy;
+	}
+
+	async setFrozen(tabId: string, frozen: boolean): Promise<void> {
+		this.#assertOpen();
+		const tab = this.#tabById(tabId);
+		await withTimeout(tab.cdp.send("Page.setWebLifecycleState", { state: frozen ? "frozen" : "active" }), FREEZE_TIMEOUT_MS, frozen ? "freezing a tab" : "thawing a tab");
+	}
+
+	/**
+	 * Load `url` in `tab` and wait for `options.waitUntil` (default domcontentloaded, the pack's own tab opens). A page that has not loaded when the
+	 * budget ends or `options.signal` aborts is STOPPED rather than left loading, and the call rejects (the signal's reason when it was the signal).
+	 */
+	async #goto(tab: Tab, url: string, options: NavigateTabOptions): Promise<void> {
+		const { waitUntil = "domcontentloaded", timeoutMs = NAVIGATE_TIMEOUT_MS, signal } = options;
+		signal?.throwIfAborted();
+		const navigation = navigating(tab, tab.page.goto(url, { waitUntil, timeout: timeoutMs }));
+		if (signal === undefined) {
+			await navigation;
+			return;
+		}
+		const { promise: aborted, reject } = Promise.withResolvers<never>();
+		const onAbort = (): void => reject(signal.reason);
+		signal.addEventListener("abort", onAbort, { once: true });
+		try {
+			await Promise.race([navigation, aborted]);
+		} catch (error) {
+			navigation.catch(() => undefined);
+			await tab.cdp.send("Page.stopLoading").catch(() => undefined);
+			throw error;
+		} finally {
+			signal.removeEventListener("abort", onAbort);
+		}
+	}
+
+	/** Where the tab is, from the browser process alone (a renderer call stalls while a navigation commits). */
+	async #refOf(tab: Tab): Promise<TabRef> {
+		const history = await tab.cdp.send("Page.getNavigationHistory").catch(() => null);
+		const entry = history?.entries[history.currentIndex];
+		return { tabId: tab.id, targetId: targetIdOf(tab), url: entry?.url ?? tab.page.url(), title: entry?.title ?? "", active: tab === this.#active };
 	}
 
 	async activateTab(tabId: string): Promise<void> {
@@ -1170,9 +1276,26 @@ class PuppeteerDriver implements EngineDriver {
 		const tab = this.#tabById(tabId);
 		// Never let the browser reach zero tabs: a headful Chrome quits with its
 		// last window, and the human would lose the browser to a tab close.
+		// The person's own page is let go, not closed: it stays open in their browser.
+		if (tab.foreign) {
+			this.#forget(tab);
+			return;
+		}
 		if (this.#tabs.length === 1) await this.openTab();
 		await tab.page.close();
 		this.#forget(tab);
+	}
+
+	async adoptTab(options: { match?: string; preferVisible?: boolean } = {}): Promise<TabRef> {
+		this.#assertOpen();
+		if (this.#ownsBrowser) throw new ToolError("adoptTab is for a browser this driver attached to; a browser it launched has no page it did not open");
+		const page = await pickAttachedPage(this.#browser, { ...(options.match === undefined ? {} : { matcher: options.match }), preferVisible: options.preferVisible ?? options.match === undefined });
+		const known = this.#tabs.find((candidate) => candidate.page === page);
+		const tab = known ?? (await this.#adopt(page.target(), true, true));
+		if (!tab) fail("tab_closed", "the page closed before it could be adopted");
+		if (known) await this.#activate(known);
+		const raw = tab.target as unknown as { _targetId?: string };
+		return { tabId: tab.id, targetId: raw._targetId ?? tab.id, url: tab.page.url(), title: await tab.page.title().catch(() => ""), active: tab === this.#active };
 	}
 
 	cdpEndpoint(): string {
@@ -1207,7 +1330,7 @@ class PuppeteerDriver implements EngineDriver {
 		await Promise.all(tabs.map((tab) => tab.cdp.detach().catch(() => undefined)));
 
 		if (!this.#ownsBrowser) {
-			await Promise.all(tabs.map((tab) => (tab.page.isClosed() ? undefined : tab.page.close().catch(() => undefined))));
+			await Promise.all(tabs.map((tab) => (tab.foreign || tab.page.isClosed() ? undefined : tab.page.close().catch(() => undefined))));
 			await this.#browser.disconnect().catch(() => undefined);
 			this.#release();
 			return;
@@ -1233,8 +1356,21 @@ class PuppeteerDriver implements EngineDriver {
 	 * not exit never lets it finish: this kills the whole process tree instead, and releases the lease only once the browser
 	 * process is seen to have exited. Safe beside a pending `close`: that one ends when the process does, and releasing is idempotent.
 	 */
-	async kill(): Promise<void> {
-		if (!this.#ownsBrowser) return await this.close();
+	async kill(options: { application?: boolean } = {}): Promise<void> {
+		// A browser the pack attached to is never killed, only let go - at once: the connection goes first, so a detach that waits on a page that does not answer is rejected instead of waited out. The application behind
+		// a `spawned` target is ended only when the caller asked (`close({ kill: true })`), never because a plain close was slow.
+		if (!this.#ownsBrowser) {
+			this.#closed = true;
+			this.#browser.off("targetcreated", this.#onTargetCreated);
+			this.#browser.off("disconnected", this.#onDisconnected);
+			this.#watchers.clear();
+			const own = this.#tabs.filter((tab) => !tab.foreign && !tab.page.isClosed());
+			if (own.length > 0) await Promise.race([Promise.all(own.map((tab) => tab.page.close().catch(() => undefined))), sleep(KILL_TAB_CLOSE_MS)]);
+			await this.#browser.disconnect().catch(() => undefined);
+			this.#release();
+			if (options.application === true) await this.#terminate?.();
+			return;
+		}
 		this.#closed = true;
 		this.#browser.off("targetcreated", this.#onTargetCreated);
 		this.#browser.off("disconnected", this.#onDisconnected);
@@ -1266,18 +1402,19 @@ class PuppeteerDriver implements EngineDriver {
 	}
 
 	/** Make `target` one of our tabs, once, however many paths race to adopt it. */
-	#adopt(target: Target, activate: boolean): Promise<Tab | undefined> {
+	#adopt(target: Target, activate: boolean, foreign = false): Promise<Tab | undefined> {
 		const known = this.#adopting.get(target);
 		if (known) return known;
 		const work = (async (): Promise<Tab | undefined> => {
 			// Guarded before `target.page()`: a popup that opens a dialog as it loads would block puppeteer's own setup of it forever.
-			const early = await guardPage(await target.createCDPSession());
+			const early = await guardPage(await target.createCDPSession(), foreign);
 			const page = await target.page();
 			if (!page || this.#closed || page.isClosed()) {
 				await early.cdp.detach().catch(() => undefined);
 				return undefined;
 			}
-			const tab = await prepareTab(page, this.#viewport, this.#scale, early);
+			const tab = await prepareTab(page, this.#viewport, this.#scale, early, foreign);
+			if (foreign) tab.foreign = true;
 			if (this.#closed || page.isClosed()) {
 				await tab.cdp.detach().catch(() => undefined);
 				return undefined;
@@ -1362,14 +1499,16 @@ class PuppeteerDriver implements EngineDriver {
 		if (this.#closed || this.#active !== tab) return;
 		const next = this.#tabs[index] ?? this.#tabs[index - 1];
 		if (next) void this.#activate(next).catch(() => undefined);
-		else void this.openTab().catch((err) => console.error("Could not replace the last closed tab:", err));
+		// Nothing opens a tab in the person's browser unasked: the last page they gave us going away leaves the driver with none, and the cell adopts another.
+		else if (this.#ownsBrowser || !tab.foreign) void this.openTab().catch((err) => console.error("Could not replace the last closed tab:", err));
 	}
 
 	async #activate(tab: Tab): Promise<void> {
 		this.#active = tab;
 		// A hidden tab renders no frames: screenshots crawl and input waits
-		// forever for one. The shown tab is always the front one.
-		await tab.page.bringToFront().catch(() => undefined);
+		// forever for one. The shown tab is always the front one — except the
+		// person's own tab, which is wherever they put it.
+		if (!tab.foreign) await tab.page.bringToFront().catch(() => undefined);
 		if (this.#watchers.size > 0) await this.#restartScreencast();
 	}
 
@@ -1383,6 +1522,8 @@ class PuppeteerDriver implements EngineDriver {
 	#activeTab(): Tab {
 		this.#assertOpen();
 		if (this.#active.page.isClosed()) fail("tab_closed", "The active tab just closed; read the state again.");
+		// An attach engine lets the person's page go on a tab close and opens nothing in its place: until another page is adopted there is no tab.
+		if (!this.#tabs.includes(this.#active)) fail("no_tab", "This browser has no page adopted right now (the one it had was let go): adopt another with the tab's name or match.");
 		return this.#active;
 	}
 
@@ -1403,7 +1544,8 @@ class PuppeteerDriver implements EngineDriver {
 		if (viewport.width === this.#viewport.width && viewport.height === this.#viewport.height && scale === this.#scale) return;
 		this.#viewport = viewport;
 		this.#scale = scale;
-		await Promise.all(this.#tabs.map((tab) => tab.page.setViewport({ ...viewport, deviceScaleFactor: scale }).catch(() => undefined)));
+		// The person's own pages (an attach target's) are never resized: their window is theirs.
+		await Promise.all(this.#tabs.filter((tab) => !tab.foreign).map((tab) => tab.page.setViewport({ ...viewport, deviceScaleFactor: scale }).catch(() => undefined)));
 		if (this.#watchers.size > 0) {
 			await this.#stopScreencast();
 			await this.#restartScreencast();

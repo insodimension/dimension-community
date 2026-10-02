@@ -1,0 +1,63 @@
+// Written for the Browser pack, to run right after prelude.js.txt (OMP's file, byte for byte) in the same realm.
+// What it adds to `browser`, and nothing else: `tabs()` and `active()` (doc 77 matrix B12). OMP's own methods are copied over as they are.
+{
+	const base = globalThis.browser;
+	const invoke = async (action, options) => {
+		const response = await globalThis.__omp_prelude__("browser", { ...options, action });
+		if (response && typeof response.text === "string" && response.text.length > 0) {
+			globalThis.__omp_display__(response.text);
+		}
+		return response && typeof response.details === "object" && response.details !== null ? response.details : {};
+	};
+	// The helper names are read off OMP's own tab and element handles, so a helper the facade gains is on the active handle too.
+	const sampleTab = base.tab("x");
+	const sampleElement = sampleTab.id(0);
+	const helpers = (handle, skip) => Object.keys(handle).filter(key => typeof handle[key] === "function" && !skip.includes(key));
+	const tabMethods = helpers(sampleTab, ["toString", "id", "ref"]);
+	const elementMethods = helpers(sampleElement, ["toString"]);
+
+	const makeActiveTab = () => {
+		// The tab is asked for once, on first use, and kept: ids from one `observe()` belong to one tab, even if the human switches tabs between two calls.
+		let found;
+		const nameOfActive = () => {
+			found ??= invoke("active", {}).then(
+				details => {
+					if (typeof details.name !== "string" || details.name.length === 0) throw new Error("browser.active() found no active tab");
+					return details.name;
+				},
+				error => {
+					found = undefined;
+					throw error;
+				},
+			);
+			return found;
+		};
+		const tab = {};
+		tab.toString = () => "<tab active>";
+		for (const method of tabMethods) {
+			tab[method] = async (...args) => base.tab(await nameOfActive())[method](...args);
+		}
+		for (const handleMethod of ["id", "ref"]) {
+			tab[handleMethod] = (...handleArgs) => {
+				const element = {};
+				element.toString = () => `<element tab.${handleMethod}(${handleArgs.map(value => JSON.stringify(value)).join(", ")}) on active>`;
+				for (const method of elementMethods) {
+					element[method] = async (...args) => base.tab(await nameOfActive())[handleMethod](...handleArgs)[method](...args);
+				}
+				return Object.freeze(element);
+			};
+		}
+		return Object.freeze(tab);
+	};
+
+	globalThis.browser = Object.freeze({
+		...base,
+		async tabs() {
+			const details = await invoke("tabs", {});
+			return Array.isArray(details.value) ? details.value : [];
+		},
+		active() {
+			return makeActiveTab();
+		},
+	});
+}

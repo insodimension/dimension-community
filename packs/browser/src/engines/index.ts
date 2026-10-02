@@ -11,5 +11,7 @@ export function assertEngineAvailable(engine: BrowserEngine): void {
 
 export function createEngineDriver(engine: BrowserEngine, options: EngineOptions): Promise<EngineDriver> {
   assertEngineAvailable(engine);
+  // A browser to attach to is the attach engine's alone; no other engine has one to give it to.
+  if (options.attach !== undefined && engine !== "chrome-relay") fail("bad_engine", `engine ${engine} launches its own browser; an attach target belongs to chrome-relay`);
   return createPuppeteerDriver(engine === "chrome-relay" ? "chrome-relay" : "chromium", options);
 }

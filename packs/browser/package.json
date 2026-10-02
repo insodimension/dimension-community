@@ -19,13 +19,15 @@
     "category": "artifactory",
     "keywords": ["browser", "mcp-apps", "profiles", "annotations"]
   },
-  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/dist/", "dist/", "recipes/", "python/dim_browser_bridge/", "python/pyproject.toml", "python/uv.lock", "skills/", "README.md"],
+  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/code-worker.mjs", "app/dist/", "dist/", "recipes/", "relay-extension/", "python/dim_browser_bridge/", "python/pyproject.toml", "python/uv.lock", "skills/", "README.md"],
   "dependencies": {
+    "@babel/parser": "7.29.7",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@puppeteer/browsers": "3.2.2",
     "puppeteer-core": "25.11.0",
     "tldts": "7.4.15",
+    "ws": "8.21.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -36,6 +38,7 @@
     "@types/node": "^26.1.2",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
+    "@types/ws": "8.18.1",
     "@vitejs/plugin-react": "6.0.4",
     "esbuild": "^0.21.5",
     "react": "19.2.7",
