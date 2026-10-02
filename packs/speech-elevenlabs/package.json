@@ -1,0 +1,23 @@
+{
+	"name": "@dimension/community-speech-elevenlabs",
+	"author": "Dimension",
+	"version": "0.2.1",
+	"description": "ElevenLabs speech provider: an agent's replies spoken by Eleven v4 Turbo (or v4, or Flash v2.5) with word-level caption timing, and live voice conversations through an ElevenLabs agent",
+	"type": "module",
+	"main": "src/index.ts",
+	"scripts": {
+		"test": "bun test",
+		"check": "biome check . --no-errors-on-unmatched"
+	},
+	"files": [
+		"src/",
+		"connect/",
+		"assets/",
+		"voice-profiles/",
+		"plugin.json"
+	],
+	"devDependencies": {
+		"@dimension/sdk": "workspace:*"
+	},
+	"license": "MIT"
+}

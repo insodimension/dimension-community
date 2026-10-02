@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/triage-rail",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.3",
 	"description": "Triage rail — a session rail built from @fraym/ui primitives and the rail channels alone: a Needs-you strip, recency groups, unread emphasis and one Sweep. Imports no shipped rail.",
 	"type": "module",
 	"main": "./src/index.tsx",

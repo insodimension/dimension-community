@@ -1,0 +1,67 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "speech-elevenlabs",
+	"version": "0.2.1",
+	"description": "ElevenLabs speech provider: an agent's replies spoken by Eleven v4 Turbo (or v4, or Flash v2.5) with word-level caption timing, and live voice conversations through an ElevenLabs agent that hands repository work to your coding agent. Choose it from a voice profile by naming the provider \"elevenlabs\".",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"speech",
+		"voice",
+		"tts",
+		"elevenlabs",
+		"provider"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "ElevenLabs voice",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"channel": "canary",
+			"defaultEnabled": false,
+			"entry": "src/index.ts",
+			"providers": {
+				"speech": [
+					{
+						"id": "elevenlabs",
+						"speak": true,
+						"listen": false,
+						"converse": true
+					}
+				]
+			},
+			"connect": {
+				"kind": [
+					"form"
+				],
+				"setup": [
+					{
+						"title": "Create an ElevenLabs API key",
+						"detail": "In ElevenLabs open Developers, then API Keys, and create a key. Turn on Text to Speech (required) and Voices: Read (optional; it lists your own voices in the picker). To talk live, also turn on the Agents (ConvAI) permissions, read and write: Live creates one shared agent called dimension-live on your account the first time you start a call. The key stays on this machine and is sent only to api.elevenlabs.io. Setting ELEVENLABS_API_KEY in the environment works too.",
+						"url": "https://elevenlabs.io/app/settings/api-keys",
+						"urlLabel": "Open ElevenLabs API keys"
+					},
+					{
+						"title": "Choose it in a voice profile",
+						"detail": "Connecting changes nobody's voice. A voice profile picks ElevenLabs by naming provider \"elevenlabs\", a model (eleven_v4_turbo is the default) and a voice id; a profile can list a keyless on-device voice after it as the fallback. For live calls a profile lists ElevenLabs under converse; the live-eleven profile shipped with this pack does."
+					}
+				],
+				"form": [
+					{
+						"id": "apiKey",
+						"label": "ElevenLabs API key",
+						"secret": true,
+						"help": "Needs the Text to Speech permission, and the Agents (ConvAI) read and write permissions for live calls. Stored only on this machine.",
+						"helpUrl": "https://elevenlabs.io/app/settings/api-keys",
+						"helpUrlLabel": "Open ElevenLabs API keys"
+					}
+				],
+				"configTemplate": "connect/key.template.json",
+				"configTarget": "~/.config/dimension-speech/elevenlabs.json"
+			}
+		}
+	}
+}

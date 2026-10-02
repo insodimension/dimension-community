@@ -1,0 +1,42 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "face-to-face",
+	"version": "0.1.2",
+	"description": "Face to face — talk to your agent and watch it answer: a full-screen halftone face that lip-syncs to the real audio, captions every word as it is spoken, and a small living orb that opens it from the Chat space.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"component",
+		"workspace-surface",
+		"voice",
+		"face to face"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"requires": { "dimension": ">=0.11.1" },
+			"title": "Face to face",
+			"icon": "waveform",
+			"category": "component",
+			"defaultEnabled": true,
+			"channel": "canary",
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"components": [
+				{
+					"id": "face-to-face",
+					"slot": "workspace-surface",
+					"label": "Face to face"
+				},
+				{
+					"id": "face-to-face-door",
+					"slot": "workspace-surface",
+					"export": "FaceDoor",
+					"label": "Face to face door"
+				}
+			]
+		}
+	}
+}

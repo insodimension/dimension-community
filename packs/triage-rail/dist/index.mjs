@@ -1,4 +1,4 @@
-import { ActivityDot, Button, Icon, IconButton, Input, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, useObservable } from "@fraym/ui";
+import { ActivityDot, Button, Icon, IconButton, Input, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, VoicemailMark, useObservable } from "@fraym/ui";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 //#region src/model.ts
@@ -433,6 +433,22 @@ var TRIAGE_RAIL_CSS = `
 	font-variant-numeric: tabular-nums;
 	color: var(--fr-text-3);
 }
+/* The voice message mark (doc 91 §8): a sibling of the row button, drawn over its trailing padding. Every addressable row sits
+   in the holder; the button gives up exactly the mark's width only while the mark is DRAWN (the kit's mark decides: it draws
+   nothing with voice off, and stays up under its open popover after the last message is played), so title and time keep their
+   columns. */
+[data-slot="triage-rail"] .tr-row-holder {
+	position: relative;
+}
+[data-slot="triage-rail"] .tr-row-holder:has(> .tr-mail) .tr-row {
+	padding-right: 32px;
+}
+[data-slot="triage-rail"] .tr-mail {
+	position: absolute;
+	top: 50%;
+	right: 8px;
+	transform: translateY(-50%);
+}
 [data-slot="triage-rail"] .tr-more {
 	display: block;
 	width: 100%;
@@ -619,7 +635,7 @@ var Row = memo(function Row({ item, repo, trailing, actions }) {
 		actions.sessionContextMenu(item, event);
 	}, [actions, item]);
 	const dotState = item.dotState ?? item.status;
-	return /* @__PURE__ */ jsxs("button", {
+	const row = /* @__PURE__ */ jsxs("button", {
 		type: "button",
 		className: "tr-row",
 		"data-session-id": item.sessionRef?.sessionId ?? item.id,
@@ -662,6 +678,18 @@ var Row = memo(function Row({ item, repo, trailing, actions }) {
 				children: trailing
 			})
 		]
+	});
+	const ref = item.sessionRef;
+	if (!ref) return row;
+	return /* @__PURE__ */ jsxs("div", {
+		className: "tr-row-holder",
+		children: [row, /* @__PURE__ */ jsx(VoicemailMark, {
+			sessionId: ref.sessionId,
+			voicemail: item.voicemail,
+			title: item.title,
+			agent: item.profile,
+			className: "tr-mail"
+		})]
 	});
 });
 /** The strip shows the oldest waits and names the rest: a strip of two hundred

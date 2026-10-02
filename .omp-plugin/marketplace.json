@@ -207,7 +207,7 @@
 			"pluginId": "chat",
 			"title": "Chat",
 			"description": "Chat - your personal assistant, in a room of its own. A calm conversation with Aether, a rail of your past sessions, and a viewer beside it that opens the documents, slides and images it makes. No repo, no branches, no developer chrome: one layout and one space, assembled entirely from marketplace packs.",
-			"version": "0.1.1",
+			"version": "0.2.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -236,7 +236,9 @@
 						"chat-thread",
 						"independent-composer",
 						"classic-start",
-						"swiss-knife"
+						"swiss-knife",
+						"face-to-face",
+						"voice-mode"
 					]
 				}
 			]
@@ -248,7 +250,7 @@
 			"title": "Chat Rail",
 			"icon": "panel",
 			"description": "The Chat session rail: only your conversations, newest first, with a search box, a New session button and collections you make yourself to group them. No repos, branches, PR chips or recaps. Built from @fraym/ui primitives and the rail slot's channels only - no shipped rail inside.",
-			"version": "0.1.0",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -262,6 +264,9 @@
 				"collections",
 				"chat"
 			],
+			"requires": {
+				"dimension": ">=0.11.1"
+			},
 			"channel": "canary"
 		},
 		{
@@ -481,6 +486,31 @@
 					"defaultEnabled": false
 				}
 			]
+		},
+		{
+			"name": "face-to-face",
+			"source": "./packs/face-to-face",
+			"pluginId": "face-to-face",
+			"title": "Face to face",
+			"icon": "waveform",
+			"description": "Face to face — talk to your agent and watch it answer: a full-screen halftone face that lip-syncs to the real audio, captions every word as it is spoken, and a small living orb that opens it from the Chat space.",
+			"version": "0.1.2",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "component",
+			"tags": [
+				"component",
+				"workspace-surface",
+				"voice",
+				"face to face"
+			],
+			"requires": {
+				"dimension": ">=0.11.1"
+			},
+			"channel": "canary"
 		},
 		{
 			"name": "gen-fal",
@@ -997,6 +1027,29 @@
 			]
 		},
 		{
+			"name": "speech-elevenlabs",
+			"source": "./packs/speech-elevenlabs",
+			"pluginId": "speech-elevenlabs",
+			"title": "ElevenLabs voice",
+			"icon": "packs/speech-elevenlabs/assets/icon.svg",
+			"description": "ElevenLabs speech provider: an agent's replies spoken by Eleven v4 Turbo (or v4, or Flash v2.5) with word-level caption timing, and live voice conversations through an ElevenLabs agent that hands repository work to your coding agent. Choose it from a voice profile by naming the provider \"elevenlabs\".",
+			"version": "0.2.1",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "connector",
+			"tags": [
+				"speech",
+				"voice",
+				"tts",
+				"elevenlabs",
+				"provider"
+			],
+			"channel": "canary"
+		},
+		{
 			"name": "swiss-knife",
 			"source": "./packs/swiss-knife",
 			"pluginId": "swiss-knife",
@@ -1113,7 +1166,7 @@
 			"title": "Triage Rail",
 			"icon": "bolt",
 			"description": "A session rail for threads, not folders: a violet Needs-you strip (oldest wait first), Now / Today / Yesterday / This week / Earlier groups, unread rows emphasised, and one Sweep that archives idle sessions older than a week. Built from @fraym/ui primitives and the rail slot's specVersion 2 channels only - no shipped rail inside.",
-			"version": "0.1.1",
+			"version": "0.1.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1125,7 +1178,10 @@
 				"rail",
 				"triage",
 				"community"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.1"
+			}
 		},
 		{
 			"name": "ui-skills",
@@ -1154,6 +1210,29 @@
 				"polish",
 				"skill"
 			]
+		},
+		{
+			"name": "voice-mode",
+			"source": "./packs/voice-mode",
+			"pluginId": "voice-mode",
+			"title": "Voice mode",
+			"icon": "packs/voice-mode/assets/icon.svg",
+			"description": "Voice mode for any agent in any space: the Voice pane in Settings shows which speech engines are ready, which voices exist (yours, your workspace's, a plugin's) and which agent sounds like what. The speaking itself is the engine's reply vocalizer; you switch it on from the speaker beside the microphone in the composer.",
+			"version": "0.1.1",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "component",
+			"tags": [
+				"voice",
+				"speech",
+				"settings",
+				"voice mode",
+				"voice profile"
+			],
+			"channel": "canary"
 		},
 		{
 			"name": "watch",

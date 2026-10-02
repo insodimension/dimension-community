@@ -1,0 +1,9 @@
+description: Live voice on an ElevenLabs agent, replies in voice mode spoken by Eleven v4 Turbo
+converse:
+  - { provider: elevenlabs, model: eleven_v4_turbo, voice: EXAVITQu4vr4xnSDxMaL }
+speak:
+  - { provider: elevenlabs, model: eleven_v4_turbo, voice: EXAVITQu4vr4xnSDxMaL }
+  - { provider: local, model: kokoro, voice: af_heart }
+listen:
+  - { provider: local, model: parakeet, language: en }
+turn: { endSilenceMs: 700, bargeIn: true }

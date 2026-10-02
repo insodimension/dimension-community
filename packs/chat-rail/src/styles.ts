@@ -285,6 +285,17 @@ export const EMBER_RAIL_CSS = `
 	color: var(--fr-text);
 	outline: none;
 }
+/* The voice message mark (doc 91 §8): a sibling of the row button, in flow at the trailing edge. The row button gives
+   up exactly its width, so the title and the time keep their own columns. The options button moves left of it, onto the
+   time it already replaces on hover, so the mark never sits under it. Keyed on the mark actually being DRAWN (the kit's mark
+   decides: it draws nothing with voice off, and stays up under its open popover after the last message is played), not on the
+   summary. */
+[data-slot="chat-rail"] .er-mail {
+	margin-right: 8px;
+}
+[data-slot="chat-rail"] .er-row:has(> .er-mail) .er-options {
+	right: 32px;
+}
 @media (hover: none) {
 	[data-slot="chat-rail"] .er-options {
 		opacity: 1;

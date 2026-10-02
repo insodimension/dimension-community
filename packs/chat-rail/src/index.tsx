@@ -35,10 +35,12 @@ import {
 	useRailActionSet,
 	useRailSessionPresence,
 	useStandardRootFacts,
+	VoicemailMark,
 } from "@fraym/ui";
 import {
 	type ComponentProps,
 	type FormEvent,
+	isValidElement,
 	type KeyboardEvent,
 	memo,
 	type MouseEvent,
@@ -86,6 +88,8 @@ interface RailRow extends RailItem {
 	readonly dotState?: string;
 	readonly profile?: string;
 	readonly unread?: true;
+	/** The voice desk's summary for this session (doc 91 §8): present only while a message is unplayed. */
+	readonly voicemail?: { readonly unplayed: number; readonly needsYou?: true };
 	readonly continuedInto?: { readonly toSessionId: string };
 }
 
@@ -239,11 +243,42 @@ function InlineInput({
 interface RowProps {
 	readonly item: RailRow;
 	readonly actions: RailActions;
-	readonly sessionPresence: Presence;
+	/** What the host's presence resolver answered for THIS row (or `null`: the status dot). Resolved by the parent, so the
+	 *  row's memo can ask "does it draw something different?" instead of "is it the same resolver?". */
+	readonly presence: ReactNode;
 	readonly renaming: boolean;
 	readonly menuOpen: boolean;
 	readonly onOpenMenu: (item: RailRow, anchor: MenuAnchor) => void;
 	readonly onRenamed: (item: RailRow, value: string | null) => void;
+}
+
+/** One level of `Object.is`, for a prop that is a flat bag the resolver rebuilds on every call (`signals`). */
+function sameBag(a: unknown, b: unknown): boolean {
+	if (Object.is(a, b)) return true;
+	if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) || Array.isArray(b)) return false;
+	const x = a as Record<string, unknown>;
+	const y = b as Record<string, unknown>;
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every(key => Object.is(x[key], y[key]));
+}
+
+/** Two resolver answers draw the same thing: both absent, the same element, or elements of one type whose props are equal
+ *  (a flat prop bag compared by value). The resolver's own identity moves with the ACTIVE session's live state on every
+ *  streamed flush; comparing what a row would draw lets the other rows - all but one - keep their render. */
+function samePresence(a: ReactNode, b: ReactNode): boolean {
+	if (a === b) return true;
+	if (!isValidElement(a) || !isValidElement(b) || a.type !== b.type || a.key !== b.key) return false;
+	const x = a.props as Record<string, unknown>;
+	const y = b.props as Record<string, unknown>;
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every(key => sameBag(x[key], y[key]));
+}
+
+/** What the voicemail mark DRAWS from a row: nothing, a message, or a message that needs you. A catalog republish
+ *  rebuilds `voicemail` on every fold, so the row's memo compares this, not the object. */
+function mailKey(item: RailRow): 0 | 1 | 2 {
+	const mail = item.voicemail;
+	return mail && mail.unplayed > 0 ? (mail.needsYou ? 2 : 1) : 0;
 }
 
 /** Equal when nothing the row DRAWS or ACTS ON changed. A re-fold hands every
@@ -263,13 +298,14 @@ function sameRow(a: RowProps, b: RowProps): boolean {
 				x.dotState === y.dotState &&
 				x.active === y.active &&
 				x.unread === y.unread &&
+				mailKey(x) === mailKey(y) &&
 				x.continuedInto?.toSessionId === y.continuedInto?.toSessionId &&
 				x.sessionRef?.sessionId === y.sessionRef?.sessionId &&
 				x.sessionRef?.workspaceId === y.sessionRef?.workspaceId &&
 				x.lineage?.rootRef.sessionId === y.lineage?.rootRef.sessionId &&
 				x.profile === y.profile)) &&
 		a.actions === b.actions &&
-		a.sessionPresence === b.sessionPresence &&
+		samePresence(a.presence, b.presence) &&
 		a.renaming === b.renaming &&
 		a.menuOpen === b.menuOpen &&
 		a.onOpenMenu === b.onOpenMenu &&
@@ -280,7 +316,7 @@ function sameRow(a: RowProps, b: RowProps): boolean {
 /** The dot slot: the handoff mark for a frozen row, else the host's presence
  *  answer (`useRailSessionPresence`, the only route to the vibr avatar), else the
  *  status dot — `null` from the resolver is how a row falls back to the dot. */
-function Lead({ item, sessionPresence }: Pick<RowProps, "item" | "sessionPresence">) {
+function Lead({ item, presence }: Pick<RowProps, "item" | "presence">) {
 	if (item.continuedInto) {
 		return (
 			<span className="er-glyph">
@@ -288,7 +324,6 @@ function Lead({ item, sessionPresence }: Pick<RowProps, "item" | "sessionPresenc
 			</span>
 		);
 	}
-	const presence = sessionPresence(item);
 	return (
 		<span className="er-glyph">
 			{presence ?? <ActivityDot state={(item.dotState ?? item.status) as ComponentProps<typeof ActivityDot>["state"]} />}
@@ -296,7 +331,7 @@ function Lead({ item, sessionPresence }: Pick<RowProps, "item" | "sessionPresenc
 	);
 }
 
-const Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOpen, onOpenMenu, onRenamed }: RowProps) {
+const Row = memo(function Row({ item, actions, presence, renaming, menuOpen, onOpenMenu, onRenamed }: RowProps) {
 	const ref = item.sessionRef;
 	const onClick = useCallback(() => actions.selectSession?.(item), [actions, item]);
 	const onContextMenu = useCallback(
@@ -325,7 +360,7 @@ const Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOp
 				<InlineInput
 					initial={item.title}
 					label="Rename session"
-					lead={<Lead item={item} sessionPresence={sessionPresence} />}
+					lead={<Lead item={item} presence={presence} />}
 					onCommit={value => onRenamed(item, value)}
 					onCancel={() => onRenamed(item, null)}
 				/>
@@ -353,10 +388,16 @@ const Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOp
 				onFocus={arrive}
 				onBlur={leave}
 			>
-				<Lead item={item} sessionPresence={sessionPresence} />
+				<Lead item={item} presence={presence} />
 				<span className="er-title">{item.title}</span>
 				<span className="er-time">{item.time}</span>
 			</button>
+			{/* The mark is rendered for every addressable row and decides for itself whether to draw: it must stay mounted
+			    while its popover is open after the last message is played (the summary is gone by then), or Stop vanishes
+			    mid-playback. */}
+			{ref ? (
+				<VoicemailMark sessionId={ref.sessionId} voicemail={item.voicemail} title={item.title} agent={item.profile} className="er-mail" />
+			) : null}
 			<button
 				type="button"
 				className="er-options"
@@ -564,7 +605,7 @@ function SectionRows({
 					key={item.id}
 					item={item}
 					actions={ctx.actions}
-					sessionPresence={ctx.sessionPresence}
+					presence={item.continuedInto ? null : ctx.sessionPresence(item)}
 					renaming={ctx.renamingId === item.id}
 					menuOpen={ctx.menuItemId === item.id}
 					onOpenMenu={ctx.onOpenMenu}
@@ -860,7 +901,7 @@ export const ChatRailSection = memo(function ChatRailSection({ rail, actions, ca
 											actions.sessionContextMenu(item, event);
 										}}
 									>
-										<Lead item={item} sessionPresence={ctx.sessionPresence} />
+										<Lead item={item} presence={item.continuedInto ? null : ctx.sessionPresence(item)} />
 									</button>
 								</TooltipTrigger>
 								<TooltipContent side="right">{item.title}</TooltipContent>

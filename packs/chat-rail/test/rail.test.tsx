@@ -21,12 +21,17 @@ interface RawRow {
 	readonly space?: string;
 	readonly profile?: string;
 	readonly archivedAt?: string;
+	readonly voicemail?: { readonly unplayed: number; readonly newestAt: number; readonly needsYou?: true };
 }
 
 /** The raw `sessions/list` rows the fake root fact serves. */
 let rootRows: readonly RawRow[] = [];
 /** Every list the (fake) kit was asked to fold — i.e. what survived the desk filter. */
 let kitInputs: (readonly RawRow[])[] = [];
+/** What the (fake) kit's presence resolver answers for a row; `null` = the status dot. Set by the test that cares. */
+let presenceFor: (item: { readonly id: string; readonly active?: boolean }) => ReactNode = () => null;
+/** Every render of the kit's (stand-in) voicemail mark, by session: the only way a test can see `sameRow` working. */
+const markRenders: Record<string, number> = {};
 
 const passthrough = ({ children }: { readonly children?: ReactNode }) => createElement("span", null, children);
 const button = ({ children, ...rest }: { readonly children?: ReactNode }) =>
@@ -44,7 +49,26 @@ mock.module("@fraym/ui", () => ({
 	useObservable: (source: { subscribe: (fn: () => void) => () => void; getSnapshot: () => unknown }) =>
 		useSyncExternalStore(source.subscribe, source.getSnapshot),
 	useStandardRootFacts: () => ({ sessions: rootRows }),
-	useRailSessionPresence: () => () => null,
+	useRailSessionPresence: () => (item: { readonly id: string; readonly active?: boolean }) => presenceFor(item),
+	// The kit's granted mark: the pack hands it the row's summary and identity and nothing else, and the mark itself decides
+	// whether to draw (nothing without an unplayed message). `markCalls` counts mounts of the component, drawn or not.
+	VoicemailMark: (props: {
+		readonly sessionId: string;
+		readonly title: string;
+		readonly agent?: string;
+		readonly voicemail?: { readonly unplayed: number; readonly needsYou?: true };
+		readonly className?: string;
+	}) => {
+		markRenders[props.sessionId] = (markRenders[props.sessionId] ?? 0) + 1;
+		if (!props.voicemail || props.voicemail.unplayed <= 0) return null;
+		return createElement("i", {
+			"data-voicemail-mark": props.sessionId,
+			"data-title": props.title,
+			"data-agent": props.agent,
+			"data-needs-you": props.voicemail?.needsYou ? "" : undefined,
+			className: props.className,
+		});
+	},
 	// The kit's own pair: `useRailActionSet` resolves the ACTIVE space's declared actions,
 	// `FraymRailActions` draws them. Stubbed to expose exactly which actions the pack hands over.
 	useRailActionSet: (spaces: readonly { readonly id: string; readonly rail?: { readonly actions: readonly unknown[] } }[], id: string) =>
@@ -69,6 +93,8 @@ mock.module("@fraym/ui", () => ({
 					status: "idle",
 					active: active?.sessionId === snapshot.ref.sessionId,
 					archived: Boolean(snapshot.archivedAt),
+					profile: snapshot.profile,
+					voicemail: snapshot.voicemail,
 				})),
 			},
 		];
@@ -79,7 +105,6 @@ mock.module("@fraym/ui", () => ({
 // imports resolve `@fraym/ui`, and static imports are hoisted above it.
 const { default: ChatRail } = await import("../src/index");
 const { collectionsStore } = await import("../src/collections-store");
-
 // ── DOM harness ──────────────────────────────────────────────────────────────
 
 const globalNames = [
@@ -100,6 +125,7 @@ const roots: Root[] = [];
 beforeEach(() => {
 	rootRows = [];
 	kitInputs = [];
+	presenceFor = () => null;
 	const { window } = parseHTML('<html><head></head><body><div id="root"></div></body></html>');
 	// linkedom has no layout: the menu measures itself, so give it a box and a focus().
 	const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;
@@ -343,6 +369,46 @@ describe("a verb the host does not offer is a control that does not exist", () =
 	});
 });
 
+describe("what a row re-renders for", () => {
+	/** Stands for the kit's avatar: counts how many times each row's presence is rendered. */
+	const presenceRenders: Record<string, number> = {};
+	function Avatar({ id }: { readonly id: string; readonly signals: unknown; readonly energy: number }) {
+		presenceRenders[id] = (presenceRenders[id] ?? 0) + 1;
+		return createElement("i", { "data-avatar": id });
+	}
+
+	test("a live avatar moving on the open session does not re-render the other rows, even though the resolver is a new function", async () => {
+		rootRows = [session("a", "Open one", 1), session("b", "Other one", 2), session("c", "Third one", 3)];
+		let energy = 0.2;
+		// The resolver is rebuilt by the kit on every live flush; only the open row's answer actually differs.
+		presenceFor = item =>
+			createElement(Avatar, { id: item.id, energy: item.active ? energy : 0, signals: { state: "thinking", energy: item.active ? energy : 0 } });
+		const snapshot = () => facts("", [], { workspaceId: "inso-personal", sessionId: "a" });
+		let current = snapshot();
+		const listeners = new Set<() => void>();
+		const rail = {
+			subscribe: (fn: () => void) => (listeners.add(fn), () => listeners.delete(fn)),
+			getSnapshot: () => current,
+		};
+		const root = createRoot(container);
+		roots.push(root);
+		await act(async () => root.render(createElement(ChatRail, { rail, actions: actionsOffering().actions, capabilities: { agents: [] } })));
+		const open = "inso-personal/a";
+		const before = { ...presenceRenders };
+		expect(Object.keys(before)).toHaveLength(3);
+
+		energy = 0.9;
+		current = snapshot();
+		await act(async () => {
+			for (const fn of listeners) fn();
+		});
+
+		expect(presenceRenders[open]).toBe((before[open] ?? 0) + 1);
+		expect(presenceRenders["inso-personal/b"]).toBe(before["inso-personal/b"]);
+		expect(presenceRenders["inso-personal/c"]).toBe(before["inso-personal/c"]);
+	});
+});
+
 describe("collections", () => {
 	test("filing a session moves its row at once; deleting the collection returns it to Unfiled", async () => {
 		rootRows = [session("a", "Lisbon plans", 2), session("b", "Taxes", 1)];
@@ -383,6 +449,96 @@ describe("collections", () => {
 		const group = container.querySelector(`[data-collection="${trips.id}"]`);
 		expect(titles(group as unknown as ParentNode)).toEqual(["Lisbon plans"]);
 		expect(document.querySelector('[role="menu"]')).toBeNull();
+	});
+});
+
+describe("the voice message mark", () => {
+	const mark = (id: string) => container.querySelector(`[data-voicemail-mark="${id}"]`);
+
+	test("a session holding a message draws the kit's mark beside its row button, never inside it", async () => {
+		rootRows = [
+			session("a", "Plan the Lisbon trip", 2, { voicemail: { unplayed: 2, newestAt: 1 } }),
+			session("b", "Quarterly taxes", 1),
+			session("c", "Flight is cancelled", 3, { voicemail: { unplayed: 1, newestAt: 1, needsYou: true } }),
+		];
+		await mount(actionsOffering().actions);
+
+		expect(mark("a")).not.toBeNull();
+		expect(mark("b")).toBeNull();
+		// A button in a button is invalid HTML, so the mark is the row's sibling.
+		expect(mark("a")?.closest(".er-row-main")).toBeNull();
+		expect(mark("a")?.closest('[data-slot="chat-session"]')).toBe(rowNamed("Plan the Lisbon trip") as Element);
+		// The options button's room is keyed (in the stylesheet) on the mark being DRAWN as a direct child of the row.
+		expect(mark("a")?.parentElement).toBe(rowNamed("Plan the Lisbon trip") as Element);
+		// It is handed the row's identity, and the plain/needs-you distinction survives the pack.
+		expect(mark("a")?.getAttribute("data-title")).toBe("Plan the Lisbon trip");
+		expect(mark("a")?.getAttribute("data-agent")).toBe("aether");
+		expect(mark("a")?.hasAttribute("data-needs-you")).toBe(false);
+		expect(mark("c")?.hasAttribute("data-needs-you")).toBe(true);
+	});
+
+	test("a drained stack (zero unplayed) draws no mark", async () => {
+		rootRows = [session("a", "Plan the Lisbon trip", 2, { voicemail: { unplayed: 0, newestAt: 1 } })];
+		await mount(actionsOffering().actions);
+		expect(mark("a")).toBeNull();
+	});
+
+	// The mark owns render-or-not (it must stay up under its open popover once the summary is gone), so the pack has to
+	// hand it EVERY addressable row, including one with no message: gating the mount on the summary unmounts the popover.
+	test("every addressable row is handed to the mark, with or without a message", async () => {
+		rootRows = [session("a", "Has mail", 1, { voicemail: { unplayed: 1, newestAt: 1 } }), session("b", "No mail", 2)];
+		await mount(actionsOffering().actions);
+		expect(markRenders.a).toBeGreaterThan(0);
+		expect(markRenders.b).toBeGreaterThan(0);
+		expect(mark("b")).toBeNull();
+	});
+
+	// `sameRow` memoises a row on what it DRAWS. A message arriving must reach the row (or the mark never appears
+	// until something unrelated repaints it), and a republish that changes nothing the mark draws must not.
+	test("a message arriving reaches its row; a republish that draws the same mark does not re-render it", async () => {
+		rootRows = [session("a", "Open one", 1), session("b", "Other one", 2)];
+		let current = facts("", [], { workspaceId: "inso-personal", sessionId: "a" });
+		const listeners = new Set<() => void>();
+		const rail = {
+			subscribe: (fn: () => void) => (listeners.add(fn), () => listeners.delete(fn)),
+			getSnapshot: () => current,
+		};
+		const publish = async () => {
+			current = facts("", [], { workspaceId: "inso-personal", sessionId: "a" });
+			await act(async () => {
+				for (const fn of listeners) fn();
+			});
+		};
+		const root = createRoot(container);
+		roots.push(root);
+		await act(async () =>
+			root.render(createElement(ChatRail, { rail, actions: actionsOffering().actions, capabilities: { agents: [] } })),
+		);
+		expect(mark("a")).toBeNull();
+
+		rootRows = [session("a", "Open one", 1, { voicemail: { unplayed: 1, newestAt: 10 } }), session("b", "Other one", 2)];
+		await publish();
+		expect(mark("a")).not.toBeNull();
+		expect(mark("b")).toBeNull();
+		const rendered = markRenders.a;
+
+		// The engine pushed a newer summary object for the same stack: nothing the mark draws changed.
+		rootRows = [session("a", "Open one", 1, { voicemail: { unplayed: 3, newestAt: 99 } }), session("b", "Other one", 2)];
+		await publish();
+		expect(markRenders.a).toBe(rendered);
+
+		// It becoming urgent is a change the mark draws.
+		rootRows = [
+			session("a", "Open one", 1, { voicemail: { unplayed: 3, newestAt: 99, needsYou: true } }),
+			session("b", "Other one", 2),
+		];
+		await publish();
+		expect(mark("a")?.hasAttribute("data-needs-you")).toBe(true);
+
+		// And playing it all removes the mark.
+		rootRows = [session("a", "Open one", 1), session("b", "Other one", 2)];
+		await publish();
+		expect(mark("a")).toBeNull();
 	});
 });
 

@@ -1,5 +1,5 @@
-import { ActivityDot, FraymRailActions, Icon, IconButton, Input, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, sessionGroupsFromCatalog, useObservable, useRailActionSet, useRailSessionPresence, useStandardRootFacts } from "@fraym/ui";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityDot, FraymRailActions, Icon, IconButton, Input, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, VoicemailMark, sessionGroupsFromCatalog, useObservable, useRailActionSet, useRailSessionPresence, useStandardRootFacts } from "@fraym/ui";
+import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 //#region src/collections-store.ts
@@ -750,6 +750,17 @@ var EMBER_RAIL_CSS = `
 	color: var(--fr-text);
 	outline: none;
 }
+/* The voice message mark (doc 91 §8): a sibling of the row button, in flow at the trailing edge. The row button gives
+   up exactly its width, so the title and the time keep their own columns. The options button moves left of it, onto the
+   time it already replaces on hover, so the mark never sits under it. Keyed on the mark actually being DRAWN (the kit's mark
+   decides: it draws nothing with voice off, and stays up under its open popover after the last message is played), not on the
+   summary. */
+[data-slot="chat-rail"] .er-mail {
+	margin-right: 8px;
+}
+[data-slot="chat-rail"] .er-row:has(> .er-mail) .er-options {
+	right: 32px;
+}
 @media (hover: none) {
 	[data-slot="chat-rail"] .er-options {
 		opacity: 1;
@@ -1075,6 +1086,32 @@ function InlineInput({ initial, label, placeholder, onCommit, onCancel, lead }) 
 		})]
 	});
 }
+/** One level of `Object.is`, for a prop that is a flat bag the resolver rebuilds on every call (`signals`). */
+function sameBag(a, b) {
+	if (Object.is(a, b)) return true;
+	if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) || Array.isArray(b)) return false;
+	const x = a;
+	const y = b;
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every((key) => Object.is(x[key], y[key]));
+}
+/** Two resolver answers draw the same thing: both absent, the same element, or elements of one type whose props are equal
+*  (a flat prop bag compared by value). The resolver's own identity moves with the ACTIVE session's live state on every
+*  streamed flush; comparing what a row would draw lets the other rows - all but one - keep their render. */
+function samePresence(a, b) {
+	if (a === b) return true;
+	if (!isValidElement(a) || !isValidElement(b) || a.type !== b.type || a.key !== b.key) return false;
+	const x = a.props;
+	const y = b.props;
+	const keys = Object.keys(x);
+	return keys.length === Object.keys(y).length && keys.every((key) => sameBag(x[key], y[key]));
+}
+/** What the voicemail mark DRAWS from a row: nothing, a message, or a message that needs you. A catalog republish
+*  rebuilds `voicemail` on every fold, so the row's memo compares this, not the object. */
+function mailKey(item) {
+	const mail = item.voicemail;
+	return mail && mail.unplayed > 0 ? mail.needsYou ? 2 : 1 : 0;
+}
 /** Equal when nothing the row DRAWS or ACTS ON changed. A re-fold hands every
 *  row a fresh object (the kit builds them per call), so identity would defeat
 *  the memo on every minute tick and every catalog change; the fields below are
@@ -1083,12 +1120,12 @@ function InlineInput({ initial, label, placeholder, onCommit, onCancel, lead }) 
 function sameRow(a, b) {
 	const x = a.item;
 	const y = b.item;
-	return (x === y || x.id === y.id && x.title === y.title && x.time === y.time && x.status === y.status && x.dotState === y.dotState && x.active === y.active && x.unread === y.unread && x.continuedInto?.toSessionId === y.continuedInto?.toSessionId && x.sessionRef?.sessionId === y.sessionRef?.sessionId && x.sessionRef?.workspaceId === y.sessionRef?.workspaceId && x.lineage?.rootRef.sessionId === y.lineage?.rootRef.sessionId && x.profile === y.profile) && a.actions === b.actions && a.sessionPresence === b.sessionPresence && a.renaming === b.renaming && a.menuOpen === b.menuOpen && a.onOpenMenu === b.onOpenMenu && a.onRenamed === b.onRenamed;
+	return (x === y || x.id === y.id && x.title === y.title && x.time === y.time && x.status === y.status && x.dotState === y.dotState && x.active === y.active && x.unread === y.unread && mailKey(x) === mailKey(y) && x.continuedInto?.toSessionId === y.continuedInto?.toSessionId && x.sessionRef?.sessionId === y.sessionRef?.sessionId && x.sessionRef?.workspaceId === y.sessionRef?.workspaceId && x.lineage?.rootRef.sessionId === y.lineage?.rootRef.sessionId && x.profile === y.profile) && a.actions === b.actions && samePresence(a.presence, b.presence) && a.renaming === b.renaming && a.menuOpen === b.menuOpen && a.onOpenMenu === b.onOpenMenu && a.onRenamed === b.onRenamed;
 }
 /** The dot slot: the handoff mark for a frozen row, else the host's presence
 *  answer (`useRailSessionPresence`, the only route to the vibr avatar), else the
 *  status dot — `null` from the resolver is how a row falls back to the dot. */
-function Lead({ item, sessionPresence }) {
+function Lead({ item, presence }) {
 	if (item.continuedInto) return /* @__PURE__ */ jsx("span", {
 		className: "er-glyph",
 		children: /* @__PURE__ */ jsx(Icon, {
@@ -1100,10 +1137,10 @@ function Lead({ item, sessionPresence }) {
 	});
 	return /* @__PURE__ */ jsx("span", {
 		className: "er-glyph",
-		children: sessionPresence(item) ?? /* @__PURE__ */ jsx(ActivityDot, { state: item.dotState ?? item.status })
+		children: presence ?? /* @__PURE__ */ jsx(ActivityDot, { state: item.dotState ?? item.status })
 	});
 }
-var Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOpen, onOpenMenu, onRenamed }) {
+var Row = memo(function Row({ item, actions, presence, renaming, menuOpen, onOpenMenu, onRenamed }) {
 	const ref = item.sessionRef;
 	const onClick = useCallback(() => actions.selectSession?.(item), [actions, item]);
 	const onContextMenu = useCallback((event) => {
@@ -1129,7 +1166,7 @@ var Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOpen
 			label: "Rename session",
 			lead: /* @__PURE__ */ jsx(Lead, {
 				item,
-				sessionPresence
+				presence
 			}),
 			onCommit: (value) => onRenamed(item, value),
 			onCancel: () => onRenamed(item, null)
@@ -1142,45 +1179,55 @@ var Row = memo(function Row({ item, actions, sessionPresence, renaming, menuOpen
 		"data-active": item.active ? "" : void 0,
 		"data-unread": item.unread ? "" : void 0,
 		"data-frozen": item.continuedInto ? "" : void 0,
-		children: [/* @__PURE__ */ jsxs("button", {
-			type: "button",
-			className: "er-row-main",
-			disabled: actions.selectSession === void 0,
-			"aria-current": item.active ? "true" : void 0,
-			onClick,
-			onContextMenu,
-			onPointerEnter: arrive,
-			onPointerLeave: leave,
-			onFocus: arrive,
-			onBlur: leave,
-			children: [
-				/* @__PURE__ */ jsx(Lead, {
-					item,
-					sessionPresence
-				}),
-				/* @__PURE__ */ jsx("span", {
-					className: "er-title",
-					children: item.title
-				}),
-				/* @__PURE__ */ jsx("span", {
-					className: "er-time",
-					children: item.time
+		children: [
+			/* @__PURE__ */ jsxs("button", {
+				type: "button",
+				className: "er-row-main",
+				disabled: actions.selectSession === void 0,
+				"aria-current": item.active ? "true" : void 0,
+				onClick,
+				onContextMenu,
+				onPointerEnter: arrive,
+				onPointerLeave: leave,
+				onFocus: arrive,
+				onBlur: leave,
+				children: [
+					/* @__PURE__ */ jsx(Lead, {
+						item,
+						presence
+					}),
+					/* @__PURE__ */ jsx("span", {
+						className: "er-title",
+						children: item.title
+					}),
+					/* @__PURE__ */ jsx("span", {
+						className: "er-time",
+						children: item.time
+					})
+				]
+			}),
+			ref ? /* @__PURE__ */ jsx(VoicemailMark, {
+				sessionId: ref.sessionId,
+				voicemail: item.voicemail,
+				title: item.title,
+				agent: item.profile,
+				className: "er-mail"
+			}) : null,
+			/* @__PURE__ */ jsx("button", {
+				type: "button",
+				className: "er-options",
+				"aria-label": `Options for ${item.title}`,
+				"aria-haspopup": "menu",
+				"aria-expanded": menuOpen,
+				onClick: onOptions,
+				children: /* @__PURE__ */ jsx(Icon, {
+					name: "dots",
+					size: 16,
+					strokeWidth: 3.2,
+					"aria-hidden": "true"
 				})
-			]
-		}), /* @__PURE__ */ jsx("button", {
-			type: "button",
-			className: "er-options",
-			"aria-label": `Options for ${item.title}`,
-			"aria-haspopup": "menu",
-			"aria-expanded": menuOpen,
-			onClick: onOptions,
-			children: /* @__PURE__ */ jsx(Icon, {
-				name: "dots",
-				size: 16,
-				strokeWidth: 3.2,
-				"aria-hidden": "true"
 			})
-		})]
+		]
 	});
 }, sameRow);
 function SessionMenu({ anchor, item, collections, current, actions, store, onClose, onRename }) {
@@ -1308,7 +1355,7 @@ function SectionRows({ rows, sectionId, searching, expanded, onToggleExpanded, c
 		children: [shown.map((item) => /* @__PURE__ */ jsx(Row, {
 			item,
 			actions: ctx.actions,
-			sessionPresence: ctx.sessionPresence,
+			presence: item.continuedInto ? null : ctx.sessionPresence(item),
 			renaming: ctx.renamingId === item.id,
 			menuOpen: ctx.menuItemId === item.id,
 			onOpenMenu: ctx.onOpenMenu,
@@ -1578,7 +1625,7 @@ var ChatRailSection = memo(function ChatRailSection({ rail, actions, capabilitie
 							},
 							children: /* @__PURE__ */ jsx(Lead, {
 								item,
-								sessionPresence: ctx.sessionPresence
+								presence: item.continuedInto ? null : ctx.sessionPresence(item)
 							})
 						})
 					}), /* @__PURE__ */ jsx(TooltipContent, {

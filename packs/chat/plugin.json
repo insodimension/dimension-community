@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "chat",
-	"version": "0.1.1",
+	"version": "0.2.1",
 	"description": "Chat - your personal assistant, in a room of its own. A calm conversation with Aether, a rail of your past sessions, and a viewer beside it that opens the documents, slides and images it makes. No repo, no branches, no developer chrome: one layout and one space, assembled entirely from marketplace packs.",
 	"author": {
 		"name": "Dimension"
@@ -35,7 +35,16 @@
 					"components": {
 						"ch-switcher": "classic-switcher",
 						"ch-rail": "chat-rail",
-						"ch-workspace": "classic-workspace"
+						"ch-workspace": "classic-workspace",
+						"face": "face-to-face"
+					},
+					"widgets": {
+						"pinned": [
+							{
+								"fill": "face-to-face-door",
+								"post": "bottom-right"
+							}
+						]
 					},
 					"rail": {
 						"actions": [
@@ -46,13 +55,24 @@
 								"target": "new-session",
 								"kbd": "Cmd+N",
 								"primary": true
+							},
+							{
+								"id": "face",
+								"label": "Face to face",
+								"icon": "waveform",
+								"target": "surface",
+								"surface": "face"
 							}
 						]
 					},
 					"workspace": {
 						"surfaces": [
-							"session"
+							"session",
+							"face"
 						],
+						"chrome": {
+							"face": "none"
+						},
 						"start": "session",
 						"session": "session",
 						"actions": [
@@ -89,7 +109,9 @@
 							"chat-thread",
 							"independent-composer",
 							"classic-start",
-							"swiss-knife"
+							"swiss-knife",
+							"face-to-face",
+							"voice-mode"
 						]
 					}
 				}

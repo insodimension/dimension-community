@@ -1,0 +1,25 @@
+{
+	"name": "@dimension/voice-mode",
+	"author": "Dimension",
+	"version": "0.1.1",
+	"description": "Voice mode - the Voice pane in Settings: which speech engines are ready, which voices exist, and which agent sounds like what.",
+	"type": "module",
+	"main": "./src/index.tsx",
+	"private": true,
+	"dimension": {
+		"name": "voice-mode"
+	},
+	"files": [
+		"plugin.json",
+		"dist/",
+		"assets/"
+	],
+	"scripts": {
+		"build": "NODE_ENV=production bun build src/index.tsx --outfile dist/index.mjs --format esm --target browser --external react --external react-dom --external react/jsx-runtime --external @fraym/ui",
+		"test": "bun test test/"
+	},
+	"peerDependencies": {
+		"react": ">=19"
+	},
+	"license": "MIT"
+}

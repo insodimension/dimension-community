@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/chat",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.2.1",
 	"description": "Chat - the personal-assistant space: a layout declaring its own slots (switcher, rail, workspace, artifact-view) plus a space that talks to Aether in its home workspace, every filling a marketplace pack.",
 	"type": "module",
 	"main": "./src/index.ts",
