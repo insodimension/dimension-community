@@ -197,6 +197,19 @@ describeWithChrome("a session has its own browser", () => {
     expect((await held.driver.tabs()).map(tab => tab.url).sort()).toEqual([pages.url("/form"), pages.url("/other")].sort());
   }, BROWSER_TEST_TIMEOUT_MS);
 
+  test("two opens that start together share one browser, not two", async () => {
+    const { host, rootDir, runtime } = await start();
+    await valueOf(host, "s1", `
+      await Promise.all([
+        browser.open({ name: "a", url: ${JSON.stringify(pages.url("/form"))} }),
+        browser.open({ name: "b", url: ${JSON.stringify(pages.url("/other"))} }),
+      ]);
+      0`);
+    expect(await liveChromes(rootDir)).toBe(1);
+    expect(runtime.codeSeam().browsersOf("s1")).toHaveLength(1);
+    expect(await valueOf(host, "s1", "JSON.stringify([await browser.tab('a').url(), await browser.tab('b').url()])")).toEqual([pages.url("/form"), pages.url("/other")]);
+  }, BROWSER_TEST_TIMEOUT_MS);
+
   test("a browser the person opened in the View is the one a cell uses, and no clock closes it", async () => {
     const { host, rootDir, runtime } = await start({ idleMs: 600 });
     const opened = await runtime.open({}, { caller: "app", session: "s1" });
