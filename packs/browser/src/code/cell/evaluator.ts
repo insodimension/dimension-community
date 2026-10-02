@@ -60,7 +60,8 @@ export function createCodeEvaluator(): CodeEvaluator {
       run.finalExpressionSet = true;
       run.finalExpressionValue = value;
     },
-    __omp_import__: async (source: string, options?: ImportCallOptions) => (options !== undefined ? await import(source, options) : await import(source)),
+    // The specifier is the model's, chosen at run time. Node knows one import attribute, `type: "json"`; spelled as literals so esbuild (which only reads literal options) leaves the call as it is.
+    __omp_import__: async (source: string, options?: ImportCallOptions) => (options?.with?.type === "json" ? await import(source, { with: { type: "json" } }) : await import(source)),
   };
 
   const owner = (key: string): "scope" | "store" | "builtin" | undefined => {
