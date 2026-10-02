@@ -82,11 +82,16 @@ export function isFailure(result: RunResult | { error: RunError }): result is { 
   return "error" in result;
 }
 
-/** The value a cell returned; a cell that failed fails the test with its error. */
+/** What a cell's final expression printed (the last line of its text), as JSON when it parses; a cell that failed fails the test with its error. */
 export async function valueOf(host: CodeHostPort, session: string, code: string, o?: Parameters<typeof cell>[3]): Promise<unknown> {
   const result = await cell(host, session, code, o);
   if (isFailure(result)) throw new Error(`the cell failed: ${result.error.name}: ${result.error.message}`);
-  return result.returnValue;
+  const last = textOf(result).split("\n").at(-1) ?? "";
+  try {
+    return JSON.parse(last);
+  } catch {
+    return last;
+  }
 }
 
 /** The text a cell showed (displays joined). */

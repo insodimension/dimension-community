@@ -99,8 +99,8 @@ export class CodeHost implements CodeHostPort {
     return session;
   }
 
-  run(session: string, o: Parameters<CodeHostPort["run"]>[1]): Promise<RunStarted> {
-    return this.#session(session).run(o);
+  async run(session: string, o: Parameters<CodeHostPort["run"]>[1]): Promise<RunStarted> {
+    return await this.#session(session).run(o);
   }
 
   async resume(session: string, runId: string, waitMs: number, signal: AbortSignal): Promise<RunStarted> {

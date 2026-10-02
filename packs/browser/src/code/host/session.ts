@@ -212,8 +212,8 @@ export class CodeSession {
       run.worker?.handle.transport.send({ t: "abort", runId: run.id });
       const outcome = await settledWithin(run, this.#d.timing.graceMs, undefined);
       if (outcome === "timeout") {
-        if (run.worker !== undefined) this.#recycle(run.worker);
         this.#settle(run, { error: abortError() });
+        if (run.worker !== undefined) this.#recycle(run.worker);
       }
     }
     const settled = run.settled ?? { error: abortError() };
@@ -225,12 +225,13 @@ export class CodeSession {
     if (run.settled !== undefined) return;
     run.hung = true;
     run.controller.abort(new ToolAbortError());
-    if (run.worker !== undefined) this.#recycle(run.worker);
     this.#settle(run, { error: stuckError(run.timeoutMs) });
+    if (run.worker !== undefined) this.#recycle(run.worker);
   }
 
   #finish(live: LiveWorker, run: Run, outcome: Outcome): void {
     let settled = outcome;
+    let recycle = false;
     const noted = this.#resetNote;
     this.#resetNote = false;
     if ("error" in outcome) {
@@ -240,11 +241,13 @@ export class CodeSession {
       if (error.recoverTab === true) {
         // The cell's own budget already says what happened (OMP's whole sentence); any other reason to rebuild the worker is ours to state.
         if (error.budget !== true) error = { ...error, message: `${error.message} The code worker was restarted; the cell's variables were reset.` };
-        this.#recycle(live);
+        recycle = true;
       }
       settled = { error };
     }
+    // The answer is settled before the worker is ended, so the worker's exit can never be taken for the answer.
     this.#settle(run, settled);
+    if (recycle) this.#recycle(live);
   }
 
   #settle(run: Run, outcome: Outcome): void {
