@@ -47,6 +47,8 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	/** The profile being opened from the menu right now (`""`: a Private browser). */
 	const [switching, setSwitching] = useState<string | null>(null);
 	const [controlBusy, setControlBusy] = useState(false);
+	/** The profile menu is open: the floating cards keep out from under it. */
+	const [menuOpen, setMenuOpen] = useState(false);
 	const [profile, setProfile] = useState(DEFAULT_PROFILE);
 	const [isPrivate, setPrivate] = useState(false);
 	const [ownChrome, setOwnChrome] = useState(false);
@@ -519,11 +521,12 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 		dismissedPublish !== publish.publishId &&
 		(publish.status === "awaiting-confirmation" || watchedPublishRef.current === publish.publishId);
 
-	const showControl = !taskRunning && (state.takenOver || (agentActive && canTakeOver));
+	// The pill and the menu's own control row never show together: Take over is in one place at a time.
+	const showControl = !taskRunning && !menuOpen && (state.takenOver || (agentActive && canTakeOver));
 	const floats = (
 		<>
 			{((taskRunning && task !== null) || showPublish || showControl) && (
-				<div className="bx-float bx-float-bottom">
+				<div className="bx-float bx-float-bottom" data-under-menu={menuOpen || undefined}>
 					<div className="bx-float-column">
 						{showPublish && publish !== null && (
 							<PublishBar
@@ -572,7 +575,9 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 					profilesError,
 					switching,
 					takenOver: state.takenOver,
+					agentActive,
 					canTakeOver,
+					onMenu: setMenuOpen,
 					onOpen: loadProfiles,
 					onSwitch: target => void switchProfile(target),
 					onAdd: addProfile,

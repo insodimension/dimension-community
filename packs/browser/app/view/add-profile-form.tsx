@@ -59,7 +59,18 @@ export function AddProfileForm({ taken, onSubmit, onCancel }: AddProfileFormProp
 
 	const shown = check.ok ? check.label : name.trim();
 	return (
-		<form className="bx-add" onSubmit={event => void submit(event)} aria-label="New profile">
+		<form
+			className="bx-add"
+			onSubmit={event => void submit(event)}
+			// Escape backs out wherever the form is mounted (the start page has no menu to do it); not while the profile is being made.
+			onKeyDown={event => {
+				if (event.key !== "Escape" || busy) return;
+				event.preventDefault();
+				event.stopPropagation();
+				onCancel();
+			}}
+			aria-label="New profile"
+		>
 			<div className="bx-add-head">
 				<button type="button" className="bx-tb" aria-label="Back to profiles" onClick={onCancel}>
 					<Icon name="back" size={15} strokeWidth={2} />

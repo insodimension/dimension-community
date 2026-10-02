@@ -23,6 +23,7 @@ import type { ReactNode } from "react";
 import type { BrowserState, ProfileListing, PublishRecord, TaskRun } from "../src/contracts";
 import { BrowserApp } from "../app/view/browser-app";
 import { defaultColour, PROFILE_COLOURS } from "../src/profile-meta";
+import { DEFAULT_PROFILE } from "../src/profile-name";
 import { type Dom, mount, unmountAll } from "./dom-harness";
 
 afterEach(unmountAll);
@@ -175,6 +176,8 @@ const chipOf = (dom: Dom): Element => {
 	return found;
 };
 const rowsOf = (dom: Dom) => dom.find('[role="menuitemradio"]');
+/** A row the person cannot open is still on the keyboard's path (so its reason is read out), marked `aria-disabled`, never `disabled`. */
+const cannotOpen = (row: Element): boolean => row.getAttribute("aria-disabled") === "true";
 const rowFor = (dom: Dom, label: string): Element => {
 	const found = rowsOf(dom).find(el => el.textContent?.includes(label));
 	if (!found) throw new Error(`no "${label}" row`);
@@ -247,7 +250,7 @@ describe("the profile menu", () => {
 		// The current profile is the header: its label and where it is signed in (two sites named, the rest counted; a signed-out or unchecked site is not a sign-in).
 		expect(dom.find('[aria-current="true"]').map(el => el.textContent)).toEqual(["💼Work accountSigned in to google.com, x.com +1"]);
 		// Each row: the avatar, the label (never the folder name), what is known of it, and whether it can be pressed.
-		expect(rowsOf(dom).map(el => [el.textContent, el.hasAttribute("disabled")])).toEqual(ROWS_BESIDE_WORK);
+		expect(rowsOf(dom).map(el => [el.textContent, cannotOpen(el)])).toEqual(ROWS_BESIDE_WORK);
 	});
 
 	test("reads the profiles each time it opens, so who has a profile is never older than the last look", async () => {
@@ -257,7 +260,7 @@ describe("the profile menu", () => {
 
 		await openMenu(dom);
 		expect(callsTo(host, "browser_profiles")).toHaveLength(1);
-		expect(rowFor(dom, "Studio").hasAttribute("disabled")).toBe(true);
+		expect(cannotOpen(rowFor(dom, "Studio"))).toBe(true);
 
 		// The other chat lets go of Studio while the menu is shut.
 		await dom.click(chipOf(dom));
@@ -266,7 +269,7 @@ describe("the profile menu", () => {
 
 		expect(callsTo(host, "browser_profiles")).toHaveLength(2);
 		expect(rowFor(dom, "Studio").textContent).toBe("SStudioNo sign-ins yet");
-		expect(rowFor(dom, "Studio").hasAttribute("disabled")).toBe(false);
+		expect(cannotOpen(rowFor(dom, "Studio"))).toBe(false);
 	});
 
 	test("Escape closes the Add profile form first, and the menu on the second press", async () => {
@@ -283,6 +286,43 @@ describe("the profile menu", () => {
 		await dom.key(chipOf(dom), "Escape");
 		expect(menuIsOpen(dom)).toBe(false);
 	});
+
+	// linkedom's `focus()` only fires an event and it has no `activeElement`: the tests read what the menu moved focus to, in order, from the calls.
+	const focusWhileOpening = async (dom: Dom): Promise<string[]> => {
+		const focused: Element[] = [];
+		Object.assign(HTMLElement.prototype, { focus(this: Element) { focused.push(this); } });
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused.at(-1) ?? null });
+		await openMenu(dom);
+		return focused.map(el => el.textContent?.trim() ?? "");
+	};
+
+	test("focus lands on the first profile that can be opened, so Enter pressed straight after opening opens a profile; the first time the list is still loading and focus never rests on Take over meanwhile", async () => {
+		const dom = await mountView(fakeHost(SHELF), browserOf("b1", WORK, { agentActionAt: Date.now() - 2_000 }));
+
+		const first = await focusWhileOpening(dom);
+		expect(first).not.toContain("Take over");
+		expect(first.at(-1)).toBe("DDefaultNo sign-ins yet");
+
+		// Opened again, the list is already there: focus goes straight to it.
+		await dom.click(chipOf(dom));
+		expect(await focusWhileOpening(dom)).toEqual(["DDefaultNo sign-ins yet"]);
+	});
+
+	for (const { name, shelf } of [
+		{ name: "there is no other profile", shelf: [] },
+		{ name: "every other profile is held elsewhere", shelf: [listing("t-travel", "Travel", { heldBy: "human" }), listing("u-studio", "Studio", { heldBy: "another chat" })] },
+	]) {
+		test(`focus lands on Add profile, never on Take over, with an agent acting and the control row on top, when ${name}`, async () => {
+			const dom = await mountView(fakeHost(shelf), browserOf("b1", listing(DEFAULT_PROFILE, "Default"), { agentActionAt: Date.now() - 2_000 }));
+
+			const focused = await focusWhileOpening(dom);
+
+			// The agent is acting, so the menu does offer Take over, first in the list ...
+			expect(controls(dom, "menu")).toEqual(["Take over"]);
+			// ... and what Enter would press is Add profile.
+			expect(focused).toEqual(["Add profile"]);
+		});
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -363,7 +403,7 @@ describe("switching profile from the menu", () => {
 		expect(dom.find('[role="menuitem"]').map(el => el.textContent?.trim())).not.toContain("Private browser");
 		expect(dom.find('[aria-current="true"]')[0]?.textContent).toContain("Private");
 		// The throwaway is not a profile: the rows are Default and the saved ones, the profile they just left among them.
-		expect(rowsOf(dom).map(el => [el.textContent, el.hasAttribute("disabled")])).toEqual([...ROWS_BESIDE_WORK, ["💼Work accountOpen here", false]]);
+		expect(rowsOf(dom).map(el => [el.textContent, cannotOpen(el)])).toEqual([...ROWS_BESIDE_WORK, ["💼Work accountOpen here", false]]);
 	});
 });
 
@@ -572,13 +612,14 @@ describe("taking over from the agent", () => {
 		expect(dom.text()).not.toContain("You have control");
 	});
 
-	test("the menu offers Take over and Hand back as well, with no pill on the page, and they make the same calls", async () => {
-		const host = fakeHost(SHELF, controlled(WORK_BROWSER));
-		const dom = await mountView(host, WORK_BROWSER);
-		expect(controls(dom, "page")).toEqual([]);
+	test("the menu offers Take over and Hand back while an agent is acting or the person has the wheel, and they make the same calls as the pill", async () => {
+		const state = agentAt(2_000);
+		const host = fakeHost(SHELF, controlled(state));
+		const dom = await mountView(host, state);
 
 		await openMenu(dom);
-		expect(controls(dom, "menu")).toEqual(["Take over"]);
+		// One place at a time: with the menu open the pill is not on the page.
+		expect([controls(dom, "page"), controls(dom, "menu")]).toEqual([[], ["Take over"]]);
 		await dom.click(button(dom, "Take over"));
 		await dom.settle();
 		expect(callsTo(host, "browser_control")).toStrictEqual([{ browserId: "b1", mode: "take" }]);
@@ -586,14 +627,22 @@ describe("taking over from the agent", () => {
 		expect(controls(dom, "page")).toEqual(["Hand back"]);
 
 		await openMenu(dom);
-		expect(controls(dom, "menu")).toEqual(["Hand back"]);
+		expect([controls(dom, "page"), controls(dom, "menu")]).toEqual([[], ["Hand back"]]);
 		await dom.click(button(dom, "Hand back"));
 		await dom.settle();
 		expect(callsTo(host, "browser_control")).toStrictEqual([
 			{ browserId: "b1", mode: "take" },
 			{ browserId: "b1", mode: "return" },
 		]);
-		expect(controls(dom, "page")).toEqual([]);
+		expect(controls(dom, "page")).toEqual(["Take over"]);
+	});
+
+	test("a browser no agent is acting in has no Take over anywhere: not on the page and not in the menu", async () => {
+		for (const state of [WORK_BROWSER, agentAt(60_000), browserOf("b1", null), { ...browserOf("b1", null), profile: "relay", engine: "chrome-relay" as const, app: null }]) {
+			const dom = await mountView(fakeHost(SHELF), state);
+			await openMenu(dom);
+			expect([controls(dom, "page"), controls(dom, "menu")]).toEqual([[], []]);
+		}
 	});
 
 	for (const { name, over } of [
@@ -605,7 +654,7 @@ describe("taking over from the agent", () => {
 
 			const idle = await mountView(fakeHost(SHELF), browserOf("b1", WORK, recently));
 			await openMenu(idle);
-			expect([controls(idle, "page"), controls(idle, "menu")]).toEqual([["Take over"], ["Take over"]]);
+			expect([controls(idle, "page"), controls(idle, "menu")]).toEqual([[], ["Take over"]]);
 
 			const busy = await mountView(fakeHost(SHELF), browserOf("b1", WORK, { ...recently, ...over }));
 			await openMenu(busy);
@@ -654,5 +703,19 @@ describe("the start page", () => {
 
 		expect(callsTo(host, "browser_open")).toStrictEqual([{ engine: "chromium", profile: "made-by-server" }]);
 		expect(chipOf(dom).textContent?.trim()).toBe("SSide hustle");
+	});
+
+	test("Escape in Add profile backs out of it, as it did before the form was shared; with a name typed, nothing is made", async () => {
+		const host = fakeHost(SHELF);
+		const dom = await mountView(host, null);
+		await dom.click(button(dom, "Options"));
+		await dom.click(button(dom, "Add profile"));
+		await dom.type(dom.find('input[aria-label="Profile name"]')[0] as Element, "Side hustle");
+
+		// From the colour swatch the person tabbed to (the harness cannot press a key in a text field it then unmounts).
+		await dom.key(dom.find('form[aria-label="New profile"] [role="radio"]')[0] as Element, "Escape");
+
+		expect(dom.find('form[aria-label="New profile"]')).toHaveLength(0);
+		expect(callsTo(host, "browser_profile_add")).toEqual([]);
 	});
 });

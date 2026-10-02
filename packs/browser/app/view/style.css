@@ -736,6 +736,11 @@ kbd {
 	z-index: 10;
 }
 
+/* The page's own floating cards (a post to confirm, a task, Take over) keep out from under the open menu: at a narrow width the sheet covers them, and a card half-showing past its edge is still pressable. */
+.bx-float[data-under-menu] {
+	visibility: hidden;
+}
+
 .bx-pmenu-head {
 	display: flex;
 	align-items: center;
@@ -843,7 +848,7 @@ kbd {
 	transition: background-color var(--bx-fast) var(--bx-ease);
 }
 
-.bx-prow:hover:not(:disabled) {
+.bx-prow:hover:not([aria-disabled="true"]) {
 	background: var(--bx-hover);
 }
 
@@ -853,13 +858,13 @@ kbd {
 	box-shadow: inset 0 0 0 2px var(--fr-accent);
 }
 
-.bx-prow:disabled {
+.bx-prow[aria-disabled="true"] {
 	cursor: default;
 }
 
-.bx-prow:disabled .bx-avatar,
-.bx-prow:disabled .bx-prow-name {
-	opacity: 0.5;
+/* A row that cannot be opened is still read in full: only its name is dimmed, so the avatar and the reason under it stay legible. */
+.bx-prow[aria-disabled="true"] .bx-prow-name {
+	opacity: 0.55;
 }
 
 .bx-prow-text {

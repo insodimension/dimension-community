@@ -4,7 +4,7 @@
 //
 // It knows nothing about how the page is drawn. Everything it needs arrives as props, so the page area can be replaced by a native
 // window later and this stays as it is.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@fraym/ui/icons";
 import type { BrowserEngine, NewProfileRequest, ProfileListing, ProfileSiteListing } from "../../src/contracts";
 import { defaultColour, type ProfileColour, type ResolvedProfileMeta, resolveProfileMeta } from "../../src/profile-meta";
@@ -71,8 +71,12 @@ export interface ProfileSwitcherProps {
 	/** The profile being opened right now (`""`: a Private one), or null. */
 	readonly switching: string | null;
 	readonly takenOver: boolean;
+	/** An agent acted here a moment ago (the same fact the page's pill is drawn from). */
+	readonly agentActive: boolean;
 	/** The person may take the wheel: no task runs here and no post awaits confirmation. */
 	readonly canTakeOver: boolean;
+	/** The menu opened or closed: the page keeps its own floating cards out from under it. */
+	readonly onMenu: (open: boolean) => void;
 	/** The menu just opened: read the profiles again, who holds each changes. */
 	readonly onOpen: () => void;
 	/** Open `profile` here (`null`: a Private browser). */
@@ -84,7 +88,7 @@ export interface ProfileSwitcherProps {
 }
 
 export function ProfileSwitcher(props: ProfileSwitcherProps) {
-	const { profile, look, engine, profiles, profilesError, switching, takenOver, canTakeOver } = props;
+	const { profile, look, engine, profiles, profilesError, switching, takenOver, agentActive, canTakeOver, onMenu } = props;
 	const [open, setOpen] = useState(false);
 	const [adding, setAdding] = useState(false);
 	const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -100,7 +104,11 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 		setAdding(false);
 		return true;
 	}, [adding]);
-	useMenu(open, close, wrapRef, { onEscape });
+	useMenu(open, close, wrapRef, { onEscape, ready: profiles !== null });
+	useEffect(() => {
+		onMenu(open);
+		return () => onMenu(false);
+	}, [open, onMenu]);
 
 	const choose = (run: () => void) => () => {
 		close();
@@ -114,8 +122,10 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 
 	const others = offered(profiles ?? []).filter(candidate => identity.kind !== "profile" || candidate.name !== profile);
 	const busy = switching !== null;
-	// Focus lands on a profile, not on Take over: Enter pressed straight after opening must never pause the agent.
-	const firstOpenable = others.find(candidate => profileStatus(candidate).openable)?.name;
+	// Focus lands on a profile, or on Add profile when none can be opened: never on Take over, so Enter pressed straight after
+	// opening cannot pause the agent, whoever is listed and whatever has not loaded.
+	const firstOpenable = profiles === null ? undefined : others.find(candidate => profileStatus(candidate).openable)?.name;
+	const showControl = takenOver || (agentActive && canTakeOver);
 
 	return (
 		<div className="bx-profile-wrap" ref={wrapRef}>
@@ -155,7 +165,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 								</span>
 							</div>
 
-							{(takenOver || canTakeOver) && (
+							{showControl && (
 								<div className="bx-pmenu-control" data-on={takenOver || undefined}>
 									<span className="bx-pmenu-control-text">
 										<Icon name="hand" size={14} strokeWidth={2} />
@@ -185,9 +195,13 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 												className="bx-prow"
 												data-tone={state.tone}
 												data-menu-initial={candidate.name === firstOpenable ? "" : undefined}
-												disabled={!state.openable || busy}
+												aria-disabled={!state.openable || busy}
 												title={state.openable ? undefined : `${candidate.label}: ${state.line}`}
-												onClick={choose(() => props.onSwitch(candidate.name))}
+												onClick={() => {
+													if (!state.openable || busy) return;
+													close();
+													props.onSwitch(candidate.name);
+												}}
 											>
 												<ProfileAvatar label={candidate.label} colour={candidate.colour} avatar={candidate.avatar} />
 												<span className="bx-prow-text">
@@ -202,7 +216,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 
 							<div className="bx-menu-sep" role="separator" />
 
-							<button type="button" role="menuitem" className="bx-menu-item" disabled={busy} onClick={() => setAdding(true)}>
+							<button type="button" role="menuitem" className="bx-menu-item" data-menu-initial={firstOpenable === undefined ? "" : undefined} disabled={busy} onClick={() => setAdding(true)}>
 								<Icon name="plus" size={14} strokeWidth={2} />
 								Add profile
 							</button>

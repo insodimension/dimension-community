@@ -8,6 +8,8 @@ const ITEMS = '[role^="menuitem"]:not([disabled])';
 export interface MenuOptions {
 	/** Escape is offered here first; true means it was used (a form closed) and the menu stays. */
 	readonly onEscape?: () => boolean;
+	/** False while what the menu lists is still arriving: when it turns true and focus has not moved, the first choice is made again. */
+	readonly ready?: boolean;
 }
 
 /** `ref` is the element that holds both the menu's button (`[aria-haspopup="menu"]`) and the menu itself. */
@@ -15,6 +17,8 @@ export function useMenu(open: boolean, close: () => void, ref: RefObject<HTMLEle
 	// The newest callbacks, read when an event arrives: a parent that makes new ones every render must not re-focus the menu every render.
 	const latest = useRef({ close, onEscape: options.onEscape });
 	latest.current = { close, onEscape: options.onEscape };
+	/** Where the menu put focus when it opened. */
+	const landed = useRef<HTMLElement | undefined>(undefined);
 	useEffect(() => {
 		if (!open) return;
 		const items = () => [...(ref.current?.querySelectorAll<HTMLElement>(ITEMS) ?? [])];
@@ -43,7 +47,8 @@ export function useMenu(open: boolean, close: () => void, ref: RefObject<HTMLEle
 		window.addEventListener("pointerdown", onDown);
 		window.addEventListener("keydown", onKey, true);
 		// An item may claim the first focus (`data-menu-initial`): the first one is not always a safe thing to press by accident.
-		(ref.current?.querySelector<HTMLElement>("[data-menu-initial]") ?? items()[0])?.focus();
+		landed.current = ref.current?.querySelector<HTMLElement>("[data-menu-initial]") ?? items()[0];
+		landed.current?.focus();
 		return () => {
 			window.removeEventListener("pointerdown", onDown);
 			window.removeEventListener("keydown", onKey, true);
@@ -51,4 +56,13 @@ export function useMenu(open: boolean, close: () => void, ref: RefObject<HTMLEle
 			ref.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
 		};
 	}, [open, ref]);
+	// The list the menu opened on was still loading: once it is here the first choice is made again, unless the person has already moved on.
+	const ready = options.ready ?? true;
+	useEffect(() => {
+		if (!open || !ready) return;
+		const initial = ref.current?.querySelector<HTMLElement>("[data-menu-initial]");
+		if (initial === null || initial === undefined || initial === landed.current || document.activeElement !== landed.current) return;
+		landed.current = initial;
+		initial.focus();
+	}, [open, ready, ref]);
 }
