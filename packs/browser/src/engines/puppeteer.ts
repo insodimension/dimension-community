@@ -35,7 +35,7 @@ import { mkdirSync, statSync } from "node:fs";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
-import puppeteer, { TimeoutError } from "puppeteer-core";
+import puppeteer from "puppeteer-core";
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
 import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, type ModelShot, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type Viewport } from "../contracts.js";
 import { FaviconCache } from "../favicon.js";
@@ -49,6 +49,7 @@ import {
 	FAVICON_HREF_SCRIPT,
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
+	GRAPHICS_SCRIPT,
 	INSPECT_SCRIPT,
 	IS_PASSWORD_SCRIPT,
 	INSERT_PASSWORD_SCRIPT,
@@ -63,9 +64,11 @@ import {
 	EVAL_RESULT_SCRIPT,
 	UA_HINTS_SCRIPT,
 } from "./page-scripts.js";
-import { watchPageLog } from "./page-log.js";
+import { LOOPBACK_EXCEPTIONS, watchPageLog } from "./page-log.js";
 import { type AdmittedInput, inputCall } from "../input.js";
-import { type HeadfulIdentity, identityPerBinary, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
+import { AGENT_IGNORED_DEFAULT_ARGS, AGENT_LAUNCH_ARGS, type AgentShape, fitAgentScreen, maskedGraphics, READER_PRESENTS_AS_CHROME, shapeTargetEarly } from "./agent-browser.js";
+import { agentPuppeteer } from "./agent-puppeteer.js";
+import { type HeadfulIdentity, headfulIdentity, identityPerBinary, type ReportedIdentity, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
 import type { EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
@@ -121,7 +124,9 @@ const FAVICONS = new FaviconCache();
  * beacons, link pings and Chrome's bundled default apps / component extensions
  * with background pages. `--metrics-recording-only` keeps UMA local and
  * upload-free. User-installed extensions in this profile are NOT disabled;
- * only Chrome's own default payload is.
+ * only Chrome's own default payload is. A page cannot see any of these, so a
+ * throwaway agent browser keeps them too (agent-browser.ts, AGENT_IGNORED_DEFAULT_ARGS,
+ * lists the switches it does drop).
  */
 const CHROMIUM_ARGS = [
 	"--no-first-run",
@@ -200,6 +205,16 @@ async function attachRelay(options: EngineOptions, release: () => void): Promise
 /** The probe's page: loopback is a secure context (`userAgentData` needs one); the request is answered in-browser and never sent. */
 const PROBE_URL = "http://127.0.0.1/";
 
+/** What a running browser reports about itself: read on a loopback page (a secure context, which `userAgentData` needs) that is answered in the browser and never sent. */
+async function readIdentity(browser: Browser): Promise<ReportedIdentity> {
+	const page = (await browser.pages())[0] ?? (await browser.newPage());
+	await page.setRequestInterception(true);
+	page.on("request", (request) => void request.respond({ status: 200, contentType: "text/html", body: "" }).catch(() => undefined));
+	await page.goto(PROBE_URL, { timeout: NAVIGATE_TIMEOUT_MS });
+	const graphics = await page.evaluate(GRAPHICS_SCRIPT);
+	return { userAgent: await browser.userAgent(), ...(graphics === undefined ? {} : { graphics }), hints: await page.evaluate(UA_HINTS_SCRIPT, [...UA_HINTS]) };
+}
+
 /**
  * Headful identity per browser binary, read from that binary: a throwaway
  * headless launch (no profile of ours) reports its User-Agent and client
@@ -208,16 +223,10 @@ const PROBE_URL = "http://127.0.0.1/";
 const binaryIdentities = identityPerBinary({
 	stamp: (executablePath) => statSync(executablePath).mtimeMs,
 	closeTimeoutMs: CLOSE_TIMEOUT_MS,
-	async launch(executablePath) {
-		const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: CHROMIUM_ARGS });
+	async launch(executablePath, launchArgs) {
+		const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: [...CHROMIUM_ARGS, ...launchArgs] });
 		return {
-			async read() {
-				const page = (await probe.pages())[0] ?? (await probe.newPage());
-				await page.setRequestInterception(true);
-				page.on("request", (request) => void request.respond({ status: 200, contentType: "text/html", body: "" }).catch(() => undefined));
-				await page.goto(PROBE_URL, { timeout: NAVIGATE_TIMEOUT_MS });
-				return { userAgent: await probe.userAgent(), hints: await page.evaluate(UA_HINTS_SCRIPT, [...UA_HINTS]) };
-			},
+			read: () => readIdentity(probe),
 			close: () => probe.close(),
 			kill: () => void probe.process()?.kill("SIGKILL"),
 		};
@@ -233,9 +242,11 @@ const binaryIdentities = identityPerBinary({
  * the override, the nested auto-attach and the release are sent in that order
  * on the target's own session, so nothing leaves before its override, and a
  * paused target is always released (a service worker answers only once it
- * runs, so nothing waits on a reply before the release).
+ * runs, so nothing waits on a reply before the release). For an agent browser
+ * `shape` is sent in the same breath, so a popup, a new tab, a frame or a
+ * worker starts its first document already shaped (`shapeTargetEarly`).
  */
-async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity): Promise<void> {
+async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity, shape?: AgentShape): Promise<void> {
 	const root = await browser.target().createCDPSession();
 	const connection = root.connection();
 	if (!connection) fail("launch_failed", "the browser's DevTools connection is gone");
@@ -253,6 +264,7 @@ async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity): Pr
 			if (!serviceWorker) watch(child);
 			const sent: Promise<unknown>[] = [child.send("Emulation.setUserAgentOverride", override)];
 			if (!serviceWorker) sent.push(child.send("Target.setAutoAttach", autoAttach));
+			if (shape) sent.push(...shapeTargetEarly(child, targetInfo.type, shape));
 			if (waitingForDebugger) sent.push(child.send("Runtime.runIfWaitingForDebugger"));
 			const adopted = Promise.allSettled(sent).then(async () => {
 				if (serviceWorker) await session.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
@@ -267,20 +279,34 @@ async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity): Pr
 	await withTimeout(Promise.all(adopting), ACTION_TIMEOUT_MS, "identity for the open tabs");
 }
 
+/**
+ * How an agent browser's targets are shaped: the GPU it reports instead of a
+ * software renderer (only when the binary renders in software here; undefined
+ * when it has a GPU, or nothing was read), and whether pages get a screen that
+ * fits (not in a browser with a real window).
+ */
+function agentShape(identity: HeadfulIdentity | undefined, screen: boolean, viewport: Viewport): AgentShape {
+	return { screen, early: identity !== undefined, graphics: identity?.softwareGraphics ? maskedGraphics(identity.metadata.platform) : undefined, view: { viewport, scale: 1 } };
+}
+
 /** Launch the user's browser (launch.ts decides which, and how) on the profile directory this driver owns. */
 async function launchChromium(options: EngineOptions, release: () => void): Promise<EngineDriver> {
 	const userDataDir = options.profileDirectory;
 	const headless = options.headless ?? true;
+	const agent = options.agent === true;
+	const launchArgs = options.launchArgs ?? [];
 	let browser: Browser;
 	let resolved: ResolvedBrowser;
 	let identity: HeadfulIdentity | undefined;
 	try {
 		resolved = await resolveBrowser(options.executablePath);
-		identity = headless ? await binaryIdentities.of(resolved.executablePath) : undefined;
+		identity = headless ? await binaryIdentities.of(resolved.executablePath, launchArgs) : undefined;
 		mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
 		turnOffPasswordSaving(userDataDir);
-		browser = await puppeteer.launch(viewLaunchOptions({
-			browser: resolved, userDataDir, headless, args: CHROMIUM_ARGS, timeout: LAUNCH_TIMEOUT_MS,
+		// The View and a saved profile are driven by the stock library; a throwaway agent browser by the patched copy (agent-puppeteer.ts).
+		const driver = agent ? await agentPuppeteer() : puppeteer;
+		browser = await driver.launch(viewLaunchOptions({
+			browser: resolved, userDataDir, headless, args: [...CHROMIUM_ARGS, ...launchArgs], agent, timeout: LAUNCH_TIMEOUT_MS,
 			...(identity ? { userAgent: identity.userAgent } : {}),
 		}));
 		console.error(`[browser] launched ${resolved.app} (${resolved.executablePath})${headless ? ", headless" : ""} on ${userDataDir}`);
@@ -297,19 +323,22 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
 	// the profile stays locked forever.
 	browser.process()?.once("exit", release);
 
+	let shape: AgentShape | undefined;
 	try {
 		if (identity) {
 			// An update the stamp missed shows as a version the identity does not
 			// name: it is probed again, once, and the fresh identity is presented.
 			// Only `--user-agent`, fixed at launch, keeps the old string until reopen.
 			const running = (await browser.version()).split("/").pop() ?? "";
-			await presentAsHeadful(browser, await binaryIdentities.confirm(resolved.executablePath, identity, running));
+			identity = await binaryIdentities.confirm(resolved.executablePath, identity, running, launchArgs);
 		}
+		shape = agent ? agentShape(identity, headless, options.viewport) : undefined;
+		if (identity) await presentAsHeadful(browser, identity, shape);
 		const pages = await browser.pages();
 		if (pages.length === 0) pages.push(await browser.newPage());
 		const tabs: Tab[] = [];
-		for (const page of pages) tabs.push(await prepareTab(page, options.viewport));
-		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...(options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {}) });
+		for (const page of pages) tabs.push(await prepareTab(page, options.viewport, 1, undefined, shape));
+		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...(shape ? { agent: shape } : {}), ...(options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {}) });
 	} catch (err) {
 		try {
 			// `browser.close()` resolves once the process is gone; only then is the
@@ -352,26 +381,67 @@ const MAX_READ_FRAMES = 500;
  * incognito context besides. Chrome's popup blocker stays ON (puppeteer turns
  * it off by default), so a page's `window.open` or popunder never opens a tab
  * or sends a request.
+ *
+ * It is STOCK puppeteer, exactly as before agent browsers were shaped, unless
+ * `READER_PRESENTS_AS_CHROME` (agent-browser.ts) is on: OMP has no reader, so
+ * the owner's parity ruling does not reach it, and shaping it waits on his yes
+ * (doc 77 §12). `presentAsChrome` is that constant, overridable so a test can
+ * launch both.
  */
-export async function launchReader(options: { executablePath?: string }): Promise<PageReader> {
+export async function launchReader(options: { executablePath?: string; launchArgs?: readonly string[]; presentAsChrome?: boolean }): Promise<PageReader> {
+	const launchArgs = options.launchArgs ?? [];
+	if (options.presentAsChrome ?? READER_PRESENTS_AS_CHROME) return await launchShapedReader(options.executablePath ?? (await puppeteer.executablePath("chrome")), launchArgs);
 	const browser = await puppeteer.launch({
 		headless: true,
 		timeout: LAUNCH_TIMEOUT_MS,
 		defaultViewport: READER_VIEWPORT,
 		...(options.executablePath ? { executablePath: options.executablePath } : { channel: "chrome" as const }),
-		args: CHROMIUM_ARGS,
+		args: [...CHROMIUM_ARGS, ...launchArgs],
 		ignoreDefaultArgs: ["--disable-popup-blocking"],
 	});
 	return new PuppeteerReader(browser);
 }
 
+/**
+ * The reader as an agent browser in every sense `agent-browser.ts` names: the binary's own headful identity, no
+ * `navigator.webdriver`, a screen that fits, driven by the patched library. Only `launchReader` with the switch on.
+ */
+async function launchShapedReader(executablePath: string, launchArgs: readonly string[]): Promise<PageReader> {
+	const browser = await (await agentPuppeteer()).launch({
+		headless: true,
+		timeout: LAUNCH_TIMEOUT_MS,
+		defaultViewport: READER_VIEWPORT,
+		executablePath,
+		args: [...CHROMIUM_ARGS, ...launchArgs, ...AGENT_LAUNCH_ARGS],
+		// The reader also keeps Chrome's popup blocker ON (puppeteer turns it off by default): see AGENT_IGNORED_DEFAULT_ARGS.
+		ignoreDefaultArgs: [...AGENT_IGNORED_DEFAULT_ARGS],
+	});
+	try {
+		// The identity comes from this browser itself when no other browser of the binary has been read: a probe launch in front of the first read would cost a second Chrome start.
+		const running = (await browser.version()).split("/").pop() ?? "";
+		const known = binaryIdentities.known(executablePath, launchArgs);
+		let identity = known ? await known.catch(() => undefined) : undefined;
+		if (!identity) identity = headfulIdentity(await readIdentity(browser));
+		identity = await binaryIdentities.confirm(executablePath, identity, running, launchArgs);
+		binaryIdentities.learn(executablePath, identity, launchArgs);
+		const shape = agentShape(identity, true, READER_VIEWPORT);
+		await presentAsHeadful(browser, identity, shape);
+		return new PuppeteerReader(browser, shape);
+	} catch (err) {
+		await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "failed reader launch cleanup").catch(() => undefined);
+		throw err;
+	}
+}
+
 class PuppeteerReader implements PageReader {
 	readonly #browser: Browser;
+	readonly #shape: AgentShape | undefined;
 	/** Set once closing starts, or when a read could not dispose of its context. */
 	#spent = false;
 
-	constructor(browser: Browser) {
+	constructor(browser: Browser, shape?: AgentShape) {
 		this.#browser = browser;
+		this.#shape = shape;
 	}
 
 	get usable(): boolean {
@@ -408,6 +478,8 @@ class PuppeteerReader implements PageReader {
 		});
 		const page = await context.newPage();
 		primary = page.target();
+		// The session stays attached: a session's emulation is undone when it detaches. It goes with the page when the context closes.
+		if (this.#shape?.screen) await fitAgentScreen(await page.createCDPSession(), READER_VIEWPORT, 1);
 
 		// Set from event handlers; the cast keeps TypeScript from narrowing it to `null` here.
 		let refusal = null as { url: string; reason: string } | null;
@@ -442,7 +514,7 @@ class PuppeteerReader implements PageReader {
 			response = await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
 		} catch (err) {
 			if (refusal) return { kind: "refused", ...refusal };
-			if (err instanceof TimeoutError) return { kind: "timeout" };
+			if (isTimeout(err)) return { kind: "timeout" };
 			throw err;
 		}
 		const seen = await withTimeout(settledRead(page, limit), ACTION_TIMEOUT_MS, "read");
@@ -512,7 +584,7 @@ interface Guarded {
 	dialogs: DialogLog;
 }
 
-async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded): Promise<Tab> {
+async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded, agent?: AgentShape): Promise<Tab> {
 	const { cdp, dialogs } = early ?? (await guardPage(await page.createCDPSession()));
 	const tab: Tab = { id: "", documentId: "", page, target: page.target(), cdp, loading: false, navSeq: 0, dialogs, log: [] };
 	// Subscribed before the first read: a commit racing setup is never missed.
@@ -521,6 +593,9 @@ async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Gua
 	});
 	try {
 		await page.setViewport({ ...viewport, deviceScaleFactor: scale });
+		if (agent?.screen) await fitAgentScreen(cdp, viewport, scale);
+		// A browser with a window has no `presentAsHeadful` to shape its new targets early.
+		if (agent && !agent.early) await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: LOOPBACK_EXCEPTIONS });
 		// A tab behind another (the human's tab in the relay, a background tab)
 		// is not rendered, and puppeteer's element clicks wait on rendering.
 		// Focus emulation keeps our tabs rendering without stealing the window.
@@ -596,6 +671,8 @@ interface DriverParts {
 	ownsBrowser: boolean;
 	release: () => void;
 	app: BrowserApp | null;
+	/** Set for a throwaway agent browser: how each of its pages is shaped (agent-browser.ts). */
+	agent?: AgentShape;
 	/** See `EngineOptions.onPageLoaded`. */
 	onPageLoaded?: () => void;
 }
@@ -616,6 +693,7 @@ class PuppeteerDriver implements EngineDriver {
 	/** Device pixel ratio the page renders at, so the live view is crisp on HiDPI. */
 	#scale = 1;
 	readonly #ownsBrowser: boolean;
+	readonly #agent: AgentShape | undefined;
 	readonly #release: () => void;
 	readonly #onPageLoaded: (() => void) | undefined;
 	readonly #onTargetCreated: (target: Target) => void;
@@ -635,6 +713,7 @@ class PuppeteerDriver implements EngineDriver {
 		this.app = parts.app;
 		this.#viewport = parts.viewport;
 		this.#ownsBrowser = parts.ownsBrowser;
+		this.#agent = parts.agent;
 		this.#release = parts.release;
 		this.#onPageLoaded = parts.onPageLoaded;
 		const first = parts.tabs[0];
@@ -946,7 +1025,7 @@ class PuppeteerDriver implements EngineDriver {
 				await sleep(SETTLE_POLL_MS * 5);
 			}
 		} catch (error) {
-			if (error instanceof TimeoutError) return false;
+			if (isTimeout(error)) return false;
 			throw error;
 		}
 	}
@@ -1277,7 +1356,7 @@ class PuppeteerDriver implements EngineDriver {
 				await early.cdp.detach().catch(() => undefined);
 				return undefined;
 			}
-			const tab = await prepareTab(page, this.#viewport, this.#scale, early);
+			const tab = await prepareTab(page, this.#viewport, this.#scale, early, this.#agent);
 			if (this.#closed || page.isClosed()) {
 				await tab.cdp.detach().catch(() => undefined);
 				return undefined;
@@ -1324,10 +1403,11 @@ class PuppeteerDriver implements EngineDriver {
 			this.#pageLoaded(tab);
 		});
 		tab.page.once("close", () => this.#forget(tab));
+		// An agent browser has no Runtime events: its console comes from the Console domain on the tab's own session.
 		watchPageLog(tab.page, (type, text) => {
 			tab.log.push({ n: ++this.#logSeq, type, text });
 			if (tab.log.length > MAX_LOG_ENTRIES) tab.log.shift();
-		});
+		}, this.#agent ? tab.cdp : undefined);
 		this.#loadFavicon(tab);
 	}
 
@@ -1403,11 +1483,18 @@ class PuppeteerDriver implements EngineDriver {
 		if (viewport.width === this.#viewport.width && viewport.height === this.#viewport.height && scale === this.#scale) return;
 		this.#viewport = viewport;
 		this.#scale = scale;
-		await Promise.all(this.#tabs.map((tab) => tab.page.setViewport({ ...viewport, deviceScaleFactor: scale }).catch(() => undefined)));
+		if (this.#agent) this.#agent.view = { viewport, scale };
+		await Promise.all(this.#tabs.map((tab) => this.#fit(tab, viewport, scale).catch(() => undefined)));
 		if (this.#watchers.size > 0) {
 			await this.#stopScreencast();
 			await this.#restartScreencast();
 		}
+	}
+
+	/** One tab's viewport, and for an agent browser the screen and window around it (agent-browser.ts). */
+	async #fit(tab: Tab, viewport: Viewport, scale: number): Promise<void> {
+		await tab.page.setViewport({ ...viewport, deviceScaleFactor: scale });
+		if (this.#agent?.screen) await fitAgentScreen(tab.cdp, viewport, scale);
 	}
 
 	/** Cast the CURRENT active tab, stopping whatever was cast before, while anyone watches. Ordered. */
@@ -1814,4 +1901,9 @@ async function frameOffset(frame: Frame): Promise<{ x: number; y: number } | nul
 
 function describe(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
+}
+
+/** puppeteer's TimeoutError, by name: an agent browser's errors come from its own copy of the library (agent-puppeteer.ts), not the class this file imports. */
+function isTimeout(err: unknown): boolean {
+	return err instanceof Error && err.name === "TimeoutError";
 }

@@ -180,17 +180,111 @@ so sites treat it as one:
     headers. The binary sends none there either (checked with and without a
     window on Chrome 154), so there is nothing to replay.
 - **No automation switch.** puppeteer's `--enable-automation` is dropped.
-  Nothing is added to hide the browser: no stealth plugin, no fingerprint
-  changes, no `AutomationControlled` switch. `navigator.webdriver` stays
-  whatever Chrome itself reports while it is driven over DevTools.
+  For the View and every saved profile nothing is added to hide the browser:
+  no stealth plugin, no fingerprint changes, no `AutomationControlled` switch.
+  `navigator.webdriver` stays whatever Chrome itself reports while it is
+  driven over DevTools (`true`), so a person signing in is not disguised
+  (doc 77 §12 decision 2).
+- **A throwaway agent browser is the one exception.** A browser opened
+  without a profile holds nothing and is not meant for signing in; it does
+  work on the public web that a stock automation browser is turned away from.
+  Nothing stops a person or the model from typing a login into a throwaway,
+  though, and a Google sign-in there would be disguised: sign in through a
+  saved profile (the View), where the rule above holds. **Status of this
+  exception: the lead's reading of the owner's parity ruling with OMP's browser
+  (doc 77 §12 decision 8, 2026-10-02), awaiting his signature; he may flip it.**
+  The owner ruled parity ("no request or feature loss or performance or
+  optimization loss from the OMP version"); he did not sign the reversal of
+  decision 2, the automation-hiding switch, the patched library or the GPU
+  mask. A throwaway presents as the Chrome a person would run
+  (`src/engines/agent-browser.ts`, `src/engines/agent-puppeteer.ts`):
+  - `navigator.webdriver` is `false` in the page and its iframes: the
+    `AutomationControlled` Blink switch, a launch argument, in a headless
+    browser only (Chrome pins an "unsupported command-line flag" bar to every
+    window it opens with it, so a throwaway with a window, `DIMENSION_BROWSER_HEADLESS=false`,
+    reports `true` like the View).
+  - The screen, window and orientation agree with the page. Headless Chrome's
+    own screen is 800x600, its window 780x580 and its orientation portrait
+    whatever the viewport. A device-metrics override, sent to every page
+    (a popup and a `target=_blank` tab too) before its first document runs,
+    and the window bounds, made again on every resize.
+  - It is driven by a patched copy of puppeteer-core (`patches/`, built into
+    `app/puppeteer-agent.mjs`; the View and saved profiles keep the stock
+    library): CDP `Runtime.enable`, which stock puppeteer sends in every page,
+    frame and worker and a page can detect, is never sent; puppeteer's own
+    reads of the page run in an isolated world, so a hook a site put on
+    `document.querySelector` never hears them; no script carries a driver name
+    or a file of yours. The patch derives from oh-my-pi's (MIT).
+    Without Runtime events the page log is fed another way: Chrome's own console
+    errors and warnings (a Content-Security-Policy refusal, a request blocked
+    by CORS, and the rest of what Chrome prints itself) come from the Log
+    domain, which puppeteer keeps on and a page cannot detect; what the page
+    prints with `console.*` comes from the Console domain. Both reach the model
+    through `browser_state` (`logs`) and the `newErrors` count in a
+    `browser_act` result. The one thing lost is an uncaught exception or
+    unhandled rejection on a page not served from this machine: it is logged
+    for localhost and 127.x pages only (a listener the pack installs there),
+    because hearing one anywhere else would need a script in the public page.
+  - While a `browser_task` agent drives the browser, the two driver protections
+    above (no `Runtime.enable`, reads in an isolated world) do not bind it: the
+    task agents attach their own CDP clients, not the patched library, so
+    what they send is what the page can see until the task ends. The launch
+    switches, the screen and the GPU mask stay. Measured with stock puppeteer
+    attached as a stand-in for a task agent's client (the agents themselves
+    were not run): the page's two Runtime rows flag while it is attached and no
+    other row does (`bench/detect-report-2026-10-02.md`).
+  - Puppeteer's default popup-blocker, IPC-flooding and pre-commit-input
+    switches are left out, so a page sees the defaults of a Chrome a person
+    runs. Its `--disable-features` list is kept: the detection page flags
+    nothing with it or without it, and without it Chrome starts one more
+    renderer process in every browser (the omnibox popup features are no longer
+    disabled; 4 throwaways idled at 921 MB private against 738 MB, one sample each).
+  - On a machine with no GPU, WebGL reports a common integrated GPU of the
+    platform instead of SwiftShader, in the page, in each same-origin and
+    cross-origin frame and in each dedicated and shared worker (sent to each
+    before it runs; a service worker is not masked), with the one float shader
+    precision a real GPU reports, and the replaced functions read as native,
+    named code to their own realm's `Function.prototype.toString`. This is the
+    only page script besides the loopback error reporter; it exists only when
+    the binary was seen rendering in software. Texture and uniform limits, the
+    extension list and the rendered image's hash stay SwiftShader's, and so
+    does an error thrown through a replaced function (it names a wrapper
+    frame). **Known gap, measured and open:** a same-origin frame's own
+    `Function.prototype.toString` asked about this window's replaced functions
+    (or this window's about the frame's) answers `function () { [native code] }`
+    with no name. Closing it took a call from every frame into a function the
+    page can replace, which handed a page that wrapped `toString` before making
+    a frame the per-process secret and every masked name; that call was removed
+    (detect row `tostring-wrapper-heard`). The row `native-source-cross-realm`
+    flags on a host with no GPU for the throwaway, as it does for OMP's browser.
+
+  Nothing else is changed: no plugin lists, fonts, audio or hardware numbers
+  are invented, and a Chromium build without H.264 is not made to claim it.
+  `bench/sites/detect.mjs` is a local page that reads these signals,
+  `test/agent-browser.test.ts` runs it against both kinds of browser, and
+  `bench/detect-columns.mjs` runs one column of the comparison with OMP's.
+  **Not measured:** the cross-realm `toString` gap above; a service worker's
+  GPU; the headful throwaway path (the patched library with a window, no
+  `AutomationControlled` switch) is not run and no test covers it; a real
+  GPU-less machine, Linux, macOS and Edge; `browser_task`'s agents themselves
+  (browser-use and jev; only a stand-in second CDP client); and what commercial
+  bot walls read beyond property tells (`bench/detect-report-2026-10-02.md`).
 - **Chrome's own password saving is off** in the profiles the pack owns
   (`credentials_enable_service` and `profile.password_manager_enabled` in the
   profile's Preferences, the chrome://settings/passwords toggle). The pack
   keeps its own credentials; Chrome's save prompt — which `--enable-automation`
   used to hide — would take focus from the page after every sign-in.
 
-`browser_read`'s reader is unchanged: its own headless browser, logged out and
-throwaway. A site that refuses it is reported `blocked`, never worked around.
+`browser_read`'s reader is its own headless browser, logged out and throwaway.
+**It is stock puppeteer's Chrome and none of the above is applied to it:** its
+User-Agent says HeadlessChrome, `navigator.webdriver` is `true`, CDP `Runtime`
+is on. A site that refuses it (a bot check, a CAPTCHA, a login wall) is
+reported `blocked`; the reader never retries, never solves a check and never
+works around a refusal. Shaping it like a throwaway is one line,
+`READER_PRESENTS_AS_CHROME` in `src/engines/agent-browser.ts` (`false`), and
+it is OFF on purpose: OMP has no reader, so the owner's parity ruling does not
+reach it, and it waits on his yes (doc 77 §12, "Still open"). The shaped path
+is kept and tested (`launchReader({ presentAsChrome: true })`).
 
 ## Tools
 

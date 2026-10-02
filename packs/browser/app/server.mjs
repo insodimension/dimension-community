@@ -3,8 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 // src/server.ts
 import { readFile as readFile3, readdir as readdir3 } from "node:fs/promises";
-import { extname as extname2, join as join9 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { extname as extname2, join as join10 } from "node:path";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z as z2 } from "zod";
@@ -1047,8 +1047,8 @@ function profilesForModel(list, max = MAX_PROFILES_FOR_MODEL) {
 
 // src/runtime.ts
 import { randomBytes as randomBytes5 } from "node:crypto";
-import { existsSync as existsSync4, watch } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync5, watch } from "node:fs";
+import { join as join9 } from "node:path";
 
 // recipes/x-post.json
 var signedIn = '[data-testid="SideNav_AccountSwitcher_Button"]';
@@ -1357,12 +1357,12 @@ function resolveCredential(profileDir, request, key) {
 
 // src/engines/puppeteer.ts
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdirSync as mkdirSync5, statSync as statSync2 } from "node:fs";
+import { createHash as createHash2 } from "node:crypto";
+import { mkdirSync as mkdirSync6, statSync as statSync2 } from "node:fs";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as sleep2 } from "node:timers/promises";
-import puppeteer, { TimeoutError } from "puppeteer-core";
+import puppeteer from "puppeteer-core";
 
 // src/favicon.ts
 var MAX_FAVICON_DATA_URL = 32 * 1024;
@@ -1760,6 +1760,11 @@ var UA_HINTS_SCRIPT = (names) => {
   if (!uaNavigator.userAgentData) throw new Error("navigator.userAgentData is unavailable");
   return uaNavigator.userAgentData.getHighEntropyValues(names);
 };
+var GRAPHICS_SCRIPT = () => {
+  const gl = document.createElement("canvas").getContext("webgl");
+  const info = gl?.getExtension("WEBGL_debug_renderer_info");
+  return gl && info ? `${String(gl.getParameter(info.UNMASKED_VENDOR_WEBGL))} ${String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))}` : void 0;
+};
 var EVAL_RESULT_SCRIPT = function(limit) {
   const ancestors = [];
   let text;
@@ -1809,7 +1814,31 @@ function isFavicon(request) {
     return false;
   }
 }
-function watchPageLog(page, record) {
+var EXCEPTION_MARK = "dimension-exception";
+var LOOPBACK_EXCEPTIONS = `(() => {
+	const host = location.hostname;
+	if (host !== "localhost" && host !== "[::1]" && !/^127\\./.test(host) && !host.endsWith(".localhost")) return;
+	const say = (text) => console.debug(${JSON.stringify(EXCEPTION_MARK)} + String(text).slice(0, 2000));
+	addEventListener("error", (event) => say((event.error && event.error.stack) || event.message));
+	addEventListener("unhandledrejection", (event) => say("Unhandled rejection: " + ((event.reason && (event.reason.stack || event.reason.message)) || event.reason)));
+})();`;
+function toLogLine(text) {
+  return logText(text.split("\n").slice(0, STACK_LINES).join(" | "));
+}
+function watchConsoleDomain(cdp, record) {
+  cdp.on("Console.messageAdded", ({ message }) => {
+    if (message.source !== "console-api") return;
+    if (message.text.startsWith(EXCEPTION_MARK)) {
+      record("exception", toLogLine(message.text.slice(EXCEPTION_MARK.length)));
+      return;
+    }
+    if (message.level !== "error" && message.level !== "warning" || message.text.startsWith(LOAD_FAILURE_ECHO)) return;
+    const where = message.url ? ` @ ${withoutQuery(message.url)}:${message.line ?? 0}` : "";
+    record(message.level === "error" ? "console.error" : "console.warning", logText(`${message.text}${where}`));
+  });
+  void cdp.send("Console.enable").catch(() => void 0);
+}
+function watchPageLog(page, record, consoleSession) {
   page.on("console", (message) => {
     const level = message.type();
     if (level !== "error" && level !== "warn" || message.text().startsWith(LOAD_FAILURE_ECHO)) return;
@@ -1817,10 +1846,12 @@ function watchPageLog(page, record) {
     const where = url ? ` @ ${withoutQuery(url)}:${lineNumber ?? 0}` : "";
     record(level === "error" ? "console.error" : "console.warning", logText(`${message.text()}${where}`));
   });
-  page.on("pageerror", (error) => {
-    const text = error instanceof Error ? error.message : String(error);
-    record("exception", logText(text.split("\n").slice(0, STACK_LINES).join(" | ")));
-  });
+  if (consoleSession) watchConsoleDomain(consoleSession, record);
+  else {
+    page.on("pageerror", (error) => {
+      record("exception", toLogLine(error instanceof Error ? error.message : String(error)));
+    });
+  }
   page.on("response", (response) => {
     if (response.status() < 400 || isFavicon(response.request())) return;
     record("http", logText(`${response.status()} ${response.request().method()} ${withoutQuery(response.url())}`));
@@ -1919,17 +1950,150 @@ function inputCall(event) {
   }
 }
 
+// src/engines/agent-browser.ts
+var READER_PRESENTS_AS_CHROME = false;
+var AGENT_LAUNCH_ARGS = ["--disable-blink-features=AutomationControlled"];
+var AGENT_IGNORED_DEFAULT_ARGS = ["--enable-automation", "--disable-popup-blocking", "--disable-ipc-flooding-protection", "--allow-pre-commit-input"];
+var WINDOW_CHROME_HEIGHT = 88;
+var MIN_SCREEN = { width: 1920, height: 1080 };
+function deviceMetrics(viewport, scale) {
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: scale,
+    mobile: false,
+    screenWidth: Math.max(MIN_SCREEN.width, viewport.width),
+    screenHeight: Math.max(MIN_SCREEN.height, viewport.height + WINDOW_CHROME_HEIGHT),
+    positionX: 0,
+    positionY: 0,
+    screenOrientation: { angle: 0, type: "landscapePrimary" }
+  };
+}
+async function fitAgentScreen(cdp, viewport, scale) {
+  await cdp.send("Emulation.setDeviceMetricsOverride", deviceMetrics(viewport, scale));
+  const { windowId } = await cdp.send("Browser.getWindowForTarget");
+  await cdp.send("Browser.setWindowBounds", { windowId, bounds: { left: 0, top: 0, width: viewport.width, height: viewport.height + WINDOW_CHROME_HEIGHT } });
+}
+function shapeTargetEarly(session, targetType, shape) {
+  const mask = shape.graphics ? graphicsMaskExpression(shape.graphics) : void 0;
+  if (targetType === "page" || targetType === "iframe") {
+    const sent = [session.send("Page.enable"), session.send("Page.addScriptToEvaluateOnNewDocument", { source: [mask, LOOPBACK_EXCEPTIONS].filter(Boolean).join(";\n") })];
+    if (shape.screen && targetType === "page") sent.push(session.send("Emulation.setDeviceMetricsOverride", deviceMetrics(shape.view.viewport, shape.view.scale)));
+    return sent;
+  }
+  if ((targetType === "worker" || targetType === "shared_worker") && mask) return [session.send("Runtime.evaluate", { expression: mask })];
+  return [];
+}
+var SOFTWARE_RENDERER = /swiftshader|llvmpipe|lavapipe|software|mesa offscreen|google inc\. \(google\)/i;
+function maskedGraphics(platform) {
+  if (/mac/i.test(platform)) return { vendor: "Google Inc. (Apple)", renderer: "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)" };
+  if (/win/i.test(platform)) return { vendor: "Google Inc. (Intel)", renderer: "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)" };
+  return { vendor: "Google Inc. (Intel)", renderer: "ANGLE (Intel, Mesa Intel(R) UHD Graphics 630 (CFL GT2), OpenGL 4.6)" };
+}
+var SOFTWARE_GRAPHICS_MASK = (vendor, renderer, software) => {
+  const looksSoftware = new RegExp(software, "i");
+  const nativeToString = Function.prototype.toString;
+  const names = /* @__PURE__ */ new WeakMap();
+  const toString = new Proxy(nativeToString, {
+    apply(target, self, args) {
+      const name = names.get(self);
+      return name === void 0 ? Reflect.apply(target, self, args) : `function ${name}() { [native code] }`;
+    }
+  });
+  const known = (fn, name) => {
+    names.set(fn, name);
+    return fn;
+  };
+  known(toString, "toString");
+  Object.defineProperty(Function.prototype, "toString", { value: toString, writable: true, configurable: true, enumerable: false });
+  const UNMASKED_VENDOR_WEBGL = 37445;
+  const UNMASKED_RENDERER_WEBGL = 37446;
+  for (const Context of [globalThis.WebGLRenderingContext, globalThis.WebGL2RenderingContext]) {
+    if (typeof Context !== "function") continue;
+    const original = Context.prototype.getParameter;
+    const getParameter = new Proxy(original, {
+      apply(target, self, args) {
+        const value = Reflect.apply(target, self, args);
+        if (typeof value !== "string" || !looksSoftware.test(value)) return value;
+        if (args[0] === UNMASKED_VENDOR_WEBGL) return vendor;
+        if (args[0] === UNMASKED_RENDERER_WEBGL) return renderer;
+        return value;
+      }
+    });
+    known(getParameter, "getParameter");
+    Object.defineProperty(Context.prototype, "getParameter", { value: getParameter, writable: true, configurable: true, enumerable: true });
+    const LOW_FLOAT = 36336;
+    const MEDIUM_FLOAT = 36337;
+    const HIGH_FLOAT = 36338;
+    const precision = new Proxy(Context.prototype.getShaderPrecisionFormat, {
+      apply(target, self, args) {
+        const type = args[1];
+        return Reflect.apply(target, self, type === LOW_FLOAT || type === MEDIUM_FLOAT ? [args[0], HIGH_FLOAT] : args);
+      }
+    });
+    known(precision, "getShaderPrecisionFormat");
+    Object.defineProperty(Context.prototype, "getShaderPrecisionFormat", { value: precision, writable: true, configurable: true, enumerable: true });
+  }
+};
+function graphicsMaskExpression(graphics) {
+  return `(${SOFTWARE_GRAPHICS_MASK.toString()})(${JSON.stringify(graphics.vendor)}, ${JSON.stringify(graphics.renderer)}, ${JSON.stringify(SOFTWARE_RENDERER.source)})`;
+}
+
+// src/engines/agent-puppeteer.ts
+import { createHash } from "node:crypto";
+import { existsSync as existsSync2, mkdirSync as mkdirSync4, readFileSync as readFileSync3, renameSync as renameSync3 } from "node:fs";
+import { dirname as dirname3, join as join5 } from "node:path";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "node:url";
+function packRootOf(folder) {
+  for (let at = folder; ; at = dirname3(at)) {
+    if (existsSync2(join5(at, "plugin.json"))) return at;
+    if (dirname3(at) === at) throw new Error(`no plugin.json above ${folder}: this is not running inside the browser pack`);
+  }
+}
+function locateAgentBundle(moduleUrl) {
+  const folder = dirname3(fileURLToPath2(moduleUrl));
+  const pack = packRootOf(folder);
+  return folder === join5(pack, "app") ? { kind: "shipped", file: join5(pack, "app", "puppeteer-agent.mjs") } : { kind: "source", pack };
+}
+var loading;
+function agentPuppeteer() {
+  loading ??= load();
+  return loading;
+}
+async function load() {
+  const where = locateAgentBundle(import.meta.url);
+  let file;
+  if (where.kind === "source") file = await bundleFromSource(where.pack);
+  else if (existsSync2(where.file)) file = where.file;
+  else fail("launch_failed", "app/puppeteer-agent.mjs is missing: run the build (`bun run build` in the browser pack) and ship the file with app/server.mjs");
+  const bundled = await import(pathToFileURL(file).href);
+  return bundled.default;
+}
+async function bundleFromSource(pack) {
+  const builderPath = join5(pack, "scripts", "agent-puppeteer.mjs");
+  const builder = await import(pathToFileURL(builderPath).href);
+  const identity = builder.bundleIdentity();
+  const hash = createHash("sha256").update(readFileSync3(builder.PATCH_FILE)).update(readFileSync3(builderPath)).update(identity).digest("hex").slice(0, 12);
+  const outfile = join5(pack, ".cache", `puppeteer-agent-${hash}.mjs`);
+  if (existsSync2(outfile)) return outfile;
+  mkdirSync4(dirname3(outfile), { recursive: true });
+  const partial = `${outfile}.${process.pid}.tmp`;
+  await builder.buildAgentPuppeteer({ outfile: partial });
+  renameSync3(partial, outfile);
+  return outfile;
+}
+
 // src/engines/launch.ts
-import { existsSync as existsSync2, mkdirSync as mkdirSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 import { Browser as CachedBrowser, detectBrowserPlatform, getInstalledBrowsers } from "@puppeteer/browsers";
 var systemProbe = {
   platform: process.platform,
   browserPlatform: detectBrowserPlatform(),
   env: process.env,
   home: homedir2(),
-  exists: existsSync2
+  exists: existsSync3
 };
 async function resolveBrowser(explicitPath, probe = systemProbe) {
   if (explicitPath) return { app: "custom", executablePath: explicitPath };
@@ -1938,7 +2102,7 @@ async function resolveBrowser(explicitPath, probe = systemProbe) {
     const executablePath = candidates[app].find((path) => probe.exists(path));
     if (executablePath) return { app, executablePath };
   }
-  const cacheDir = probe.env.PUPPETEER_CACHE_DIR || join5(probe.home, ".cache", "puppeteer");
+  const cacheDir = probe.env.PUPPETEER_CACHE_DIR || join6(probe.home, ".cache", "puppeteer");
   const cached = (await getInstalledBrowsers({ cacheDir })).filter((build) => build.browser === CachedBrowser.CHROME && build.platform === probe.browserPlatform && probe.exists(build.executablePath)).sort((a, b) => compareVersions(b.buildId, a.buildId))[0];
   if (cached) return { app: "chromium", executablePath: cached.executablePath };
   return fail(
@@ -1952,17 +2116,17 @@ function installedCandidates(probe) {
       (root) => typeof root === "string" && root.length > 0
     );
     return {
-      chrome: roots.map((root) => join5(root, "Google", "Chrome", "Application", "chrome.exe")),
-      msedge: roots.map((root) => join5(root, "Microsoft", "Edge", "Application", "msedge.exe")),
-      chromium: roots.map((root) => join5(root, "Chromium", "Application", "chrome.exe"))
+      chrome: roots.map((root) => join6(root, "Google", "Chrome", "Application", "chrome.exe")),
+      msedge: roots.map((root) => join6(root, "Microsoft", "Edge", "Application", "msedge.exe")),
+      chromium: roots.map((root) => join6(root, "Chromium", "Application", "chrome.exe"))
     };
   }
   if (probe.platform === "darwin") {
-    const apps = ["/Applications", join5(probe.home, "Applications")];
+    const apps = ["/Applications", join6(probe.home, "Applications")];
     return {
-      chrome: apps.map((dir) => join5(dir, "Google Chrome.app", "Contents", "MacOS", "Google Chrome")),
-      msedge: apps.map((dir) => join5(dir, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")),
-      chromium: apps.map((dir) => join5(dir, "Chromium.app", "Contents", "MacOS", "Chromium"))
+      chrome: apps.map((dir) => join6(dir, "Google Chrome.app", "Contents", "MacOS", "Google Chrome")),
+      msedge: apps.map((dir) => join6(dir, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")),
+      chromium: apps.map((dir) => join6(dir, "Chromium.app", "Contents", "MacOS", "Chromium"))
     };
   }
   return {
@@ -1985,6 +2149,7 @@ function headfulIdentity(reported) {
   const { hints } = reported;
   return {
     userAgent: reported.userAgent.replace(/\bHeadlessChrome\//, "Chrome/"),
+    softwareGraphics: SOFTWARE_RENDERER.test(reported.graphics ?? ""),
     metadata: {
       platform: hints.platform ?? "",
       platformVersion: hints.platformVersion ?? "",
@@ -2002,20 +2167,20 @@ function headfulIdentity(reported) {
 }
 function identityPerBinary(options) {
   const known = /* @__PURE__ */ new Map();
-  const buildOf = (executablePath) => `${executablePath}\0${options.stamp(executablePath)}`;
-  const probe = async (executablePath) => {
-    const launched = await options.launch(executablePath);
+  const buildOf = (executablePath, launchArgs) => `${executablePath}\0${options.stamp(executablePath)}\0${launchArgs.join("\0")}`;
+  const probe = async (executablePath, launchArgs) => {
+    const launched = await options.launch(executablePath, launchArgs);
     try {
       return headfulIdentity(await launched.read());
     } finally {
       await withTimeout(launched.close(), options.closeTimeoutMs, "identity probe close").catch(() => launched.kill());
     }
   };
-  const of = (executablePath) => {
-    const key = buildOf(executablePath);
+  const of = (executablePath, launchArgs = []) => {
+    const key = buildOf(executablePath, launchArgs);
     let identity = known.get(key);
     if (!identity) {
-      identity = probe(executablePath);
+      identity = probe(executablePath, launchArgs);
       identity.catch(() => known.delete(key));
       known.set(key, identity);
     }
@@ -2023,11 +2188,15 @@ function identityPerBinary(options) {
   };
   return {
     of,
-    async confirm(executablePath, identity, runningVersion) {
+    known: (executablePath, launchArgs = []) => known.get(buildOf(executablePath, launchArgs)),
+    learn(executablePath, identity, launchArgs = []) {
+      known.set(buildOf(executablePath, launchArgs), Promise.resolve(identity));
+    },
+    async confirm(executablePath, identity, runningVersion, launchArgs = []) {
       if (identity.metadata.fullVersion === void 0 || identity.metadata.fullVersion === runningVersion) return identity;
-      const key = buildOf(executablePath);
+      const key = buildOf(executablePath, launchArgs);
       if (await known.get(key)?.catch(() => void 0) === identity) known.delete(key);
-      return await of(executablePath);
+      return await of(executablePath, launchArgs);
     }
   };
 }
@@ -2047,17 +2216,17 @@ function viewLaunchOptions(input) {
     userDataDir: input.userDataDir,
     timeout: input.timeout,
     defaultViewport: null,
-    args: [...input.args, ...input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : []],
-    ignoreDefaultArgs: ["--enable-automation"]
+    args: [...input.args, ...input.agent && input.headless ? AGENT_LAUNCH_ARGS : [], ...input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : []],
+    ignoreDefaultArgs: input.agent ? [...AGENT_IGNORED_DEFAULT_ARGS] : ["--enable-automation"]
   };
 }
 function turnOffPasswordSaving(userDataDir) {
-  const path = join5(userDataDir, "Default", "Preferences");
+  const path = join6(userDataDir, "Default", "Preferences");
   let prefs = {};
-  if (existsSync2(path)) {
+  if (existsSync3(path)) {
     let parsed;
     try {
-      parsed = JSON.parse(readFileSync3(path, "utf8"));
+      parsed = JSON.parse(readFileSync4(path, "utf8"));
     } catch {
       return;
     }
@@ -2066,7 +2235,7 @@ function turnOffPasswordSaving(userDataDir) {
   }
   const profile2 = prefs.profile && typeof prefs.profile === "object" ? prefs.profile : {};
   if (prefs.credentials_enable_service === false && profile2.password_manager_enabled === false) return;
-  mkdirSync4(join5(userDataDir, "Default"), { recursive: true, mode: 448 });
+  mkdirSync5(join6(userDataDir, "Default"), { recursive: true, mode: 448 });
   writeFileSync3(path, JSON.stringify({ ...prefs, credentials_enable_service: false, profile: { ...profile2, password_manager_enabled: false } }), { mode: 384 });
 }
 
@@ -2145,25 +2314,27 @@ async function attachRelay(options, release) {
   }
 }
 var PROBE_URL = "http://127.0.0.1/";
+async function readIdentity(browser) {
+  const page = (await browser.pages())[0] ?? await browser.newPage();
+  await page.setRequestInterception(true);
+  page.on("request", (request) => void request.respond({ status: 200, contentType: "text/html", body: "" }).catch(() => void 0));
+  await page.goto(PROBE_URL, { timeout: NAVIGATE_TIMEOUT_MS });
+  const graphics = await page.evaluate(GRAPHICS_SCRIPT);
+  return { userAgent: await browser.userAgent(), ...graphics === void 0 ? {} : { graphics }, hints: await page.evaluate(UA_HINTS_SCRIPT, [...UA_HINTS]) };
+}
 var binaryIdentities = identityPerBinary({
   stamp: (executablePath) => statSync2(executablePath).mtimeMs,
   closeTimeoutMs: CLOSE_TIMEOUT_MS,
-  async launch(executablePath) {
-    const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: CHROMIUM_ARGS });
+  async launch(executablePath, launchArgs) {
+    const probe = await puppeteer.launch({ executablePath, headless: true, timeout: LAUNCH_TIMEOUT_MS, args: [...CHROMIUM_ARGS, ...launchArgs] });
     return {
-      async read() {
-        const page = (await probe.pages())[0] ?? await probe.newPage();
-        await page.setRequestInterception(true);
-        page.on("request", (request) => void request.respond({ status: 200, contentType: "text/html", body: "" }).catch(() => void 0));
-        await page.goto(PROBE_URL, { timeout: NAVIGATE_TIMEOUT_MS });
-        return { userAgent: await probe.userAgent(), hints: await page.evaluate(UA_HINTS_SCRIPT, [...UA_HINTS]) };
-      },
+      read: () => readIdentity(probe),
       close: () => probe.close(),
       kill: () => void probe.process()?.kill("SIGKILL")
     };
   }
 });
-async function presentAsHeadful(browser, identity) {
+async function presentAsHeadful(browser, identity, shape) {
   const root = await browser.target().createCDPSession();
   const connection = root.connection();
   if (!connection) fail("launch_failed", "the browser's DevTools connection is gone");
@@ -2178,6 +2349,7 @@ async function presentAsHeadful(browser, identity) {
       if (!serviceWorker) watch2(child);
       const sent = [child.send("Emulation.setUserAgentOverride", override)];
       if (!serviceWorker) sent.push(child.send("Target.setAutoAttach", autoAttach));
+      if (shape) sent.push(...shapeTargetEarly(child, targetInfo.type, shape));
       if (waitingForDebugger) sent.push(child.send("Runtime.runIfWaitingForDebugger"));
       const adopted = Promise.allSettled(sent).then(async () => {
         if (serviceWorker) await session.send("Target.detachFromTarget", { sessionId }).catch(() => void 0);
@@ -2190,22 +2362,29 @@ async function presentAsHeadful(browser, identity) {
   await root.send("Target.setAutoAttach", autoAttach);
   await withTimeout(Promise.all(adopting), ACTION_TIMEOUT_MS, "identity for the open tabs");
 }
+function agentShape(identity, screen, viewport) {
+  return { screen, early: identity !== void 0, graphics: identity?.softwareGraphics ? maskedGraphics(identity.metadata.platform) : void 0, view: { viewport, scale: 1 } };
+}
 async function launchChromium(options, release) {
   const userDataDir = options.profileDirectory;
   const headless = options.headless ?? true;
+  const agent = options.agent === true;
+  const launchArgs = options.launchArgs ?? [];
   let browser;
   let resolved;
   let identity;
   try {
     resolved = await resolveBrowser(options.executablePath);
-    identity = headless ? await binaryIdentities.of(resolved.executablePath) : void 0;
-    mkdirSync5(userDataDir, { recursive: true, mode: 448 });
+    identity = headless ? await binaryIdentities.of(resolved.executablePath, launchArgs) : void 0;
+    mkdirSync6(userDataDir, { recursive: true, mode: 448 });
     turnOffPasswordSaving(userDataDir);
-    browser = await puppeteer.launch(viewLaunchOptions({
+    const driver = agent ? await agentPuppeteer() : puppeteer;
+    browser = await driver.launch(viewLaunchOptions({
       browser: resolved,
       userDataDir,
       headless,
-      args: CHROMIUM_ARGS,
+      args: [...CHROMIUM_ARGS, ...launchArgs],
+      agent,
       timeout: LAUNCH_TIMEOUT_MS,
       ...identity ? { userAgent: identity.userAgent } : {}
     }));
@@ -2215,16 +2394,19 @@ async function launchChromium(options, release) {
     throw err;
   }
   browser.process()?.once("exit", release);
+  let shape;
   try {
     if (identity) {
       const running = (await browser.version()).split("/").pop() ?? "";
-      await presentAsHeadful(browser, await binaryIdentities.confirm(resolved.executablePath, identity, running));
+      identity = await binaryIdentities.confirm(resolved.executablePath, identity, running, launchArgs);
     }
+    shape = agent ? agentShape(identity, headless, options.viewport) : void 0;
+    if (identity) await presentAsHeadful(browser, identity, shape);
     const pages = await browser.pages();
     if (pages.length === 0) pages.push(await browser.newPage());
     const tabs = [];
-    for (const page of pages) tabs.push(await prepareTab(page, options.viewport));
-    return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {} });
+    for (const page of pages) tabs.push(await prepareTab(page, options.viewport, 1, void 0, shape));
+    return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...shape ? { agent: shape } : {}, ...options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {} });
   } catch (err) {
     try {
       await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "failed-launch cleanup");
@@ -2245,22 +2427,51 @@ var READ_RETRY_DELAYS_MS = [25, 50, 100, 200, 400, 800];
 var READER_VIEWPORT = { width: 1280, height: 800 };
 var MAX_READ_FRAMES = 500;
 async function launchReader(options) {
+  const launchArgs = options.launchArgs ?? [];
+  if (options.presentAsChrome ?? READER_PRESENTS_AS_CHROME) return await launchShapedReader(options.executablePath ?? await puppeteer.executablePath("chrome"), launchArgs);
   const browser = await puppeteer.launch({
     headless: true,
     timeout: LAUNCH_TIMEOUT_MS,
     defaultViewport: READER_VIEWPORT,
     ...options.executablePath ? { executablePath: options.executablePath } : { channel: "chrome" },
-    args: CHROMIUM_ARGS,
+    args: [...CHROMIUM_ARGS, ...launchArgs],
     ignoreDefaultArgs: ["--disable-popup-blocking"]
   });
   return new PuppeteerReader(browser);
 }
+async function launchShapedReader(executablePath, launchArgs) {
+  const browser = await (await agentPuppeteer()).launch({
+    headless: true,
+    timeout: LAUNCH_TIMEOUT_MS,
+    defaultViewport: READER_VIEWPORT,
+    executablePath,
+    args: [...CHROMIUM_ARGS, ...launchArgs, ...AGENT_LAUNCH_ARGS],
+    // The reader also keeps Chrome's popup blocker ON (puppeteer turns it off by default): see AGENT_IGNORED_DEFAULT_ARGS.
+    ignoreDefaultArgs: [...AGENT_IGNORED_DEFAULT_ARGS]
+  });
+  try {
+    const running = (await browser.version()).split("/").pop() ?? "";
+    const known = binaryIdentities.known(executablePath, launchArgs);
+    let identity = known ? await known.catch(() => void 0) : void 0;
+    if (!identity) identity = headfulIdentity(await readIdentity(browser));
+    identity = await binaryIdentities.confirm(executablePath, identity, running, launchArgs);
+    binaryIdentities.learn(executablePath, identity, launchArgs);
+    const shape = agentShape(identity, true, READER_VIEWPORT);
+    await presentAsHeadful(browser, identity, shape);
+    return new PuppeteerReader(browser, shape);
+  } catch (err) {
+    await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "failed reader launch cleanup").catch(() => void 0);
+    throw err;
+  }
+}
 var PuppeteerReader = class {
   #browser;
+  #shape;
   /** Set once closing starts, or when a read could not dispose of its context. */
   #spent = false;
-  constructor(browser) {
+  constructor(browser, shape) {
     this.#browser = browser;
+    this.#shape = shape;
   }
   get usable() {
     return !this.#spent && this.#browser.connected;
@@ -2289,6 +2500,7 @@ var PuppeteerReader = class {
     });
     const page = await context.newPage();
     primary = page.target();
+    if (this.#shape?.screen) await fitAgentScreen(await page.createCDPSession(), READER_VIEWPORT, 1);
     let refusal = null;
     const isMainNavigation = (request) => {
       const frame = request.frame();
@@ -2315,7 +2527,7 @@ var PuppeteerReader = class {
       response = await page.goto(url, { waitUntil: "load", timeout: timeoutMs });
     } catch (err) {
       if (refusal) return { kind: "refused", ...refusal };
-      if (err instanceof TimeoutError) return { kind: "timeout" };
+      if (isTimeout(err)) return { kind: "timeout" };
       throw err;
     }
     const seen = await withTimeout(settledRead(page, limit), ACTION_TIMEOUT_MS, "read");
@@ -2341,7 +2553,7 @@ async function settledRead(page, limit) {
   }
   return await page.evaluate(READ_PAGE_SCRIPT, limit, MAX_READ_FRAMES);
 }
-async function prepareTab(page, viewport, scale = 1, early) {
+async function prepareTab(page, viewport, scale = 1, early, agent) {
   const { cdp, dialogs } = early ?? await guardPage(await page.createCDPSession());
   const tab = { id: "", documentId: "", page, target: page.target(), cdp, loading: false, navSeq: 0, dialogs, log: [] };
   cdp.on("Page.frameNavigated", ({ frame }) => {
@@ -2349,6 +2561,8 @@ async function prepareTab(page, viewport, scale = 1, early) {
   });
   try {
     await page.setViewport({ ...viewport, deviceScaleFactor: scale });
+    if (agent?.screen) await fitAgentScreen(cdp, viewport, scale);
+    if (agent && !agent.early) await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: LOOPBACK_EXCEPTIONS });
     await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     const { frameTree } = await cdp.send("Page.getFrameTree");
     tab.id = frameTree.frame.id;
@@ -2399,6 +2613,7 @@ var PuppeteerDriver = class {
   /** Device pixel ratio the page renders at, so the live view is crisp on HiDPI. */
   #scale = 1;
   #ownsBrowser;
+  #agent;
   #release;
   #onPageLoaded;
   #onTargetCreated;
@@ -2417,6 +2632,7 @@ var PuppeteerDriver = class {
     this.app = parts.app;
     this.#viewport = parts.viewport;
     this.#ownsBrowser = parts.ownsBrowser;
+    this.#agent = parts.agent;
     this.#release = parts.release;
     this.#onPageLoaded = parts.onPageLoaded;
     const first = parts.tabs[0];
@@ -2690,7 +2906,7 @@ var PuppeteerDriver = class {
         await sleep2(SETTLE_POLL_MS * 5);
       }
     } catch (error) {
-      if (error instanceof TimeoutError) return false;
+      if (isTimeout(error)) return false;
       throw error;
     }
   }
@@ -2991,7 +3207,7 @@ var PuppeteerDriver = class {
         await early.cdp.detach().catch(() => void 0);
         return void 0;
       }
-      const tab = await prepareTab(page, this.#viewport, this.#scale, early);
+      const tab = await prepareTab(page, this.#viewport, this.#scale, early, this.#agent);
       if (this.#closed || page.isClosed()) {
         await tab.cdp.detach().catch(() => void 0);
         return void 0;
@@ -3038,7 +3254,7 @@ var PuppeteerDriver = class {
     watchPageLog(tab.page, (type, text) => {
       tab.log.push({ n: ++this.#logSeq, type, text });
       if (tab.log.length > MAX_LOG_ENTRIES) tab.log.shift();
-    });
+    }, this.#agent ? tab.cdp : void 0);
     this.#loadFavicon(tab);
   }
   /** The active tab's page finished loading or changed route: the runtime may look at it. A tab behind the active one is not what is shown. */
@@ -3104,11 +3320,17 @@ var PuppeteerDriver = class {
     if (viewport.width === this.#viewport.width && viewport.height === this.#viewport.height && scale === this.#scale) return;
     this.#viewport = viewport;
     this.#scale = scale;
-    await Promise.all(this.#tabs.map((tab) => tab.page.setViewport({ ...viewport, deviceScaleFactor: scale }).catch(() => void 0)));
+    if (this.#agent) this.#agent.view = { viewport, scale };
+    await Promise.all(this.#tabs.map((tab) => this.#fit(tab, viewport, scale).catch(() => void 0)));
     if (this.#watchers.size > 0) {
       await this.#stopScreencast();
       await this.#restartScreencast();
     }
+  }
+  /** One tab's viewport, and for an agent browser the screen and window around it (agent-browser.ts). */
+  async #fit(tab, viewport, scale) {
+    await tab.page.setViewport({ ...viewport, deviceScaleFactor: scale });
+    if (this.#agent?.screen) await fitAgentScreen(tab.cdp, viewport, scale);
   }
   /** Cast the CURRENT active tab, stopping whatever was cast before, while anyone watches. Ordered. */
   #restartScreencast() {
@@ -3384,7 +3606,7 @@ function frameTag(frame) {
   } catch {
   }
   if (!("_id" in frame) || typeof frame._id !== "string") throw new Error("puppeteer-core frames carry no _id; frame refs cannot be tagged");
-  return createHash("sha256").update(`${frame._id}
+  return createHash2("sha256").update(`${frame._id}
 ${origin}`).digest("hex").slice(0, 8);
 }
 function frameChanged(selector3) {
@@ -3422,6 +3644,9 @@ async function frameOffset(frame) {
 function describe2(err) {
   return err instanceof Error ? err.message : String(err);
 }
+function isTimeout(err) {
+  return err instanceof Error && err.name === "TimeoutError";
+}
 
 // src/engines/refused.ts
 var REFUSED_ENGINES = {
@@ -3448,16 +3673,16 @@ function createEngineDriver(engine, options) {
 }
 
 // src/publish-approval.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { open as open2, readdir as readdir2, readFile as readFile2, unlink } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var BINDING_DOMAIN = "publish-approval/v1";
 var MAX_APPROVAL_MS = 24 * 60 * 6e4;
 var DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 var NONCE = /^[0-9a-f]{32}$/;
 var DIGEST = /^[0-9a-f]{64}$/;
 function bindingOf(binding) {
-  return createHash2("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
+  return createHash3("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
 }
 var UNTOUCHED = {
   park: "Nothing was typed or clicked.",
@@ -3483,7 +3708,7 @@ var PublishApprovals = class {
   async consume(binding, stage) {
     const found = await this.#survey(bindingOf(binding));
     for (const approval of found.live) {
-      const marker = join6(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
+      const marker = join7(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
       try {
         await (await open2(marker, "wx")).close();
       } catch (error) {
@@ -3520,7 +3745,7 @@ var PublishApprovals = class {
     const now = this.#now();
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
-      const approval = await readApproval(join6(this.#dir, name), name);
+      const approval = await readApproval(join7(this.#dir, name), name);
       if (approval === null || approval.binding !== binding) continue;
       if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) used.push(approval);
       else if (approval.expiresAt <= now) expired.push(approval);
@@ -3768,11 +3993,11 @@ async function resolveReason(host, resolve4) {
 
 // src/task.ts
 import { spawn } from "node:child_process";
-import { existsSync as existsSync3 } from "node:fs";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
+import { existsSync as existsSync4 } from "node:fs";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
 import { createInterface } from "node:readline";
-import { join as join7 } from "node:path";
-var PYTHON_DIR = fileURLToPath2(new URL("../python/", import.meta.url));
+import { join as join8 } from "node:path";
+var PYTHON_DIR = fileURLToPath3(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var EXIT_DRAIN_MS = 2e3;
 var STDERR_KEEP = 4096;
@@ -3783,8 +4008,8 @@ function jevKeyConfigured() {
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
-  const venv = process.platform === "win32" ? join7(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join7(PYTHON_DIR, ".venv", "bin", "python");
-  if (!existsSync3(venv)) {
+  const venv = process.platform === "win32" ? join8(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join8(PYTHON_DIR, ".venv", "bin", "python");
+  if (!existsSync4(venv)) {
     fail(
       "python_env_missing",
       `The jev task agent needs its pinned Python environment. Run: cd "${PYTHON_DIR}" && uv sync --python 3.12 (or set DIM_BROWSER_PYTHON to an interpreter that has it).`
@@ -4044,9 +4269,9 @@ var BrowserRuntime = class {
       throw new RangeError(`viewGoneMs must be a number of milliseconds above 0 and at most ${MAX_TIMER_MS}, got ${String(options.viewGoneMs)}`);
     }
     this.store = new ProfileStore(options.rootDir);
-    this.annotationFiles = new AnnotationFiles(join8(this.store.rootDir, "annotations"));
+    this.annotationFiles = new AnnotationFiles(join9(this.store.rootDir, "annotations"));
     this.credentialKey = new CredentialKey(this.store.rootDir);
-    this.publishApprovals = new PublishApprovals(join8(this.store.rootDir, "publish-approvals"));
+    this.publishApprovals = new PublishApprovals(join9(this.store.rootDir, "publish-approvals"));
     this.store.sweepEphemeral();
   }
   // -----------------------------------------------------------------------
@@ -4133,10 +4358,10 @@ var BrowserRuntime = class {
       const ephemeral = this.store.createEphemeral();
       directory = ephemeral.userDataDir;
       free = () => this.discard(ephemeral.dir);
-      annotations = new AnnotationFiles(join8(ephemeral.dir, "annotations"));
+      annotations = new AnnotationFiles(join9(ephemeral.dir, "annotations"));
     } else {
       const lock = this.store.acquireLock(profile2);
-      directory = engine === "chromium" ? this.store.userDataDir(profile2) : join8(this.store.profileDir(profile2), engine);
+      directory = engine === "chromium" ? this.store.userDataDir(profile2) : join9(this.store.profileDir(profile2), engine);
       free = () => this.store.releaseLock(lock);
     }
     let released = false;
@@ -4158,6 +4383,9 @@ var BrowserRuntime = class {
           if (entry !== void 0) this.schedulePageProbe(entry, this.options.probes?.settleMs ?? SETTLE_MS);
         } } : {},
         ...this.options.headless === void 0 ? {} : { headless: this.options.headless },
+        // A browser nobody keeps (no profile) is the agent's own to present as a browser bot checks let through; a saved profile, the View and the relay are the person's and stay as they are (doc 77 §12 decision 2).
+        ...profile2 === null && engine === "chromium" ? { agent: true } : {},
+        ...this.options.launchArgs ? { launchArgs: this.options.launchArgs } : {},
         ...this.options.executablePath ? { executablePath: this.options.executablePath } : {},
         ...this.options.relayUrl && engine === "chrome-relay" ? { relayUrl: this.options.relayUrl } : {}
       });
@@ -4757,7 +4985,7 @@ var BrowserRuntime = class {
       for (const profile2 of Object.keys(this.store.allConnections())) this.observedProfiles.add(profile2);
       try {
         this.profileWatcher = watch(this.store.profilesRoot, { persistent: false }, () => {
-          const gone = [...this.observedProfiles].filter((profile2) => !existsSync4(this.store.profileDir(profile2)));
+          const gone = [...this.observedProfiles].filter((profile2) => !existsSync5(this.store.profileDir(profile2)));
           if (gone.length === 0) return;
           for (const profile2 of gone) this.observedProfiles.delete(profile2);
           this.connectionsChanged();
@@ -5452,7 +5680,10 @@ ${host}`;
     }
     this.readerLaunching = true;
     try {
-      this.pageReader = await launchReader(this.options.executablePath ? { executablePath: this.options.executablePath } : {});
+      this.pageReader = await launchReader({
+        ...this.options.executablePath ? { executablePath: this.options.executablePath } : {},
+        ...this.options.launchArgs ? { launchArgs: this.options.launchArgs } : {}
+      });
     } finally {
       this.readerLaunching = false;
     }
@@ -6329,8 +6560,8 @@ async function createBrowserServer(options = {}) {
   const server2 = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
   const jev = jevKeyConfigured();
   const live = new LiveChannel(runtime);
-  const viewDir = options.viewDir ?? fileURLToPath3(new URL("./dist/", import.meta.url));
-  const html = await readFile3(join9(viewDir, "index.html"), "utf8");
+  const viewDir = options.viewDir ?? fileURLToPath4(new URL("./dist/", import.meta.url));
+  const html = await readFile3(join10(viewDir, "index.html"), "utf8");
   const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false, csp: VIEW_CSP } };
   registerAppResource(server2, "Browser", BROWSER_VIEW_URI, { _meta: metadata }, async () => ({
@@ -6341,7 +6572,7 @@ async function createBrowserServer(options = {}) {
     const extension = extname2(entry.name);
     const mimeType = MIME[extension];
     if (!mimeType) throw new Error(`Unsupported browser View asset: ${entry.name}`);
-    const path = join9(entry.parentPath, entry.name);
+    const path = join10(entry.parentPath, entry.name);
     const relative = path.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://browser/${relative}`;
     server2.registerResource(relative, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile3(path)).toString("base64") }] }));

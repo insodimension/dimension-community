@@ -14,8 +14,10 @@
  *    headless token taken out, and its own User-Agent client hints, both read
  *    from that binary (`headfulIdentity`), never made up.
  *  - `--enable-automation`, puppeteer's "controlled by automated test
- *    software" switch, is dropped. Nothing is added in its place: no
- *    `AutomationControlled` blink switch, no stealth, no fingerprint changes.
+ *    software" switch, is dropped. Nothing is added in its place for the View
+ *    or a saved profile: no `AutomationControlled` blink switch, no stealth,
+ *    no fingerprint changes (doc 77 §12 decision 2). A THROWAWAY agent
+ *    browser is the one exception, and `agent-browser.ts` is all of it.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,6 +26,7 @@ import { Browser as CachedBrowser, type BrowserPlatform, detectBrowserPlatform, 
 import type { LaunchOptions, Protocol } from "puppeteer-core";
 import type { BrowserApp } from "../contracts.js";
 import { fail } from "../store.js";
+import { AGENT_IGNORED_DEFAULT_ARGS, AGENT_LAUNCH_ARGS, SOFTWARE_RENDERER } from "./agent-browser.js";
 
 export interface ResolvedBrowser {
 	app: BrowserApp;
@@ -112,9 +115,11 @@ function compareVersions(a: string, b: string): number {
 /** The high-entropy User-Agent client hints a page may ask for; `headfulIdentity` replays the binary's own answers. */
 export const UA_HINTS = ["architecture", "bitness", "brands", "formFactors", "fullVersionList", "mobile", "model", "platform", "platformVersion", "uaFullVersion", "wow64"] as const;
 
-/** What the binary itself reports: its User-Agent and `navigator.userAgentData.getHighEntropyValues(UA_HINTS)`. */
+/** What the binary itself reports: its User-Agent, `navigator.userAgentData.getHighEntropyValues(UA_HINTS)` and its WebGL vendor and renderer. */
 export interface ReportedIdentity {
 	userAgent: string;
+	/** The unmasked WebGL vendor and renderer, as one string; undefined when the page has no WebGL. */
+	graphics?: string;
 	hints: {
 		brands?: Protocol.Emulation.UserAgentBrandVersion[];
 		fullVersionList?: Protocol.Emulation.UserAgentBrandVersion[];
@@ -134,6 +139,8 @@ export interface ReportedIdentity {
 export interface HeadfulIdentity {
 	userAgent: string;
 	metadata: Protocol.Emulation.UserAgentMetadata;
+	/** The binary renders WebGL in software here (no GPU): an agent browser masks it, see `SOFTWARE_GRAPHICS_MASK`. */
+	softwareGraphics: boolean;
 }
 
 /**
@@ -146,6 +153,7 @@ export function headfulIdentity(reported: ReportedIdentity): HeadfulIdentity {
 	const { hints } = reported;
 	return {
 		userAgent: reported.userAgent.replace(/\bHeadlessChrome\//, "Chrome/"),
+		softwareGraphics: SOFTWARE_RENDERER.test(reported.graphics ?? ""),
 		metadata: {
 			platform: hints.platform ?? "",
 			platformVersion: hints.platformVersion ?? "",
@@ -172,15 +180,19 @@ export interface IdentityProbe {
 
 /** The headful identity of each browser binary; see `identityPerBinary`. */
 export interface BinaryIdentities {
-	/** This binary's identity, probed once per build. */
-	of(executablePath: string): Promise<HeadfulIdentity>;
+	/** This binary's identity, probed once per build and set of `launchArgs` (which can change what it renders with). */
+	of(executablePath: string, launchArgs?: readonly string[]): Promise<HeadfulIdentity>;
 	/**
 	 * The identity for a browser of this binary that is already running and
 	 * reports `runningVersion` (`Browser.getVersion`'s product version, which
 	 * is the binary's `uaFullVersion`): `identity` when it names that version,
 	 * else probed again, once, with no further check.
 	 */
-	confirm(executablePath: string, identity: HeadfulIdentity, runningVersion: string): Promise<HeadfulIdentity>;
+	confirm(executablePath: string, identity: HeadfulIdentity, runningVersion: string, launchArgs?: readonly string[]): Promise<HeadfulIdentity>;
+	/** This binary's identity when it is already known or being probed; undefined otherwise. Starts nothing. */
+	known(executablePath: string, launchArgs?: readonly string[]): Promise<HeadfulIdentity> | undefined;
+	/** Record what a running browser of this binary reported about itself, so no probe is ever launched for it. */
+	learn(executablePath: string, identity: HeadfulIdentity, launchArgs?: readonly string[]): void;
 }
 
 /**
@@ -197,26 +209,26 @@ export interface BinaryIdentities {
  * probe that will not shut down cleanly must not fail the open it was read for.
  */
 export function identityPerBinary(options: {
-	launch(executablePath: string): Promise<IdentityProbe>;
+	launch(executablePath: string, launchArgs: readonly string[]): Promise<IdentityProbe>;
 	stamp(executablePath: string): number;
 	closeTimeoutMs: number;
 }): BinaryIdentities {
 	const known = new Map<string, Promise<HeadfulIdentity>>();
-	/** One build of one binary: the path and its stamp. */
-	const buildOf = (executablePath: string): string => `${executablePath}\0${options.stamp(executablePath)}`;
-	const probe = async (executablePath: string): Promise<HeadfulIdentity> => {
-		const launched = await options.launch(executablePath);
+	/** One build of one binary under one set of arguments: the path, its stamp and the arguments. */
+	const buildOf = (executablePath: string, launchArgs: readonly string[]): string => `${executablePath}\0${options.stamp(executablePath)}\0${launchArgs.join("\0")}`;
+	const probe = async (executablePath: string, launchArgs: readonly string[]): Promise<HeadfulIdentity> => {
+		const launched = await options.launch(executablePath, launchArgs);
 		try {
 			return headfulIdentity(await launched.read());
 		} finally {
 			await withTimeout(launched.close(), options.closeTimeoutMs, "identity probe close").catch(() => launched.kill());
 		}
 	};
-	const of = (executablePath: string): Promise<HeadfulIdentity> => {
-		const key = buildOf(executablePath);
+	const of = (executablePath: string, launchArgs: readonly string[] = []): Promise<HeadfulIdentity> => {
+		const key = buildOf(executablePath, launchArgs);
 		let identity = known.get(key);
 		if (!identity) {
-			identity = probe(executablePath);
+			identity = probe(executablePath, launchArgs);
 			identity.catch(() => known.delete(key));
 			known.set(key, identity);
 		}
@@ -224,12 +236,16 @@ export function identityPerBinary(options: {
 	};
 	return {
 		of,
-		async confirm(executablePath, identity, runningVersion) {
+		known: (executablePath, launchArgs = []) => known.get(buildOf(executablePath, launchArgs)),
+		learn(executablePath, identity, launchArgs = []) {
+			known.set(buildOf(executablePath, launchArgs), Promise.resolve(identity));
+		},
+		async confirm(executablePath, identity, runningVersion, launchArgs = []) {
 			if (identity.metadata.fullVersion === undefined || identity.metadata.fullVersion === runningVersion) return identity;
-			const key = buildOf(executablePath);
+			const key = buildOf(executablePath, launchArgs);
 			// Only the stale entry is dropped: a concurrent open may already have re-probed.
 			if ((await known.get(key)?.catch(() => undefined)) === identity) known.delete(key);
-			return await of(executablePath);
+			return await of(executablePath, launchArgs);
 		},
 	};
 }
@@ -259,6 +275,8 @@ export function viewLaunchOptions(input: {
 	headless: boolean;
 	args: readonly string[];
 	userAgent?: string;
+	/** A throwaway agent browser (see `agent-browser.ts`): headless, it launches with `navigator.webdriver` false. Never for the View or a saved profile. */
+	agent?: boolean;
 	timeout: number;
 }): LaunchOptions {
 	return {
@@ -267,8 +285,8 @@ export function viewLaunchOptions(input: {
 		userDataDir: input.userDataDir,
 		timeout: input.timeout,
 		defaultViewport: null,
-		args: [...input.args, ...(input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : [])],
-		ignoreDefaultArgs: ["--enable-automation"],
+		args: [...input.args, ...(input.agent && input.headless ? AGENT_LAUNCH_ARGS : []), ...(input.headless && input.userAgent ? [`--user-agent=${input.userAgent}`] : [])],
+		ignoreDefaultArgs: input.agent ? [...AGENT_IGNORED_DEFAULT_ARGS] : ["--enable-automation"],
 	};
 }
 

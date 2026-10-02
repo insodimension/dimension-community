@@ -132,7 +132,7 @@
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.6.5",
+			"version": "0.6.6",
 			"author": {
 				"name": "Dimension"
 			},

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import puppeteer, { type Browser } from "puppeteer-core";
+import { createDetectServer } from "../bench/sites/detect.mjs";
 import type { BrowserState } from "../src/contracts";
 import type { BrowserRuntime } from "../src/runtime";
 import {
@@ -184,6 +185,30 @@ describeWithChrome("chrome-relay", () => {
 			expect(fixture.hits("/worker-ran")).toBe(0);
 			const after = (await chrome.pages()).find((target) => target.id === userTab?.id);
 			expect(after).toMatchObject({ url: userUrl, title: "signup" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the human's Chrome is driven as itself: stock puppeteer (Runtime on, reads in the page's world) and no screen fitting, none of an agent browser's shaping",
+		async () => {
+			const detect = await createDetectServer();
+			try {
+				const userUrl = startFixture().url("/signup");
+				const chrome = await launchUserChrome(userUrl, "signup");
+				const { runtime, browserId } = await openRelay(chrome.relayUrl);
+				await perform(runtime, browserId, { kind: "navigate", url: detect.url });
+				const rows = await waitUntil("the page's rows", () => detect.rows(), (posted) => posted !== null);
+				await runtime.snapshot(browserId);
+				const seen = detect.lates();
+				await waitUntil("the late row after the driver acted", () => detect.lates(), (count) => count >= seen + 2);
+				const tells = new Set([...(rows ?? []), ...(detect.late() ? [detect.late()] : [])].filter((row) => row?.tell).map((row) => row?.id));
+				expect([...tells].filter((id) => ["cdp-runtime-enabled", "worker-runtime-enabled", "driver-main-world", "screen-default"].includes(id ?? "")).sort()).toEqual(
+					["cdp-runtime-enabled", "driver-main-world", "screen-default", "worker-runtime-enabled"],
+				);
+			} finally {
+				await detect.stop();
+			}
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

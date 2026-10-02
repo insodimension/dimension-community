@@ -5,6 +5,7 @@ import { build as buildServer } from "esbuild";
 import { build as buildView } from "vite";
 import react from "@vitejs/plugin-react";
 import { validateArtifactoryDecl } from "@dimension/sdk/artifactory";
+import { buildAgentPuppeteer } from "./agent-puppeteer.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // Agent Plugins 1.0.0 layout: the pack id is the portable `name`; the
@@ -27,6 +28,10 @@ await buildServer({
   packages: "external",
   sourcemap: false,
 });
+// The puppeteer-core a throwaway agent browser is driven with: the same library with patches/puppeteer-core-25.11.0-agent.patch
+// applied while it is bundled (no Runtime.enable, DOM work in the utility world, no script names). app/server.mjs imports it by
+// path at run time (src/engines/agent-puppeteer.ts); the View and saved profiles keep the stock puppeteer-core it imports by name.
+await buildAgentPuppeteer({ outfile: resolve(root, "app/puppeteer-agent.mjs") });
 await buildView({
   configFile: false,
   root: resolve(root, "app/view"),

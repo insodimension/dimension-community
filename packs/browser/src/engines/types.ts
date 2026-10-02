@@ -207,6 +207,13 @@ export interface EngineOptions {
   /** Undefined permits the engine's supported default; explicit values must be honored. */
   headless?: boolean;
   executablePath?: string;
+  /**
+   * A throwaway agent browser (no profile; see `agent-browser.ts`): presented as a browser a bot check lets through.
+   * Never set for a saved profile, the View or the relay: those stay the real, honest browser (doc 77 §12 decision 2).
+   */
+  agent?: boolean;
+  /** TESTS ONLY: extra Chrome arguments (a GPU-less Chrome, to see the software renderer masked). Not reachable from any tool input. */
+  launchArgs?: readonly string[];
   relayUrl?: string;
   /**
    * Release callback, NOT merely a disconnected notification. Call exactly when

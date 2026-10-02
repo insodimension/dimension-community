@@ -426,6 +426,13 @@ const UA_HINTS_SCRIPT = (names: string[]): Promise<ReportedIdentity["hints"]> =>
 	return uaNavigator.userAgentData.getHighEntropyValues(names);
 };
 
+/** The unmasked WebGL vendor and renderer, as one string; undefined when the page has no WebGL. */
+const GRAPHICS_SCRIPT = (): string | undefined => {
+	const gl = document.createElement("canvas").getContext("webgl");
+	const info = gl?.getExtension("WEBGL_debug_renderer_info");
+	return gl && info ? `${String(gl.getParameter(info.UNMASKED_VENDOR_WEBGL))} ${String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))}` : undefined;
+};
+
 /**
  * The value an eval step returned, as JSON text cut at `limit` (run with the result as `this`). Cycles, functions,
  * DOM nodes, errors and bigints are described, never thrown on.
@@ -474,5 +481,6 @@ export {
 	ELEMENT_LABEL_SCRIPT,
 	LINK_HREFS_SCRIPT,
 	UA_HINTS_SCRIPT,
+	GRAPHICS_SCRIPT,
 	EVAL_RESULT_SCRIPT,
 };

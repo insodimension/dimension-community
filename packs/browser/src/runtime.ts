@@ -206,6 +206,8 @@ export interface BrowserRuntimeOptions {
 	relayUrl?: string;
 	/** Explicit browser visibility; omitted uses each engine's supported default. */
 	headless?: boolean;
+	/** TESTS ONLY: extra Chrome arguments for every browser and the reader (a GPU-less Chrome, to see the software renderer masked). Not reachable from any tool input. */
+	launchArgs?: readonly string[];
 	/** How long a batch (`actMany`) may go on taking steps; defaults to ACT_BUDGET_MS. */
 	actBudgetMs?: number;
 	/** How long a throwaway browser a chat opened may go without a call (and with no View joined) before it is closed; defaults to THROWAWAY_IDLE_MS, at most 2147483647 (a timer's limit). */
@@ -531,6 +533,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				// The passive sign-in look: a saved profile on our own Chrome, never the relay's and never a throwaway.
 				...(profile !== null && engine === "chromium" ? { onPageLoaded: () => { if (entry !== undefined) this.schedulePageProbe(entry, this.options.probes?.settleMs ?? SETTLE_MS); } } : {}),
 				...(this.options.headless === undefined ? {} : { headless: this.options.headless }),
+				// A browser nobody keeps (no profile) is the agent's own to present as a browser bot checks let through; a saved profile, the View and the relay are the person's and stay as they are (doc 77 §12 decision 2).
+				...(profile === null && engine === "chromium" ? { agent: true } : {}),
+				...(this.options.launchArgs ? { launchArgs: this.options.launchArgs } : {}),
 				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
 				...(this.options.relayUrl && engine === "chrome-relay" ? { relayUrl: this.options.relayUrl } : {}),
 			});
@@ -1974,7 +1979,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		this.readerLaunching = true;
 		try {
-			this.pageReader = await launchReader(this.options.executablePath ? { executablePath: this.options.executablePath } : {});
+			this.pageReader = await launchReader({
+				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
+				...(this.options.launchArgs ? { launchArgs: this.options.launchArgs } : {}),
+			});
 		} finally {
 			this.readerLaunching = false;
 		}

@@ -10,4 +10,6 @@ dist/
 .dev/
 # The browser pack's Python task worker environment (`cd packs/browser/python && uv sync`).
 packs/browser/python/.venv/
+# The patched puppeteer-core a source run bundles on first use (packs/browser/src/engines/agent-puppeteer.ts).
+packs/browser/.cache/
 __pycache__/

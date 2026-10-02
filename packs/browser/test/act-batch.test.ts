@@ -115,7 +115,8 @@ describeWithChrome("actMany", () => {
 		async () => {
 			const fixture = startFixture();
 			const { runtime } = await createRuntime();
-			const { browserId } = await runtime.open({ viewport: VIEWPORT });
+			// A saved profile: its reads run in the page's own world, where the page's guard can throw into them (a throwaway's cannot, see below).
+			const { browserId } = await runtime.open({ profile: "guarded", viewport: VIEWPORT });
 			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/guarded") });
 			await perform(runtime, browserId, { kind: "type", selector: "#pass", text: "first" });
 
@@ -128,6 +129,26 @@ describeWithChrome("actMany", () => {
 			expect(result).toMatchObject({ status: "unknown", completed: 0 });
 			expect(result.steps.map((step) => step.status)).toEqual(["unknown"]);
 			expect(fixture.hits("/submit")).toBe(0);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"on a throwaway browser the driver's reads run in an isolated world: a page's own override of a DOM method never fires and cannot stop a step",
+		async () => {
+			const fixture = startFixture();
+			const { runtime } = await createRuntime();
+			const { browserId } = await runtime.open({ viewport: VIEWPORT });
+			await perform(runtime, browserId, { kind: "navigate", url: fixture.url("/guarded") });
+			await perform(runtime, browserId, { kind: "type", selector: "#pass", text: "first" });
+
+			const result = await runtime.actMany(browserId, [
+				{ kind: "type", selector: "#pass", text: "second" },
+				{ kind: "click", selector: "#go" },
+			]);
+
+			expect(result).toMatchObject({ status: "completed", completed: 2 });
+			expect(fixture.hits("/submit")).toBe(1);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

@@ -86,6 +86,24 @@ describe("viewLaunchOptions", () => {
 		});
 	}
 
+	describe("a throwaway agent browser", () => {
+		test("headless: webdriver is off from the browser itself, and puppeteer's page-visible defaults (popup blocker off, IPC flooding protection off) stay out", () => {
+			const options = viewLaunchOptions({ browser, userDataDir: "profile", headless: true, args: [], agent: true, timeout: 1 });
+			expect(options.args).toContain("--disable-blink-features=AutomationControlled");
+			expect(options.ignoreDefaultArgs).toEqual(expect.arrayContaining(["--enable-automation", "--disable-popup-blocking", "--disable-ipc-flooding-protection", "--allow-pre-commit-input"]));
+		});
+
+		test("with a window: no automation-hiding switch, because Chrome pins an 'unsupported command-line flag' bar to every window it opens with one", () => {
+			const options = viewLaunchOptions({ browser, userDataDir: "profile", headless: false, args: [], agent: true, timeout: 1 });
+			expect(options.args?.some((arg) => arg.includes("AutomationControlled"))).toBe(false);
+		});
+
+		test("the View and a saved profile keep puppeteer's popup blocker setting and IPC protection default", () => {
+			const options = viewLaunchOptions({ browser, userDataDir: "profile", headless: true, args: [], timeout: 1 });
+			expect(options.ignoreDefaultArgs).toEqual(["--enable-automation"]);
+		});
+	});
+
 	test("headless launches with the given headful User-Agent", () => {
 		const options = viewLaunchOptions({ browser, userDataDir: "profile", headless: true, args: [], userAgent: ua, timeout: 1 });
 		expect(options.args).toContain(`--user-agent=${ua}`);
@@ -186,6 +204,19 @@ describe("identityPerBinary", () => {
 		binary.version = 156;
 		const once = await identities.confirm("chromium", fresh, "157.0.1.2");
 		expect({ full: once.metadata.fullVersion, launches: binary.launches }).toEqual({ full: "156.0.1.2", launches: 3 });
+	});
+
+	test("an identity read from a browser that is already running is learned: no probe is launched for it, and nothing stands in for a binary never read", async () => {
+		const { binary, identities, identityOf } = fakeBinary();
+		expect(identities.known("chrome")).toBeUndefined();
+		const learned = headfulIdentity({ userAgent: "Mozilla/5.0 HeadlessChrome/154.0.0.0", hints: { uaFullVersion: "154.0.9.9" } });
+		identities.learn("chrome", learned);
+		expect(await identities.known("chrome")).toBe(learned);
+		expect(await identityOf("chrome")).toBe(learned);
+		expect(binary.launches).toBe(0);
+		// Another build of the binary was not read.
+		binary.mtime = 2;
+		expect(identities.known("chrome")).toBeUndefined();
 	});
 
 	test("a failed probe is retired and not cached: the next open probes again", async () => {
