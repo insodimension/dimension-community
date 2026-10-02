@@ -151,9 +151,27 @@ describe("the budget and cancellation", () => {
     const started = Date.now();
     const failed = await failure('console.log("started"); await new Promise(() => {});', { timeoutMs: 60 });
     expect(Date.now() - started).toBeLessThan(2_000);
-    expect(failed.error).toMatchObject({ name: "TimeoutError", message: "Command timed out after 1 seconds.", isAbort: false });
+    // OMP kills its worker at the budget and says so (eval/js/executor.ts:70-78); here the host is asked to (recoverTab) and the text is OMP's whole annotation.
+    expect(failed.error).toMatchObject({
+      name: "CellTimeoutError",
+      message: "Command timed out after 1 seconds. The JS worker was force-killed and its VM state was reset; variables from earlier cells are gone.",
+      isAbort: false,
+      budget: true,
+      recoverTab: true,
+    });
     expect(failed.partial.displays).toEqual([{ type: "text", text: "started" }]);
-    expect(new CellTimeoutError(30_000).message).toBe("Command timed out after 30 seconds.");
+    expect(new CellTimeoutError(30_000).message).toStartWith("Command timed out after 30 seconds. The JS worker was force-killed");
+  });
+
+  test("only the budget asks for a new worker: a cancel, a thrown error and a timeout the page raised do not", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    expect((await failure("1", { signal: controller.signal })).error.recoverTab).toBeUndefined();
+    expect((await failure("throw new Error('x')")).error.recoverTab).toBeUndefined();
+    const pageTimeout = await failure("const e = new Error('Waiting for selector failed'); e.name = 'TimeoutError'; throw e");
+    expect(pageTimeout.error).toMatchObject({ name: "TimeoutError", isAbort: false });
+    expect(pageTimeout.error.budget).toBeUndefined();
+    expect(pageTimeout.error.recoverTab).toBeUndefined();
   });
 
   test("a cancelled run fails as an abort, and the operation it was waiting on is cancelled with it", async () => {

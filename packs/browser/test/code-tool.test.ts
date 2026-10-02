@@ -152,13 +152,22 @@ describe("what a failed cell tells the model", () => {
   });
 
   test("a budget that ran out and a cancellation are their message alone", async () => {
-    const budget = await connect(fakeHost(() => failedWith({ name: "TimeoutError", message: "Command timed out after 30 seconds.", isAbort: false, partial })));
+    const message = "Command timed out after 30 seconds. The JS worker was force-killed and its VM state was reset; variables from earlier cells are gone.";
+    const budget = await connect(fakeHost(() => failedWith({ name: "CellTimeoutError", message, isAbort: false, budget: true, recoverTab: true, partial })));
     const timedOut = await budget.call("await new Promise(() => {})");
     expect(timedOut.isError).toBe(true);
-    expect(textOf(timedOut)).toBe("before\nCommand timed out after 30 seconds.");
+    expect(textOf(timedOut)).toBe(`before\n${message}`);
 
     const cancel = await connect(fakeHost(() => failedWith({ name: "ToolAbortError", message: "Operation aborted", isAbort: true })));
     expect(textOf(await cancel.call("1"))).toBe("Operation aborted");
+  });
+
+  test("a TimeoutError the page raised is an ordinary failure: its name and the lines of the model's own code say which wait it was", async () => {
+    const stack = "TimeoutError: Waiting for selector `#go` failed\n    at <anonymous> (browser-cell-r1.js:4:11)\n    at <anonymous> (file:///pack/src/code/worker/tab-ops.ts:90:3)";
+    const { call } = await connect(fakeHost(() => failedWith({ name: "TimeoutError", message: "Waiting for selector `#go` failed", stack, isAbort: false })));
+    const reply = await call("await browser.tab().waitForSelector('#go')");
+    expect(reply.isError).toBe(true);
+    expect(textOf(reply)).toBe("TimeoutError: Waiting for selector `#go` failed\n    at <anonymous> (browser-cell-r1.js:4:11)");
   });
 
   test("a refusal the host throws (a cell still running, an unknown run) reaches the model as it was written", async () => {

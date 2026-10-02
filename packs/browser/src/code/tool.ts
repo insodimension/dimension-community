@@ -148,7 +148,7 @@ function cellFrames(stack: string | undefined): string[] {
  */
 function failed(error: RunError, spill: OutputSpill): CallToolResult {
   const { images, text: body } = partsOf(error.partial?.displays ?? []);
-  const own = error.isAbort || error.name === "TimeoutError" ? error.message : [`${error.name}: ${error.message}`, ...cellFrames(error.stack)].join("\n");
+  const own = error.isAbort || error.budget === true ? error.message : [`${error.name}: ${error.message}`, ...cellFrames(error.stack)].join("\n");
   const text = capInline(body.length > 0 ? `${body}\n${own}` : own, spill);
   return { isError: true, content: [...images, { type: "text", text }] };
 }

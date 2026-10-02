@@ -249,15 +249,20 @@ describe("cancellation, budget and shutdown", () => {
     expect(textOf(await run('const tab = await browser.open({ name: "ok" });'))).toBe("fine");
   });
 
-  test("a cell that outlives its budget fails with OMP's timeout text, keeping what it printed, and the worker stays usable", async () => {
+  test("a cell that outlives its budget fails with OMP's whole timeout text, keeping what it printed, and asks the host for a new worker", async () => {
     const { run } = await startWorker(() => "never");
     const timed = await run('console.log("started"); await browser.open({ name: "x" })', 40);
     expect(timed.ok).toBe(false);
     if (!timed.ok) {
-      expect(timed.error).toMatchObject({ name: "TimeoutError", message: "Command timed out after 1 seconds.", isAbort: false });
+      expect(timed.error).toMatchObject({
+        name: "CellTimeoutError",
+        message: "Command timed out after 1 seconds. The JS worker was force-killed and its VM state was reset; variables from earlier cells are gone.",
+        isAbort: false,
+        budget: true,
+        recoverTab: true,
+      });
       expect(timed.error.partial?.displays).toEqual([{ type: "text", text: "started" }]);
     }
-    expect(textOf(await run("1 + 1"))).toBe("2");
   });
 
   test("a browser the host ended is dropped from the tab realm", async () => {

@@ -26,11 +26,17 @@ export interface CellRunOptions {
   onText?: (chunk: string) => void;
 }
 
-/** The cell's budget ran out. Not a cancellation: the model is told, with the output it had by then. */
+/**
+ * The cell's budget ran out. Not a cancellation: the model is told, with the output it had by then. OMP's text, as OMP says it (eval/js/executor.ts:70-78): the worker is force-killed at the
+ * budget because that is the only way to stop user code, and the state is gone. Here the host does the killing, on `recoverTab`; this realm only asks for it.
+ */
 export class CellTimeoutError extends Error {
+  readonly recoverTab = true;
+  readonly budget = true;
+
   constructor(timeoutMs: number) {
-    super(`Command timed out after ${Math.max(1, Math.round(timeoutMs / 1000))} seconds.`);
-    this.name = "TimeoutError";
+    super(`Command timed out after ${Math.max(1, Math.round(timeoutMs / 1000))} seconds. The JS worker was force-killed and its VM state was reset; variables from earlier cells are gone.`);
+    this.name = "CellTimeoutError";
   }
 }
 
@@ -87,6 +93,7 @@ export function failureOf(error: unknown): RunError {
       ...(error.stack === undefined ? {} : { stack: error.stack }),
       isAbort: error.name === "AbortError" || error.name === "ToolAbortError",
       ...(recoverTab ? { recoverTab } : {}),
+      ...(error instanceof CellTimeoutError ? { budget: true } : {}),
     };
   }
   return { name: "Error", message: String(error), isAbort: false };

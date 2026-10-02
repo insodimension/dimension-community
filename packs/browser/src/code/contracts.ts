@@ -95,7 +95,21 @@ export type WorkerToHost =
   | { t: "closed" };
 export interface RunResult { displays: Array<{ type: "text"; text: string } | ImageBlock>; returnValue?: unknown; screenshots: ScreenshotResult[] }
 /** `partial`: what the cell had shown before it failed (its text and images), so a screenshot taken before the step that threw is not lost. */
-export interface RunError { name: string; message: string; stack?: string; isAbort: boolean; recoverTab?: boolean; partial?: RunResult }
+export interface RunError {
+  name: string;
+  message: string;
+  stack?: string;
+  isAbort: boolean;
+  /**
+   * The host MUST terminate this worker thread and start a new one (the pages stay; the new worker re-adopts them) before the next run: the cell that failed may still be running
+   * (a synchronous loop cannot be stopped from inside the thread, and raw Puppeteer calls in a timed-out `tab.run` never see the cell's signal), and its variables are to be reset.
+   * The cell realm sets it when the cell's budget ran out (OMP force-kills its JS worker the same way, eval/js/executor.ts:70-78); the tab realm may set it too.
+   */
+  recoverTab?: boolean;
+  /** The cell's own budget ran out (`CellTimeoutError`). Its `message` is already OMP's whole annotation, reset sentence included: the host must not add its own. A `TimeoutError` the page raised never carries this. */
+  budget?: boolean;
+  partial?: RunResult;
+}
 /** tab-protocol.ts:139-143 */
 export interface Transport<In, Out> { send(m: Out): void; onMessage(h: (m: In) => void): () => void; close(): void }
 
