@@ -143,7 +143,7 @@ class BrowserTabRealm implements TabRealm {
     for (const browserId of [...this.#connections.keys()]) await this.#disconnectIfUnused(browserId);
   }
 
-  run(r: Parameters<TabRealm["run"]>[0]): Promise<RunResult> {
+  async run(r: Parameters<TabRealm["run"]>[0]): Promise<RunResult> {
     const session = this.#alive(r.name);
     const hasCode = r.code !== undefined && r.code.trim().length > 0;
     const hasFn = r.fn !== undefined && r.fn.trim().length > 0;
@@ -152,7 +152,7 @@ class BrowserTabRealm implements TabRealm {
     return this.#execute(session, code, r.timeoutMs, r.signal);
   }
 
-  call(r: Parameters<TabRealm["call"]>[0]): Promise<RunResult> {
+  async call(r: Parameters<TabRealm["call"]>[0]): Promise<RunResult> {
     const session = this.#alive(r.name);
     return this.#execute(session, renderTabCall(r.chain as readonly TabCallStep[]), r.timeoutMs, r.signal);
   }
