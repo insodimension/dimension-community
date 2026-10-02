@@ -66,7 +66,8 @@ import {
 import { watchPageLog } from "./page-log.js";
 import { type AdmittedInput, inputCall } from "../input.js";
 import { type HeadfulIdentity, identityPerBinary, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
-import type { EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
+import type { TabRef } from "../code/contracts.js";
+import type { DialogPolicy, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 /** Child frames a snapshot lists controls for, depth first. */
@@ -504,6 +505,8 @@ interface Tab {
 interface DialogLog {
 	entries: Array<HandledDialog & { seq: number }>;
 	seq: number;
+	/** How this tab answers its dialogs when its opener asked for one way (`setDialogPolicy`); unset: alert and beforeunload accepted, confirm and prompt dismissed. */
+	policy?: DialogPolicy;
 }
 
 /** A session that already answers its page's dialogs. */
@@ -569,7 +572,7 @@ function answerDialogs(cdp: CDPSession, log: DialogLog): void {
 	let open: { type: DialogType; message: string } | undefined;
 	cdp.on("Page.javascriptDialogOpening", (event) => {
 		open = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
-		const accept = event.type === "alert" || event.type === "beforeunload";
+		const accept = log.policy === undefined ? event.type === "alert" || event.type === "beforeunload" : log.policy === "accept";
 		void cdp.send("Page.handleJavaScriptDialog", { accept }).catch(() => undefined);
 	});
 	cdp.on("Page.javascriptDialogClosed", (event) => {
@@ -603,6 +606,15 @@ interface DriverParts {
 /** An action that did nothing beyond itself. */
 const NONE: PerformOutcome = Object.freeze({});
 
+/** The id a code worker adopts the tab by: the page's own target id (the main frame's id is the same string, which is why `Tab.id` can stand in). */
+function targetIdOf(tab: Tab): string {
+	const raw = tab.target as unknown as { _targetId?: unknown };
+	return typeof raw._targetId === "string" ? raw._targetId : tab.id;
+}
+
+/** How long a freeze or thaw gets: a page that will not change lifecycle state must not hold a cell up. */
+const FREEZE_TIMEOUT_MS = 3_000;
+
 class PuppeteerDriver implements EngineDriver {
 	readonly app: BrowserApp | null;
 	readonly #browser: Browser;
@@ -629,6 +641,8 @@ class PuppeteerDriver implements EngineDriver {
 	#logSeq = 0;
 	#closed = false;
 	#closing: Promise<void> | undefined;
+	/** The launch tab while it is still blank and has not been handed to a code worker (`openTab` with `reuseBlank`); then undefined. */
+	#fresh: Tab | undefined;
 
 	constructor(parts: DriverParts) {
 		this.#browser = parts.browser;
@@ -640,6 +654,7 @@ class PuppeteerDriver implements EngineDriver {
 		const first = parts.tabs[0];
 		if (!first) fail("no_tab", "the browser has no page tab");
 		this.#active = first;
+		if (parts.tabs.length === 1) this.#fresh = first;
 		for (const tab of parts.tabs) {
 			this.#tabs.push(tab);
 			this.#adopting.set(tab.target, Promise.resolve(tab));
@@ -1148,16 +1163,85 @@ class PuppeteerDriver implements EngineDriver {
 	// Tabs
 	// -----------------------------------------------------------------------
 
-	async openTab(url?: string): Promise<void> {
+	async openTab(url?: string, options: OpenTabOptions = {}): Promise<TabRef> {
 		this.#assertOpen();
-		const page = await this.#browser.newPage();
-		const tab = await this.#adopt(page.target(), true);
-		if (!tab) fail("tab_closed", "the new tab closed before it could be shown");
-		if (url === undefined) return;
-		await navigating(tab, page.goto(url, { waitUntil: "domcontentloaded", timeout: NAVIGATE_TIMEOUT_MS }));
+		const fresh = options.reuseBlank === true ? this.#fresh : undefined;
+		let tab: Tab;
+		if (fresh !== undefined && !fresh.page.isClosed() && fresh.page.url() === "about:blank") {
+			this.#fresh = undefined;
+			tab = fresh;
+			await this.#activate(tab);
+		} else {
+			const page = await this.#browser.newPage();
+			const adopted = await this.#adopt(page.target(), true);
+			if (!adopted) fail("tab_closed", "the new tab closed before it could be shown");
+			tab = adopted;
+		}
+		if (options.dialogs !== undefined) tab.dialogs.policy = options.dialogs;
+		if (url === undefined) return await this.#refOf(tab);
+		await this.#goto(tab, url, options);
 		// A tab opened at a URL starts there: the blank page it was born on is
 		// not a place "back" should lead to.
 		await tab.cdp.send("Page.resetNavigationHistory").catch(() => undefined);
+		return await this.#refOf(tab);
+	}
+
+	async tabs(): Promise<TabRef[]> {
+		this.#assertOpen();
+		return await Promise.all(this.#tabs.map((tab) => this.#refOf(tab)));
+	}
+
+	async navigateTab(tabId: string, url: string, options: NavigateTabOptions): Promise<TabRef> {
+		this.#assertOpen();
+		const tab = this.#tabById(tabId);
+		await this.#goto(tab, url, options);
+		return await this.#refOf(tab);
+	}
+
+	setDialogPolicy(tabId: string, policy: DialogPolicy | undefined): void {
+		this.#assertOpen();
+		const dialogs = this.#tabById(tabId).dialogs;
+		if (policy === undefined) delete dialogs.policy;
+		else dialogs.policy = policy;
+	}
+
+	async setFrozen(tabId: string, frozen: boolean): Promise<void> {
+		this.#assertOpen();
+		const tab = this.#tabById(tabId);
+		await withTimeout(tab.cdp.send("Page.setWebLifecycleState", { state: frozen ? "frozen" : "active" }), FREEZE_TIMEOUT_MS, frozen ? "freezing a tab" : "thawing a tab");
+	}
+
+	/**
+	 * Load `url` in `tab` and wait for `options.waitUntil` (default domcontentloaded, the pack's own tab opens). A page that has not loaded when the
+	 * budget ends or `options.signal` aborts is STOPPED rather than left loading, and the call rejects (the signal's reason when it was the signal).
+	 */
+	async #goto(tab: Tab, url: string, options: NavigateTabOptions): Promise<void> {
+		const { waitUntil = "domcontentloaded", timeoutMs = NAVIGATE_TIMEOUT_MS, signal } = options;
+		signal?.throwIfAborted();
+		const navigation = navigating(tab, tab.page.goto(url, { waitUntil, timeout: timeoutMs }));
+		if (signal === undefined) {
+			await navigation;
+			return;
+		}
+		const { promise: aborted, reject } = Promise.withResolvers<never>();
+		const onAbort = (): void => reject(signal.reason);
+		signal.addEventListener("abort", onAbort, { once: true });
+		try {
+			await Promise.race([navigation, aborted]);
+		} catch (error) {
+			navigation.catch(() => undefined);
+			await tab.cdp.send("Page.stopLoading").catch(() => undefined);
+			throw error;
+		} finally {
+			signal.removeEventListener("abort", onAbort);
+		}
+	}
+
+	/** Where the tab is, from the browser process alone (a renderer call stalls while a navigation commits). */
+	async #refOf(tab: Tab): Promise<TabRef> {
+		const history = await tab.cdp.send("Page.getNavigationHistory").catch(() => null);
+		const entry = history?.entries[history.currentIndex];
+		return { tabId: tab.id, targetId: targetIdOf(tab), url: entry?.url ?? tab.page.url(), title: entry?.title ?? "", active: tab === this.#active };
 	}
 
 	async activateTab(tabId: string): Promise<void> {
