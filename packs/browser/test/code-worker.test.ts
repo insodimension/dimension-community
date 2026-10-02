@@ -16,7 +16,7 @@ const finished = (text: string, returnValue?: unknown): RunResult => ({ displays
 class FakeRealm implements TabRealm {
   readonly held = new Map<string, TabHandle>();
   readonly released: string[] = [];
-  readonly ended: string[] = [];
+  readonly ended: Array<[string, string | undefined]> = [];
   readonly ran: Array<Parameters<TabRealm["run"]>[0]> = [];
   readonly called: Array<Parameters<TabRealm["call"]>[0]> = [];
   disposed = false;
@@ -39,8 +39,8 @@ class FakeRealm implements TabRealm {
   names(): string[] {
     return [...this.held.keys()];
   }
-  async end(browserId: string): Promise<void> {
-    this.ended.push(browserId);
+  async end(browserId: string, reason?: string): Promise<void> {
+    this.ended.push([browserId, reason]);
   }
   async dispose(): Promise<void> {
     this.disposed = true;
@@ -110,7 +110,8 @@ afterEach(() => {
 });
 
 /** A started worker: `init` sent, `ready` seen. `host` answers each `bridge` message. */
-async function startWorker(host: (request: BridgeRequest) => { ok: true; text: string; attach?: TabHandle } | { ok: false; name: string; message: string } | "never") {
+interface HostAnswer { ok: true; text: string; attach?: TabHandle; name?: string; value?: unknown }
+async function startWorker(host: (request: BridgeRequest) => HostAnswer | { ok: false; name: string; message: string } | "never") {
   const link = boundary();
   links.push(link);
   const realm = new FakeRealm();
@@ -125,7 +126,7 @@ async function startWorker(host: (request: BridgeRequest) => { ok: true; text: s
       answered.add(request.id);
       const answer = host(request.request);
       if (answer === "never") continue;
-      if (answer.ok) link.send({ t: "bridge-reply", id: request.id, ok: true, value: { text: answer.text, details: { action: request.request.action, name: request.request.name ?? "main" }, ...(answer.attach ? { attach: answer.attach } : {}) } });
+      if (answer.ok) link.send({ t: "bridge-reply", id: request.id, ok: true, value: { text: answer.text, details: { action: request.request.action, name: answer.name ?? request.request.name ?? "main", ...(answer.value === undefined ? {} : { value: answer.value }) }, ...(answer.attach ? { attach: answer.attach } : {}) } });
       else link.send({ t: "bridge-reply", id: request.id, ok: false, error: { name: answer.name, message: answer.message, isAbort: false } });
     }
   };
@@ -183,6 +184,30 @@ describe("open and close go to the host; run and call never leave the worker", (
     const { run } = await startWorker(() => ({ ok: true, text: "" }));
     await run("const kept = 41");
     expect(textOf(await run("kept + 1"))).toBe("42");
+  });
+});
+
+describe("tabs and active are answered by the host, like open and close", () => {
+  test("tabs hands the host's list to the cell and crosses once; active adopts the tab the host names and drives it in the worker", async () => {
+    const listed = [{ name: "main", id: "t1", url: "https://a.test/", title: "A", active: false }, { id: "t2", url: "https://b.test/", title: "B", active: true }];
+    const { link, realm, run } = await startWorker(request => {
+      if (request.action === "tabs") return { ok: true, text: "", value: listed };
+      return { ok: true, text: "", name: "tab-t2xxxx", attach: handle("tab-t2xxxx") };
+    });
+    const result = await run(`const tabs = await browser.tabs(); const t = browser.active(); await t.click(1); JSON.stringify(tabs)`);
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(textOf(result).replace(/^display\[1\]:\n/, ""))).toEqual(listed);
+    expect(bridges(link).map(message => message.request.action)).toEqual(["tabs", "active"]);
+    // The tab the human was looking at is adopted under the name the host gave it, and the click never left the worker.
+    expect(realm.held.get("tab-t2xxxx")).toEqual(handle("tab-t2xxxx"));
+    expect(realm.called.map(call => [call.name, call.chain.map(step => step.method)])).toEqual([["tab-t2xxxx", ["click"]]]);
+  });
+
+  test("an active answer with no tab name is an error the cell can read, not a call on a tab called main", async () => {
+    const { realm, run } = await startWorker(() => ({ ok: true, text: "", name: "" }));
+    const result = await run('let seen; try { await browser.active().url(); } catch (error) { seen = error.message; } seen');
+    expect(textOf(result)).toContain("no active tab");
+    expect(realm.called).toEqual([]);
   });
 });
 
@@ -267,9 +292,10 @@ describe("cancellation, budget and shutdown", () => {
 
   test("a browser the host ended is dropped from the tab realm", async () => {
     const { link, realm } = await startWorker(() => ({ ok: true, text: "" }));
-    link.send({ t: "end", browserId: "b9", why: "taken-over" });
+    link.send({ t: "end", browserId: "b9", why: "retired", reason: "idle for 30 minutes" });
     await Promise.resolve();
-    expect(realm.ended).toEqual(["b9"]);
+    // The reason travels with it, so the realm can say why a later call on its pages fails.
+    expect(realm.ended).toEqual([["b9", "idle for 30 minutes"]]);
   });
 
   test("close ends every run, disposes the realm, says closed and closes the transport", async () => {
@@ -282,6 +308,38 @@ describe("cancellation, budget and shutdown", () => {
     await link.next((m): m is Extract<WorkerToHost, { t: "closed" }> => m.t === "closed");
     expect(realm.disposed).toBe(true);
     expect(link.closed).toBe(true);
+  });
+
+  test("a rebuilt worker re-adopts the session's tabs before it says ready", async () => {
+    const link = boundary();
+    links.push(link);
+    const realm = new FakeRealm();
+    const order: string[] = [];
+    const adopt = realm.adopt.bind(realm);
+    realm.adopt = async (name, h) => {
+      order.push(`adopt ${name}`);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      return adopt(name, h);
+    };
+    new WorkerCore({ transport: link.worker, createRealm: () => realm });
+    const ready = link.next((m): m is Extract<WorkerToHost, { t: "ready" }> => m.t === "ready").then(() => order.push("ready"));
+    link.send({ t: "init", session: "s1", env: {}, tabs: [{ name: "main", handle: handle("main") }, { name: "docs", handle: handle("docs") }] });
+    await ready;
+    expect(order).toEqual(["adopt main", "adopt docs", "ready"]);
+    expect(realm.names()).toEqual(["main", "docs"]);
+  });
+
+  test("a tab that cannot be re-adopted is logged and does not stop the worker from starting", async () => {
+    const link = boundary();
+    links.push(link);
+    const realm = new FakeRealm();
+    realm.adopt = async name => {
+      if (name === "gone") throw new Error("target closed");
+    };
+    new WorkerCore({ transport: link.worker, createRealm: () => realm });
+    link.send({ t: "init", session: "s1", env: {}, tabs: [{ name: "gone", handle: handle("gone") }] });
+    await link.next((m): m is Extract<WorkerToHost, { t: "ready" }> => m.t === "ready");
+    expect(link.fromWorker.find(m => m.t === "log")).toMatchObject({ level: "warn", msg: expect.stringContaining('"gone"') });
   });
 
   test("a run before init is refused, not run", async () => {

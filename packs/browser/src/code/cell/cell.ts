@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { BridgeResponse, CodeEvaluator, EvaluatorHooks, RunError, RunResult, ScreenshotResult } from "../contracts.js";
 import { ToolAbortError, ToolError, throwIfAborted } from "../errors.js";
 import facadeSource from "../facade/prelude.js.txt";
+import extensionsSource from "../facade/pack-extensions.js.txt";
 import { CellOutput, displayValue } from "./display.js";
 import { createCodeEvaluator } from "./evaluator.js";
 
@@ -73,9 +74,10 @@ function installFacade(): void {
     const run = callerRun.getStore();
     if (run && !run.ended) displayValue(value, run.hooks);
   };
-  // The facade is a block statement that assigns `globalThis.browser`; an indirect eval runs it in global scope.
+  // The facade is a block statement that assigns `globalThis.browser`; an indirect eval runs it in global scope. The pack's two additions wrap what it made.
   const geval = globalThis.eval as (source: string) => unknown;
   geval(facadeSource);
+  geval(extensionsSource);
 }
 
 function uninstallFacade(): void {

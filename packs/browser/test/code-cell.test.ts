@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import type { BridgeResponse, RunResult } from "../src/code/contracts.js";
+import type { BridgeRequest, BridgeResponse, RunResult } from "../src/code/contracts.js";
 import { CellFailure, CellTimeoutError, CodeCell, type CellInvoke } from "../src/code/cell/cell.js";
 import { coerceImageBase64 } from "../src/code/cell/display.js";
 import { createCodeEvaluator } from "../src/code/cell/evaluator.js";
@@ -278,6 +278,45 @@ describe("OMP's facade, unchanged, in the cell", () => {
         '<element tab.id("not-a-number") on x>',
       ].join("\n"),
     );
+  });
+
+  test("browser.tabs() lists the session's tabs from the host, and browser.active() is a handle to the tab the human is looking at", async () => {
+    const calls: unknown[] = [];
+    const listed = [{ name: "main", id: "t1", url: "https://a.test/", title: "A", active: false }, { id: "t2", url: "https://b.test/", title: "B", active: true }];
+    const asked: BridgeRequest[] = [];
+    const answering: CellInvoke = async parameters => {
+      const request = parameters as BridgeRequest;
+      asked.push(request);
+      calls.push(request);
+      if (request.action === "tabs") return { text: "", details: { action: "tabs", name: "main", value: listed } };
+      if (request.action === "active") return { text: "", details: { action: "active", name: "tab-t2xxxx", url: "https://b.test/" } };
+      return { text: "", details: { action: "call", name: request.name ?? "main", value: `${request.name}:${request.chain?.map(step => step.method).join(">")}` } };
+    };
+    const result = await run(
+      `const tabs = await browser.tabs();
+       const one = browser.active();
+       const url = await one.url();
+       const again = await one.observe();
+       const el = await one.id(3).click();
+       const other = await browser.active().title();
+       JSON.stringify({ tabs, url, again, el, other, text: String(one), keys: Object.keys(browser).sort(), frozen: Object.isFrozen(browser) && Object.isFrozen(one) })`,
+      { invoke: answering },
+    );
+    const seen = JSON.parse(textOf(result).replace(/^display\[1\]:\n/, ""));
+    expect(seen.tabs).toEqual(listed);
+    // The handle is pinned to the tab it first found, and every method forwards to it by name.
+    expect(seen).toMatchObject({ url: "tab-t2xxxx:url", again: "tab-t2xxxx:observe", el: "tab-t2xxxx:id>click", text: "<tab active>", frozen: true });
+    expect(seen.keys).toEqual(["active", "close", "open", "tab", "tabs"]);
+    // One `active` question for the handle used four times, one more for the second handle.
+    expect(asked.filter(request => request.action === "active")).toHaveLength(2);
+    expect(asked.filter(request => request.action === "tabs")).toHaveLength(1);
+  });
+
+  test("the active handle has every helper a named tab has, so a helper added to the facade is not missing from it", async () => {
+    const result = await run('const named = Object.keys(browser.tab("x")).filter(k => k !== "name").sort(); const active = Object.keys(browser.active()).sort(); JSON.stringify({ named, active })', { invoke });
+    const { named, active } = JSON.parse(textOf(result).replace(/^display\[1\]:\n/, ""));
+    expect(named.length).toBeGreaterThan(20);
+    expect(active).toEqual(named);
   });
 
   test("browser is only reachable while a cell runs", async () => {

@@ -22,7 +22,7 @@ const appSchema = z.object({
 
 /** OMP's `browserSchema` field for field, plus `profile`. */
 export const bridgeRequestSchema = z.object({
-  action: z.enum(["open", "close", "run", "call"]),
+  action: z.enum(["open", "close", "run", "call", "tabs", "active"]),
   name: z.string().optional(),
   url: z.string().optional(),
   app: appSchema.optional(),
@@ -51,7 +51,7 @@ export type HostReply = BridgeResponse & { attach?: TabHandle };
 
 export interface DispatcherPorts {
   realm: TabRealm;
-  /** Sends one `open`/`close` request to the code host and answers with its reply; rejects when `signal` aborts. */
+  /** Sends one `open`/`close`/`tabs`/`active` request to the code host and answers with its reply; rejects when `signal` aborts. */
   host(request: BridgeRequest, o: { runId: string; signal: AbortSignal }): Promise<HostReply>;
 }
 
@@ -78,7 +78,7 @@ function bridgeResponse(result: RunResult, details: BridgeDetails): BridgeRespon
   return { text, details, ...(images.length > 0 ? { images } : {}) };
 }
 
-/** `browser.*` from a cell: validated, then `open`/`close` to the host and `run`/`call` to the tab realm. */
+/** `browser.*` from a cell: validated, then `open`/`close`/`tabs`/`active` to the host and `run`/`call` to the tab realm. */
 export function createDispatcher(ports: DispatcherPorts): CellInvoke {
   const { realm, host } = ports;
   return async (parameters, { runId, signal }) => {
@@ -101,6 +101,18 @@ export function createDispatcher(ports: DispatcherPorts): CellInvoke {
         // The host closed or released the tabs; the pages this realm held for them go with them. A tab the host did not know is released here too (nothing to drop is not an error).
         for (const held of request.all ? realm.names() : [name]) await realm.release(held);
         return { text: reply.text, details: { ...details, ...reply.details, name }, ...(reply.images ? { images: reply.images } : {}) };
+      }
+      case "tabs": {
+        const reply = await host({ ...request, name, timeout: timeoutSeconds }, { runId, signal });
+        return { text: reply.text, details: { ...details, ...reply.details, action: "tabs", name: reply.details.name ?? name } };
+      }
+      case "active": {
+        const reply = await host({ ...request, name, timeout: timeoutSeconds }, { runId, signal });
+        const found = reply.details.name;
+        if (typeof found !== "string" || found.length === 0) throw new ToolError("There is no active tab to drive");
+        // The tab the human is looking at may be one no cell ever named: the host says what to call it and hands over its page, as it does for `open`.
+        if (reply.attach) await realm.adopt(found, reply.attach);
+        return { text: reply.text, details: { ...details, ...reply.details, action: "active", name: found }, ...(reply.images ? { images: reply.images } : {}) };
       }
       case "call":
         return bridgeResponse(await realm.call({ name, chain: request.chain ?? [], timeoutMs, signal }), details);
@@ -133,8 +145,8 @@ interface PendingBridge {
 }
 
 /**
- * The worker's message loop (the host's `HostToWorker` in, `WorkerToHost` out): `init` builds the realms and answers `ready`; `run` runs a cell and answers with a `result`; the cell's `open`/`close` become
- * `bridge` messages the host answers with a `bridge-reply`; `abort` cancels a run, `end` drops a browser's tabs, `close` ends the worker.
+ * The worker's message loop (the host's `HostToWorker` in, `WorkerToHost` out): `init` builds the realms and answers `ready`; `run` runs a cell and answers with a `result`; the cell's `open`/`close`/`tabs`/`active` become
+ * `bridge` messages the host answers with a `bridge-reply` (`tabs` and `active` too); `abort` cancels a run, `end` drops a browser's tabs, `close` ends the worker.
  */
 export class WorkerCore {
   readonly #transport: Transport<HostToWorker, WorkerToHost>;
@@ -165,14 +177,7 @@ export class WorkerCore {
   #handle(message: HostToWorker): void {
     switch (message.t) {
       case "init":
-        try {
-          this.#realm = this.#options.createRealm({ session: message.session, env: message.env, ...(message.screenshotDir === undefined ? {} : { screenshotDir: message.screenshotDir }) });
-          this.#cell = new CodeCell({ guardRejections: this.#options.guardRejections ?? false });
-          this.#send({ t: "ready" });
-        } catch (error) {
-          this.#send({ t: "log", level: "error", msg: `The code worker could not start: ${failureOf(error).message}` });
-          void this.#close();
-        }
+        void this.#init(message);
         return;
       case "run":
         void this.#runOne(message.runId, message.code, message.timeoutMs);
@@ -189,7 +194,7 @@ export class WorkerCore {
         this.#runs.get(message.runId)?.abort(new ToolAbortError());
         return;
       case "end":
-        void this.#realm?.end(message.browserId).catch(error => this.#send({ t: "log", level: "warn", msg: `Dropping the tabs of ${message.browserId} failed: ${failureOf(error).message}` }));
+        void this.#realm?.end(message.browserId, message.reason).catch(error => this.#send({ t: "log", level: "warn", msg: `Dropping the tabs of ${message.browserId} failed: ${failureOf(error).message}` }));
         return;
       case "close":
         void this.#close();
@@ -197,7 +202,23 @@ export class WorkerCore {
     }
   }
 
-  /** One `open`/`close` to the host, cancelled with the run that asked. */
+  async #init(message: Extract<HostToWorker, { t: "init" }>): Promise<void> {
+    try {
+      const realm = this.#options.createRealm({ session: message.session, env: message.env, ...(message.screenshotDir === undefined ? {} : { screenshotDir: message.screenshotDir }) });
+      this.#realm = realm;
+      this.#cell = new CodeCell({ guardRejections: this.#options.guardRejections ?? false });
+      // A rebuilt worker takes its session's tabs back before it says it is ready, so a cell's `browser.tab("main")` still names a page. A tab that has gone since is the host's to forget.
+      for (const { name, handle } of message.tabs ?? []) {
+        await realm.adopt(name, handle).catch(error => this.#send({ t: "log", level: "warn", msg: `Re-adopting tab "${name}" failed: ${failureOf(error).message}` }));
+      }
+      this.#send({ t: "ready" });
+    } catch (error) {
+      this.#send({ t: "log", level: "error", msg: `The code worker could not start: ${failureOf(error).message}` });
+      void this.#close();
+    }
+  }
+
+  /** One `open`/`close`/`tabs`/`active` to the host, cancelled with the run that asked. */
   #hostCall(request: BridgeRequest, { runId, signal }: { runId: string; signal: AbortSignal }): Promise<HostReply> {
     throwIfAborted(signal);
     const id = this.#nextBridgeId++;

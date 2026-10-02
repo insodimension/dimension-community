@@ -17,7 +17,15 @@
  */
 
 // ---- the bridge: what the verbatim facade sends. OMP browser.ts:66-88, field for field, plus `profile`.
-export type CodeAction = "open" | "close" | "run" | "call";
+/**
+ * `open`, `close`, `tabs` and `active` cross to the host; `run` and `call` stay in the worker.
+ * `tabs` (the pack's `browser.tabs()`): the host answers `details.value` = {@link CodeTabInfo}[] for every tab of the session's code browser, named or not, and an empty `text`.
+ * `active` (`browser.active()`): the host answers with the tab the human is looking at, adopted like an `open`: `details.name` is the name the tab is adopted under (its own if it has one, else one the host makes up)
+ * and `attach` is its handle; the dispatcher adopts it under that name, and an empty `details.name` is an error.
+ */
+export type CodeAction = "open" | "close" | "run" | "call" | "tabs" | "active";
+/** One entry of `browser.tabs()`. `name` is absent for a tab no cell named (one the human opened). */
+export interface CodeTabInfo { name?: string; id: string; url: string; title: string; active: boolean }
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 export interface BridgeRequest {
   action: CodeAction;
@@ -77,12 +85,17 @@ export interface TabHandle extends TabRef {
 
 // ---- host <-> worker (OMP tab-protocol.ts:83-137, minus tool-call/tool-reply, plus bridge for open/close)
 export type HostToWorker =
-  | { t: "init"; session: string; env: Record<string, string>; screenshotDir?: string }
+  /**
+   * `env` is the whole environment the cell may see: the worker deletes every other key of its `process.env` before it builds the realms (only in a worker thread; never in the main thread).
+   * `tabs`: a rebuilt worker re-adopts the session's tabs, each through `TabRealm.adopt`, BEFORE it answers `ready`.
+   * `outputDir`: a folder the cell realm may keep the full text of an over-cap cell output in (the host picks one folder per session, see `sessionArtifactsDir`); absent: no file is kept.
+   */
+  | { t: "init"; session: string; env: Record<string, string>; screenshotDir?: string; outputDir?: string; tabs?: Array<{ name: string; handle: TabHandle }> }
   | { t: "run"; runId: string; code: string; timeoutMs: number }
   | { t: "bridge-reply"; id: number; ok: true; value: BridgeResponse & { attach?: TabHandle } }
   | { t: "bridge-reply"; id: number; ok: false; error: RunError }
   | { t: "abort"; runId: string }
-  | { t: "end"; browserId: string; why: "closed" | "retired" | "taken-over" }
+  | { t: "end"; browserId: string; why: "closed" | "retired" | "taken-over"; reason?: string }
   | { t: "close" };
 export type WorkerToHost =
   | { t: "ready" }
@@ -155,7 +168,7 @@ export interface TabRealm {
   call(r: { name: string; chain: Array<{ method: string; args: unknown[] }>; timeoutMs: number; signal: AbortSignal }): Promise<RunResult>;
   names(): string[];
   /** The browser closed, retired or was taken over: drop its pages, reject its runs. */
-  end(browserId: string): Promise<void>;
+  end(browserId: string, reason?: string): Promise<void>;
   dispose(): Promise<void>;
 }
 
