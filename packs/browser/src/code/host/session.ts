@@ -531,12 +531,17 @@ export class CodeSession {
     this.#tabs.delete(name);
   }
 
-  #forgetBrowser(browserId: string): void {
-    this.#browsers.delete(browserId);
+  /** The tabs of `browserId` leave the session and the cell's hold on it ends; the session still holds the browser itself. */
+  #dropTabsOf(browserId: string): void {
     for (const [name, tab] of this.#tabs) if (tab.browserId === browserId) this.#tabs.delete(name);
     for (const key of [...this.#frozen]) if (key.startsWith(`${browserId}\u0000`)) this.#frozen.delete(key);
     this.#active?.holds.get(browserId)?.();
     this.#active?.holds.delete(browserId);
+  }
+
+  #forgetBrowser(browserId: string): void {
+    this.#browsers.delete(browserId);
+    this.#dropTabsOf(browserId);
   }
 
   /** Every browser the session holds, including one the person opened in the View that no cell has named yet. */
@@ -610,7 +615,9 @@ export class CodeSession {
     const run = this.#active;
     const worker = this.#worker;
     const used = run?.holds.has(browserId) === true;
-    this.#forgetBrowser(browserId);
+    // A browser the person took over is still the session's: its tabs go, and the next cell is refused by the runtime (`human_driving`) until it is handed back. One that closed is gone.
+    if (why === "taken-over") this.#dropTabsOf(browserId);
+    else this.#forgetBrowser(browserId);
     if (worker !== undefined && !worker.dead) worker.handle.transport.send({ t: "end", browserId, why, ...(reason === undefined ? {} : { reason }) });
     if (why === "taken-over" && run !== undefined && used && run.settled === undefined) {
       run.override = { name: "ToolError", message: "human_driving: the person took over this browser in the View, so the cell was stopped. Ask them to hand it back before you act again.", isAbort: true };
