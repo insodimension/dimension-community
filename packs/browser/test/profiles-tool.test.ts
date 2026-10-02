@@ -186,11 +186,13 @@ describe("what each caller is sent", () => {
 		for (const account of ["work@acme.com", "@acmeco", "@acme.bsky.social"]) expect(view).toContain(account);
 	});
 
-	test("the View, which has always called this tool for the names of the saved profiles, still gets them", async () => {
+	test("the View, which reads this tool for the saved profiles, gets each with its label, colour and where it is signed in", async () => {
 		const { client } = await connect(seed);
 		// The View's host is the same server, called as the human: exactly the stamp a host puts on its calls.
 		const host = { callServerTool: (request: { name: string; arguments?: Record<string, unknown> }) => client.callTool({ ...request, _meta: { [CALLER]: "app" } }) } as unknown as App;
-		expect(await new BrowserClient(host).profiles()).toEqual(["personal", "work"]);
+		const profiles = await new BrowserClient(host).profiles();
+		expect(profiles.map((profile) => [profile.name, profile.label, profile.heldBy])).toEqual([["personal", "personal", null], ["work", "Work", null]]);
+		expect(profiles[1]?.sites.map((site) => [site.site, site.account])).toEqual([["x.com", "@acmeco"]]);
 	});
 
 	test("the dock panel and the lists agree: the report the panel is sent carries the View's label, colour, sites and accounts, and the sites and sign-in state the agent reads", async () => {

@@ -1,11 +1,11 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: the Browser View's start page
- *  speaks engineer again (profiles, engines, Chromium, relay, the runtime's raw
+ *  speaks engineer again (engines, Chromium, relay, the runtime's raw
  *  refusals) to a person who only wanted to open a page; Open ignores the
  *  address they typed; a person's own browser stops keeping their logins, or a
  *  Private one saves them, or "my own Chrome" opens the wrong kind of browser;
  *  a browser that ended normally is shown as an alarm, or one that could not be
- *  opened is shown as nothing; or a saved set of logins shows up in the picker
- *  before there is one to pick.
+ *  opened is shown as nothing; or a profile shows up in the picker before there
+ *  is a second one to pick, or a profile another chat holds can be picked.
  *
  *  The View is mounted live on a linkedom document (`dom-harness.ts`) against a
  *  fake MCP App host whose `callServerTool` records every browser tool call and
@@ -16,7 +16,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { BrowserState } from "../src/contracts";
+import type { BrowserState, ProfileListing } from "../src/contracts";
 import { BrowserApp } from "../app/view/browser-app";
 import { BrowserClient, mountFromToolResult, type ToolMount } from "../app/view/browser-client";
 import { StartPage, type StartPageProps } from "../app/view/start-page";
@@ -27,7 +27,10 @@ import { type Dom, mount, unmountAll } from "./dom-harness";
 
 afterEach(unmountAll);
 
-const JARGON = /profile|engine|relay|chromium/i;
+/** Words from the engine room. "Profile" is not one: it is Chrome's word, and the one the owner asked the View to use. */
+const JARGON = /engine|relay|chromium/i;
+
+const listing = (name: string, over: Partial<ProfileListing> = {}): ProfileListing => ({ name, label: name === "default" ? "Default" : name, colour: "blue", heldBy: null, sites: [], ...over });
 
 const noop = () => {};
 const startProps = (over: Partial<StartPageProps> = {}): StartPageProps => ({
@@ -42,6 +45,7 @@ const startProps = (over: Partial<StartPageProps> = {}): StartPageProps => ({
 	onProfile: noop,
 	onPrivate: noop,
 	onOwnChrome: noop,
+	onAddProfile: async () => {},
 	onOpen: noop,
 	...over,
 });
@@ -61,7 +65,7 @@ const openOptions = (dom: Dom) => dom.click(button(dom, "Options"));
 
 describe("the start page", () => {
 	test("offers one Open, with no engineer words folded or unfolded", async () => {
-		const dom = await mount(<StartPage {...startProps({ profiles: ["default", "work"] })} />);
+		const dom = await mount(<StartPage {...startProps({ profiles: [listing("default"), listing("work")] })} />);
 		const folded = dom.text();
 		await openOptions(dom);
 
@@ -85,51 +89,63 @@ describe("the start page", () => {
 		expect(dom.find('input[type="checkbox"]')).toHaveLength(0);
 	});
 
-	test("the saved-logins picker appears only once a second saved set exists, and picking one is reported", async () => {
-		for (const profiles of [null, [], ["default"]] as const) {
+	test("the profile picker appears only once a second profile exists, and picking one is reported", async () => {
+		for (const profiles of [null, [], [listing("default")]] as const) {
 			const dom = await mount(<StartPage {...startProps({ profiles })} />);
 			await openOptions(dom);
 			expect(dom.find('[role="radiogroup"]')).toHaveLength(0);
-			// Making the first extra set is always on offer.
-			await dom.click(button(dom, "Add another login set"));
-			expect(dom.find('input[aria-label="Name for the new set of logins"]')).toHaveLength(1);
+			// Making the first extra profile is always on offer.
+			await dom.click(button(dom, "Add profile"));
+			expect(dom.find('input[aria-label="Profile name"]')).toHaveLength(1);
 		}
 
 		const picked: string[] = [];
-		const dom = await mount(<StartPage {...startProps({ profiles: ["default", "work"], onProfile: name => picked.push(name) })} />);
+		const dom = await mount(<StartPage {...startProps({ profiles: [listing("default"), listing("work", { label: "Work account" })], onProfile: name => picked.push(name) })} />);
 		await openOptions(dom);
 		const radios = dom.find('[role="radio"]');
-		expect(radios.map(el => el.lastChild?.textContent)).toEqual(["Default", "work"]);
+		expect(radios.map(el => el.lastChild?.textContent)).toEqual(["Default", "Work account"]);
 		await dom.click(radios[1] as Element);
 		expect(picked).toEqual(["work"]);
 	});
 
-	test("a new set of logins is named through the shared name rules: a bad or reserved name is refused with a reason, a good one is picked as its slug", async () => {
+	test("a profile another chat holds is shown and cannot be picked; one the agent has open here can", async () => {
 		const picked: string[] = [];
-		const dom = await mount(<StartPage {...startProps({ onProfile: name => picked.push(name) })} />);
+		const profiles = [listing("default"), listing("held", { heldBy: "another chat" }), listing("elsewhere", { heldBy: "human" }), listing("mine", { heldBy: "this chat", hold: { by: "agent", task: false, takenOver: false } })];
+		const dom = await mount(<StartPage {...startProps({ profiles, onProfile: name => picked.push(name) })} />);
 		await openOptions(dom);
-		await dom.click(button(dom, "Add another login set"));
-		const field = dom.find('input[aria-label="Name for the new set of logins"]')[0] as Element;
-		const form = field.closest("form") as Element;
-
-		await dom.type(field, "Bad Name!");
-		await dom.submit(form);
-		const badChars = form.querySelector("p")?.textContent;
-		await dom.type(field, "relay");
-		await dom.submit(form);
-		const reserved = form.querySelector("p")?.textContent;
-		expect(picked).toEqual([]);
-		expect(badChars).toBeTruthy();
-		expect(reserved).toBeTruthy();
-		expect(reserved).not.toBe(badChars);
-
-		await dom.type(field, "  Work ");
-		await dom.submit(form);
-		expect(picked).toEqual(["work"]);
+		const radios = dom.find('[role="radio"]');
+		expect(radios.map(el => [el.lastChild?.textContent, el.hasAttribute("disabled")])).toEqual([["Default", false], ["elsewhere", true], ["held", true], ["mine", false]]);
+		await dom.click(radios[1] as Element);
+		await dom.click(radios[3] as Element);
+		expect(picked).toEqual(["mine"]);
 	});
 
-	test("Private locks the saved-logins picker and own Chrome locks Private; the folded row says which is on", async () => {
-		const privately = await mount(<StartPage {...startProps({ profiles: ["default", "work"], profile: "work", isPrivate: true })} />);
+	test("a new profile is named through the shared name rules: a path-like, reserved or taken name is refused with a reason and sends nothing; a good one is sent as typed", async () => {
+		const added: { name: string; colour?: string; avatar?: string }[] = [];
+		const dom = await mount(<StartPage {...startProps({ profiles: [listing("default"), listing("work", { label: "Work" })], onAddProfile: async request => void added.push(request) })} />);
+		await openOptions(dom);
+		await dom.click(button(dom, "Add profile"));
+		const field = dom.find('input[aria-label="Profile name"]')[0] as Element;
+		const form = field.closest("form") as Element;
+		const said = () => form.querySelector('[role="alert"]')?.textContent;
+
+		const reasons: (string | undefined)[] = [];
+		for (const name of ["a/b", "relay", "  WORK  "]) {
+			await dom.type(field, name);
+			await dom.submit(form);
+			reasons.push(said());
+		}
+		expect(added).toEqual([]);
+		expect(reasons.every(reason => reason !== undefined && reason.length > 0)).toBe(true);
+		expect(new Set(reasons).size).toBe(3);
+
+		await dom.type(field, "  Work account ");
+		await dom.submit(form);
+		expect(added).toEqual([{ name: "Work account", colour: expect.any(String) }]);
+	});
+
+	test("Private locks the profile picker and own Chrome locks Private; the folded row says which is on", async () => {
+		const privately = await mount(<StartPage {...startProps({ profiles: [listing("default"), listing("work")], profile: "work", isPrivate: true })} />);
 		expect(privately.text()).toContain("Private");
 		await openOptions(privately);
 		expect(privately.find('[role="radio"]').map(el => el.hasAttribute("disabled"))).toEqual([true, true]);
@@ -144,6 +160,7 @@ describe("the start page", () => {
 const LIVE: BrowserState = {
 	browserId: "b1",
 	profile: null,
+	look: null,
 	engine: "chromium",
 	app: "chrome",
 	url: "https://example.com/",
@@ -158,6 +175,8 @@ const LIVE: BrowserState = {
 	canGoForward: false,
 	publish: null,
 	dialogs: [],
+	takenOver: false,
+	agentActionAt: null,
 };
 
 interface Call {

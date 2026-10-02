@@ -45,6 +45,11 @@ hold; give it `url` (and `profile`) instead to open one for them to watch.
 - `engine`: `chromium` (default, a Chrome this pack manages) or `chrome-relay`
   (the user's own running Chrome; its profile is always `relay`, which you may
   omit). `abp` and `browser4` are refused with the reason.
+- **The user may take the browser over** (the View's Take over). Then your
+  `browser_act` on it is refused `human_driving` and `browser_state` says
+  `takenOver: true`: stop acting on it, read it if you need to
+  (`browser_snapshot`), and ask the user to hand it back. Do not open another
+  browser to get around it.
 - You may log in or sign up yourself: `browser_act` types into password fields
   like any other. Logins persist in a named profile (a throwaway browser forgets
   them). A verification step (CAPTCHA, email code, phone code) is yours to handle

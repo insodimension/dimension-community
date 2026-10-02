@@ -212,7 +212,7 @@ which a Traction session reads on demand.
 
 View-only: `browser_stream` (where the View reads its live pictures and state and sends the human's
 mouse and keys: one call to bind a browser, none per picture), `browser_frame` (a PNG capture
-retained for annotation), `browser_annotate` (the page under the marked regions: address, title, the scroll the picture was taken at, elements; no pixels), `browser_annotation_file` (keeps the kit's detail document and answers its path; a Private browser's is deleted with it), `browser_viewport`.
+retained for annotation), `browser_annotate` (the page under the marked regions: address, title, the scroll the picture was taken at, elements; no pixels), `browser_annotation_file` (keeps the kit's detail document and answers its path; a Private browser's is deleted with it), `browser_viewport`, `browser_profile_add` (the profile menu's Add profile: a name, a colour, an avatar), `browser_control` (Take over and Hand back).
 
 **The View's direct channel.** The live picture and the human's input do not ride the tool-call
 lane. The server opens one listener on `127.0.0.1` (random port, only while a View holds a token) that
@@ -347,6 +347,31 @@ chat that already holds a profile gets its own browser back; anyone else is refu
 `profile_held`, told whether the human or another chat has it, whether that profile is
 open or still starting. There is no consent step yet: until one exists any agent can
 open any saved profile, `default` included.
+
+**The profile menu (the View).** The toolbar's chip is the browser's profile: its avatar (the emoji
+the person chose, else the label's first letter, on the profile's colour) and its label; Private for a
+throwaway browser, Your Chrome for the relay. Its face rides the browser's own state (`look`), so drawing it
+costs no call. Opening the menu reads `browser_profiles` and lists the others, Default first and then by
+label, each with where it is signed in or who has it: a profile open here (yours, or your agent's, or one
+an agent task is running on) is one click away; a profile another chat holds, or you hold in another chat's
+View, is shown dimmed and cannot be opened from here (the one-holder lock). A click calls `browser_open`
+for that profile and the View shows it; **the browser you leave stays open**, as Chrome keeps the other
+profile's window (its tabs, its sign-ins, a post awaiting its confirm), and shows as open in the menu.
+**Add profile** is inside the menu: a name, one of the eight colours, an optional emoji. The name is shown
+as typed (any script, up to 48 characters) and the folder is derived from it; a blank name, one that could
+be a path (`\ / : * ? " < > |`, a leading dot), `relay` or a Windows device name, or one that matches
+another profile's label or name in any case, is refused with a sentence and nothing is created
+(`browser_profile_add` answers `bad_profile_name`). A new profile is opened at once. A throwaway browser an
+agent opened is never listed.
+
+**Taking over.** Whoever opened a browser, the person in the View can take the wheel: `browser_control`
+`take` (the pill "Your agent is working here · Take over", or the profile menu). While they hold it, an
+agent's `browser_act`, `browser_task`, publish and `browser_close` on it are refused `human_driving`
+(reads — `browser_snapshot`, `browser_state` — still work, and say `takenOver: true`), an agent batch
+already running stops before its next step, and `browser_profiles` reports the profile as held by the
+human. `return` hands it back. It is refused while a task runs (`task_running`) and while a post awaits
+confirmation (`publish_pending`): taking the wheel must never navigate away from, or lose, the page a post
+is parked on. It lasts until handed back or the browser closes.
 
 ## Reading public pages
 

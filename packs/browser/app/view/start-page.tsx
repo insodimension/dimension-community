@@ -4,20 +4,25 @@
 // about:blank — a page with nothing on it is asked for an address, not shown as
 // a white rectangle.
 //
-// Nothing here says "profile", "engine" or "relay". A person's browser keeps
-// their sign-ins (the saved profile named `default`) unless they ask for a
-// private one; other named sets and their own Chrome sit inside "Options".
-import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from "react";
+// A person's browser keeps their sign-ins (the profile named `default`, shown
+// as Default) unless they ask for a private one; the other profiles, adding
+// one, and their own Chrome sit inside "Options". The profiles are drawn and
+// added exactly as in the toolbar's profile menu.
+import { type ReactNode, useId, useRef, useState } from "react";
 import { Icon } from "@fraym/ui/icons";
-import { checkProfileName, DEFAULT_PROFILE, loginSetLabel } from "../../src/profile-name";
-import { Omnibox, type OmniboxHandle, profileHue } from "./toolbar";
+import type { NewProfileRequest, ProfileListing } from "../../src/contracts";
+import { DEFAULT_PROFILE } from "../../src/profile-name";
+import { AddProfileForm } from "./add-profile-form";
 import { Overlays } from "./page-view";
+import { ProfileAvatar } from "./profile-avatar";
+import { offered, profileStatus } from "./profile-menu";
+import { Omnibox, type OmniboxHandle } from "./toolbar";
 
 export interface StartPageProps {
-	/** The saved sets of logins that exist; null while they load. */
-	readonly profiles: readonly string[] | null;
+	/** The profiles that exist; null while they load. */
+	readonly profiles: readonly ProfileListing[] | null;
 	readonly profilesError: string | null;
-	/** The saved set the next browser opens with. */
+	/** The profile (by name) the next browser opens with. */
 	readonly profile: string;
 	/** Open with nothing saved. */
 	readonly isPrivate: boolean;
@@ -30,47 +35,25 @@ export interface StartPageProps {
 	readonly onProfile: (name: string) => void;
 	readonly onPrivate: (on: boolean) => void;
 	readonly onOwnChrome: (on: boolean) => void;
+	/** Make a profile and pick it for the next browser. Rejects with the sentence to show. */
+	readonly onAddProfile: (request: NewProfileRequest) => Promise<void>;
 	/** Open with an address (may be empty: a blank tab). */
 	readonly onOpen: (url: string) => void;
 }
 
-export function StartPage({ profiles, profilesError, profile, isPrivate, ownChrome, opening, error, closed, onProfile, onPrivate, onOwnChrome, onOpen }: StartPageProps) {
+export function StartPage({ profiles, profilesError, profile, isPrivate, ownChrome, opening, error, closed, onProfile, onPrivate, onOwnChrome, onAddProfile, onOpen }: StartPageProps) {
 	const [expanded, setExpanded] = useState(false);
 	const [adding, setAdding] = useState(false);
-	const [draft, setDraft] = useState("");
-	const [problem, setProblem] = useState<string | null>(null);
-	const newRef = useRef<HTMLInputElement | null>(null);
 	const omniRef = useRef<OmniboxHandle | null>(null);
 	const panelId = useId();
 
-	useEffect(() => {
-		if (adding) newRef.current?.focus();
-	}, [adding]);
-
-	// The implicit set needs no picker: it appears once there is a second one to pick.
-	const others = (profiles ?? []).filter(name => name !== DEFAULT_PROFILE);
-	const pending = profile !== DEFAULT_PROFILE && !others.includes(profile);
-	const picking = others.length > 0 || pending;
+	// The implicit Default needs no picker: it appears once there is a second profile to pick.
+	const choices = offered(profiles ?? []);
+	const picking = choices.length > 1;
 	const choosable = !opening && !isPrivate && !ownChrome;
+	const chosen = choices.find(candidate => candidate.name === profile);
 
-	const stopAdding = () => {
-		setAdding(false);
-		setDraft("");
-		setProblem(null);
-	};
-
-	const commitNew = () => {
-		const check = checkProfileName(draft);
-		if (!check.ok) {
-			setProblem(check.problem);
-			return;
-		}
-		onProfile(check.slug);
-		stopAdding();
-		omniRef.current?.focus();
-	};
-
-	const summary = ownChrome ? "Your Chrome" : isPrivate ? "Private" : profile !== DEFAULT_PROFILE ? `Saved logins: ${profile}` : null;
+	const summary = ownChrome ? "Your Chrome" : isPrivate ? "Private" : chosen !== undefined && chosen.name !== DEFAULT_PROFILE ? `Profile: ${chosen.label}` : null;
 
 	return (
 		<div className="bx-start" data-busy={opening || undefined}>
@@ -144,78 +127,48 @@ export function StartPage({ profiles, profilesError, profile, isPrivate, ownChro
 								{picking && (
 									<>
 										<span className="bx-start-label" id={`${panelId}-logins`}>
-											Saved logins
+											Profile
 										</span>
 										<div className="bx-chips" role="radiogroup" aria-labelledby={`${panelId}-logins`}>
-											{[DEFAULT_PROFILE, ...others].map(name => (
-												<button
-													key={name}
-													type="button"
-													role="radio"
-													aria-checked={profile === name}
-													className="bx-chip"
-													disabled={!choosable}
-													onClick={() => onProfile(name)}
-												>
-													<span className="bx-avatar" style={{ "--hue": profileHue(loginSetLabel(name)) } as CSSProperties} aria-hidden="true">
-														{loginSetLabel(name)[0]?.toUpperCase()}
-													</span>
-													{loginSetLabel(name)}
-												</button>
-											))}
-											{pending && (
-												<button type="button" role="radio" aria-checked className="bx-chip" disabled={!choosable} onClick={() => onProfile(profile)}>
-													<span className="bx-avatar" style={{ "--hue": profileHue(profile) } as CSSProperties} aria-hidden="true">
-														{profile[0]?.toUpperCase()}
-													</span>
-													{profile}
-													<span className="bx-chip-new">new</span>
-												</button>
-											)}
+											{choices.map(choice => {
+												const status = profileStatus(choice);
+												return (
+													<button
+														key={choice.name}
+														type="button"
+														role="radio"
+														aria-checked={profile === choice.name}
+														className="bx-chip"
+														disabled={!choosable || !status.openable}
+														title={status.openable ? undefined : `${choice.label}: ${status.line}`}
+														onClick={() => onProfile(choice.name)}
+													>
+														<ProfileAvatar label={choice.label} colour={choice.colour} avatar={choice.avatar} size="sm" />
+														{choice.label}
+													</button>
+												);
+											})}
 										</div>
 									</>
 								)}
 
 								{adding ? (
-									<form
-										className="bx-option-add"
-										onSubmit={event => {
-											event.preventDefault();
-											commitNew();
+									<AddProfileForm
+										taken={choices.map(choice => ({ slug: choice.name, label: choice.label, colour: choice.colour }))}
+										onSubmit={async request => {
+											await onAddProfile(request);
+											setAdding(false);
 										}}
-									>
-										<input
-											ref={newRef}
-											className="bx-chip bx-chip-input"
-											value={draft}
-											placeholder="Name, like work"
-											aria-label="Name for the new set of logins"
-											aria-invalid={problem !== null || undefined}
-											maxLength={64}
-											onChange={event => {
-												setDraft(event.target.value);
-												setProblem(null);
-											}}
-											onKeyDown={event => {
-												if (event.key === "Escape") {
-													event.preventDefault();
-													stopAdding();
-												}
-											}}
-										/>
-										<button type="submit" className="bx-chip bx-chip-add" disabled={draft.trim().length === 0}>
-											Add
-										</button>
-										{problem !== null && <p className="bx-start-error">{problem}</p>}
-									</form>
+										onCancel={() => setAdding(false)}
+									/>
 								) : (
 									<button type="button" className="bx-chip bx-chip-add" disabled={!choosable} onClick={() => setAdding(true)}>
 										<Icon name="plus" size={13} strokeWidth={2.25} />
-										Add another login set
+										Add profile
 									</button>
 								)}
 
-								{profilesError !== null && <p className="bx-start-error">Couldn't load your saved logins ({profilesError}).</p>}
+								{profilesError !== null && <p className="bx-start-error">Couldn't load your profiles ({profilesError}).</p>}
 							</div>
 
 							<div className="bx-option-block">

@@ -56,6 +56,7 @@ describe("what the list says about each profile", () => {
 			name: "work",
 			label: "Work",
 			colour: "blue",
+			avatar: "💼",
 			heldBy: null,
 			sites: [
 				{ site: "x.com", account: "@acmeco", signedIn: true, seenAt: new Date(NOW - 1_000).toISOString() },

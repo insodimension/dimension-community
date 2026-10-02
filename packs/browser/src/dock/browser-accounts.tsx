@@ -12,11 +12,12 @@
 // resolves the server itself (this pack's artifactory) and opens the View in
 // the seat's session; a refusal is the host's console warning, never a throw.
 
-import { Button, Icon, Input, Pill, useObservable } from "@fraym/ui";
+import { Button, Input, Pill, useObservable } from "@fraym/ui";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { guessAddress } from "../address";
 import { checkProfileName, DEFAULT_PROFILE, loginSetLabel } from "../profile-name";
 import { effectiveSignedIn } from "../profile-meta";
+import { avatarGlyph, avatarStyle } from "../profile-look";
 import { CONNECTION_KEY, observedAgo, type ProfileRow, profileRows, type SiteRow } from "./report";
 import { knownSite, SIGN_IN_SITES, signInUrl } from "./sites";
 
@@ -81,8 +82,17 @@ function ProfileSection({
 				title="Use these logins for a new sign-in"
 				onClick={onPick}
 			>
-				<Icon name="user" size={12} />
-				<span className="fr-overflow font-secondary text-fr-xs">{profile.label}</span>
+				<span
+					className="grid size-4 shrink-0 place-items-center rounded-full text-[9px] font-semibold leading-none"
+					style={avatarStyle(profile.colour, profile.avatar !== undefined)}
+					aria-hidden="true"
+					data-slot="browser-accounts-avatar"
+				>
+					{avatarGlyph(profile.label, profile.avatar)}
+				</span>
+				<span className="fr-overflow font-secondary text-fr-xs" data-slot="browser-accounts-profile-label">
+					{profile.label}
+				</span>
 			</button>
 			<ul className="flex flex-col">
 				{profile.sites.map(site => (

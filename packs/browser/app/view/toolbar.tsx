@@ -1,17 +1,10 @@
 // The toolbar: navigation, the omnibox, and the few controls a browser
-// surface needs beyond them — annotate, who this browser is, and a menu.
-import { type CSSProperties, type FormEvent, forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { BrowserEngine } from "../../src/contracts";
+// surface needs beyond them — annotate, who this browser is (the profile chip and its menu), and a menu.
+import { type FormEvent, forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Icon } from "@fraym/ui/icons";
 import { addressParts, guessAddress } from "../../src/address";
-import { loginSetLabel } from "../../src/profile-name";
-
-/** Who this browser is, as a person says it: no slugs, no engine names. */
-function identityLabel(profile: string | null, engine: BrowserEngine): { readonly name: string; readonly detail: string } {
-	if (engine === "chrome-relay") return { name: "Your Chrome", detail: "Signed in as you" };
-	if (profile === null) return { name: "Private", detail: "Nothing is saved" };
-	return { name: loginSetLabel(profile), detail: "Saved logins" };
-}
+import { ProfileSwitcher, type ProfileSwitcherProps } from "./profile-menu";
+import { useMenu } from "./use-menu";
 
 export function LockIcon({ open = false, size = 13 }: { readonly open?: boolean; readonly size?: number }) {
 	return (
@@ -20,13 +13,6 @@ export function LockIcon({ open = false, size = 13 }: { readonly open?: boolean;
 			<path d={open ? "M8 11V7a4 4 0 0 1 7.75-1.4" : "M8 11V7a4 4 0 0 1 8 0v4"} />
 		</svg>
 	);
-}
-
-/** A stable hue per profile name, so a profile is recognisable at a glance. */
-export function profileHue(name: string): number {
-	let hash = 0;
-	for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-	return hash % 360;
 }
 
 export interface OmniboxHandle {
@@ -167,8 +153,8 @@ export interface ToolbarProps {
 	readonly canGoForward: boolean;
 	readonly locked: boolean;
 	readonly annotating: boolean;
-	readonly profile: string | null;
-	readonly engine: BrowserEngine;
+	/** The profile chip and its menu: everything about who this browser is. */
+	readonly profiles: ProfileSwitcherProps;
 	readonly offline: boolean;
 	readonly onBack: () => void;
 	readonly onForward: () => void;
@@ -182,41 +168,11 @@ export interface ToolbarProps {
 }
 
 export const Toolbar = forwardRef<OmniboxHandle, ToolbarProps>(function Toolbar(props, ref) {
-	const { url, loading, canGoBack, canGoForward, locked, annotating, profile, engine, offline } = props;
-	const identity = identityLabel(profile, engine);
+	const { url, loading, canGoBack, canGoForward, locked, annotating, offline } = props;
 	const [menuOpen, setMenuOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		if (!menuOpen) return;
-		const items = () => [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
-		const onDown = (event: PointerEvent) => {
-			if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-		};
-		const onKey = (event: KeyboardEvent) => {
-			const list = items();
-			const index = list.findIndex(item => item === document.activeElement);
-			if (event.key === "Escape") setMenuOpen(false);
-			else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-				event.preventDefault();
-				const step = event.key === "ArrowDown" ? 1 : -1;
-				list[(index + step + list.length) % list.length]?.focus();
-			} else if (event.key === "Home" || event.key === "End") {
-				event.preventDefault();
-				list[event.key === "Home" ? 0 : list.length - 1]?.focus();
-			} else return;
-			event.stopImmediatePropagation();
-		};
-		window.addEventListener("pointerdown", onDown);
-		window.addEventListener("keydown", onKey, true);
-		items()[0]?.focus();
-		return () => {
-			window.removeEventListener("pointerdown", onDown);
-			window.removeEventListener("keydown", onKey, true);
-			// Focus goes back where it came from, so Tab continues from the menu button.
-			menuRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus();
-		};
-	}, [menuOpen]);
+	const closeMenu = useCallback(() => setMenuOpen(false), []);
+	useMenu(menuOpen, closeMenu, menuRef);
 
 	const choose = (run: () => void) => () => {
 		setMenuOpen(false);
@@ -263,24 +219,8 @@ export const Toolbar = forwardRef<OmniboxHandle, ToolbarProps>(function Toolbar(
 				>
 					<Icon name="edit" size={15} strokeWidth={2} />
 				</button>
+				<ProfileSwitcher {...props.profiles} />
 				<div className="bx-menu-wrap" ref={menuRef}>
-					<button
-						type="button"
-						className="bx-profile"
-						title={`${identity.name} · ${identity.detail}`}
-						aria-label={`${identity.name}, ${identity.detail} — browser menu`}
-						aria-haspopup="menu"
-						aria-expanded={menuOpen}
-						onClick={() => setMenuOpen(open => !open)}
-					>
-						<span className="bx-avatar" style={{ "--hue": profileHue(identity.name) } as CSSProperties} aria-hidden="true">
-							{identity.name[0]?.toUpperCase()}
-						</span>
-						<span className="bx-profile-text">
-							<span className="bx-profile-name">{identity.name}</span>
-							<span className="bx-profile-engine">{identity.detail}</span>
-						</span>
-					</button>
 					<button
 						type="button"
 						className="bx-tb"

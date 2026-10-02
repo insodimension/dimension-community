@@ -192,6 +192,9 @@ export interface PublishField {
  * stamp did not come through the host and is treated as not-the-human.
  */
 export type ToolCaller = "model" | "app";
+/** `take`: the person has the wheel and an agent's page actions are refused. `return`: the agent may act again. */
+export const CONTROL_MODES = ["take", "return"] as const;
+export type ControlMode = (typeof CONTROL_MODES)[number];
 /**
  * How to post on one site, supplied by the caller as data — the pack itself is
  * platform-agnostic. See publish.ts for the bounds every field is held to.
@@ -290,6 +293,8 @@ export interface BrowserState {
    * chrome-relay browser is always "relay".
    */
   profile: string | null;
+  /** How a person knows that profile: label, colour and avatar (profile-meta.ts). null for a throwaway browser and for the relay. The View's chip draws it; a model is not sent it. */
+  look: ResolvedProfileMeta | null;
   engine: BrowserEngine;
   /** The browser application behind this View; null on chrome-relay (the human's own Chrome). */
   app: BrowserApp | null;
@@ -310,6 +315,13 @@ export interface BrowserState {
   publish: PublishRecord | null;
   /** The last five JavaScript dialogs the browser answered on the active tab, oldest first. */
   dialogs: HandledDialog[];
+  /**
+   * The person in the View took this browser over: an agent's page actions on it are refused (`human_driving`) until they
+   * hand it back. Reads are not. Whoever holds the profile, the person's own input is never refused for this.
+   */
+  takenOver: boolean;
+  /** Epoch ms of the newest page action an agent (anyone but the View) ran here; null when none has. The View shows "working" for a few seconds after it. */
+  agentActionAt: number | null;
   /** Set by `open` alone, when something a person should know about the profile just opened: the browser build under its logins changed. */
   notice?: string;
 }
@@ -382,8 +394,17 @@ export type ProfileHolder = null | "this chat" | "human" | "another chat";
  * dock get it, a model's list does not (profile-list.ts `profilesForModel`).
  */
 export interface ProfileSiteListing { site: string; account?: string; signedIn: boolean | null; seenAt: string }
-/** One saved profile as an agent or the View reads it. Never a cookie, a password, a path or a browser id. */
-export interface ProfileListing { name: string; label: string; colour: ProfileColour; heldBy: ProfileHolder; sites: ProfileSiteListing[] }
+/**
+ * Who holds a profile this server has a browser for, in the detail only the View is sent (profile-list.ts
+ * `profilesForModel` takes it out): `by` is who opened it (the person in a View, or an agent), `task` whether a task
+ * agent is running on it, `takenOver` whether the person has the wheel. `heldBy` says whose it is from the asker's side;
+ * this says what it is doing.
+ */
+export interface ProfileHold { by: "person" | "agent"; task: boolean; takenOver: boolean }
+/** One saved profile as an agent or the View reads it. Never a cookie, a password, a path or a browser id. `avatar` and `hold` are the View's. */
+export interface ProfileListing { name: string; label: string; colour: ProfileColour; avatar?: string; heldBy: ProfileHolder; hold?: ProfileHold; sites: ProfileSiteListing[] }
+/** A new profile as a person typed it in the View: a name to show (the folder is derived from it), and optionally a colour and an avatar emoji. */
+export interface NewProfileRequest { name: string; colour?: ProfileColour; avatar?: string }
 /**
  * browser_read: one logged-out read of a public page (see read.ts). There is
  * no profile: every read runs in a fresh incognito context.
@@ -474,6 +495,19 @@ export interface BrowserRuntimePort {
   profileList(asker?: string): Promise<ProfileListing[]>;
   /** The label, colour and avatar of every saved profile that has any observation, for the connection report. */
   profileMeta(): Promise<Record<string, ResolvedProfileMeta>>;
+  /**
+   * Create a saved profile from a name a person typed (profile-meta.ts `checkNewProfile`): its label, a folder derived from it, the
+   * colour and avatar they chose. Refused (`bad_profile_name`) with the sentence the View shows when the name is empty, taken,
+   * reserved or could be a path. Nothing is opened.
+   */
+  addProfile(request: NewProfileRequest): Promise<ProfileListing>;
+  /**
+   * The person in the View takes `browserId` over (`take`) or hands it back (`return`). Only `caller` "app" may: a model is refused
+   * (`human_only`). Taking over is refused while a task runs (`task_running`) or a post awaits confirmation (`publish_pending`: it
+   * would navigate away from, or steal, the page being confirmed). Not queued behind page work: it takes effect at once, even
+   * between two steps of an agent's batch. Answers the state after it.
+   */
+  control(browserId: string, mode: ControlMode, caller?: ToolCaller): Promise<BrowserState>;
   /** Settles a pending publish first. Refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
   close(browserId: string, caller?: ToolCaller): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;

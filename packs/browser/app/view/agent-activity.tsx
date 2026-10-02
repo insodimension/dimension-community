@@ -130,3 +130,46 @@ export function ResultToast({ task, onDismiss }: ResultToastProps) {
 		</div>
 	);
 }
+
+/** An agent's page action is "now" for this long. Long enough to bridge its pauses between calls, short enough to be gone when it is. */
+export const AGENT_ACTIVE_MS = 12_000;
+
+/** True from an agent's action (`at`, epoch ms) until AGENT_ACTIVE_MS later, re-rendering when it ends; same machine, same clock. */
+export function useAgentActive(at: number | null): boolean {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (at === null) return;
+		const left = at + AGENT_ACTIVE_MS - Date.now();
+		if (left <= 0) return;
+		setNow(Date.now());
+		const timer = window.setTimeout(() => setNow(Date.now()), left + 50);
+		return () => window.clearTimeout(timer);
+	}, [at]);
+	return at !== null && now - at < AGENT_ACTIVE_MS;
+}
+
+export interface ControlPillProps {
+	/** The person has the wheel. Otherwise an agent is acting and the pill offers it. */
+	readonly takenOver: boolean;
+	readonly busy: boolean;
+	readonly onTakeOver: () => void;
+	readonly onHandBack: () => void;
+}
+
+/** Who is driving, when it is not just the person: "your agent is working here" with Take over, and "you have control" with Hand back. */
+export function ControlPill({ takenOver, busy, onTakeOver, onHandBack }: ControlPillProps) {
+	return (
+		<div className="bx-control" data-state={takenOver ? "yours" : "agent"} role="status" aria-live="polite">
+			<span className="bx-control-mark" aria-hidden="true">
+				{takenOver ? <Icon name="hand" size={14} strokeWidth={2} /> : <span className="bx-dot" />}
+			</span>
+			<span className="bx-control-text">
+				<span className="bx-control-title">{takenOver ? "You have control" : "Your agent is working here"}</span>
+				<span className="bx-control-sub">{takenOver ? "Your agent is paused until you hand back." : "Take over to stop it and use the page yourself."}</span>
+			</span>
+			<button type="button" className="bx-control-btn" disabled={busy} onClick={takenOver ? onHandBack : onTakeOver}>
+				{takenOver ? "Hand back" : "Take over"}
+			</button>
+		</div>
+	);
+}

@@ -627,70 +627,580 @@ kbd {
 
 /* profile chip + menu */
 
+.bx-profile-wrap {
+	display: flex;
+	align-items: center;
+}
+
 .bx-profile {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 7px;
 	height: 30px;
 	margin: 0 2px;
-	padding: 0 10px 0 4px;
+	padding: 0 9px 0 4px;
 	border: 0;
 	border-radius: 999px;
 	background: var(--bx-hover);
 	color: var(--fr-text-2);
 	white-space: nowrap;
 	cursor: pointer;
-	transition: background-color var(--bx-fast) var(--bx-ease);
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-fast) var(--bx-ease);
 }
 
 .bx-profile:hover,
-.bx-profile[aria-expanded="true"],
-.bx-tb[aria-expanded="true"] {
+.bx-profile[aria-expanded="true"] {
 	background: var(--bx-press);
 	color: var(--fr-text);
 }
 
-.bx-avatar {
-	flex: none;
-	width: 22px;
-	height: 22px;
-	display: grid;
-	place-items: center;
-	border-radius: 50%;
-	font-size: 11px;
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	color: var(--fr-accent-ink, #fff);
-	/* The accent token, re-hued per profile: same lightness and chroma, its own hue. */
-	background: linear-gradient(145deg, oklch(from var(--fr-accent) l c var(--hue, 280)), oklch(from var(--fr-accent) calc(l - 0.1) c calc(var(--hue, 280) + 30)));
-	box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--fr-accent-ink, #fff) 18%, transparent);
+.bx-profile:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
 }
 
-.bx-profile-text {
-	display: flex;
-	flex-direction: column;
-	line-height: 1.1;
+/* The person has the wheel: a warm ring says so without a word. */
+.bx-profile[data-state="driving"] {
+	box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--fr-warn) 75%, transparent);
 }
 
 .bx-profile-name {
+	max-width: 14ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	font-size: 12px;
 	font-weight: 500;
 	color: var(--fr-text);
 }
 
-.bx-profile-engine {
-	font-size: 11px;
+@container (max-width: 720px) {
+	.bx-profile {
+		gap: 4px;
+		padding-right: 6px;
+	}
+	.bx-profile-name {
+		display: none;
+	}
+}
+
+/* A profile's face: size, centring and type. Its colours are inline (src/profile-look.ts), the same in the dock panel. */
+.bx-avatar {
+	--size: 30px;
+	flex: none;
+	width: var(--size);
+	height: var(--size);
+	display: grid;
+	place-items: center;
+	border-radius: 50%;
+	font-size: calc(var(--size) * 0.42);
+	font-weight: 650;
+	letter-spacing: 0.02em;
+	line-height: 1;
+	user-select: none;
+}
+
+.bx-avatar[data-size="sm"] {
+	--size: 22px;
+}
+
+.bx-avatar[data-size="lg"] {
+	--size: 44px;
+}
+
+.bx-avatar[data-emoji] {
+	font-size: calc(var(--size) * 0.56);
+}
+
+/* The small disc in the toolbar chip: an emoji needs the room to be read. */
+.bx-avatar[data-emoji][data-size="sm"] {
+	font-size: calc(var(--size) * 0.64);
+}
+
+/* The profile menu hangs from the toolbar's right edge, whatever width the View is. */
+.bx-pmenu {
+	position: absolute;
+	right: 8px;
+	top: calc(100% + 6px);
+	width: min(328px, calc(100cqw - 16px));
+	max-height: min(600px, calc(100vh - 96px));
+	overflow-y: auto;
+	padding: 6px;
+	border-radius: 16px;
+	background: var(--bx-sheet);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-pop var(--bx-fast) var(--bx-ease-enter);
+	transform-origin: top right;
+	z-index: 10;
+}
+
+.bx-pmenu-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 10px 8px;
+}
+
+.bx-pmenu-who {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.bx-pmenu-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--fr-text);
+}
+
+.bx-pmenu-detail {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
 	color: var(--fr-text-2);
 }
 
-@container (max-width: 720px) {
-	.bx-profile {
-		padding-right: 4px;
-		gap: 0;
-	}
-	.bx-profile-text {
-		display: none;
-	}
+.bx-pmenu-control {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 2px 4px 4px;
+	padding: 8px 8px 8px 10px;
+	border-radius: 12px;
+	background: var(--bx-field);
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--fr-text-2);
+}
+
+.bx-pmenu-control[data-on] {
+	background: color-mix(in oklab, var(--fr-warn) 14%, var(--bx-sheet));
+	color: var(--fr-text);
+}
+
+.bx-pmenu-control-text {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.bx-pmenu-control-btn {
+	flex: none;
+	height: 28px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-pmenu-control-btn:hover {
+	background: var(--bx-press);
+}
+
+.bx-pmenu-control-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+.bx-pmenu-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.bx-pmenu-note {
+	margin: 8px 10px;
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+.bx-prow {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	color: var(--fr-text);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-prow:hover:not(:disabled) {
+	background: var(--bx-hover);
+}
+
+.bx-prow:focus-visible {
+	outline: none;
+	background: var(--bx-hover);
+	box-shadow: inset 0 0 0 2px var(--fr-accent);
+}
+
+.bx-prow:disabled {
+	cursor: default;
+}
+
+.bx-prow:disabled .bx-avatar,
+.bx-prow:disabled .bx-prow-name {
+	opacity: 0.5;
+}
+
+.bx-prow-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.bx-prow-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	font-weight: 550;
+}
+
+.bx-prow-sub {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	color: var(--fr-text-2);
+}
+
+/* Open here is green, an agent holding it is the accent: a glance down the list says where things are. */
+.bx-prow-dot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--fr-add);
+}
+
+.bx-prow[data-tone="agent"] .bx-prow-dot {
+	background: var(--fr-accent);
+}
+
+/* adding a profile */
+
+.bx-add {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	width: 100%;
+	padding: 6px 8px 8px;
+	text-align: left;
+}
+
+.bx-add-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: -4px;
+}
+
+.bx-add-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--fr-text);
+}
+
+.bx-add-name {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.bx-add-field {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-top: 6px;
+}
+
+.bx-add-input {
+	height: 32px;
+	padding: 0 12px;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 10px;
+	background: var(--bx-field);
+	color: var(--fr-text);
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+	transition:
+		border-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease),
+		background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-add-input:focus {
+	border-color: var(--fr-accent);
+	background: var(--bx-field-focus);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+}
+
+.bx-add-input[aria-invalid="true"] {
+	border-color: var(--fr-del);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--fr-del) 25%, transparent);
+}
+
+.bx-add-problem {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--fr-del);
+}
+
+.bx-add-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.bx-add-label {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--fr-text-2);
+}
+
+.bx-swatches,
+.bx-avatars {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.bx-swatch {
+	width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 50%;
+	color: oklch(0.99 0 0);
+	cursor: pointer;
+	transition: box-shadow var(--bx-fast) var(--bx-ease), transform var(--bx-fast) var(--bx-ease);
+}
+
+.bx-swatch:hover {
+	transform: scale(1.1);
+}
+
+.bx-swatch[aria-checked="true"],
+.bx-swatch:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 2px var(--bx-sheet),
+		0 0 0 4px var(--fr-accent);
+}
+
+.bx-avatar-pick {
+	width: 32px;
+	height: 32px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 10px;
+	background: var(--bx-field);
+	color: var(--fr-text-2);
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		border-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease);
+}
+
+.bx-avatar-pick:hover {
+	background: var(--bx-field-hover);
+}
+
+.bx-avatar-pick[aria-checked="true"] {
+	border-color: var(--fr-accent);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+	color: var(--fr-text);
+}
+
+.bx-avatar-pick:focus-visible {
+	outline: none;
+	border-color: var(--fr-accent);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+}
+
+.bx-add-foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.bx-add-cancel,
+.bx-add-submit {
+	height: 32px;
+	padding: 0 14px;
+	border: 0;
+	border-radius: 10px;
+	font-size: 12.5px;
+	font-weight: 600;
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		filter var(--bx-fast) var(--bx-ease);
+}
+
+.bx-add-cancel {
+	background: transparent;
+	color: var(--fr-text-2);
+}
+
+.bx-add-cancel:hover {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-add-submit {
+	background: var(--fr-accent);
+	color: var(--fr-accent-ink, #fff);
+}
+
+.bx-add-submit:hover:not(:disabled) {
+	filter: brightness(1.08);
+}
+
+.bx-add-submit:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.bx-add-cancel:focus-visible,
+.bx-add-submit:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--bx-sheet), 0 0 0 4px var(--fr-accent);
+}
+
+/* On the start page the form lies on the page's own surface, not in a popover. */
+.bx-options-panel .bx-add {
+	max-width: 360px;
+	padding: 12px;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 16px;
+	background: var(--bx-sheet);
+}
+
+/* who is driving, when it is not just the person */
+
+.bx-control {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: min(100%, 460px);
+	padding: 8px 8px 8px 12px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-accent) 25%, transparent);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-control[data-state="yours"] {
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-warn) 45%, transparent);
+}
+
+.bx-control-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--fr-accent);
+	background: color-mix(in oklab, var(--fr-accent) 14%, transparent);
+}
+
+.bx-control[data-state="yours"] .bx-control-mark {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
+.bx-control-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	line-height: 1.25;
+}
+
+.bx-control-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-control-sub {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	color: var(--fr-text-2);
+}
+
+.bx-control-btn {
+	flex: none;
+	height: 28px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-control-btn:hover:not(:disabled) {
+	background: var(--bx-press);
+}
+
+.bx-control-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.bx-control-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
 }
 
 .bx-offline {
@@ -1820,28 +2330,10 @@ kbd {
 	box-shadow: 0 0 0 3px var(--bx-ring);
 }
 
-.bx-chip-new {
-	font-size: 11px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--fr-accent);
-}
-
 .bx-chip-add {
 	padding-left: 10px;
 	color: var(--fr-text-2);
 	border-style: dashed;
-}
-
-.bx-chip-input {
-	width: 160px;
-	padding: 0 12px;
-	outline: none;
-	border-color: var(--fr-accent);
-	box-shadow: 0 0 0 3px var(--bx-ring);
-	font: inherit;
-	font-size: 12px;
 }
 
 .bx-start-foot {
@@ -1997,17 +2489,6 @@ kbd {
 
 .bx-option-block .bx-start-label {
 	text-align: left;
-}
-
-.bx-option-add {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-}
-
-.bx-option-add .bx-start-error {
-	flex-basis: 100%;
 }
 
 /* ── motion ─────────────────────────────────────────────────────────── */

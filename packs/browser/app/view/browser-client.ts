@@ -20,7 +20,14 @@ import type {
 	TaskRun,
 	TaskStatus,
 	PageElement,
+	ControlMode,
+	NewProfileRequest,
+	ProfileHold,
+	ProfileListing,
+	ProfileSiteListing,
 } from "../../src/contracts";
+import { isProfileColour, resolveProfileMeta } from "../../src/profile-meta";
+import { PROFILE_NAME } from "../../src/profile-name";
 import { isRecord, readNumber, readString } from "./json";
 
 const TASK_STATUSES: readonly TaskStatus[] = ["running", "done", "blocked", "failed", "cancelled"];
@@ -181,6 +188,32 @@ function readDialogs(value: unknown): HandledDialog[] {
 	return dialogs;
 }
 
+/** One site of a profile's listing; what is not a site is dropped, never guessed at. */
+function readSite(value: unknown): ProfileSiteListing[] {
+	if (!isRecord(value)) return [];
+	const site = readString(value, "site");
+	const seenAt = readString(value, "seenAt");
+	if (site === undefined || seenAt === undefined || (typeof value.signedIn !== "boolean" && value.signedIn !== null)) return [];
+	const account = readString(value, "account");
+	return [{ site, ...(account === undefined ? {} : { account }), signedIn: value.signedIn, seenAt }];
+}
+
+/** One saved profile of `browser_profiles` / `browser_profile_add`: zero entries for anything that is not one (a name the runtime would never hand out), so the menu cannot draw a row it cannot open. */
+function readProfile(value: unknown): ProfileListing[] {
+	if (!isRecord(value)) return [];
+	const name = readString(value, "name");
+	if (name === undefined || !PROFILE_NAME.test(name)) return [];
+	const drawn = readString(value, "colour");
+	const { label, colour, avatar } = resolveProfileMeta(name, { label: readString(value, "label"), colour: isProfileColour(drawn) ? drawn : undefined, avatar: readString(value, "avatar") });
+	const heldBy = value.heldBy === "this chat" || value.heldBy === "human" || value.heldBy === "another chat" ? value.heldBy : null;
+	const held = value.hold;
+	const hold: ProfileHold | undefined = isRecord(held) ? { by: held.by === "agent" ? "agent" : "person", task: held.task === true, takenOver: held.takenOver === true } : undefined;
+	return [{
+		name, label, colour, ...(avatar === undefined ? {} : { avatar }), heldBy, ...(hold === undefined ? {} : { hold }),
+		sites: Array.isArray(value.sites) ? value.sites.flatMap(readSite) : [],
+	}];
+}
+
 function readState(tool: string, value: unknown): BrowserState {
 	if (!isRecord(value)) throw new BrowserToolError(tool, "no browser state in the result");
 	const browserId = readString(value, "browserId");
@@ -193,9 +226,13 @@ function readState(tool: string, value: unknown): BrowserState {
 	const engine = BROWSER_ENGINES.find(candidate => candidate === readString(value, "engine"));
 	if (!engine) throw new BrowserToolError(tool, "result carried an unsupported browser engine");
 	const tabs = readTabs(value.tabs);
+	const profile = readString(value, "profile") ?? null;
+	const face = value.look;
+	const drawn = isRecord(face) ? readString(face, "colour") : undefined;
 	return {
 		browserId,
-		profile: readString(value, "profile") ?? null,
+		profile,
+		look: profile === null || !isRecord(face) ? null : resolveProfileMeta(profile, { label: readString(face, "label"), colour: isProfileColour(drawn) ? drawn : undefined, avatar: readString(face, "avatar") }),
 		engine,
 		app: BROWSER_APPS.find(candidate => candidate === readString(value, "app")) ?? null,
 		url: readString(value, "url") ?? "",
@@ -210,6 +247,8 @@ function readState(tool: string, value: unknown): BrowserState {
 		canGoForward: value.canGoForward === true,
 		publish: value.publish === null || value.publish === undefined ? null : readPublish(tool, value.publish),
 		dialogs: readDialogs(value.dialogs),
+		takenOver: value.takenOver === true,
+		agentActionAt: readNumber(value, "agentActionAt") ?? null,
 	};
 }
 
@@ -328,12 +367,26 @@ export class BrowserClient {
 		return structured(tool, result);
 	}
 
-	/** The names of the saved profiles: `browser_profiles` answers the View with each one's label, colour and sites too. */
-	async profiles(): Promise<string[]> {
-		const payload = await this.call("browser_profiles", {});
-		const profiles = payload.profiles;
-		if (!Array.isArray(profiles)) throw new BrowserToolError("browser_profiles", "result carried no profiles array");
-		return profiles.flatMap((profile) => (isRecord(profile) && typeof profile.name === "string" ? [profile.name] : []));
+	/** Every saved profile with its label, colour, avatar, who holds it and where it is signed in: `browser_profiles` answers the View the whole listing. */
+	async profiles(): Promise<ProfileListing[]> {
+		const tool = "browser_profiles";
+		const profiles = (await this.call(tool, {})).profiles;
+		if (!Array.isArray(profiles)) throw new BrowserToolError(tool, "result carried no profiles array");
+		return profiles.flatMap(readProfile);
+	}
+
+	/** Creates a profile from the name the person typed. The refusal (a taken or unusable name) is the runtime's sentence, raised as is. */
+	async addProfile(request: NewProfileRequest): Promise<ProfileListing> {
+		const tool = "browser_profile_add";
+		const [profile] = readProfile((await this.call(tool, { ...request })).profile);
+		if (profile === undefined) throw new BrowserToolError(tool, "the answer did not describe the new profile");
+		return profile;
+	}
+
+	/** The person takes the browser over (`take`) or hands it back (`return`); answers the state after it. */
+	async control(browserId: string, mode: ControlMode): Promise<BrowserState> {
+		const tool = "browser_control";
+		return readState(tool, await this.call(tool, { browserId, mode }));
 	}
 
 	async open(options: OpenOptions): Promise<BrowserState> {

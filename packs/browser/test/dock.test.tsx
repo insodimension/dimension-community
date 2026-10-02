@@ -141,7 +141,7 @@ async function mountPanel(sessionId: string | null, store: BrowserStoreShape) {
 		...dom,
 		/** The site line for `label` under profile `profile`. */
 		siteLine: (profile: string, label: string): Element => {
-			const section = dom.find('[data-slot="browser-accounts-profile"]').filter(el => el.querySelector("button")?.textContent === profile);
+			const section = dom.find('[data-slot="browser-accounts-profile"]').filter(el => el.querySelector('[data-slot="browser-accounts-profile-label"]')?.textContent === profile);
 			const lines = section.flatMap(el => [...el.querySelectorAll('[data-slot="browser-accounts-site"]')]);
 			const matches = lines.filter(line => line.querySelector("span span span")?.textContent === label);
 			if (matches.length !== 1) throw new Error(`expected one ${label} line under ${profile}, found ${matches.length}`);
@@ -228,7 +228,7 @@ describe("the Browser panel", () => {
 		const form = panel.find('[data-slot="browser-accounts-new"]')[0] as Element;
 		const name = form.querySelector("input") as HTMLInputElement;
 		const header = (label: string): Element => {
-			const found = panel.find('[data-slot="browser-accounts-profile"]').map(el => el.querySelector("button") as Element).find(el => el.textContent === label);
+			const found = panel.find('[data-slot="browser-accounts-profile"]').find(el => el.querySelector('[data-slot="browser-accounts-profile-label"]')?.textContent === label)?.querySelector("button");
 			if (!found) throw new Error(`no "${label}" set`);
 			return found;
 		};
@@ -286,6 +286,21 @@ describe("the Browser panel", () => {
 		expect(open.form.querySelector("button")?.hasAttribute("disabled")).toBe(true);
 		expect(panel.find('[data-slot="browser-accounts-hint"]')).toHaveLength(1);
 	});
+
+	test("each profile starts with an avatar disc — its emoji when it has one, else its label's first letter in capitals — beside its label", async () => {
+		const seen = { "x.com": { signedIn: true, observedAt: T } };
+		const meta = { acme: { label: "Work Account", colour: "teal" as const, avatar: "💼" }, side: { label: "side project", colour: "pink" as const } };
+		const { store } = fakeStore({ connected: true, reported: buildConnectionReport({ acme: seen, plain: seen, side: seen }, meta) });
+		const panel = await mountPanel("session-1", store);
+
+		const sections = panel.find('[data-slot="browser-accounts-profile"]');
+
+		expect(sections.map(el => [el.querySelector('[data-slot="browser-accounts-avatar"]')?.textContent, el.querySelector('[data-slot="browser-accounts-profile-label"]')?.textContent])).toEqual([
+			["💼", "Work Account"],
+			["P", "plain"],
+			["S", "side project"],
+		]);
+	});
 });
 
 describe("what the panel says of a profile and of a site it cannot vouch for", () => {
@@ -310,7 +325,7 @@ describe("what the panel says of a profile and of a site it cannot vouch for", (
 		expect(profileRows(fact)[0]?.sites.map((site) => effectiveSignedIn(site.signedIn, site.observedAt, T))).toEqual([null, true, null]);
 		const { store } = fakeStore(fact);
 		const panel = await mountPanel("session-1", store);
-		expect(panel.find('[data-slot="browser-accounts-profile"]').map((el) => el.querySelector("button")?.textContent)).toEqual(["Work Account"]);
+		expect(panel.find('[data-slot="browser-accounts-profile"]').map((el) => el.querySelector('[data-slot="browser-accounts-profile-label"]')?.textContent)).toEqual(["Work Account"]);
 		const visited = panel.siteLine("Work Account", "bbc.co.uk");
 		expect(visited.textContent).toContain("Not checked");
 		expect(visited.hasAttribute("data-signed-in")).toBe(false);

@@ -38,14 +38,17 @@ import { randomBytes } from "node:crypto";
 import { existsSync, type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { type ConnectionObservations, isPublicSite, siteHost } from "./connection.js";
-import { matchProfiles, type ResolvedProfileMeta, resolveProfileMeta } from "./profile-meta.js";
+import { checkNewProfile, cleanAvatar, isProfileColour, matchProfiles, PROFILE_COLOURS, type ResolvedProfileMeta, resolveProfileMeta } from "./profile-meta.js";
 import { profileSlug, RELAY_PROFILE } from "./profile-name.js";
-import { buildProfileList } from "./profile-list.js";
+import { buildProfileList, type HoldFact } from "./profile-list.js";
 import { probeFor, readProbe, SETTLE_MS, type SiteProbe, type ProbeVerdict } from "./probes.js";
 import type {
 	BrowserApp,
 	BrowserOpener,
 	ProfileHolder,
+	ProfileHold,
+	ControlMode,
+	NewProfileRequest,
 	ProfileListing,
 	ActionResult,
 	ActManyResult,
@@ -87,7 +90,7 @@ import type {
 	StepOutcome,
 	StepStatus,
 } from "./contracts.js";
-import { BROWSER_ENGINES, MAX_ANNOTATION_REGIONS, MAX_BATCH_STEPS, MAX_EVAL_EXPRESSION_CHARS, MAX_EVAL_RESULT_CHARS, MAX_VIEWPORT, MAX_WAIT_MS, MIN_VIEWPORT, TASK_AGENTS } from "./contracts.js";
+import { BROWSER_ENGINES, CONTROL_MODES, MAX_ANNOTATION_REGIONS, MAX_BATCH_STEPS, MAX_EVAL_EXPRESSION_CHARS, MAX_EVAL_RESULT_CHARS, MAX_VIEWPORT, MAX_WAIT_MS, MIN_VIEWPORT, TASK_AGENTS } from "./contracts.js";
 import { credentialOrigin, resolveCredential, savedPassword, savedPasswords } from "./credentials.js";
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
@@ -277,6 +280,12 @@ interface Entry {
 	logRead: number;
 	/** Who opened it, as the host stamped the call: what `heldBy` and a second open of the same profile are judged by. */
 	opener: BrowserOpener;
+	/** The person has the wheel: an agent's page actions are refused until they hand it back (`control`). Reads are not. */
+	takenOver: boolean;
+	/** When an agent (anyone but the View) last ran a page action here; the View shows it as "working" for a few seconds. */
+	agentAt: number | null;
+	/** How the profile is shown (label, colour, avatar); fixed while the browser is open, so read once at launch. null: throwaway, or the relay. */
+	look: ResolvedProfileMeta | null;
 	/** Set at launch when the browser build under this profile changed; handed to the opener once, by `open`. */
 	notice?: string;
 	/** The passive sign-in look: debounced after a page loads, one at a time, once more as the browser closes. */
@@ -499,7 +508,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), inputQueue: Promise.resolve(), closed: false,
 				task: null, worker: null, publish: null, secrets: new Set(), logRead: 0, logNoticed: 0, annotations,
-				opener, probe: { timer: undefined, running: undefined, again: false },
+				opener, takenOver: false, agentAt: null, look: profile === null || profile === RELAY_PROFILE ? null : resolveProfileMeta(profile, this.store.meta(profile)),
+				probe: { timer: undefined, running: undefined, again: false },
 				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false,
 			};
 			if (code !== undefined) entry.code = code;
@@ -547,7 +557,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			fail("unknown_browser", "Unknown or already closed browserId.");
 		}
 		await this.serialize(entry, async () => {
-			if (!entry.closed) refuseWhilePublishing(entry, caller);
+			if (!entry.closed) {
+				refuseWhilePublishing(entry, caller);
+				// An agent closing a browser the person took over would end what they are doing in it.
+				refuseWhileTakenOver(entry, caller);
+			}
 			await this.teardown(entry);
 		}, { evenIfClosed: true });
 		// A throwaway browser's data is gone by the time its close resolves.
@@ -1056,22 +1070,54 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	async profileList(asker?: string): Promise<ProfileListing[]> {
-		return buildProfileList(
-			this.store,
-			(slug) => {
-				const opener = this.byProfile.get(slug)?.opener ?? this.openers.get(slug);
-				if (opener !== undefined) return this.holderOf(opener, asker);
-				// Open in another server (or another runtime on this root): not ours to name, and not free.
-				return this.store.heldElsewhere(slug) ? "another chat" : null;
-			},
-			Date.now(),
-		);
+		return buildProfileList(this.store, (slug) => this.holdFact(slug, asker), Date.now());
+	}
+
+	/** Who holds `slug` as `asker` sees it, and what that holder is doing. A browser still launching counts; so does one open in another server. */
+	private holdFact(slug: string, asker: string | undefined): HoldFact {
+		const entry = this.byProfile.get(slug);
+		const opener = entry?.opener ?? this.openers.get(slug);
+		if (opener !== undefined) {
+			const hold: ProfileHold = { by: opener.caller === "app" ? "person" : "agent", task: entry?.task?.status === "running", takenOver: entry?.takenOver === true };
+			return { heldBy: this.holderOf(opener, asker), hold };
+		}
+		// Open in another server (or another runtime on this root): not ours to name, and not free.
+		return { heldBy: this.store.heldElsewhere(slug) ? "another chat" : null };
 	}
 
 	async profileMeta(): Promise<Record<string, ResolvedProfileMeta>> {
 		const meta: Record<string, ResolvedProfileMeta> = {};
 		for (const slug of this.store.list()) if (slug !== RELAY_PROFILE) meta[slug] = resolveProfileMeta(slug, this.store.meta(slug));
 		return meta;
+	}
+
+	async addProfile(request: NewProfileRequest): Promise<ProfileListing> {
+		if (this.disposed) fail("disposed", "runtime has been disposed");
+		if (typeof request?.name !== "string") fail("bad_profile_name", "Give the profile a name.");
+		if (request.colour !== undefined && !isProfileColour(request.colour)) fail("bad_profile", `colour must be one of: ${PROFILE_COLOURS.join(", ")}`);
+		if (request.avatar !== undefined && cleanAvatar(request.avatar) === undefined) fail("bad_profile", "avatar must be a single emoji");
+		// Read, checked and created without an await between: two adds of one name in this server cannot both pass.
+		const taken = this.store.list().filter((slug) => slug !== RELAY_PROFILE).map((slug) => ({ slug, label: resolveProfileMeta(slug, this.store.meta(slug)).label }));
+		const check = checkNewProfile(request.name, taken);
+		if (!check.ok) fail("bad_profile_name", check.problem);
+		this.store.saveMeta(check.slug, { label: check.label, ...(request.colour === undefined ? {} : { colour: request.colour }), ...(request.avatar === undefined ? {} : { avatar: request.avatar }) });
+		const created = (await this.profileList()).find((profile) => profile.name === check.slug);
+		if (created === undefined) fail("profile_missing", "the profile was created but cannot be read back");
+		return created;
+	}
+
+	async control(browserId: string, mode: ControlMode, caller?: ToolCaller): Promise<BrowserState> {
+		if (caller !== "app") fail("human_only", "only the person in the View can take a browser over or hand it back");
+		if (!CONTROL_MODES.includes(mode)) fail("bad_control", `mode must be one of: ${CONTROL_MODES.join(", ")}`);
+		const entry = this.require(browserId);
+		if (mode === "take") {
+			// The page being confirmed must not be navigated away from, or its post lost, by someone reaching for the wheel.
+			if (isPending(entry.publish)) fail("publish_pending", "a post awaits confirmation on this browser; take over once it is posted or cancelled");
+			if (entry.task?.status === "running") fail("task_running", `a browser_task (${entry.task.agent}) is running here; stop it first`);
+		}
+		// Not queued behind page work: it must hold before the agent's next step, not after its whole batch.
+		entry.takenOver = mode === "take";
+		return this.redact(entry, await this.buildState(entry));
 	}
 
 	async connections(): Promise<ConnectionObservations> {
@@ -1324,7 +1370,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		const planned = admitTab(request);
 		return await this.serialize(entry, async () => {
-			refuseWhileBusy(entry, caller);
+			admitCaller(entry, caller);
 			await this.applyTab(entry, planned);
 			return this.redact(entry, await this.buildState(entry));
 		});
@@ -1356,7 +1402,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	async act(browserId: string, input: BrowserAction, caller?: ToolCaller): Promise<ActionResult> {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
-			refuseWhileBusy(entry, caller);
+			admitCaller(entry, caller);
 			const done = await this.dispatch(entry, this.admit(entry, input, caller), caller);
 			if (done.status !== "completed") {
 				return this.redact(entry, { status: done.status, error: done.error, state: await this.buildState(entry).catch(() => this.staleState(entry)) });
@@ -1380,7 +1426,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		if (!Array.isArray(steps) || steps.length < 1 || steps.length > MAX_BATCH_STEPS) fail("bad_action", `actions must be 1-${MAX_BATCH_STEPS} steps`);
 		return await this.serialize(entry, async () => {
-			refuseWhileBusy(entry, caller);
+			admitCaller(entry, caller);
 			const plan = steps.map((step) => this.admitStep(entry, step, caller));
 			const budget = this.options.actBudgetMs ?? ACT_BUDGET_MS;
 			const deadline = Date.now() + budget;
@@ -1390,6 +1436,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			let valueChars = MAX_EVAL_RESULT_CHARS;
 			let stopped: StepDone | undefined;
 			for (const [index, step] of plan.entries()) {
+				// The person took over between two steps: the steps not yet sent are not sent.
+				if (index > 0 && caller !== "app" && entry.takenOver) {
+					stopped = { status: "failed", error: TAKEN_OVER_MESSAGE };
+					break;
+				}
 				if (index > 0 && Date.now() >= deadline) {
 					stopped = { status: "timeout", error: `the batch's time budget (${budget} ms) ran out after ${index} of ${plan.length} steps; send the remaining steps in a new call` };
 					break;
@@ -1563,7 +1614,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		const { condition, timeoutMs } = validateWait(request);
 		return await this.serialize(entry, async () => {
-			refuseWhileBusy(entry, caller);
+			admitCaller(entry, caller);
 			const held = await entry.driver.waitFor(condition, timeoutMs, (value) => this.redact(entry, value));
 			return this.redact(entry, { status: held ? ("completed" as const) : ("timeout" as const), state: await this.buildState(entry) });
 		});
@@ -1624,6 +1675,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			if (entry.worker) fail("task_running", `a ${entry.task?.agent} task is already running on this browser`);
 			refuseWhilePublishing(entry, caller);
+			refuseWhileTakenOver(entry, caller);
 			const state = await this.refreshState(entry);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(this.savedProfile(entry, "a task credential")), request.credential) : undefined;
@@ -1919,24 +1971,25 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private async buildState(entry: Entry): Promise<BrowserState> {
 		const state = await this.refreshState(entry);
 		return {
-			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, app: entry.driver.app,
+			browserId: entry.browserId, profile: entry.profile, look: entry.look, engine: entry.engine, app: entry.driver.app,
 			url: state.url, title: state.title, revision: entry.revision,
 			viewport: state.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: state.tabs, activeTabId: state.activeTabId, loading: state.loading,
 			canGoBack: state.canGoBack, canGoForward: state.canGoForward,
 			publish: entry.publish ? publishRecord(entry.publish) : null,
 			dialogs: state.dialogs,
+			takenOver: entry.takenOver, agentActionAt: entry.agentAt,
 		};
 	}
 
 	/** State when the page cannot be read (it may be mid-navigation after a failed action). */
 	private staleState(entry: Entry): BrowserState {
 		return {
-			browserId: entry.browserId, profile: entry.profile, engine: entry.engine, app: entry.driver.app, url: "", title: "",
+			browserId: entry.browserId, profile: entry.profile, look: entry.look, engine: entry.engine, app: entry.driver.app, url: "", title: "",
 			revision: entry.revision, viewport: entry.viewport, task: entry.task ? cloneTask(entry.task) : null,
 			tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false,
 			publish: entry.publish ? publishRecord(entry.publish) : null,
-			dialogs: [],
+			dialogs: [], takenOver: entry.takenOver, agentActionAt: entry.agentAt,
 		};
 	}
 
@@ -2193,6 +2246,21 @@ function refuseWhileBusy(entry: Entry, caller: ToolCaller | undefined): void {
 		fail("task_running", `a browser_task (${entry.task.agent}) owns this page; wait for it or cancel it`);
 	}
 	refuseWhilePublishing(entry, caller);
+	refuseWhileTakenOver(entry, caller);
+}
+
+/** What an agent is told when the person has the wheel: why it was refused, and that reading is still open to it. */
+const TAKEN_OVER_MESSAGE = "the person took over this browser in the View, so your actions on it are paused. You can still read it (browser_snapshot, browser_state); ask them to hand it back before you act.";
+
+/** The person's wheel: only the View's own input drives a browser they took over. Refused as `human_driving`. */
+function refuseWhileTakenOver(entry: Entry, caller: ToolCaller | undefined): void {
+	if (caller !== "app" && entry.takenOver) fail("human_driving", TAKEN_OVER_MESSAGE);
+}
+
+/** `refuseWhileBusy`, then notes that an agent is acting on this browser (the View shows it, with a way to take over). */
+function admitCaller(entry: Entry, caller: ToolCaller | undefined): void {
+	refuseWhileBusy(entry, caller);
+	if (caller !== "app") entry.agentAt = Date.now();
 }
 
 /**
