@@ -685,6 +685,13 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       expect((await failure('await wait("soon")')).message).toBe("wait(...) expects milliseconds (number) or a predicate function to poll");
     }, 20_000);
 
+    // Doc 77 §7.4.5: as in OMP the code is not sandboxed from Node (it can import node:fs), and nothing of the pack's own is lent to it. The import is in the code under test, not in this file.
+    test("the code can reach Node as OMP's can, and none of the pack's own objects", async () => {
+      expect(await value('typeof (await import("node:fs")).readFileSync')).toBe("function");
+      expect(await value("[typeof tab, typeof page, typeof browser, typeof assert, typeof wait]")).toEqual(["object", "object", "object", "function", "function"]);
+      expect(await value("[typeof realm, typeof BrowserRuntime, typeof session, typeof evaluator, typeof createTabRealm]")).toEqual(["undefined", "undefined", "undefined", "undefined", "undefined"]);
+    }, 20_000);
+
     test("the code gets raw puppeteer page and browser beside tab, and a run that is cancelled ends with the cancellation", async () => {
       expect(await value("page.url() === tab.url() && typeof browser.pages === 'function' && typeof tab.page.goto === 'function'")).toBe(true);
       const controller = new AbortController();
