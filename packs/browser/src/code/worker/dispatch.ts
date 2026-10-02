@@ -3,6 +3,7 @@
 // Changed for the Browser pack: ArkType is zod; `open` and `close` are answered by the code host (a `bridge` message) while `run` and `call` stay in this thread, in the tab realm; a tab the host made is
 // adopted here; the session's settings and the tab supervisor are not here.
 
+import { isMainThread } from "node:worker_threads";
 import { z } from "zod";
 import type { BridgeDetails, BridgeRequest, BridgeResponse, HostToWorker, RunError, RunResult, TabHandle, TabRealm, Transport, WorkerToHost } from "../contracts.js";
 import { CellFailure, type CellInvoke, CodeCell, failureOf } from "../cell/cell.js";
@@ -39,6 +40,15 @@ export const bridgeRequestSchema = z.object({
   persist: z.boolean().optional(),
   profile: z.string().optional(),
 });
+
+/**
+ * Leaves `target` holding exactly `env`. A worker thread starts with a copy of the server's environment (the jev key, every DIMENSION_* secret); the cell must see only what the host sent.
+ * In place, so a process the cell starts inherits it too.
+ */
+export function scrubEnvironment(target: NodeJS.ProcessEnv, env: Readonly<Record<string, string>>): void {
+  for (const key of Object.keys(target)) if (!Object.hasOwn(env, key)) delete target[key];
+  Object.assign(target, env);
+}
 
 /** OMP's clampTimeout("browser", raw): the default when omitted, then the floor and the ceiling. */
 export function clampBrowserTimeout(raw: number | undefined): number {
@@ -204,6 +214,8 @@ export class WorkerCore {
 
   async #init(message: Extract<HostToWorker, { t: "init" }>): Promise<void> {
     try {
+      // Only a worker thread has an environment of its own to replace: in the main thread this would wipe the server's.
+      if (!isMainThread) scrubEnvironment(process.env, message.env);
       const realm = this.#options.createRealm({ session: message.session, env: message.env, ...(message.screenshotDir === undefined ? {} : { screenshotDir: message.screenshotDir }) });
       this.#realm = realm;
       this.#cell = new CodeCell({ guardRejections: this.#options.guardRejections ?? false });

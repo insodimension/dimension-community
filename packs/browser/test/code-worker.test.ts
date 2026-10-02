@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { BridgeRequest, HostToWorker, RunResult, TabHandle, TabRealm, Transport, WorkerToHost } from "../src/code/contracts.js";
 import { ToolAbortError } from "../src/code/errors.js";
-import { clampBrowserTimeout, createDispatcher, WorkerCore } from "../src/code/worker/dispatch.js";
+import { clampBrowserTimeout, createDispatcher, scrubEnvironment, WorkerCore } from "../src/code/worker/dispatch.js";
 
 const handle = (name: string): TabHandle => ({ tabId: `t-${name}`, targetId: `target-${name}`, url: "about:blank", title: "", active: true, browserId: "b1", wsEndpoint: "ws://127.0.0.1:1/devtools/browser/x", kind: "headless", created: true });
 const finished = (text: string, returnValue?: unknown): RunResult => ({ displays: [{ type: "text", text }], ...(returnValue === undefined ? {} : { returnValue }), screenshots: [] });
@@ -340,6 +340,22 @@ describe("cancellation, budget and shutdown", () => {
     link.send({ t: "init", session: "s1", env: {}, tabs: [{ name: "gone", handle: handle("gone") }] });
     await link.next((m): m is Extract<WorkerToHost, { t: "ready" }> => m.t === "ready");
     expect(link.fromWorker.find(m => m.t === "log")).toMatchObject({ level: "warn", msg: expect.stringContaining('"gone"') });
+  });
+
+  test("scrubEnvironment leaves a target holding exactly the env it is given", () => {
+    const target: NodeJS.ProcessEnv = { KEEP: "old", DROP: "x", TYPESAFE_API_KEY: "secret" };
+    scrubEnvironment(target, { KEEP: "new", ADD: "y" });
+    expect(target).toEqual({ KEEP: "new", ADD: "y" });
+  });
+
+  test("init in the main thread never rewrites the server's own environment", async () => {
+    const before = { ...process.env };
+    const link = boundary();
+    links.push(link);
+    new WorkerCore({ transport: link.worker, createRealm: () => new FakeRealm() });
+    link.send({ t: "init", session: "s1", env: { ONLY: "this" } });
+    await link.next((m): m is Extract<WorkerToHost, { t: "ready" }> => m.t === "ready");
+    expect(process.env).toEqual(before);
   });
 
   test("a run before init is refused, not run", async () => {
