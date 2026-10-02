@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/example-agents",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Example Agents - the reference pack for contributing a General Agent.",
 	"type": "module",
 	"main": "./src/index.ts",

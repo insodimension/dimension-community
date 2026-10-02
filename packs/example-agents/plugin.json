@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "example-agents",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Example Agents - the reference pack for contributing a General Agent: one space, Example Hub, scoped to one sample marketing lead that ships off by default.",
 	"author": {
 		"name": "Dimension"
@@ -63,7 +63,6 @@
 					"workspace": {
 						"surfaces": [
 							"session",
-							"autonomy",
 							"models"
 						],
 						"start": "session",

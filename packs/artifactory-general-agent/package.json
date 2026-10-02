@@ -1,56 +1,58 @@
 {
   "name": "@dimension/community-general-agent",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "author": "Dimension",
-  "description": "The Forge — build a General Agent by hand or by talking to your agent: a three.js orrery where skills, MCP servers, memory and lineage orbit the agent's core, and the agent.md is written live beside it.",
+  "description": "General Agents: every agent you can run, as cards with their real faces and their week at a glance. Open one for its whole profile and edit it there, extend a pack's agent into your own, or ask the Machinist to draft one.",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "vite --config vite.config.ts",
-    "build": "node scripts/build.mjs",
+    "dev": "vite --config harness/vite.config.ts",
+    "build": "bun scripts/build.mjs",
     "check:types": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "test": "bun test test/",
     "start": "node app/server.mjs"
   },
   "dimension": {
     "name": "artifactory-general-agent",
-    "description": "The Forge — build a General Agent by hand or by talking to your agent: a three.js orrery where skills, MCP servers, memory and lineage orbit the agent's core, and the agent.md is written live beside it.",
+    "description": "General Agents: every agent you can run, as cards with their real faces and their week at a glance. Open one for its whole profile and edit it there, extend a pack's agent into your own, or ask the Machinist to draft one.",
     "defaultEnabled": false,
     "category": "artifactory",
     "keywords": [
       "general-agents",
-      "mcp-apps",
-      "agent-builder"
+      "agent-builder",
+      "component"
     ]
   },
   "files": [
     "plugin.json",
     "ai.insodimension.dimension/",
     "app/server.mjs",
-    "app/dist/",
+    "dist/",
     "README.md"
   ],
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@dimension/sdk": "workspace:*",
+    "@fraym/config": "workspace:*",
+    "@fraym/ui": "workspace:*",
+    "@fraym/vibr": "workspace:*",
+    "@tailwindcss/vite": "catalog:",
     "@types/bun": "1.3.14",
     "@types/node": "^26.1.2",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "6.0.4",
     "esbuild": "^0.21.5",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "three": "0.186.1",
+    "tailwindcss": "catalog:",
     "typescript": "7.0.2",
     "vite": "8.1.5"
   }

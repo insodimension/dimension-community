@@ -1,21 +1,32 @@
 {
 	// TWO PROGRAMS, ONE PACK (the `@dimension/sdk` precedent: packages/sdk/
-	// tsconfig.agent.json). This one is the View and the modules it shares with
-	// the server — judged by this pack's own strictness. `tsconfig.server.json`
-	// is the server and its tests: `@dimension/sdk/general-agent` brings the
-	// fork's manifest parser, so OMP source enters that program and is judged by
-	// the ENGINE's rules, not this pack's. `check:types` chains both.
+	// tsconfig.agent.json). This one is the PAGE (a host-realm component bundle),
+	// its design harness and tests, and the modules it shares with the server.
+	// The page reaches `@fraym/ui` SOURCE through the import, so it is judged by
+	// the KIT's compiler settings. `tsconfig.server.json` is the server and its
+	// tests: `@dimension/sdk/general-agent` brings the fork's manifest parser, so
+	// OMP source enters that program and is judged by the ENGINE's rules.
+	// `check:types` chains both.
+	"extends": "../../../fraym/tsconfig.base.json",
 	"compilerOptions": {
-		"target": "ES2022",
-		"module": "ESNext",
-		"moduleResolution": "Bundler",
 		"jsx": "react-jsx",
-		"strict": true,
-		"noUncheckedIndexedAccess": true,
-		"skipLibCheck": true,
-		"noEmit": true,
-		"lib": ["ES2022", "DOM", "DOM.Iterable"],
-		"types": ["bun", "vite/client"]
+		"lib": ["ES2024", "DOM", "DOM.Iterable"],
+		"types": ["bun", "vite/client"],
+		"paths": {
+			// Mochi's accent palette, by file (see vite.config.ts `PAGE_ALIASES`).
+			"@fraym/vibr/avatars/mochi-skins": ["../../../fraym/packages/vibr/src/avatars/mochi-skins.ts"]
+		}
 	},
-	"include": ["app/view", "src/agent-md.ts", "src/contracts.ts"]
+	"include": [
+		"page",
+		"harness",
+		"test/page-*.test.ts",
+		"test/page-*.test.tsx",
+		"src/agent-md.ts",
+		"src/contracts.ts",
+		"src/extra.ts",
+		"../../../fraym/packages/ui/src/asset-imports.d.ts",
+		"../../../fraym/packages/ui/src/globals.d.ts",
+		"../../../fraym/packages/vibr/src/css.d.ts"
+	]
 }

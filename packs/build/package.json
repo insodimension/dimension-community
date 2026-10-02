@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/build",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Build - the assembled workspace: a layout declaring its own slots, plus a space whose every filling is a marketplace pack shipping the real component.",
 	"type": "module",
 	"main": "./src/index.ts",

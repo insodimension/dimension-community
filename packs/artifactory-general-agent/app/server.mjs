@@ -2,109 +2,275 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 // src/server.ts
-import { statSync } from "node:fs";
-import { readdir as readdir3, readFile as readFile3 } from "node:fs/promises";
-import { extname, isAbsolute, join as join3, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
+import { randomUUID } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute, join as join4, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { parse as parseYaml4 } from "yaml";
+
+// src/guards.ts
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+
+// src/extra.ts
+var KEY_LINE = /^( *)("[^"]+"|'[^']+'|[A-Za-z0-9_][\w./-]*) *:(?: +(.*))?$/;
+function indentOf(line) {
+  return line.length - line.trimStart().length;
+}
+function isBlank(line) {
+  return line.trim() === "";
+}
+function unquote(key) {
+  return key.startsWith('"') || key.startsWith("'") ? key.slice(1, -1) : key;
+}
+function splitLevel(lines, indent) {
+  const blocks = [];
+  const stray = [];
+  let current = null;
+  let pending = [];
+  for (const line of lines) {
+    const match = KEY_LINE.exec(line);
+    if (match && (match[1] ?? "").length === indent) {
+      current = { key: unquote(match[2] ?? ""), lines: [...pending, line], rest: match[3] ?? "" };
+      pending = [];
+      blocks.push(current);
+    } else if (isBlank(line) || line.trimStart().startsWith("#") && indentOf(line) <= indent) {
+      pending.push(line);
+    } else if (current) {
+      current.lines.push(...pending, line);
+      pending = [];
+    } else {
+      stray.push(line);
+      pending = [];
+    }
+  }
+  for (const block of blocks) {
+    while (block.lines.length > 0 && isBlank(block.lines[0] ?? "")) block.lines.shift();
+    while (block.lines.length > 0 && isBlank(block.lines[block.lines.length - 1] ?? "")) block.lines.pop();
+  }
+  return { blocks, stray };
+}
+function describe(raw, depth) {
+  const inline = raw.rest.replace(/^#.*$/, "").replace(/\s+#.*$/, "").trim();
+  const keyAt = raw.lines.findIndex((line) => {
+    const match = KEY_LINE.exec(line);
+    return match !== null && unquote(match[2] ?? "") === raw.key;
+  });
+  const body = raw.lines.slice(keyAt + 1);
+  const first = body.find((line) => !isBlank(line) && !line.trimStart().startsWith("#"));
+  const base = { key: raw.key, lines: raw.lines, inline };
+  if (depth > 0 || inline !== "") return { ...base, children: null, childIndent: 0 };
+  if (first === void 0) return { ...base, children: [], childIndent: 2 };
+  const childIndent = indentOf(first);
+  if (childIndent === 0 || !KEY_LINE.test(first)) return { ...base, children: null, childIndent: 0 };
+  return { ...base, children: splitLevel(body, childIndent).blocks.map((child) => describe(child, 1)), childIndent };
+}
+function parseExtra(text) {
+  const { blocks, stray } = splitLevel(text.replace(/\r\n?/g, "\n").split("\n"), 0);
+  return { blocks: blocks.map((block) => describe(block, 0)), stray };
+}
+function extraPaths(blocks) {
+  const paths = /* @__PURE__ */ new Set();
+  for (const block of blocks) {
+    paths.add(block.key);
+    for (const child of block.children ?? []) paths.add(`${block.key}.${child.key}`);
+  }
+  return paths;
+}
+function reindent(lines, from, to) {
+  return lines.map((line) => isBlank(line) ? "" : " ".repeat(to) + line.slice(Math.min(from, indentOf(line))));
+}
+function childLines(block, indent) {
+  return (block.children ?? []).flatMap((child) => reindent(child.lines, block.childIndent, indent));
+}
+var GRANT_SECTIONS = { gate: true, workspace: true };
+var MIXED_SECTIONS = { capabilities: true, subagents: true };
+var GRANT_PATHS = {
+  "capabilities.tools": true,
+  "capabilities.mcp": true,
+  "capabilities.plugins": true,
+  "capabilities.control": true,
+  "capabilities.optIn": true,
+  "subagents.allowed": true,
+  harness: true,
+  allowedHarnesses: true,
+  tools: true,
+  spawns: true
+};
+function grantPathsOf(sections) {
+  const found = [];
+  for (const [key, children] of sections) {
+    if (Object.hasOwn(GRANT_SECTIONS, key) || Object.hasOwn(GRANT_PATHS, key)) found.push(key);
+    else if (Object.hasOwn(MIXED_SECTIONS, key)) {
+      if (children === null) found.push(`${key} (inline)`);
+      else for (const child of children) if (Object.hasOwn(GRANT_PATHS, `${key}.${child}`)) found.push(`${key}.${child}`);
+    }
+  }
+  return found;
+}
+function grantPathsIn(text) {
+  return grantPathsOf(parseExtra(text).blocks.map((block) => [block.key, block.children === null ? null : block.children.map((child) => child.key)]));
+}
+function grantPathsInDocument(document) {
+  if (!isRecord(document)) return [];
+  return grantPathsOf(Object.entries(document).map(([key, value]) => [key, value === null || value === void 0 ? [] : isRecord(value) ? Object.keys(value) : null]));
+}
 
 // src/agent-md.ts
-var VIBRS = [
-  "blob",
-  "nebula",
-  "quasar",
-  "lattice",
-  "aurora",
-  "liquid",
-  "cube",
-  "matrix",
-  "static",
-  "siri",
-  "koi",
-  "octo"
-];
 var PERSONALITIES = ["default", "friendly", "pragmatic", "none"];
 var PROMPT_MODES = ["replace", "append"];
 var THINKING_STEPS = ["inherit", "off", "minimal", "low", "medium", "high", "xhigh"];
-var APPROVALS = ["always-ask", "write", "yolo"];
+var APPROVAL_SETTINGS = ["always-ask", "write", "yolo", "inherit"];
 var HABITATS = ["bound", "home", "ephemeral"];
 var MEMORY_BACKENDS = ["inherit", "engram", "local", "hindsight", "mnemopi", "off"];
 var MEMORY_SCOPES = ["project", "global"];
+var VOICE_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var NAME_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
+var FLAT_ALIASES = {
+  tools: "capabilities.tools",
+  thinkingLevel: "engine.thinkingLevel",
+  thinking: "engine.thinkingLevel",
+  model: "engine.model"
+};
+var DRAWN_CHILDREN = {
+  identity: ["personality", "prompt"],
+  engine: ["thinkingLevel", "model"],
+  capabilities: ["tools", "skills", "mcp"],
+  gate: ["approval"],
+  memory: ["backend"],
+  workspace: ["policy", "id", "reach"]
+};
+var FIXED_PATHS = {
+  name: true,
+  description: true,
+  specVersion: true,
+  extends: true,
+  "identity.prompt": true
+};
 function draftProblems(draft) {
   const problems = [];
   if (!NAME_RE.test(draft.name)) problems.push("Name it: 2\u201364 lowercase letters, digits or dashes.");
+  if (draft.voice !== "" && !VOICE_NAME_RE.test(draft.voice)) problems.push("A voice is a profile name: lowercase letters, digits and single dashes.");
   if (draft.description.trim() === "") problems.push("Give it one line that says what it is for.");
-  if (draft.charter.trim() === "") problems.push("Write its charter \u2014 the instructions it runs by.");
+  if (draft.charter.trim() === "") problems.push("Write its charter: the instructions it runs by.");
+  problems.push(...manifestDocument(draft).problems);
   return problems;
 }
 var PLAIN_SCALAR = /^[A-Za-z0-9][A-Za-z0-9 _./@:+-]*$/;
 var YAML_WORDS = /^(true|false|yes|no|on|off|null|~)$/i;
+function readsAsNumber(value) {
+  return value.trim() !== "" && !Number.isNaN(Number(value));
+}
 function scalar(value) {
-  if (PLAIN_SCALAR.test(value) && !YAML_WORDS.test(value) && !/:\s/.test(value) && !/\s$/.test(value)) return value;
+  if (PLAIN_SCALAR.test(value) && !YAML_WORDS.test(value) && !readsAsNumber(value) && !/:\s/.test(value) && !/\s$/.test(value)) return value;
   return JSON.stringify(value);
 }
 function list(values) {
   return `[${values.map(scalar).join(", ")}]`;
 }
-function manifestLines(draft) {
-  const lines = [];
-  const push = (field, text) => lines.push({ field, text });
-  push("fence", "---");
-  push("name", `name: ${scalar(draft.name || "unnamed")}`);
-  push("description", `description: ${scalar(draft.description || "\u2026")}`);
-  push("avatar", `avatar: ${draft.vibr}`);
-  push("specVersion", "specVersion: 1");
-  if (draft.lineage.length > 0) push("extends", `extends: ${list(draft.lineage)}`);
-  push("identity", "identity:");
-  if (draft.personality !== "default") push("identity.personality", `  personality: ${draft.personality}`);
-  push("identity.prompt", `  prompt: ${draft.promptMode}`);
-  if (draft.models.length > 0 || draft.thinking !== "inherit") {
-    push("engine", "engine:");
-    if (draft.models.length > 0) push("engine.model", `  model: ${list(draft.models)}`);
-    if (draft.thinking !== "inherit") push("engine.thinkingLevel", `  thinkingLevel: ${draft.thinking}`);
-  }
-  if (draft.tools.length > 0 || draft.skills.length > 0 || draft.mcp.length > 0) {
-    push("capabilities", "capabilities:");
-    if (draft.tools.length > 0) push("capabilities.tools", `  tools: ${list(draft.tools)}`);
-    if (draft.skills.length > 0) push("capabilities.skills", `  skills: ${list(draft.skills)}`);
-    if (draft.mcp.length > 0) push("capabilities.mcp", `  mcp: ${list(draft.mcp)}`);
-  }
-  push("gate", "gate:");
-  push("gate.approval", `  approval: ${draft.approval}`);
-  if (draft.memory !== "inherit") {
-    push("memory", "memory:");
-    push("memory.backend", `  backend: ${draft.memory}`);
-  }
+function manifestDocument(draft, homeId) {
+  const parsed = parseExtra(draft.extra);
+  const problems = [];
+  for (const stray of parsed.stray) problems.push(`Other settings must be \`key: value\` lines, not \u201C${stray.trim()}\u201D.`);
+  if (draft.extra.split("\n").some((line2) => /^(---|\.\.\.)/.test(line2))) problems.push("Other settings cannot hold a document separator (---).");
+  const byKey = new Map(parsed.blocks.map((block) => [block.key, block]));
+  const held = extraPaths(parsed.blocks);
+  const fixed = [...held].filter((path) => FIXED_PATHS[path] !== void 0);
+  for (const path of fixed) problems.push(`\`${path}\` is set on the profile itself (identity, lineage or charter). Remove it from Other settings.`);
+  const yields = (path) => held.has(path) && FIXED_PATHS[path] === void 0;
+  const line = (field, text) => ({ field, text });
+  const units = [
+    { key: "name", lines: [line("name", `name: ${scalar(draft.name || "unnamed")}`)] },
+    { key: "description", lines: [line("description", `description: ${scalar(draft.description || "\u2026")}`)] },
+    { key: "avatar", lines: draft.vibr === "" ? [] : [line("avatar", `avatar: ${scalar(draft.vibr)}`)] },
+    { key: "voice", lines: draft.voice === "" ? [] : [line("voice", `voice: ${scalar(draft.voice)}`)] },
+    { key: "specVersion", lines: [line("specVersion", "specVersion: 1")] }
+  ];
+  if (draft.lineage.length > 0) units.push({ key: "extends", lines: [line("extends", `extends: ${list(draft.lineage)}`)] });
+  const child = (path, text) => ({ key: path.split(".")[1] ?? path, lines: [line(path, text)] });
+  const section = (key, children) => units.push({ key, children });
+  section("identity", [
+    ...draft.personality !== "default" ? [child("identity.personality", `  personality: ${draft.personality}`)] : [],
+    child("identity.prompt", `  prompt: ${draft.promptMode}`)
+  ]);
+  section("engine", [
+    ...draft.thinking !== "inherit" ? [child("engine.thinkingLevel", `  thinkingLevel: ${draft.thinking}`)] : [],
+    ...draft.models.length > 0 ? [child("engine.model", `  model: ${list(draft.models)}`)] : []
+  ]);
+  section("capabilities", [
+    ...draft.tools.length > 0 ? [child("capabilities.tools", `  tools: ${list(draft.tools)}`)] : [],
+    ...draft.skills.length > 0 ? [child("capabilities.skills", `  skills: ${list(draft.skills)}`)] : [],
+    ...draft.mcp.length > 0 ? [child("capabilities.mcp", `  mcp: ${list(draft.mcp)}`)] : []
+  ]);
+  section("gate", draft.approval !== "inherit" ? [child("gate.approval", `  approval: ${draft.approval}`)] : []);
+  section("memory", draft.memory !== "inherit" ? [child("memory.backend", `  backend: ${draft.memory}`)] : []);
   const reachAll = draft.memory !== "off" && draft.memoryScope === "global";
-  if (draft.habitat !== "bound" || reachAll) {
-    push("workspace", "workspace:");
-    push("workspace.policy", `  policy: ${draft.habitat}`);
-    if (draft.habitat === "home") push("workspace.id", `  id: ${scalar(`agent-${draft.name || "unnamed"}`)}`);
-    if (reachAll) push("workspace.reach", "  reach: all");
+  const extraWorkspace = (byKey.get("workspace")?.children?.length ?? 0) > 0 || (byKey.get("workspace")?.inline ?? "") !== "";
+  section(
+    "workspace",
+    draft.habitat !== "bound" || reachAll || extraWorkspace ? [
+      child("workspace.policy", `  policy: ${draft.habitat}`),
+      // `home` REQUIRES an id (agent-manifest.ts AgentWorkspacePolicy): the agent's
+      // own derived home, which the engine registers as `home-<name>`.
+      ...draft.habitat === "home" ? [child("workspace.id", `  id: ${scalar(homeId ?? "(its home id)")}`)] : [],
+      ...reachAll ? [child("workspace.reach", "  reach: all")] : []
+    ] : []
+  );
+  const used = /* @__PURE__ */ new Set();
+  const lines = [line("fence", "---")];
+  const pushAll = (field, texts) => {
+    for (const text of texts) lines.push(line(field, text));
+  };
+  for (const unit of units) {
+    const block = byKey.get(unit.key);
+    if (unit.lines !== void 0) {
+      if (block !== void 0 && yields(unit.key)) {
+        used.add(unit.key);
+        pushAll(`extra.${unit.key}`, block.lines);
+      } else {
+        if (block !== void 0) used.add(unit.key);
+        lines.push(...unit.lines);
+      }
+      continue;
+    }
+    const kept = (unit.children ?? []).filter((entry2) => !yields(`${unit.key}.${entry2.key}`));
+    if (block === void 0) {
+      if (kept.length > 0) {
+        lines.push(line(unit.key, `${unit.key}:`));
+        for (const entry2 of kept) lines.push(...entry2.lines);
+      }
+      continue;
+    }
+    used.add(unit.key);
+    if (kept.length === 0) pushAll(`extra.${unit.key}`, block.lines);
+    else if (block.children === null) {
+      problems.push(`\`${unit.key}\` is written inline in Other settings, so the profile's own ${unit.key} settings cannot join it. Write its keys indented, one per line.`);
+      lines.push(line(unit.key, `${unit.key}:`));
+      for (const entry2 of kept) lines.push(...entry2.lines);
+    } else {
+      lines.push(line(unit.key, `${unit.key}:`));
+      for (const entry2 of kept) lines.push(...entry2.lines);
+      pushAll(`extra.${unit.key}`, childLines(block, 2));
+    }
   }
-  push("fence", "---");
+  for (const block of parsed.blocks) if (!used.has(block.key)) pushAll(`extra.${block.key}`, block.lines);
+  lines.push(line("fence", "---"));
   const body = draft.charter.trim() === "" ? ["\u2026"] : draft.charter.replace(/\s+$/, "").split("\n");
-  for (const text of body) push("body", text);
-  return lines;
+  for (const text of body) lines.push(line("body", text));
+  return { lines, problems };
 }
-function toAgentMd(draft) {
-  return `${manifestLines(draft).map((line) => line.text).join("\n")}
+function manifestLines(draft, homeId) {
+  return manifestDocument(draft, homeId).lines;
+}
+function toAgentMd(draft, homeId) {
+  return `${manifestLines(draft, homeId).map((entry2) => entry2.text).join("\n")}
 `;
 }
 
-// src/parts.ts
-import { readdir as readdir2, readFile as readFile2 } from "node:fs/promises";
-import { join as join2 } from "node:path";
-import { parse as parseYaml2 } from "yaml";
-
-// src/store.ts
-import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+// src/home.ts
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { mkdir as mkdir2, readFile as readFile2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
+import { basename as basename2, dirname, join as join2 } from "node:path";
 
 // ../../../omp/packages/omptype/src/errors.ts
 function format(override, context, fallback2) {
@@ -6882,7 +7048,7 @@ var SECTION_KEYS = [
   "subagents",
   "routing"
 ];
-var FLAT_ALIASES = [
+var FLAT_ALIASES2 = [
   { flat: ["tools"], section: "capabilities", nested: "tools" },
   { flat: ["autoloadSkills"], section: "capabilities", nested: "autoloadSkills" },
   { flat: ["model"], section: "engine", nested: "model" },
@@ -7186,7 +7352,7 @@ function parseAgentManifest(frontmatter, filePath) {
     }
     sections[key] = validated;
   }
-  for (const alias of FLAT_ALIASES) {
+  for (const alias of FLAT_ALIASES2) {
     const flatKey = alias.flat.find((key) => frontmatter[key] !== void 0);
     const nestedValue = sections[alias.section]?.[alias.nested];
     if (flatKey !== void 0 && nestedValue !== void 0) {
@@ -7197,13 +7363,13 @@ function parseAgentManifest(frontmatter, filePath) {
     }
   }
   const enrichedFrontmatter = { ...frontmatter };
-  for (const alias of FLAT_ALIASES) {
+  for (const alias of FLAT_ALIASES2) {
     const nestedValue = sections[alias.section]?.[alias.nested];
     if (nestedValue === void 0) continue;
     if (nestedValue === "*" && alias.section === "capabilities") continue;
     enrichedFrontmatter[alias.flat[0]] = nestedValue;
   }
-  for (const alias of FLAT_ALIASES) {
+  for (const alias of FLAT_ALIASES2) {
     const flatKey = alias.flat.find((key) => frontmatter[key] !== void 0);
     if (flatKey === void 0) continue;
     sections[alias.section] = { ...sections[alias.section], [alias.nested]: frontmatter[flatKey] };
@@ -7301,6 +7467,12 @@ function splitFrontmatter(content) {
 // ../../../packages/sdk/src/general-agent/index.ts
 var GENERAL_AGENTS_DIR = "general-agents";
 var GENERAL_AGENT_FILE = "agent.md";
+function agentHomeWorkspaceId(agent) {
+  return `home-${agent}`;
+}
+function derivesAgentHome(agent, workspaceId) {
+  return workspaceId === void 0 || workspaceId === agentHomeWorkspaceId(agent);
+}
 function isAvatarId(id) {
   if (!id.startsWith("plugin:")) return AVATAR_ID_PART.test(id);
   const halves = id.slice("plugin:".length).split("/");
@@ -7383,6 +7555,9 @@ function parseGeneralAgent(content, filePath, dirName) {
   if (raw.defaultEnabled !== void 0 && typeof raw.defaultEnabled !== "boolean") {
     errors.push("defaultEnabled must be a boolean");
   }
+  if (raw.defaultListed !== void 0 && typeof raw.defaultListed !== "boolean") {
+    errors.push("defaultListed must be a boolean");
+  }
   if (raw.title !== void 0 && (typeof raw.title !== "string" || raw.title.trim() === "")) {
     errors.push("title must be a non-empty string");
   }
@@ -7396,6 +7571,7 @@ function parseGeneralAgent(content, filePath, dirName) {
       name,
       description,
       defaultEnabled: typeof raw.defaultEnabled === "boolean" ? raw.defaultEnabled : true,
+      defaultListed: typeof raw.defaultListed === "boolean" ? raw.defaultListed : true,
       // One line on every surface that shows it (a chip, a menu row).
       ...typeof raw.title === "string" ? { title: raw.title.trim().replace(/\s+/g, " ") } : {},
       ...avatar ? { avatar } : {},
@@ -7407,8 +7583,23 @@ function parseGeneralAgent(content, filePath, dirName) {
 }
 
 // src/store.ts
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, join, relative } from "node:path";
+import { parse as parseYaml2, stringify as stringifyYaml } from "yaml";
 var WRITE_DIR = process.env.PI_CONFIG_DIR?.trim() || ".inso";
 var LEGACY_DIR = ".omp";
+function pathsOf(home) {
+  if (home === null) return null;
+  return {
+    plugins: join(home, "plugins"),
+    /** The agent dir: skills, settings — and `agents/`, the user tier. */
+    agent: join(home, "agent"),
+    userAgents: join(home, "agent", "agents"),
+    /** `<home>/workspaces`: every agent home (`home-<name>`) — the engine pins `PI_AGENT_HOMES_DIR` here. */
+    homes: join(home, "workspaces")
+  };
+}
 async function installedPluginRoots(pluginsDir) {
   const roots = /* @__PURE__ */ new Map();
   const modules = join(pluginsDir, "node_modules");
@@ -7436,91 +7627,119 @@ async function listDirs(dir) {
   }
   return entries.filter((entry2) => entry2.isDirectory() || entry2.isSymbolicLink()).map((entry2) => entry2.name);
 }
-var MODELED = {
-  specVersion: null,
-  extends: null,
-  identity: ["personality", "prompt"],
-  engine: ["model", "thinkingLevel"],
-  capabilities: ["tools", "skills", "mcp"],
-  gate: ["approval"],
-  memory: ["backend"],
-  workspace: ["policy", "id", "reach"]
-};
-function allowlist(value, key, unshown) {
-  if (value === "*") unshown.push(`${key}: "*"`);
-  return Array.isArray(value) ? [...value] : [];
+var RETIRED_PATHS = { "memory.vault": true };
+function frontmatterOf(content) {
+  if (!content.startsWith("---")) return "";
+  const end = content.indexOf("\n---", 3);
+  return end < 0 ? "" : content.slice(content.indexOf("\n") + 1, end);
 }
-function draftFromDecl(decl, key) {
-  const manifest = decl.manifest;
-  const unshown = [];
-  for (const [section, value] of Object.entries(manifest)) {
-    if (value === void 0) continue;
-    if (!(section in MODELED)) {
-      unshown.push(section);
-      continue;
-    }
-    const keys = MODELED[section];
-    if (keys === null || keys === void 0 || typeof value !== "object" || value === null) continue;
-    for (const [sub, setting] of Object.entries(value)) if (setting !== void 0 && !keys.includes(sub)) unshown.push(`${section}.${sub}`);
-  }
-  const avatar = decl.avatar;
-  let vibr = "nebula";
-  if (avatar !== void 0) {
-    if (VIBRS.includes(avatar.id) && avatar.skin === void 0 && avatar.accent === void 0) {
-      vibr = avatar.id;
-    } else unshown.push(`avatar: ${avatar.id}${avatar.skin || avatar.accent ? " (skin/accent)" : ""}`);
-  }
-  const thinkingLevel = manifest.engine?.thinkingLevel;
-  let thinking = "inherit";
-  if (thinkingLevel !== void 0) {
-    if (THINKING_STEPS.includes(String(thinkingLevel)) && thinkingLevel !== "inherit") {
-      thinking = thinkingLevel;
-    } else unshown.push(`engine.thinkingLevel: ${String(thinkingLevel)}`);
-  }
+function isPlainAvatar(avatar) {
+  return avatar.skin === void 0 && avatar.accent === void 0;
+}
+function heldPaths(decl, raw, blocks) {
+  const held = /* @__PURE__ */ new Set();
+  const { manifest, avatar } = decl;
+  if (avatar !== void 0 && !isPlainAvatar(avatar)) held.add("avatar");
+  if (raw.voice !== void 0 && !(typeof raw.voice === "string" && VOICE_NAME_RE.test(raw.voice))) held.add("voice");
+  const level = raw.thinkingLevel;
+  if (level !== void 0 && (level === "inherit" || !THINKING_STEPS.includes(String(level)))) held.add("engine.thinkingLevel");
   const backend = manifest.memory?.backend;
-  let memory = "inherit";
-  if (backend !== void 0) {
-    if (MEMORY_BACKENDS.includes(backend) && backend !== "inherit") memory = backend;
-    else unshown.push(`memory.backend: ${backend}`);
+  if (backend !== void 0 && (backend === "inherit" || !MEMORY_BACKENDS.includes(backend))) held.add("memory.backend");
+  const model = manifest.engine?.model;
+  if (model !== void 0 && (!Array.isArray(model) || model.length === 0)) held.add("engine.model");
+  for (const key of ["tools", "skills", "mcp"]) {
+    const value = manifest.capabilities?.[key];
+    if (value === "*" || Array.isArray(value) && value.length === 0) held.add(`capabilities.${key}`);
   }
+  const workspace = manifest.workspace;
+  if (workspace !== void 0) {
+    const ownHome = workspace.policy === "home" && (workspace.id === agentHomeWorkspaceId(decl.name) || workspace.id === `agent-${decl.name}`);
+    const policyDrawn = workspace.policy === void 0 || HABITATS.includes(workspace.policy);
+    if (!policyDrawn || workspace.id !== void 0 && !ownHome) {
+      held.add("workspace.policy");
+      held.add("workspace.id");
+    }
+    const reach = workspace.reach;
+    if (reach !== void 0 && reach !== "none" && !(reach === "all" && backend !== "off")) held.add("workspace.reach");
+  }
+  for (const block of blocks) {
+    const canonical = FLAT_ALIASES[block.key];
+    if (canonical !== void 0) held.add(canonical);
+  }
+  return held;
+}
+function rawSettings(frontmatter) {
+  const parsed = parseYaml2(frontmatter);
+  if (!isRecord(parsed)) return { thinkingLevel: void 0, voice: void 0 };
+  const engine = parsed.engine;
+  return { thinkingLevel: isRecord(engine) ? engine.thinkingLevel : void 0, voice: parsed.voice };
+}
+function sectionChildren(block) {
+  if (block.children !== null) return block.children.map((child) => ({ key: child.key, lines: reindent(child.lines, block.childIndent, 2) }));
+  if (block.inline === "") return [];
+  const value = parseYaml2(block.inline);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+  return Object.entries(value).map(([key, setting]) => ({
+    key,
+    lines: stringifyYaml({ [key]: setting }).trimEnd().split("\n").map((text) => `  ${text}`)
+  }));
+}
+function draftFromFile(decl, content, key) {
+  const manifest = decl.manifest;
+  const frontmatter = frontmatterOf(content);
+  const blocks = parseExtra(frontmatter).blocks;
+  const raw = rawSettings(frontmatter);
+  const held = heldPaths(decl, raw, blocks);
+  const pieces = [];
+  for (const block of blocks) {
+    const drawn = DRAWN_CHILDREN[block.key];
+    if (block.key === "avatar") {
+      if (held.has("avatar")) pieces.push(...block.lines);
+    } else if (block.key === "voice") {
+      if (held.has("voice")) pieces.push(...block.lines);
+    } else if (drawn !== void 0) {
+      const kept = sectionChildren(block).filter((child) => {
+        const path = `${block.key}.${child.key}`;
+        return RETIRED_PATHS[path] === void 0 && (!drawn.includes(child.key) || held.has(path));
+      });
+      if (kept.length > 0) pieces.push(`${block.key}:`, ...kept.flatMap((child) => child.lines));
+    } else if (!["name", "description", "specVersion", "extends"].includes(block.key)) pieces.push(...block.lines);
+  }
+  const drawnOr = (path, value, fallback2) => held.has(path) || value === void 0 ? fallback2 : value;
+  const backend = manifest.memory?.backend;
+  const memory = drawnOr("memory.backend", backend, "inherit");
   const reach = manifest.workspace?.reach;
-  let memoryScope = "project";
-  if (reach === "all" && memory !== "off") memoryScope = "global";
-  else if (reach !== void 0 && reach !== "none") unshown.push(`workspace.reach: ${Array.isArray(reach) ? `[${reach.join(", ")}]` : reach}`);
+  const memoryScope = !held.has("workspace.reach") && reach === "all" && memory !== "off" ? "global" : "project";
   const policy = manifest.workspace?.policy;
-  let habitat = "bound";
-  if (policy !== void 0) {
-    if (HABITATS.includes(policy)) habitat = policy;
-    else unshown.push(`workspace.policy: ${policy}`);
-  }
-  const workspaceId = manifest.workspace?.id;
-  if (workspaceId !== void 0 && !(habitat === "home" && workspaceId === `agent-${decl.name}`)) {
-    unshown.push(`workspace.id: ${workspaceId}`);
-  }
-  const approval = manifest.gate?.approval;
-  if (approval === void 0) unshown.push("gate.approval (inherited)");
-  if (decl.description.trim() === "") unshown.push("an empty description");
-  if (decl.body.trim() === "") unshown.push("an empty charter");
-  const draft = {
+  const habitat = drawnOr("workspace.policy", policy, "bound");
+  return {
     key,
     name: decl.name,
     description: decl.description,
-    vibr,
+    vibr: decl.avatar !== void 0 && isPlainAvatar(decl.avatar) ? decl.avatar.id : "",
+    voice: typeof raw.voice === "string" && !held.has("voice") ? raw.voice : "",
     personality: manifest.identity?.personality ?? "default",
     promptMode: manifest.identity?.prompt ?? "replace",
-    models: [...manifest.engine?.model ?? []],
-    thinking,
-    tools: allowlist(manifest.capabilities?.tools, "capabilities.tools", unshown),
-    skills: allowlist(manifest.capabilities?.skills, "capabilities.skills", unshown),
-    mcp: allowlist(manifest.capabilities?.mcp, "capabilities.mcp", unshown),
+    thinking: drawnOr("engine.thinkingLevel", raw.thinkingLevel, "inherit"),
+    models: held.has("engine.model") ? [] : allowlist(manifest.engine?.model),
+    tools: held.has("capabilities.tools") ? [] : allowlist(manifest.capabilities?.tools),
+    skills: held.has("capabilities.skills") ? [] : allowlist(manifest.capabilities?.skills),
+    mcp: held.has("capabilities.mcp") ? [] : allowlist(manifest.capabilities?.mcp),
     memory,
     memoryScope,
-    approval: approval ?? "always-ask",
+    // An absent approval INHERITS the host's; it stays absent until a human picks one.
+    approval: manifest.gate?.approval ?? "inherit",
     habitat,
     lineage: [...manifest.extends ?? []],
-    charter: decl.body
+    charter: decl.body,
+    extra: pieces.join("\n")
   };
-  return { draft, unshown };
+}
+function allowlist(value) {
+  return Array.isArray(value) ? [...value] : [];
+}
+function revisionOf(content) {
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 async function scanAgents(dir, notices) {
   const found = [];
@@ -7533,12 +7752,12 @@ async function scanAgents(dir, notices) {
       continue;
     }
     const parsed = parseGeneralAgent(content, path, name);
-    if (parsed.ok) found.push({ name, path, decl: parsed.decl });
+    if (parsed.ok) found.push({ name, path, content, decl: parsed.decl });
     else if (parsed.reason === "invalid") notices.push(`${path} is not a valid General Agent: ${parsed.errors.join("; ")}`);
   }
   return found;
 }
-async function listAgents(options) {
+async function listAgents(roots) {
   const notices = [];
   const agents = [];
   const claimed = /* @__PURE__ */ new Map();
@@ -7551,29 +7770,10 @@ async function listAgents(options) {
     claimed.set(found.name, found.path);
     return true;
   };
-  if (options.workspace === null) notices.push(options.workspaceMissing ?? "No workspace is known, so no workspace agents are listed.");
+  const paths = pathsOf(roots.home);
+  if (paths === null) notices.push("Pack and user agents are not listed: the engine did not tell this server where its home is (INSO_HOME is unset).");
   else {
-    for (const dirName of [WRITE_DIR, LEGACY_DIR]) {
-      for (const found of await scanAgents(join(options.workspace, dirName, "agents"), notices)) {
-        if (!claim(found)) continue;
-        const { draft, unshown } = draftFromDecl(found.decl, `workspace::${found.name}`);
-        const legacy = dirName === LEGACY_DIR;
-        const readOnlyReason = legacy ? `It lives in the legacy ${LEGACY_DIR}/agents; the Forge writes only ${WRITE_DIR}/agents.` : unshown.length > 0 ? `It carries settings the Forge cannot show yet (${unshown.join(", ")}); saving here would drop them. Edit the file by hand.` : void 0;
-        agents.push({
-          name: found.name,
-          description: found.decl.description,
-          source: "workspace",
-          path: found.path,
-          editable: readOnlyReason === void 0,
-          ...readOnlyReason !== void 0 ? { readOnlyReason } : {},
-          draft
-        });
-      }
-    }
-  }
-  if (options.pluginsDir === null) notices.push("Pack agents are not listed: the engine did not tell this server where its plugins live (INSO_HOME is unset).");
-  else {
-    for (const [pack, root] of await installedPluginRoots(options.pluginsDir)) {
+    for (const [pack, root] of await installedPluginRoots(paths.plugins)) {
       for (const found of await scanAgents(join(root, GENERAL_AGENTS_DIR), notices)) {
         if (!claim(found)) continue;
         agents.push({
@@ -7584,40 +7784,88 @@ async function listAgents(options) {
           path: found.path,
           editable: false,
           readOnlyReason: `It ships in the ${pack} pack. Extend it to make your own.`,
-          draft: draftFromDecl(found.decl, `pack:${pack}:${found.name}`).draft
+          ...found.decl.manifest.workspace?.id !== void 0 ? { workspaceId: found.decl.manifest.workspace.id } : {},
+          draft: draftFromFile(found.decl, found.content, `pack:${pack}:${found.name}`)
         });
       }
     }
   }
-  return { workspace: options.workspace, configDir: WRITE_DIR, agents, notices };
+  if (roots.workspace === null) {
+    notices.push(roots.workspaceMissing ?? "No workspace is bound, so project agents are not listed. Pack agents and yours are.");
+  } else {
+    for (const dirName of [WRITE_DIR, LEGACY_DIR]) {
+      for (const found of await scanAgents(join(roots.workspace, dirName, "agents"), notices)) {
+        if (!claim(found)) continue;
+        const legacy = dirName === LEGACY_DIR;
+        agents.push({
+          name: found.name,
+          description: found.decl.description,
+          source: "workspace",
+          path: found.path,
+          editable: !legacy,
+          ...legacy ? { readOnlyReason: `It lives in the legacy ${LEGACY_DIR}/agents; new agents are written only to ${WRITE_DIR}/agents.` } : {},
+          revision: revisionOf(found.content),
+          ...found.decl.manifest.workspace?.id !== void 0 ? { workspaceId: found.decl.manifest.workspace.id } : {},
+          draft: draftFromFile(found.decl, found.content, `workspace::${found.name}`)
+        });
+      }
+    }
+  }
+  if (paths !== null) {
+    for (const found of await scanAgents(paths.userAgents, notices)) {
+      if (!claim(found)) continue;
+      agents.push({
+        name: found.name,
+        description: found.decl.description,
+        source: "user",
+        path: found.path,
+        editable: true,
+        revision: revisionOf(found.content),
+        ...found.decl.manifest.workspace?.id !== void 0 ? { workspaceId: found.decl.manifest.workspace.id } : {},
+        draft: draftFromFile(found.decl, found.content, `user::${found.name}`)
+      });
+    }
+  }
+  return { workspace: roots.workspace, configDir: WRITE_DIR, userAgentsDir: paths?.userAgents ?? null, agents, notices };
 }
 var SaveRefused = class extends Error {
   name = "SaveRefused";
 };
-async function saveAgent(options) {
-  const { workspace, draft, create } = options;
+function renderDraft(draft, path) {
   const problems = draftProblems(draft);
-  if (problems.length > 0) throw new SaveRefused(problems.join(" "));
-  const agentsDir = join(workspace, WRITE_DIR, "agents");
+  if (problems.length > 0) return { problems };
+  const content = toAgentMd(draft, agentHomeWorkspaceId(draft.name));
+  const parsed = parseGeneralAgent(content, path, draft.name);
+  if (!parsed.ok) return { problems: [`The agent.md would not load as a General Agent (${parsed.reason}): ${parsed.errors.join("; ")}`] };
+  return { content };
+}
+var slash = (path) => path.replaceAll("\\", "/");
+async function saveAgent(options) {
+  const { roots, draft, target } = options;
+  const paths = pathsOf(roots.home);
+  const tier = target.create ? "user" : target.tier;
+  const tierRoot = tier === "user" ? roots.home : roots.workspace;
+  const agentsDir = tier === "user" ? paths?.userAgents : roots.workspace === null ? void 0 : join(roots.workspace, WRITE_DIR, "agents");
+  if (tierRoot === null || agentsDir === void 0) {
+    throw new SaveRefused(
+      tier === "user" ? "The user tier cannot be reached: the engine did not tell this server where its home is (INSO_HOME is unset)." : "No workspace is bound, so its project agents cannot be rewritten."
+    );
+  }
   const dir = join(agentsDir, draft.name);
   const path = join(dir, GENERAL_AGENT_FILE);
-  const content = toAgentMd(draft);
-  const parsed = parseGeneralAgent(content, path, draft.name);
-  if (!parsed.ok) throw new SaveRefused(`The agent.md would not load as a General Agent (${parsed.reason}): ${parsed.errors.join("; ")}`);
-  if (create) {
-    if (options.takenNames?.has(draft.name)) {
-      throw new SaveRefused(`An agent named "${draft.name}" already exists (a pack ships it). Pick another name.`);
-    }
-    if (existsSync(join(workspace, LEGACY_DIR, "agents", draft.name))) {
-      throw new SaveRefused(`An agent named "${draft.name}" already exists in ${LEGACY_DIR}/agents. Pick another name.`);
+  const rendered = renderDraft(draft, path);
+  if ("problems" in rendered) throw new SaveRefused(rendered.problems.join(" "));
+  const { content } = rendered;
+  if (target.create) {
+    const taken = (await listAgents(roots)).agents.find((agent) => agent.name === draft.name);
+    if (taken !== void 0) {
+      throw new SaveRefused(`An agent named "${draft.name}" already exists (${taken.source === "pack" ? `the ${taken.pack} pack ships it` : `${taken.source} agent at ${taken.path}`}). Pick another name.`);
     }
     await mkdir(agentsDir, { recursive: true });
     try {
       await mkdir(dir);
     } catch (error) {
-      if (error.code === "EEXIST") {
-        throw new SaveRefused(`${relative(workspace, dir).replaceAll("\\", "/")} already exists. Pick another name.`);
-      }
+      if (error.code === "EEXIST") throw new SaveRefused(`${slash(relative(tierRoot, dir))} already exists. Pick another name.`);
       throw error;
     }
   } else {
@@ -7625,16 +7873,17 @@ async function saveAgent(options) {
     try {
       existing = await readFile(path, "utf8");
     } catch {
-      throw new SaveRefused(`There is no ${relative(workspace, path).replaceAll("\\", "/")} to update. Forge it as a new agent.`);
+      throw new SaveRefused(`There is no ${slash(relative(tierRoot, path))} to update. Create it as a new agent.`);
     }
     const current = parseGeneralAgent(existing, path, draft.name);
     if (!current.ok) {
       throw new SaveRefused(
-        current.reason === "loop" ? `${draft.name} is a Loop, not a General Agent \u2014 the Forge does not rewrite Loops.` : `${draft.name}'s agent.md does not parse (${current.errors.join("; ")}); fix it by hand first.`
+        current.reason === "loop" ? `${draft.name} is a Loop, not a General Agent, and a Loop is never rewritten here.` : `${draft.name}'s agent.md does not parse (${current.errors.join("; ")}); fix it by hand first.`
       );
     }
-    const { unshown } = draftFromDecl(current.decl, draft.key);
-    if (unshown.length > 0) throw new SaveRefused(`${draft.name} carries settings the Forge cannot show (${unshown.join(", ")}); saving would drop them.`);
+    if (revisionOf(existing) !== target.revision) {
+      throw new SaveRefused(`${draft.name}'s agent.md changed on disk since it was opened here; reopen it so nothing written since is lost.`);
+    }
   }
   const temp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
   try {
@@ -7642,13 +7891,135 @@ async function saveAgent(options) {
     await rename(temp, path);
   } catch (error) {
     await rm(temp, { force: true });
-    if (create) await rm(dir, { recursive: true, force: true });
+    if (target.create) await rm(dir, { recursive: true, force: true });
     throw error;
   }
-  return { path, relativePath: relative(workspace, path).replaceAll("\\", "/"), created: create };
+  return { path, relativePath: slash(relative(tierRoot, path)), created: target.create, tier };
+}
+
+// src/home.ts
+var AGENTS_MD = "AGENTS.md";
+var INSTRUCTIONS_MAX_BYTES = 2e5;
+async function statFile(path) {
+  try {
+    const info = await stat(path);
+    return { exists: info.isFile(), bytes: info.isFile() ? info.size : 0 };
+  } catch {
+    return { exists: false, bytes: 0 };
+  }
+}
+async function isDirectory(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+async function contentOf(path) {
+  try {
+    return await readFile2(path, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return "";
+    throw error;
+  }
+}
+function candidatesFor(roots, source, name, agentFile) {
+  const sibling = { kind: source === "pack" ? "pack" : "agent-dir", path: join2(dirname(agentFile), AGENTS_MD) };
+  if (source === "workspace") return [sibling];
+  const homes = pathsOf(roots.home)?.homes;
+  const home = homes === void 0 ? [] : [{ kind: "home", path: join2(homes, agentHomeWorkspaceId(name), AGENTS_MD) }];
+  if (source === "user") return [...home, sibling];
+  const projectDirs = roots.workspace === null ? [] : [.../* @__PURE__ */ new Set([WRITE_DIR, LEGACY_DIR])].map((dir) => join2(roots.workspace, dir, "agents"));
+  return [...projectDirs.map((dir) => ({ kind: "workspace-copy", path: join2(dir, name, AGENTS_MD) })), ...home, sibling];
+}
+async function resolveInstructions(roots, source, name, agentFile) {
+  const candidates = candidatesFor(roots, source, name, agentFile);
+  const stats = await Promise.all(candidates.map((candidate) => statFile(candidate.path)));
+  let winner = -1;
+  for (const [index, candidate] of candidates.entries()) {
+    const { exists, bytes } = stats[index] ?? { exists: false, bytes: 0 };
+    const isSibling = index === candidates.length - 1;
+    const holds = candidate.kind === "workspace-copy" ? exists : candidate.kind === "home" ? exists && bytes > 0 : isSibling && exists;
+    if (holds) {
+      winner = index;
+      break;
+    }
+  }
+  const files = candidates.map((candidate, index) => ({ ...candidate, ...stats[index] ?? { exists: false, bytes: 0 }, wins: index === winner }));
+  const text = winner < 0 ? "" : await readFile2(candidates[winner]?.path ?? "", "utf8");
+  return { files, text };
+}
+var TIER_RULES = {
+  pack: "A pack agent runs by the first of these that applies: a project's own copy (any file there counts), then its home AGENTS.md when it is not empty, then the AGENTS.md its pack ships.",
+  user: "Your agent runs by its home AGENTS.md when that is not empty (it follows the agent into every project), else by the AGENTS.md beside its agent.md.",
+  workspace: "A project agent has no home: it runs by the AGENTS.md beside its agent.md, in this project."
+};
+async function describeHome(roots, name) {
+  const listed = (await listAgents(roots)).agents.find((agent) => agent.name === name);
+  const source = listed?.source ?? "user";
+  const paths = pathsOf(roots.home);
+  const homeId = agentHomeWorkspaceId(name);
+  const canStandAtHome = source !== "workspace";
+  const foreign = !derivesAgentHome(name, listed?.workspaceId);
+  const hasHome = canStandAtHome && !foreign;
+  const folder = canStandAtHome && paths !== null ? join2(paths.homes, homeId) : null;
+  const agentFile = listed?.path ?? join2(paths?.userAgents ?? "", name, GENERAL_AGENT_FILE);
+  const { files, text } = await resolveInstructions(roots, source, name, agentFile);
+  const folderExists = folder !== null && await isDirectory(folder);
+  let homeNote;
+  if (!canStandAtHome) homeNote = "A project agent belongs to one project, so it has no home of its own.";
+  else if (listed?.workspaceId === `agent-${name}`) {
+    homeNote = `Its file names "${listed.workspaceId}" as its workspace, an id no registry knows (an older version of this page wrote it). Save it with Where it runs set to Its own home and it stands in ${homeId}.`;
+  } else if (foreign) homeNote = `It names its own workspace, "${listed?.workspaceId}", so it runs there and has no home of its own.`;
+  else if (paths === null) homeNote = `Its home is ${homeId}; where that lives is unknown, as the engine did not say where its home is.`;
+  else homeNote = folderExists ? `Its home is ${homeId}; the folder exists.` : `Its home is ${homeId}; the engine creates the folder the first time the agent is opened, seeding it from the AGENTS.md beside agent.md.`;
+  const editable = listed === void 0 ? false : listed.editable;
+  const targetFile = listed === void 0 || !listed.editable ? null : source === "user" && folderExists ? { path: join2(folder ?? "", AGENTS_MD), kind: "home" } : { path: join2(dirname(listed.path), AGENTS_MD), kind: "agent-dir" };
+  let target = null;
+  if (targetFile !== null) {
+    const current = targetFile.path === files.find((file) => file.wins)?.path ? text : await contentOf(targetFile.path);
+    target = { ...targetFile, revision: revisionOf(`${targetFile.path}\0${current}`) };
+  }
+  const note = listed === void 0 ? `${TIER_RULES.user} Save the agent first; its standing instructions can be written once it exists.` : listed.editable ? `${TIER_RULES[source]} A save writes ${target?.kind === "home" ? "the home AGENTS.md" : "the AGENTS.md beside agent.md, which seeds the home on its first provisioning"}.` : `${TIER_RULES[source]} ${listed.readOnlyReason ?? "It is read-only here."}`;
+  return {
+    name,
+    exists: listed !== void 0,
+    source,
+    homeId,
+    canStandAtHome,
+    hasHome,
+    homeNote,
+    folder: hasHome ? folder : null,
+    folderExists: hasHome && folderExists,
+    memoryRoom: foreign && listed?.workspaceId !== void 0 ? listed.workspaceId : homeId,
+    instructions: { files, text, editable, note, target }
+  };
+}
+async function saveInstructions(roots, name, text, revision) {
+  if (Buffer.byteLength(text) > INSTRUCTIONS_MAX_BYTES) throw new SaveRefused(`The instructions are over ${INSTRUCTIONS_MAX_BYTES / 1e3} KB; a standing prompt should be far shorter.`);
+  const { instructions } = await describeHome(roots, name);
+  const { target } = instructions;
+  if (target === null) throw new SaveRefused(instructions.editable ? `No agent named "${name}".` : instructions.note);
+  if (target.revision !== revision) {
+    throw new SaveRefused(`${name}'s standing instructions changed since they were opened here: the file was edited elsewhere, or its home was set up since, so a save would land somewhere else. Reopen them so nothing written since is lost.`);
+  }
+  const temp = join2(dirname(target.path), `.${basename2(target.path)}.${process.pid}.${randomBytes2(6).toString("hex")}.tmp`);
+  try {
+    await mkdir2(dirname(target.path), { recursive: true });
+    await writeFile2(temp, text === "" || text.endsWith("\n") ? text : `${text}
+`, { encoding: "utf8", flag: "wx" });
+    await rename2(temp, target.path);
+  } catch (error) {
+    await rm2(temp, { force: true });
+    throw error;
+  }
+  return { path: target.path, kind: target.kind };
 }
 
 // src/parts.ts
+import { readdir as readdir2, readFile as readFile3 } from "node:fs/promises";
+import { join as join3 } from "node:path";
+import { parse as parseYaml3 } from "yaml";
 var PACK_MCP_FILES = ["mcp.json", "ai.insodimension.dimension/mcp.json", ".mcp.json"];
 async function skillsIn(dir) {
   let names2;
@@ -7661,14 +8032,14 @@ async function skillsIn(dir) {
   for (const name of names2) {
     let text;
     try {
-      text = await readFile2(join2(dir, name, "SKILL.md"), "utf8");
+      text = await readFile3(join3(dir, name, "SKILL.md"), "utf8");
     } catch {
       continue;
     }
     const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
     let front = {};
     try {
-      const parsed = match ? parseYaml2(match[1] ?? "") : null;
+      const parsed = match ? parseYaml3(match[1] ?? "") : null;
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) front = parsed;
     } catch {
     }
@@ -7681,7 +8052,7 @@ async function skillsIn(dir) {
 }
 async function mcpServersIn(file) {
   try {
-    const parsed = JSON.parse(await readFile2(file, "utf8"));
+    const parsed = JSON.parse(await readFile3(file, "utf8"));
     return typeof parsed.mcpServers === "object" && parsed.mcpServers !== null ? Object.keys(parsed.mcpServers) : [];
   } catch {
     return [];
@@ -7690,7 +8061,7 @@ async function mcpServersIn(file) {
 function hintOf(text, from) {
   const line = text.split("\n")[0]?.trim() ?? "";
   const short = line.length > 90 ? `${line.slice(0, 89)}\u2026` : line;
-  return short === "" ? from : `${short} \u2014 ${from}`;
+  return short === "" ? from : `${short} (${from})`;
 }
 async function listParts(options) {
   const parts = [];
@@ -7706,17 +8077,17 @@ async function listParts(options) {
   const skillRoots = [];
   const mcpFiles = [];
   if (options.workspace !== null) {
-    for (const dir of [".inso", ".omp"]) skillRoots.push({ label: `workspace ${dir}/skills`, dir: join2(options.workspace, dir, "skills") });
-    for (const file of [".inso/mcp.json", ".omp/mcp.json", ".mcp.json"]) mcpFiles.push({ label: `workspace ${file}`, dir: join2(options.workspace, file) });
+    for (const dir of [".inso", ".omp"]) skillRoots.push({ label: `workspace ${dir}/skills`, dir: join3(options.workspace, dir, "skills") });
+    for (const file of [".inso/mcp.json", ".omp/mcp.json", ".mcp.json"]) mcpFiles.push({ label: `workspace ${file}`, dir: join3(options.workspace, file) });
   } else omitted.push("Workspace skills and MCP servers: no workspace is known.");
   if (options.agentDir !== null) {
-    skillRoots.push({ label: "your skills", dir: join2(options.agentDir, "skills") });
-    mcpFiles.push({ label: "your mcp.json", dir: join2(options.agentDir, "mcp.json") });
+    skillRoots.push({ label: "your skills", dir: join3(options.agentDir, "skills") });
+    mcpFiles.push({ label: "your mcp.json", dir: join3(options.agentDir, "mcp.json") });
   }
   if (options.pluginsDir !== null) {
     for (const [pack, root] of await installedPluginRoots(options.pluginsDir)) {
-      skillRoots.push({ label: `the ${pack} pack`, dir: join2(root, "skills") });
-      for (const file of PACK_MCP_FILES) mcpFiles.push({ label: `the ${pack} pack`, dir: join2(root, file) });
+      skillRoots.push({ label: `the ${pack} pack`, dir: join3(root, "skills") });
+      for (const file of PACK_MCP_FILES) mcpFiles.push({ label: `the ${pack} pack`, dir: join3(root, file) });
     }
   }
   if (options.agentDir === null || options.pluginsDir === null) {
@@ -7745,20 +8116,11 @@ async function listParts(options) {
 }
 
 // src/server.ts
-var FORGE_VIEW_URI = "ui://general-agent/index.html";
 var SESSION_META_KEY = "ai.insodimension/session";
-var MIME = {
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".css": "text/css",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".json": "application/json"
-};
 var APP_ONLY = { ui: { visibility: ["app"] } };
+var MODEL_ONLY = { ui: { visibility: ["model"] } };
 var READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+var MAX_PROPOSALS = 32;
 var entry = z.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, "one line");
 var names = z.array(entry).max(64);
 var agentName = z.string().regex(NAME_RE, "2\u201364 lowercase letters, digits or dashes");
@@ -7766,33 +8128,37 @@ var draftSchema = z.object({
   key: z.string().min(1).max(200),
   name: z.string().max(64),
   description: z.string().max(400),
-  vibr: z.enum(VIBRS),
+  vibr: z.string().max(120),
+  voice: z.string().max(120).default(""),
   personality: z.enum(PERSONALITIES),
   promptMode: z.enum(PROMPT_MODES),
-  models: names,
   thinking: z.enum(THINKING_STEPS),
+  models: names,
   tools: names,
   skills: names,
   mcp: names,
   memory: z.enum(MEMORY_BACKENDS),
   memoryScope: z.enum(MEMORY_SCOPES),
-  approval: z.enum(APPROVALS),
+  approval: z.enum(APPROVAL_SETTINGS),
   habitat: z.enum(HABITATS),
   lineage: z.array(agentName).max(16),
-  charter: z.string().max(4e4)
+  charter: z.string().max(4e4),
+  extra: z.string().max(4e4)
 });
+var workspaceArg = z.string().min(1).max(1024).optional().describe("absolute path of the workspace whose project agents to include");
 var proposalShape = {
   name: agentName.describe("the agent's name: lowercase letters, digits, dashes"),
   description: z.string().max(400).optional().describe("one line: what it is for"),
   charter: z.string().max(4e4).optional().describe("the instructions it runs by (the agent.md body), markdown"),
-  vibr: z.enum(VIBRS).optional().describe("the body it wears"),
+  vibr: z.string().max(120).optional().describe("the avatar id it wears \u2014 a vibr such as orb, nebula or mochi"),
+  voice: z.string().max(120).optional().describe("the voice profile it speaks with, by name (lowercase letters, digits, dashes); the user's own choice for it outranks this"),
   skills: names.optional().describe("skill allowlist; omit to keep every skill"),
-  mcp: names.optional().describe("MCP server allowlist; omit to keep every server"),
   memory: z.enum(MEMORY_BACKENDS).optional(),
-  lineage: z.array(agentName).max(16).optional().describe("agents whose brain it extends"),
   thinking: z.enum(THINKING_STEPS).optional(),
   personality: z.enum(PERSONALITIES).optional(),
-  habitat: z.enum(HABITATS).optional().describe("bound: where opened; home: its own workspace; ephemeral: a scratch worktree")
+  extra: z.string().max(2e4).optional().describe(
+    "YAML for manifest keys the profile does not draw \u2014 title, defaultListed, engine.model/profile/roles, routing, loop, memory.namespace, capabilities.autoloadSkills/slashCommands/ignore, subagents.maxDepth, \u2026 One `key: value` per line, sections indented two spaces. It is laid over the draft's own, key by key (a key it names that the profile also draws, like engine.model, is then held as written). Keys that GRANT \u2014 capabilities.tools/mcp/plugins/control/optIn, subagents.allowed, gate.*, workspace.*, harness, allowedHarnesses \u2014 are refused: only the user sets those."
+  )
 };
 function json(structuredContent, text) {
   return { content: [{ type: "text", text }], structuredContent };
@@ -7800,123 +8166,241 @@ function json(structuredContent, text) {
 function fail2(text) {
   return { content: [{ type: "text", text }], isError: true };
 }
-function isDirectory(path) {
+function isDirectory2(path) {
   try {
     return statSync(path).isDirectory();
   } catch {
     return false;
   }
 }
+function canonicalDir(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return resolve(path);
+  }
+}
+function sameWorkspace(a, b) {
+  if (a === null || b === null) return a === b;
+  return canonicalDir(a) === canonicalDir(b);
+}
 function sessionOf(extra) {
   const meta = extra._meta?.[SESSION_META_KEY];
   if (typeof meta !== "object" || meta === null || !("sessionId" in meta)) return "";
   return typeof meta.sessionId === "string" ? meta.sessionId : "";
 }
-async function createForgeServer(options = {}) {
+function createForgeServer(options = {}) {
   const env = options.env ?? process.env;
   const home = env.INSO_HOME !== void 0 && env.INSO_HOME !== "" ? env.INSO_HOME : null;
-  const pluginsDir = home === null ? null : join3(home, "plugins");
-  const agentDir = home === null ? null : join3(home, "agent");
-  const fallback2 = env.DIMENSION_FORGE_WORKSPACE !== void 0 && isDirectory(env.DIMENSION_FORGE_WORKSPACE) ? resolve(env.DIMENSION_FORGE_WORKSPACE) : null;
+  const paths = pathsOf(home);
+  const fallback2 = env.DIMENSION_FORGE_WORKSPACE !== void 0 && isDirectory2(env.DIMENSION_FORGE_WORKSPACE) ? resolve(env.DIMENSION_FORGE_WORKSPACE) : null;
   const workspaces = /* @__PURE__ */ new Map();
-  const workspaceOf = (session) => workspaces.get(session) ?? fallback2;
-  const NO_WORKSPACE = "No workspace yet: ask the agent to open the Forge \u2014 it names the workspace it is working in.";
-  const server2 = new McpServer({ name: "dimension-community-general-agent", version: "0.1.0" });
-  const viewDir = options.viewDir ?? fileURLToPath(new URL("./dist/", import.meta.url));
-  const html = await readFile3(join3(viewDir, "index.html"), "utf8");
-  const metadata = { ui: { prefersBorder: false } };
-  registerAppResource(server2, "Forge", FORGE_VIEW_URI, { _meta: metadata }, async () => ({
-    contents: [{ uri: FORGE_VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: html, _meta: metadata }]
-  }));
-  for (const file of await readdir3(viewDir, { recursive: true, withFileTypes: true })) {
-    if (!file.isFile() || file.name === "index.html") continue;
-    const mimeType = MIME[extname(file.name)];
-    if (!mimeType) throw new Error(`Unsupported Forge View asset: ${file.name}`);
-    const path = join3(file.parentPath, file.name);
-    const relative2 = path.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
-    const uri = `ui://general-agent/${relative2}`;
-    server2.registerResource(relative2, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile3(path)).toString("base64") }] }));
-  }
-  registerAppTool(
-    server2,
+  const proposals = [];
+  const boundWorkspace = (extra) => workspaces.get(sessionOf(extra)) ?? fallback2;
+  const rootsOf = (extra, workspace) => {
+    if (workspace !== void 0) {
+      if (!isAbsolute(workspace) || !isDirectory2(workspace)) return `${workspace} is not an existing absolute directory.`;
+      return { workspace: resolve(workspace), home };
+    }
+    return { workspace: boundWorkspace(extra), home };
+  };
+  const server2 = new McpServer({ name: "dimension-community-general-agent", version: "0.4.0" });
+  server2.registerTool(
     "forge_open",
     {
-      title: "Forge",
-      description: `Open the Forge in the artifact view: every General Agent in the workspace (and the ones installed packs ship) as a constellation the user can open, reshape and forge \u2014 or one agent, by name. Pass \`workspace\`: the absolute path of the directory you are working in; the Forge reads and writes \`<workspace>/${WRITE_DIR}/agents/<name>/agent.md\` there. It writes nothing itself \u2014 the user forges.`,
+      title: "General Agents",
+      description: `Read the General Agents the user sees on the General Agents page (the rail's General Agents entry): every General Agent the installed packs ship, the user's own, and the workspace's, or one agent by name. \`workspace\` is optional: the absolute path of the directory you are working in, which adds that project's agents (\`<workspace>/${WRITE_DIR}/agents/<name>/agent.md\`) for the rest of this session. It writes nothing; to shape an agent, call forge_propose and the user decides on the page.`,
       inputSchema: {
-        agent: agentName.optional().describe("open this agent directly"),
+        agent: agentName.optional().describe("read this agent"),
         workspace: z.string().min(1).max(1024).optional().describe("absolute path of your working directory")
       },
-      _meta: { ui: { resourceUri: FORGE_VIEW_URI } }
+      annotations: READ_ONLY,
+      _meta: MODEL_ONLY
     },
     async ({ agent, workspace }, extra) => {
-      const session = sessionOf(extra);
       if (workspace !== void 0) {
-        if (!isAbsolute(workspace) || !isDirectory(workspace)) return fail2(`${workspace} is not an existing absolute directory.`);
-        workspaces.set(session, resolve(workspace));
+        if (!isAbsolute(workspace) || !isDirectory2(workspace)) return fail2(`${workspace} is not an existing absolute directory.`);
+        workspaces.set(sessionOf(extra), resolve(workspace));
       }
-      const root = workspaceOf(session);
-      const listing = await listAgents({ workspace: root, pluginsDir, ...root === null ? { workspaceMissing: NO_WORKSPACE } : {} });
+      const roots = rootsOf(extra);
+      if (typeof roots === "string") return fail2(roots);
+      const listing = await listAgents(roots);
       const found = agent === void 0 ? void 0 : listing.agents.find((candidate) => candidate.name === agent);
-      const opened = { view: "forge", agent: found?.name ?? null, workspace: root };
-      const where = root === null ? "no workspace (pass `workspace`)" : root;
-      const text = agent !== void 0 && found === void 0 ? `No General Agent named "${agent}" in ${where}; the Forge opened on the constellation (${listing.agents.length} agents).` : found !== void 0 ? `The Forge opened on ${found.name} (${found.editable ? "editable" : "read-only"}) in ${where}.` : `The Forge opened on ${listing.agents.length} General Agents in ${where}.`;
+      const opened = { agent: found?.name ?? null, workspace: roots.workspace };
+      const where = roots.workspace === null ? "no workspace (pack and user agents)" : roots.workspace;
+      const text = agent !== void 0 && found === void 0 ? `No General Agent named "${agent}" in ${where}. There are ${listing.agents.length}: ${listing.agents.map((listed) => listed.name).join(", ")}.` : found !== void 0 ? `${found.name} (${found.source}, ${found.editable ? "editable" : "read-only"}) in ${where}: ${found.description}` : `${listing.agents.length} General Agents in ${where}: ${listing.agents.map((listed) => `${listed.name} (${listed.source})`).join(", ")}.`;
       return json(opened, text);
     }
   );
-  registerAppTool(
-    server2,
+  server2.registerTool(
     "forge_propose",
     {
-      title: "Forge proposal",
-      description: "Propose a General Agent draft to the user in the Forge \u2014 talk-to-build. Name it and give any of: description, charter, vibr, skills, mcp, memory, lineage, thinking, personality, habitat. The draft appears in the Forge marked as proposed by the workshop; the user accepts it, changes it, and forges it. Nothing is written by this call. A proposal cannot set the agent's tools or its approval gate \u2014 only the user sets those, in the Forge.",
+      title: "General Agent proposal",
+      description: "Propose a General Agent draft to the user on the General Agents page, talk-to-build. Name it and give any of: description, charter, vibr, voice, skills, memory, thinking, personality, extra (YAML for the manifest keys the profile does not draw). The page of the workspace you bound with forge_open shows it on that agent's profile as proposed by the Machinist; the user accepts it, changes it, and saves it. Nothing is written by this call. A newer proposal for the same agent in the same workspace replaces the earlier one. A proposal cannot set anything that grants (the agent's tools, approval gate, workspace or where it works, the agents it extends, control lanes, plugins, MCP servers, delegation or harness): only the user sets those, on the profile.",
       inputSchema: proposalShape,
-      _meta: { ui: { resourceUri: FORGE_VIEW_URI } }
+      _meta: MODEL_ONLY
     },
-    async (proposal) => {
-      const proposed = { view: "proposal", proposal };
+    async (proposal, extra) => {
+      if (proposal.extra !== void 0) {
+        const textual = grantPathsIn(proposal.extra);
+        if (textual.length > 0) {
+          return fail2(`A proposal cannot set ${textual.join(", ")}: those grant the agent something, so only the user sets them, on the General Agents page. Propose the rest.`);
+        }
+        let parsed;
+        try {
+          parsed = parseYaml4(proposal.extra);
+        } catch (error) {
+          return fail2(`extra is not valid YAML: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (parsed !== null && (typeof parsed !== "object" || Array.isArray(parsed))) return fail2("extra must be a YAML mapping: one `key: value` per line.");
+        const resolved = grantPathsInDocument(parsed);
+        if (resolved.length > 0) {
+          return fail2(`A proposal cannot set ${resolved.join(", ")}: those grant the agent something, so only the user sets them, on the General Agents page. Propose the rest.`);
+        }
+      }
+      const workspace = boundWorkspace(extra);
+      const stored = { id: randomUUID(), proposal, at: Date.now(), workspace };
+      const earlier = proposals.findIndex((candidate) => candidate.proposal.name === proposal.name && sameWorkspace(candidate.workspace, workspace));
+      if (earlier >= 0) proposals.splice(earlier, 1);
+      proposals.push(stored);
+      if (proposals.length > MAX_PROPOSALS) proposals.splice(0, proposals.length - MAX_PROPOSALS);
+      const proposed = { id: stored.id, proposal };
       const fields = Object.keys(proposal).filter((field) => field !== "name");
       return json(
         proposed,
-        `Proposed ${proposal.name} to the Forge${fields.length > 0 ? ` (${fields.join(", ")})` : ""}. The user accepts or discards it there; nothing is written until they forge it. Tools and the approval gate are theirs to set.`
+        `Proposed ${proposal.name} on the General Agents page${fields.length > 0 ? ` (${fields.join(", ")})` : ""}. The user accepts or discards it there; nothing is written until they save it. Anything that grants (tools, the approval gate, workspace, control lanes) is theirs to set.`
       );
     }
   );
   server2.registerTool(
+    "pending_proposals",
+    {
+      description: "The Machinist's proposals the user has not accepted or discarded yet for the page's workspace (those made in it, and those made with no workspace), oldest first.",
+      inputSchema: { workspace: workspaceArg },
+      annotations: READ_ONLY,
+      _meta: APP_ONLY
+    },
+    async ({ workspace }, extra) => {
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
+      const here = roots.workspace;
+      const pending = { proposals: proposals.filter((candidate) => candidate.workspace === null || here !== null && sameWorkspace(candidate.workspace, here)) };
+      return json(pending, `${pending.proposals.length} pending`);
+    }
+  );
+  server2.registerTool(
+    "dismiss_proposal",
+    {
+      description: "The user decided on a proposal (accepted it into a draft, or discarded it): it is no longer pending.",
+      inputSchema: { id: z.string().min(1).max(64) },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: APP_ONLY
+    },
+    async ({ id }) => {
+      const at = proposals.findIndex((candidate) => candidate.id === id);
+      if (at >= 0) proposals.splice(at, 1);
+      const dismissed = { dismissed: at >= 0 };
+      return json(dismissed, at >= 0 ? "Dismissed" : "Not pending");
+    }
+  );
+  server2.registerTool(
     "list_agents",
-    { description: "The workspace's General Agents plus the ones installed packs ship, each marked editable or read-only.", inputSchema: {}, annotations: READ_ONLY, _meta: APP_ONLY },
-    async (_args, extra) => {
-      const root = workspaceOf(sessionOf(extra));
-      const listing = await listAgents({ workspace: root, pluginsDir, ...root === null ? { workspaceMissing: NO_WORKSPACE } : {} });
+    {
+      description: "Every General Agent the page can see (installed packs', the user's own, the workspace's), each with its tier and marked editable or read-only.",
+      inputSchema: { workspace: workspaceArg },
+      annotations: READ_ONLY,
+      _meta: APP_ONLY
+    },
+    async ({ workspace }, extra) => {
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
+      const listing = await listAgents(roots);
       return json(listing, `${listing.agents.length} agents`);
     }
   );
   server2.registerTool(
     "list_parts",
-    { description: "The skills, MCP servers, tool names and memory backends the tray can offer, with where each list was read and what could not be.", inputSchema: {}, annotations: READ_ONLY, _meta: APP_ONLY },
-    async (_args, extra) => {
-      const root = workspaceOf(sessionOf(extra));
-      const { agents } = await listAgents({ workspace: root, pluginsDir });
-      const listing = await listParts({ workspace: root, pluginsDir, agentDir, agents });
+    {
+      description: "The skills, MCP servers, tool names and memory backends the profile can offer, with where each list was read and what could not be.",
+      inputSchema: { workspace: workspaceArg },
+      annotations: READ_ONLY,
+      _meta: APP_ONLY
+    },
+    async ({ workspace }, extra) => {
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
+      const { agents } = await listAgents(roots);
+      const listing = await listParts({ workspace: roots.workspace, pluginsDir: paths?.plugins ?? null, agentDir: paths?.agent ?? null, agents });
       return json(listing, `${listing.parts.length} parts`);
+    }
+  );
+  server2.registerTool(
+    "validate_agent",
+    {
+      description: "Whether the draft would save: its own problems, then whether the agent.md it writes loads as a General Agent. Writes nothing.",
+      inputSchema: { draft: draftSchema },
+      annotations: READ_ONLY,
+      _meta: APP_ONLY
+    },
+    async ({ draft }) => {
+      const rendered = renderDraft(draft, join4(draft.name, "agent.md"));
+      const check = { problems: "problems" in rendered ? rendered.problems : [] };
+      return json(check, check.problems.length === 0 ? "It would save." : check.problems.join(" "));
     }
   );
   server2.registerTool(
     "save_agent",
     {
-      description: `Write the draft to <workspace>/${WRITE_DIR}/agents/<name>/agent.md. \`create: true\` refuses a name that is taken; \`create: false\` rewrites an existing editable workspace agent.`,
-      inputSchema: { draft: draftSchema, create: z.boolean() },
+      description: `Write the draft. \`create: true\` writes a NEW agent into the user's own agents (\`$INSO_HOME/agent/agents/<name>/agent.md\`, where it gets a home) and refuses a name that is taken anywhere. \`create: false\` rewrites the agent of that name in \`tier\` (\`user\`, or \`workspace\`: <workspace>/${WRITE_DIR}/agents), and is refused unless \`revision\` is the one list_agents gave: the file changed since, otherwise. The merged agent.md must load as a General Agent or nothing is written.`,
+      inputSchema: { draft: draftSchema, create: z.boolean(), tier: z.enum(["workspace", "user"]).optional(), revision: z.string().max(64).optional(), workspace: workspaceArg },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: APP_ONLY
     },
-    async ({ draft, create }, extra) => {
-      const root = workspaceOf(sessionOf(extra));
-      if (root === null) return fail2(NO_WORKSPACE);
+    async ({ draft, create, tier, revision, workspace }, extra) => {
+      let target;
+      if (create) target = { create: true };
+      else if (tier !== void 0 && revision !== void 0) target = { create: false, tier, revision };
+      else return fail2("Rewriting an agent names its tier and its revision; both come from list_agents.");
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
       try {
-        const { agents } = await listAgents({ workspace: null, pluginsDir });
-        const takenNames = new Set(agents.map((agent) => agent.name));
-        const outcome = await saveAgent({ workspace: root, draft, create, takenNames });
+        const outcome = await saveAgent({ roots, draft, target });
         return json(outcome, `Wrote ${outcome.relativePath}`);
+      } catch (error) {
+        if (error instanceof SaveRefused) return fail2(error.message);
+        throw error;
+      }
+    }
+  );
+  server2.registerTool(
+    "agent_home",
+    {
+      description: "An agent's home: its id (home-<name>), its folder under the engine's workspaces, whether the engine registers it, the memory room it follows, and its standing instructions (every AGENTS.md OMP looks at, which one wins, what it holds, and the `revision` of the file a save would write, which `save_instructions` needs). Works for a name that does not exist yet (the user tier, where new agents land).",
+      inputSchema: { name: agentName, workspace: workspaceArg },
+      annotations: READ_ONLY,
+      _meta: APP_ONLY
+    },
+    async ({ name, workspace }, extra) => {
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
+      const described = await describeHome(roots, name);
+      return json(described, `${name}: ${described.homeNote}`);
+    }
+  );
+  server2.registerTool(
+    "save_instructions",
+    {
+      description: "Write an agent's standing instructions: its home AGENTS.md once the home folder exists, otherwise the AGENTS.md beside its agent.md (which seeds the home on its first provisioning). Only for a user or workspace agent the page may edit; the path is derived, never given. `revision` is the target's revision from agent_home: the write is refused unless the file still holds what it held then and the home has not been set up since (a save would land elsewhere), so nothing written meanwhile is lost.",
+      inputSchema: { name: agentName, text: z.string().max(INSTRUCTIONS_MAX_BYTES), revision: z.string().max(64), workspace: workspaceArg },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      _meta: APP_ONLY
+    },
+    async ({ name, text, revision, workspace }, extra) => {
+      const roots = rootsOf(extra, workspace);
+      if (typeof roots === "string") return fail2(roots);
+      try {
+        const saved = await saveInstructions(roots, name, text, revision);
+        return json(saved, `Wrote ${saved.path}`);
       } catch (error) {
         if (error instanceof SaveRefused) return fail2(error.message);
         throw error;

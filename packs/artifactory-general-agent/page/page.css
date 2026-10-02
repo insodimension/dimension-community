@@ -1,0 +1,30 @@
+/* The General Agents page's utilities (see styles.ts), SCOPED to the page.
+ *
+ * `@reference` brings the host theme's tokens, `@utility`s and variants into
+ * scope WITHOUT emitting them; only the utilities these sources use are
+ * generated, in the host's own `utilities` layer so they still beat the host's
+ * `base` and `components` rules inside the page.
+ *
+ * Every rule sits under `:where([data-slot="general-agents-page"])`, the page's
+ * root element (`PAGE_SLOT` in types.ts, which a test keeps in step with this
+ * file). Unscoped, the sheet would land in the host's own `utilities` layer
+ * AFTER the host's rules, so at equal specificity the page's plain `.hidden`,
+ * `.flex` or `.grid-cols-2` would beat the host's `sm:block` / `md:grid-cols-4`
+ * on host elements. A layer ordered before `utilities` is no fix: the host's
+ * `.grid-cols-1` would then beat the page's own `@2xl:grid-cols-2`. Scoping
+ * gives both: host elements are out of reach, and inside the page its own
+ * variants still win. `:where()` adds no specificity, so a rule weighs what the
+ * host's copy of the same class weighs. Nothing the page portals out of its
+ * root keeps these utilities. */
+@layer theme, base, components, utilities;
+@reference "@fraym/ui/theme.css";
+@layer utilities {
+  :where([data-slot="general-agents-page"]) {
+    @import "tailwindcss/utilities.css" source(none);
+  }
+}
+@source "./";
+/* `theme.css` carries its own `@source` over the whole kit, and `@reference`
+ * does not drop it; without this line the sheet compiles every utility the kit
+ * uses (~2,100 rules) instead of this page's (~300). */
+@source not "../../../../fraym/packages/ui/src";

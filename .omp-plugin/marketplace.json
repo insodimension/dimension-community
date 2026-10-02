@@ -39,10 +39,10 @@
 			"name": "artifactory-general-agent",
 			"source": "./packs/artifactory-general-agent",
 			"pluginId": "artifactory-general-agent",
-			"title": "The Forge",
+			"title": "General Agents",
 			"icon": "bot",
-			"description": "The Forge — build a General Agent by hand or by talking to your agent: a three.js orrery where skills, MCP servers, memory and lineage orbit the agent's core, and the agent.md is written live beside it.",
-			"version": "0.1.0",
+			"description": "General Agents: every agent you can run, as cards with their real faces and their week at a glance. Open one for its whole profile (face, charter, standing instructions, skills, plugins, MCP, tools, memory, home, models and safety) and edit it there, extend a pack's agent into your own, or ask the Machinist to draft one.",
+			"version": "0.4.0",
 			"author": {
 				"name": "Dimension"
 			},
@@ -51,8 +51,8 @@
 			"category": "artifactory",
 			"tags": [
 				"general-agents",
-				"mcp-apps",
-				"agent-builder"
+				"agent-builder",
+				"component"
 			]
 		},
 		{
@@ -155,7 +155,7 @@
 			"pluginId": "build",
 			"title": "Build",
 			"description": "Build - the assembled workspace. The Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts. Install it beside Code and swap any one of them without touching the app.",
-			"version": "0.1.5",
+			"version": "0.1.6",
 			"author": {
 				"name": "Dimension"
 			},
@@ -439,7 +439,7 @@
 			"pluginId": "example-agents",
 			"title": "Example Agents",
 			"description": "Example Agents - the reference pack for contributing a General Agent: one space, Example Hub, scoped to one sample marketing lead that ships off by default.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},

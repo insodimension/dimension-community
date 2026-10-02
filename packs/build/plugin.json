@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "build",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Build - the assembled workspace. The Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts. Install it beside Code and swap any one of them without touching the app.",
 	"author": {
 		"name": "Dimension"
@@ -74,7 +74,6 @@
 					"workspace": {
 						"surfaces": [
 							"session",
-							"autonomy",
 							"models"
 						],
 						"start": "session",

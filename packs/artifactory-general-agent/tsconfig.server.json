@@ -16,5 +16,5 @@
 		"noEmit": true,
 		"types": ["bun", "node"]
 	},
-	"include": ["src", "test", "../../../omp/types/assets/index.d.ts"]
+	"include": ["src", "test/server.test.ts", "../../../omp/types/assets/index.d.ts"]
 }

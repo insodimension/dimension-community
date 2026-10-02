@@ -4,7 +4,6 @@ dist/
 # build step, because the host loads `dist/index.mjs` at runtime (doc 68 §16.2).
 !packs/*/dist/
 !packs/browser/app/dist/
-!packs/artifactory-general-agent/app/dist/
 !packs/swiss-knife/viewer/app/dist/
 # Local verification harnesses and cached upstream sources: developer scratch,
 # never part of the published pack.

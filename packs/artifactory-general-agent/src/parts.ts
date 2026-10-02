@@ -57,11 +57,11 @@ async function mcpServersIn(file: string): Promise<string[]> {
 	}
 }
 
-/** One line of a description, short enough for a tray hint. */
+/** One line of a description, short enough for a suggestion's hint. */
 function hintOf(text: string, from: string): string {
 	const line = text.split("\n")[0]?.trim() ?? "";
 	const short = line.length > 90 ? `${line.slice(0, 89)}…` : line;
-	return short === "" ? from : `${short} — ${from}`;
+	return short === "" ? from : `${short} (${from})`;
 }
 
 export interface PartsOptions {
