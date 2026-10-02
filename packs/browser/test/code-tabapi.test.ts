@@ -10,11 +10,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Page } from "puppeteer-core";
 import { createCodeEvaluator } from "../src/code/cell/evaluator";
 import type { RunResult, TabRealm } from "../src/code/contracts";
+import { RunOutput } from "../src/code/worker/run-output";
 import { createTabRealm } from "../src/code/worker/tab-realm";
 import { readImageDimensions } from "../src/code/worker/image-size";
 import { resolveScreenshotDir } from "../src/code/worker/screenshot";
 import { resolveUploadPath } from "../src/code/worker/tab-api";
-import { resolveOpTimeouts, resolveWaitTimeout } from "../src/code/worker/tab-ops";
+import { OpRunner, type RunState, resolveOpTimeouts, resolveWaitTimeout } from "../src/code/worker/tab-ops";
 import { chromePath, type Fixture, type LaunchedChrome, launchChrome, startFixture } from "./code-tab-fixture";
 import { describeWithChrome } from "./fixture";
 
@@ -47,6 +48,43 @@ describe("the per-operation ceilings follow the cell budget", () => {
     expect(resolveWaitTimeout(30_000, Number.POSITIVE_INFINITY)).toBe(29_000);
     expect(resolveWaitTimeout(30_000, -5)).toBe(8_000);
     expect(resolveWaitTimeout(30_000, Number.NaN)).toBe(8_000);
+  });
+});
+
+describe("the zero-match watchdog counts only what it is sure of", () => {
+  // A page whose probe can be made to answer or to fail, the way a page in the middle of a navigation does; Chrome cannot be made to fail a probe on cue.
+  function runOver(probe: () => Promise<unknown[]>): Promise<string> {
+    const runner = new OpRunner(() => ({ $$: probe }) as unknown as Page);
+    const ac = new AbortController();
+    const state: RunState = {
+      id: "1",
+      ac,
+      signal: ac.signal,
+      output: new RunOutput(),
+      screenshots: [],
+      filename: "browser-run-1.js",
+      rejectionOwner: {},
+      floatingRejections: [],
+      floatingFailure: Promise.withResolvers<never>(),
+      inflight: new Map(),
+      opCounter: 0,
+    };
+    const slowOp = async (): Promise<string> => {
+      await Bun.sleep(900);
+      return "finished";
+    };
+    return runner.runOp(state, 'tab.click("#x")', ac.signal, 8_000, slowOp, { selector: "#x", zeroMatchAfterMs: 300 });
+  }
+
+  test("a selector confirmed absent fails fast, naming the label", async () => {
+    await expect(runOver(async () => [])).rejects.toThrow('tab.click("#x") failed fast after 300ms; selector currently matches no elements');
+  });
+
+  test("a probe that fails (a page mid-navigation) never counts toward the window, so the operation is left to finish", async () => {
+    const failing = async (): Promise<unknown[]> => {
+      throw new Error("Execution context was destroyed, most likely because of a navigation");
+    };
+    expect(await runOver(failing)).toBe("finished");
   });
 });
 
@@ -176,6 +214,19 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       const error = await failure('await tab.waitForSelector("#hidden-btn", { visible: true })', { timeoutMs: 4_000 });
       expect(error.message).toBe(
         'tab.waitForSelector("#hidden-btn") timed out after 3000ms; selector currently matches 1 element(s) but the action never became possible — the element may be hidden or covered (try tab.scrollIntoView() or a more specific selector)',
+      );
+      expect(Date.now() - started).toBeGreaterThanOrEqual(2_900);
+    }, 15_000);
+
+    test("once the selector has matched the fast fail is off for good, even if the element later goes away", async () => {
+      const started = Date.now();
+      const error = await failure(
+        `await tab.evaluate(() => { const b = document.createElement("button"); b.id = "flick"; b.style.display = "none"; document.body.append(b); setTimeout(() => b.remove(), 600); });
+         await tab.waitForSelector("#flick", { visible: true })`,
+        { timeoutMs: 4_000 },
+      );
+      expect(error.message).toBe(
+        'tab.waitForSelector("#flick") timed out after 3000ms; selector currently matches no elements — run tab.observe() or tab.ariaSnapshot() to inspect the page',
       );
       expect(Date.now() - started).toBeGreaterThanOrEqual(2_900);
     }, 15_000);
@@ -684,10 +735,13 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       try {
         const { handle } = await chrome.openTab(fixture.url("/form"));
         await guarded.adopt("main", handle);
+        const started = Date.now();
         const failed = await guarded
-          .run({ name: "main", code: `process.emit("unhandledRejection", new Error("dropped on the floor"), Promise.resolve()); await wait(1000); "unreachable"`, timeoutMs: 5_000, signal: new AbortController().signal })
+          .run({ name: "main", code: `process.emit("unhandledRejection", new Error("dropped on the floor"), Promise.resolve()); await wait(3000); "unreachable"`, timeoutMs: 8_000, signal: new AbortController().signal })
           .then(() => new Error("the run was expected to fail"), (error: Error) => error);
         expect(failed.message).toBe("Unhandled rejection (missing await?): dropped on the floor");
+        // It fails the run when it happens, not when the run would have finished anyway.
+        expect(Date.now() - started).toBeLessThan(2_000);
         const after = await guarded.run({ name: "main", code: "tab.url()", timeoutMs: 5_000, signal: new AbortController().signal });
         expect(after.returnValue).toBe(fixture.url("/form"));
       } finally {
