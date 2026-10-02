@@ -21,6 +21,7 @@
   },
   "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/dist/", "dist/", "recipes/", "python/dim_browser_bridge/", "python/pyproject.toml", "python/uv.lock", "skills/", "README.md"],
   "dependencies": {
+    "@babel/parser": "7.29.7",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@puppeteer/browsers": "3.2.2",
