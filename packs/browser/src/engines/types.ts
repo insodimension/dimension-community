@@ -1,5 +1,6 @@
 import type { AdmittedInput } from "../input.js";
 import type { BrowserAction, BrowserApp, BrowserRegion, ElementInspection, HandledDialog, LogEntry, ModelShot, PageElements, PageScroll, ShotRequest, TabInfo, Viewport } from "../contracts.js";
+import type { TabRef, WaitUntil } from "../code/contracts.js";
 
 /** Everything below describes the ACTIVE tab unless it says otherwise. */
 export interface EngineState {
@@ -180,8 +181,19 @@ export interface EngineDriver {
   readLabel(selector: string, limit: number): Promise<string | null>;
   /** Absolute hrefs of up to `limit` elements matching `selector` (CSS or `pierce/` only: it is read in-page). */
   linkHrefs(selector: string, limit: number): Promise<string[]>;
-  /** Open a tab, make it the active one, and navigate it to `url` (already validated) when given. */
-  openTab(url?: string): Promise<void>;
+  /**
+   * Open a tab, make it the active one, and navigate it to `url` (already validated) when given. Answers the tab, so the code worker
+   * (doc 77 §7.4.3) can adopt it by `targetId`: the engine creates and instruments every tab, the worker never does.
+   */
+  openTab(url?: string, options?: OpenTabOptions): Promise<TabRef>;
+  /** Every page tab this driver owns, in opening order, as the code worker adopts them. Reads only what the browser process knows (no renderer call). */
+  tabs(): Promise<TabRef[]>;
+  /** Navigate `tabId` (not necessarily the active one) and wait as `options` say; a page that has not loaded in time is stopped and the call rejects. */
+  navigateTab(tabId: string, url: string, options: NavigateTabOptions): Promise<TabRef>;
+  /** How `tabId` answers its JavaScript dialogs from now on; undefined restores the default (alert and beforeunload accepted, confirm and prompt dismissed). The engine is the one CDP client that answers, so two never both do. */
+  setDialogPolicy(tabId: string, policy: DialogPolicy | undefined): void;
+  /** Freeze (`Page.setWebLifecycleState` frozen) or thaw `tabId`: an idle tab stops using CPU. Capped at 3 s; throws for an unknown tab. */
+  setFrozen(tabId: string, frozen: boolean): Promise<void>;
   /** Make `tabId` the driven and shown tab. Throws `ActionNotDispatched` for an unknown id. */
   activateTab(tabId: string): Promise<void>;
   /** Close `tabId`. Closing the last tab opens a blank one first: the browser never ends from a tab close. */
@@ -220,4 +232,20 @@ export interface EngineOptions {
    * route change). No url: the runtime asks for the state it wants. Never throws into the driver. `chromium` only.
    */
   onPageLoaded?(): void;
+}
+
+/** What the engine answers a dialog with, for a tab whose opener asked: every dialog accepted, or every dialog dismissed. */
+export type DialogPolicy = "accept" | "dismiss";
+
+/** How a tab is navigated: the lifecycle event to wait for, the budget, and an abort (a stalled page is stopped, never left loading). */
+export interface NavigateTabOptions {
+  waitUntil?: WaitUntil;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface OpenTabOptions extends NavigateTabOptions {
+  /** The browser's launch tab, still blank and never handed out, is used instead of opening a second page. */
+  reuseBlank?: boolean;
+  dialogs?: DialogPolicy;
 }

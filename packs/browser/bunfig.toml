@@ -10,3 +10,8 @@ preload = [
 	"./test/kit-react-preload.ts",
 ]
 telemetry = false
+
+# src/code/prompt.md is the model-facing text of browser_run, imported as text (esbuild does the same through scripts/build.mjs).
+# Bun would otherwise render .md as HTML.
+[loader]
+".md" = "text"
