@@ -170,28 +170,31 @@ describe("what a failed cell tells the model", () => {
     expect(textOf(reply)).toBe('busy: run r7 is still running. Call browser_run({ resume: "r7" }) first.');
   });
 
-  test("a call the client cancels is handed to the host as a cancellation, within OMP's grace", async () => {
-    const started = Promise.withResolvers<void>();
-    const aborted = Promise.withResolvers<void>();
-    const host = fakeHost(call => {
-      started.resolve();
-      call.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
-      return new Promise<RunStarted>((_resolve, reject) => call.signal.addEventListener("abort", () => reject(new ToolAbortError()), { once: true }));
+  for (const [what, args] of [["a new cell", { code: "await browser.tab().waitForSelector('#never')" }], ["a wait for a running one", { resume: "r1" }]] as const) {
+    test(`a call for ${what} that the client cancels is handed to the host as a cancellation, within OMP's grace`, async () => {
+      const started = Promise.withResolvers<void>();
+      const aborted = Promise.withResolvers<void>();
+      const host = fakeHost(call => {
+        started.resolve();
+        call.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+        return new Promise<RunStarted>((_resolve, reject) => call.signal.addEventListener("abort", () => reject(new ToolAbortError()), { once: true }));
+      });
+      const { client } = await connect(host);
+      const controller = new AbortController();
+      const pending = client.callTool({ name: "browser_run", arguments: args }, undefined, { signal: controller.signal });
+      pending.catch(() => undefined);
+      await started.promise;
+      const cancelledAt = Date.now();
+      controller.abort();
+      await expect(pending).rejects.toBeDefined();
+      // The real clock is the point here: OMP stops a cancelled cell within 750 ms.
+      const grace = setTimeout(() => aborted.reject(new Error("the host was not told within 750 ms")), 750);
+      await aborted.promise;
+      clearTimeout(grace);
+      expect(Date.now() - cancelledAt).toBeLessThan(750);
+      expect(host.seen[0]!.kind).toBe("code" in args ? "run" : "resume");
     });
-    const { client } = await connect(host);
-    const controller = new AbortController();
-    const pending = client.callTool({ name: "browser_run", arguments: { code: "await browser.tab().waitForSelector('#never')" } }, undefined, { signal: controller.signal });
-    pending.catch(() => undefined);
-    await started.promise;
-    const cancelledAt = Date.now();
-    controller.abort();
-    await expect(pending).rejects.toBeDefined();
-    // The real clock is the point here: OMP stops a cancelled cell within 750 ms.
-    const grace = setTimeout(() => aborted.reject(new Error("the host was not told within 750 ms")), 750);
-    await aborted.promise;
-    clearTimeout(grace);
-    expect(Date.now() - cancelledAt).toBeLessThan(750);
-  });
+  }
 });
 
 describe("what the call accepts", () => {
