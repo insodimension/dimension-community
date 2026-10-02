@@ -1,7 +1,7 @@
 // Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/tab-worker.ts (WorkerCore: #init's attach path, #run, #consumeUnhandledRejection, #recordFloatingRejection,
 // #floatingRejectionError, #foldFloatingRejections, #close) and tab-supervisor.ts (the `is not alive`, `was closed` and `is busy` texts, the 750 ms grace) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
-// Changed for the Browser pack (doc 77 7.4, matrix D1, D5, D28): OMP runs one process per tab behind a supervisor, so `tab.click` crosses two hops; here ONE worker holds every tab of a session and the
+// Changed for the Browser pack (doc 77 7.4, matrix D1, D5, D28; a failed request-interception cleanup no longer replaces the run's own failure): OMP runs one process per tab behind a supervisor, so `tab.click` crosses two hops; here ONE worker holds every tab of a session and the
 // engine has already created and instrumented each page, so this realm only ADOPTS a page by targetId and `run` and `call` are plain calls inside the worker (zero postMessage hops). The page is never
 // created, closed or restyled here (stealth, viewport, dialog policy and the page log stay the engine's); the realm only disconnects its own connection. The user's code runs through the cell's
 // evaluator, which owns wrapCode and the persistent names.
@@ -385,7 +385,10 @@ class BrowserTabRealm implements TabRealm {
       try {
         await runPage?.cleanup();
       } catch (error) {
-        failure = { error };
+        // OMP let the cleanup failure replace the run's own. A page stuck behind a dialog fails both, and the run's own failure is the one that names the dialog: keep it and only
+        // ask for the rebuild the cleanup failure calls for.
+        if (failure === undefined) failure = { error };
+        else if (typeof failure.error === "object" && failure.error !== null) Reflect.set(failure.error, "recoverTab", true);
       }
       failure = this.#foldFloatingRejections(active, failure);
       if (session.active === active) session.active = null;

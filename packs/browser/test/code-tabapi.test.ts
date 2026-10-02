@@ -25,6 +25,13 @@ function captionOf(result: RunResult): string {
   return first.text;
 }
 
+/** Answer a dialog nobody was going to: a page stuck behind one cannot be closed cleanly. */
+async function dismissDialog(page: Page): Promise<void> {
+  const session = await page.createCDPSession();
+  await session.send("Page.handleJavaScriptDialog", { accept: false }).catch(() => undefined);
+  await session.detach().catch(() => undefined);
+}
+
 describe("the per-operation ceilings follow the cell budget", () => {
   test("a default cell keeps OMP's 20 s and 8 s, and a short cell pulls both under its own budget less one second", () => {
     expect(resolveOpTimeouts(30_000)).toEqual({ budgetBound: 29_000, quickOpMs: 20_000, actionOpMs: 8_000 });
@@ -540,6 +547,97 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       await run('await tab.scrollIntoView("#bottom")');
       expect(await value("await tab.evaluate(() => window.scrollY)")).toBeGreaterThan(3_000);
     }, 20_000);
+  });
+
+  describe("a handle that timed out is dead (D22)", () => {
+    test("a click the page holds up times out under its own name and the same handle then refuses, telling how to get a fresh one", async () => {
+      await openTab("busy", "/busy");
+      try {
+        // A first run on the tab: the interception state is set once per page, and that must not be the call that meets the busy page.
+        await run("1", { name: "busy" });
+        const result = await run(
+          `const handle = await tab.waitFor("#spin");
+           const attempt = async () => { try { await handle.click(); return "clicked"; } catch (error) { return error.message; } };
+           return [await attempt(), await attempt()];`,
+          { name: "busy", timeoutMs: 3_500 },
+        );
+        expect(result.returnValue).toEqual([
+          "handle.click() timed out after 2500ms",
+          "handle.click() cannot run: this handle was invalidated after handle.click() timed out; run tab.observe() or tab.ariaSnapshot() to resolve a fresh handle",
+        ]);
+      } finally {
+        await realm.release("busy");
+      }
+    }, 20_000);
+  });
+
+  describe("dialogs are observed, not answered (D28)", () => {
+    test("a dialog the page opened and nobody closed is named when the run times out", async () => {
+      const engine = await openTab("dlg", "/dialog");
+      try {
+        const error = await failure(
+          `await page.evaluate(() => { setTimeout(() => alert("are you sure"), 0); return new Promise(() => {}); })`,
+          { name: "dlg", timeoutMs: 2_000 },
+        );
+        expect(error.message).toBe(
+          `Browser code execution timed out after 2000ms; a alert("are you sure") dialog opened during this run and may still block the page — reopen the tab with dialogs:"accept"|"dismiss" or handle page.on('dialog')`,
+        );
+      } finally {
+        await dismissDialog(engine);
+        await realm.release("dlg");
+      }
+    }, 20_000);
+
+    test("a dialog the engine answered is forgotten, so a later timeout does not blame it", async () => {
+      const engine = await openTab("dlg", "/dialog");
+      engine.on("dialog", dialog => void dialog.dismiss());
+      try {
+        // The realm learns a dialog was answered from the page's own event stream, which it subscribes to as it adopts: a first run lets that settle.
+        await run("1", { name: "dlg" });
+        await run(`await page.evaluate(() => { setTimeout(() => alert("x"), 0); return new Promise(resolve => setTimeout(resolve, 400)); })`, { name: "dlg" });
+        const error = await failure("await tab.evaluate(() => new Promise(() => {}))", { name: "dlg", timeoutMs: 1_500 });
+        expect(error.message).toMatch(/^Browser code execution timed out after 1500ms \(stalled on tab\.evaluate\(\) \(1\.\ds\)\)$/);
+      } finally {
+        await realm.release("dlg");
+      }
+    }, 20_000);
+  });
+
+  describe("the run scope (D24, D25, D32)", () => {
+    test("assert throws the model's text, or OMP's default", async () => {
+      expect((await failure('assert(false, "the form never loaded")')).message).toBe("the form never loaded");
+      expect((await failure("assert(0)")).message).toBe("Assertion failed");
+      expect(await value('assert(true, "fine"); "passed"')).toBe("passed");
+    });
+
+    test("wait sleeps for a time, and polls a predicate until it is truthy or its deadline names it", async () => {
+      const started = Date.now();
+      await run("await wait(300)");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(290);
+      expect(await value("let n = 0; await wait(() => ++n >= 3 && n, { interval: 10 })")).toBe(3);
+      expect((await failure("await wait(() => false, { timeout: 300, interval: 20 })")).message).toBe(
+        "wait(predicate) timed out after 300ms — predicate never returned truthy",
+      );
+      expect((await failure('await wait("soon")')).message).toBe("wait(...) expects milliseconds (number) or a predicate function to poll");
+    }, 20_000);
+
+    test("the code gets raw puppeteer page and browser beside tab, and a run that is cancelled ends with the cancellation", async () => {
+      expect(await value("page.url() === tab.url() && typeof browser.pages === 'function' && typeof tab.page.goto === 'function'")).toBe(true);
+      const controller = new AbortController();
+      const pending = failure("await tab.evaluate(() => { window.cancelStarted = true; }); await tab.evaluate(() => new Promise(() => {}))", { signal: controller.signal, timeoutMs: 20_000 });
+      await chromePage("main").waitForFunction("window.cancelStarted === true");
+      controller.abort();
+      const error = await pending;
+      expect(error.name).toBe("ToolAbortError");
+    }, 20_000);
+
+    test("request interception a run switched on is switched off when the run ends, so the next navigation is not held", async () => {
+      await goto("/form");
+      await run(`await page.setRequestInterception(true); page.on("request", request => { void request.continue(); });`);
+      await run(`await tab.goto(${JSON.stringify(fixture.url("/done"))})`, { timeoutMs: 8_000 });
+      expect(await value("tab.url()")).toBe(fixture.url("/done"));
+      await run("await tab.goto(" + JSON.stringify(fixture.url("/form")) + ")", { timeoutMs: 8_000 });
+    }, 30_000);
   });
 });
 

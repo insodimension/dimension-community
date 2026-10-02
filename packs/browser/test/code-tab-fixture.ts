@@ -38,6 +38,7 @@ const PAGES: Record<string, string> = {
   "/long": `<!doctype html><title>Long</title><div style="height:4000px">tall</div><button id="bottom">Bottom</button>`,
   "/redirect": `<!doctype html><title>Redirect</title><p>wait for it</p><script>setTimeout(() => { location.href = "/done"; }, 400)</script>`,
   "/dialog": `<!doctype html><title>Dialog</title><button id="ask" onclick="alert('are you sure')">Ask</button>`,
+  "/busy": `<!doctype html><title>Busy</title><button id="spin" onmousedown="const end = Date.now() + 3500; while (Date.now() < end) {}">Spin</button>`,
   "/drag": `<!doctype html><title>Drag</title>
 <div id="a" style="position:absolute;left:20px;top:20px;width:60px;height:60px;background:#08f">a</div>
 <div id="b" style="position:absolute;left:220px;top:120px;width:80px;height:80px;background:#f80">b</div>
