@@ -491,6 +491,101 @@ describeWithChrome("taking a browser over in the View", () => {
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
+
+	/** A site whose compose page is held until `release()`, so a post is provably mid-fill while the person reaches for the wheel. */
+	function startHeldCompose(signedIn: boolean) {
+		const asked = Promise.withResolvers<void>();
+		const held = Promise.withResolvers<void>();
+		const server = Bun.serve({
+			hostname: "127.0.0.1",
+			port: 0,
+			async fetch(request) {
+				if (new URL(request.url).pathname !== "/compose") return new Response("not found", { status: 404 });
+				asked.resolve();
+				await held.promise;
+				const page = `<!doctype html><title>compose</title>${signedIn ? `<p id="me">@alice</p>` : "<p>sign in</p>"}<textarea id="text"></textarea><button id="post" type="button">Post</button>`;
+				return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+			},
+		});
+		const origin = `http://127.0.0.1:${server.port}`;
+		const recipe: PublishRecipe = { origin, composeUrl: `${origin}/compose`, signedIn: "#me", fields: [{ selector: "#text", value: "hello" }], submit: "#post", receipt: { path: "/alice/status/{digits}" } };
+		return { recipe, asked: asked.promise, release: () => held.resolve(), stop: async () => void (await server.stop(true)) };
+	}
+
+	test(
+		"the wheel is not on offer while a post is being filled: the take is refused, and the post then parks with nobody driving",
+		async () => {
+			const r = await rig();
+			const site = startHeldCompose(true);
+			try {
+				const id = (await open(r, CHAT, { profile: "pub" })).browserId;
+				const filling = r.call("browser_publish", { browserId: id, recipe: site.recipe, mode: "post" }, CHAT);
+				await site.asked;
+
+				// The agent is typing into the page and nothing is parked yet: a take now would leave the post on a page the person drives.
+				expect(refusal(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT))).toContain("being prepared");
+				expect(await failureCode(() => r.runtime.control(id, "take", "app"))).toBe("publish_pending");
+				// The state the View reads is not queued behind the fill (a queued read would wait for the page this fill is held on).
+				expect((await r.runtime.liveState(id)).takenOver).toBe(false);
+
+				site.release();
+				const parked = await filling;
+				expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
+				expect((await stateAs(r, VIEW_OF_CHAT, id)).takenOver).toBe(false);
+			} finally {
+				site.release();
+				await site.stop();
+			}
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a fill that ends without parking a post gives the wheel back: the person can take over once it has failed",
+		async () => {
+			const r = await rig();
+			const site = startHeldCompose(false);
+			try {
+				const id = (await open(r, CHAT, { profile: "pub" })).browserId;
+				const filling = r.call("browser_publish", { browserId: id, recipe: site.recipe, mode: "post" }, CHAT);
+				await site.asked;
+				expect(await failureCode(() => r.runtime.control(id, "take", "app"))).toBe("publish_pending");
+
+				site.release();
+				const outcome = await filling;
+				expect(outcome.structuredContent?.status).not.toBe("awaiting-confirmation");
+				expect(stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT)).takenOver).toBe(true);
+			} finally {
+				site.release();
+				await site.stop();
+			}
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"an agent cannot confirm a post while the person has the wheel: it stays pending and nothing is clicked, and the person's own Post still goes through",
+		async () => {
+			const r = await rig();
+			const site = startPublishFixture();
+			publishFixtures.push(site);
+			const id = (await open(r, CHAT, { profile: "pub" })).browserId;
+			expect((await r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: site.url("/login") }] }, CHAT)).isError).toBeFalsy();
+			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
+
+			// The person, who holds the wheel, prepares the post themselves (an agent's publish is refused while they hold it).
+			const parked = await r.call("browser_publish", { browserId: id, recipe: recipe(site), mode: "post" }, VIEW_OF_CHAT);
+			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
+			const publishId = String(parked.structuredContent?.publishId);
+
+			expect(await failureCode(() => r.runtime.confirmPublish(id, publishId, "model"))).toBe("human_driving");
+			expect(site.submissions()).toEqual([]);
+			const posted = await r.call("browser_publish_confirm", { browserId: id, publishId }, VIEW_OF_CHAT);
+			expect(posted.structuredContent?.status).toBe("posted");
+			expect(site.submissions()).toHaveLength(1);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
 });
 
 // ---------------------------------------------------------------------------
@@ -543,6 +638,46 @@ describeTasks("taking over while a task runs", () => {
 			expect(stopped.structuredContent).toMatchObject({ status: "cancelled" });
 			expect(stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT)).takenOver).toBe(true);
 			expect(entry(await listAs(r, VIEW_OF_CHAT), "tasked")).toMatchObject({ hold: { task: false, takenOver: true } });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"the wheel is not on offer while a task is starting: the take is refused as task_running mid-start, the worker then runs, and nothing was taken",
+		async () => {
+			const r = await rig();
+			const id = (await open(r, CHAT, { profile: "tasked" })).browserId;
+			// Hold the task's first look at the page (the read before its worker spawns), so the start is provably in flight.
+			// Reason: test seam into the runtime's private browser map (as publish.test.ts has); the driver's own state read is what the start awaits.
+			const seam = r.runtime as unknown as { byId: Map<string, { driver: { state(): Promise<unknown> } }> };
+			const entryOf = seam.byId.get(id);
+			if (!entryOf) throw new Error("no such browser");
+			const realState = entryOf.driver.state.bind(entryOf.driver);
+			const reading = Promise.withResolvers<void>();
+			const resume = Promise.withResolvers<void>();
+			let gated = false;
+			entryOf.driver.state = async () => {
+				// Only the task's first read is held; any later one (the take-over's own) goes straight through.
+				if (!gated) {
+					gated = true;
+					reading.resolve();
+					await resume.promise;
+				}
+				return await realState();
+			};
+			const starting = r.call("browser_task", { browserId: id, agent: "jev", task: JSON.stringify({ steps: [{ action: "thinking", url: "" }], hold: true }), waitSeconds: 0 }, CHAT);
+			try {
+				await reading.promise;
+				expect(refusal(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT))).toContain("starting");
+				expect(await failureCode(() => r.runtime.control(id, "take", "app"))).toBe("task_running");
+			} finally {
+				resume.resolve();
+			}
+
+			expect((await starting).structuredContent).toMatchObject({ status: "running" });
+			expect((await stateAs(r, VIEW_OF_CHAT, id)).takenOver).toBe(false);
+			expect(entry(await listAs(r, VIEW_OF_CHAT), "tasked")).toMatchObject({ hold: { by: "agent", task: true, takenOver: false } });
+			expect((await r.call("browser_task_cancel", { browserId: id }, CHAT)).structuredContent).toMatchObject({ status: "cancelled" });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

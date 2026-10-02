@@ -282,6 +282,14 @@ interface Entry {
 	opener: BrowserOpener;
 	/** The person has the wheel: an agent's page actions are refused until they hand it back (`control`). Reads are not. */
 	takenOver: boolean;
+	/**
+	 * Something an agent is part-way through that parks or drives this page and is not yet visible as `publish` or `task`: a post being
+	 * filled (parked only once the fill ends) or a task being started (its worker spawns only after the page was read). The person cannot
+	 * take the wheel under it (`control`), or the post would be parked on a page they drive and the worker spawned onto it. Set in the
+	 * same synchronous run as the check that admitted it, before its first await, and cleared when it settles, so `control`, which is
+	 * not queued, always sees it.
+	 */
+	starting: "post" | "task" | null;
 	/** When an agent (anyone but the View) last ran a page action here; the View shows it as "working" for a few seconds. */
 	agentAt: number | null;
 	/** How the profile is shown (label, colour, avatar); fixed while the browser is open, so read once at launch. null: throwaway, or the relay. */
@@ -508,7 +516,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), inputQueue: Promise.resolve(), closed: false,
 				task: null, worker: null, publish: null, secrets: new Set(), logRead: 0, logNoticed: 0, annotations,
-				opener, takenOver: false, agentAt: null, look: profile === null || profile === RELAY_PROFILE ? null : resolveProfileMeta(profile, this.store.meta(profile)),
+				opener, takenOver: false, starting: null, agentAt: null, look: profile === null || profile === RELAY_PROFILE ? null : resolveProfileMeta(profile, this.store.meta(profile)),
 				probe: { timer: undefined, running: undefined, again: false },
 				lastUsed: performance.now(), viewers: 0, pending: 0, idle: undefined, retiring: undefined, closeFailed: false,
 			};
@@ -1114,6 +1122,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			// The page being confirmed must not be navigated away from, or its post lost, by someone reaching for the wheel.
 			if (isPending(entry.publish)) fail("publish_pending", "a post awaits confirmation on this browser; take over once it is posted or cancelled");
 			if (entry.task?.status === "running") fail("task_running", `a browser_task (${entry.task.agent}) is running here; stop it first`);
+			// Not parked and not running yet, but on its way: the person would be driving the page the post is typed into or the task begins on.
+			if (entry.starting === "post") fail("publish_pending", "a post is being prepared on this browser; take over once it is posted or cancelled");
+			if (entry.starting === "task") fail("task_running", "a browser_task is starting on this browser; take over once it has finished or been cancelled");
 		}
 		// Not queued behind page work: it must hold before the agent's next step, not after its whole batch.
 		entry.takenOver = mode === "take";
@@ -1676,7 +1687,15 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (entry.worker) fail("task_running", `a ${entry.task?.agent} task is already running on this browser`);
 			refuseWhilePublishing(entry, caller);
 			refuseWhileTakenOver(entry, caller);
-			const state = await this.refreshState(entry);
+			entry.starting = "task";
+			let state: EngineState;
+			try {
+				state = await this.refreshState(entry);
+			} finally {
+				entry.starting = null;
+			}
+			// `control` refuses the wheel while the page is read, so this holds; it is the last look before a worker is spawned on the page.
+			refuseWhileTakenOver(entry, caller);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
 			const credential = request.credential ? resolveCredential(this.store.profileDir(this.savedProfile(entry, "a task credential")), request.credential) : undefined;
 			if (credential) entry.secrets.add(credential.password);
@@ -1772,7 +1791,15 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (isPending(entry.publish)) {
 				fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
 			}
-			const outcome = await prepare(entry.driver, profile, valid, selected);
+			entry.starting = "post";
+			let outcome: PublishCheck | Publication;
+			try {
+				outcome = await prepare(entry.driver, profile, valid, selected);
+			} finally {
+				entry.starting = null;
+			}
+			// `control` refuses the wheel while the fill runs, so this holds; it is the last look before a post is parked on the page.
+			refuseWhileTakenOver(entry, caller);
 			if (!("record" in outcome)) {
 				// The account is page text: scrubbed like every other page read before it is persisted or reported.
 				const shown = this.redact(entry, outcome);
@@ -1791,6 +1818,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
+			refuseWhileTakenOver(entry, caller);
 			// Before any page interaction: a refusal here leaves the publish pending and nothing clicked.
 			requireExpected(this.redact(entry, publishRecord(publication)), caller, expect);
 			if (entry.task?.status === "running") {
