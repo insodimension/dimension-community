@@ -271,7 +271,6 @@ describe("Everything else", () => {
 title: Chief Marketing Officer
 name: cmo
 description: Runs the marketing desk
-defaultListed: false
 specVersion: 1
 avatar:
   id: mochi
@@ -320,7 +319,6 @@ You run the desk.
 		// What the orrery cannot draw is held as written — comments included.
 		for (const line of [
 			"title: Chief Marketing Officer",
-			"defaultListed: false",
 			"avatar:\n  id: mochi\n  skin: pearl",
 			"  thinkingLevel: auto",
 			"  profile: fast-and-cheap",
@@ -347,7 +345,7 @@ You run the desk.
 		const after = parseGeneralAgent(first, userFile("cmo"), "cmo");
 		if (!before.ok || !after.ok) throw new Error("did not parse");
 		expect(after.decl.manifest).toEqual(before.decl.manifest);
-		expect(after.decl).toMatchObject({ title: "Chief Marketing Officer", defaultListed: false, avatar: { id: "mochi", skin: "pearl" }, body: "You run the desk." });
+		expect(after.decl).toMatchObject({ title: "Chief Marketing Officer", avatar: { id: "mochi", skin: "pearl" }, body: "You run the desk." });
 
 		// A second pass over what it just wrote changes nothing: byte-stable.
 		expect((await reforge(await listed("cmo"))).isError).toBeFalsy();

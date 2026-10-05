@@ -7474,6 +7474,17 @@ function agentHomeWorkspaceId(agent) {
 function derivesAgentHome(agent, workspaceId) {
   return workspaceId === void 0 || workspaceId === agentHomeWorkspaceId(agent);
 }
+var VOICE_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function parseVoice(value, errors) {
+  if (value === void 0) return void 0;
+  if (typeof value !== "string" || !VOICE_PROFILE_NAME.test(value)) {
+    errors.push(
+      `voice must be a voice profile name (lowercase letters, digits and dashes), got ${JSON.stringify(value)}`
+    );
+    return void 0;
+  }
+  return value;
+}
 function isAvatarId(id) {
   if (!id.startsWith("plugin:")) return AVATAR_ID_PART.test(id);
   const halves = id.slice("plugin:".length).split("/");
@@ -7556,13 +7567,11 @@ function parseGeneralAgent(content, filePath, dirName) {
   if (raw.defaultEnabled !== void 0 && typeof raw.defaultEnabled !== "boolean") {
     errors.push("defaultEnabled must be a boolean");
   }
-  if (raw.defaultListed !== void 0 && typeof raw.defaultListed !== "boolean") {
-    errors.push("defaultListed must be a boolean");
-  }
   if (raw.title !== void 0 && (typeof raw.title !== "string" || raw.title.trim() === "")) {
     errors.push("title must be a non-empty string");
   }
   const avatar = parseAvatar(raw.avatar, errors);
+  const voice = parseVoice(raw.voice, errors);
   if (errors.length > 0) return rejected("invalid", ...errors);
   const description = typeof raw.description === "string" ? raw.description : "";
   const routing = generalAgentRouting(manifest, description);
@@ -7572,10 +7581,10 @@ function parseGeneralAgent(content, filePath, dirName) {
       name,
       description,
       defaultEnabled: typeof raw.defaultEnabled === "boolean" ? raw.defaultEnabled : true,
-      defaultListed: typeof raw.defaultListed === "boolean" ? raw.defaultListed : true,
       // One line on every surface that shows it (a chip, a menu row).
       ...typeof raw.title === "string" ? { title: raw.title.trim().replace(/\s+/g, " ") } : {},
       ...avatar ? { avatar } : {},
+      ...voice ? { voice } : {},
       ...routing ? { routing } : {},
       manifest,
       body: parts.body.trim()
@@ -8158,7 +8167,7 @@ var proposalShape = {
   thinking: z.enum(THINKING_STEPS).optional(),
   personality: z.enum(PERSONALITIES).optional(),
   extra: z.string().max(2e4).optional().describe(
-    "YAML for manifest keys the profile does not draw \u2014 title, defaultListed, engine.model/profile/roles, routing, loop, memory.namespace, capabilities.autoloadSkills/slashCommands, subagents.maxDepth, \u2026 One `key: value` per line, sections indented two spaces. It is laid over the draft's own, key by key (a key it names that the profile also draws, like engine.model, is then held as written). Keys that GRANT \u2014 capabilities.tools/mcp/plugins/control/ignore/optIn, subagents.allowed, gate.*, workspace.*, harness, allowedHarnesses \u2014 are refused: only the user sets those."
+    "YAML for manifest keys the profile does not draw \u2014 title, engine.model/profile/roles, routing, loop, memory.namespace, capabilities.autoloadSkills/slashCommands, subagents.maxDepth, \u2026 One `key: value` per line, sections indented two spaces. It is laid over the draft's own, key by key (a key it names that the profile also draws, like engine.model, is then held as written). Keys that GRANT \u2014 capabilities.tools/mcp/plugins/control/ignore/optIn, subagents.allowed, gate.*, workspace.*, harness, allowedHarnesses \u2014 are refused: only the user sets those."
   )
 };
 function json(structuredContent, text) {
@@ -8205,7 +8214,7 @@ function createForgeServer(options = {}) {
     }
     return { workspace: boundWorkspace(extra), home };
   };
-  const server2 = new McpServer({ name: "dimension-community-general-agent", version: "0.4.0" });
+  const server2 = new McpServer({ name: "dimension-community-general-agent", version: "0.5.0" });
   server2.registerTool(
     "forge_open",
     {

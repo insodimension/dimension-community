@@ -16,8 +16,8 @@ export interface Forge {
 	saveInstructions(name: string, text: string, revision: string): Promise<InstructionsSaved>;
 	pendingProposals(): Promise<PendingProposals>;
 	dismissProposal(id: string): Promise<ProposalDismissed>;
-	/** Switch an agent on or off, show or hide it in the rail (`agents:configure`). */
-	configure(name: string, patch: { readonly enabled?: boolean; readonly listed?: boolean }): Promise<void>;
+	/** Switch an agent on or off (`agents:configure`). */
+	configure(name: string, patch: { readonly enabled: boolean }): Promise<void>;
 }
 
 export function forgeOf(store: PageStore, workspace: string | undefined): Forge {

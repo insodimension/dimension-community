@@ -131,7 +131,7 @@ export function AgentProfile({
 	readonly faceOf: (name: string) => FaceBinding;
 	readonly bridged: BridgedPresences | undefined;
 	readonly onDock: (() => void) | undefined;
-	readonly configure: ((name: string, patch: { readonly enabled?: boolean; readonly listed?: boolean }) => Promise<void>) | undefined;
+	readonly configure: ((name: string, patch: { readonly enabled: boolean }) => Promise<void>) | undefined;
 	readonly busy: ReadonlySet<string>;
 	readonly notice: string | undefined;
 	/** What the voice lane lends the page; its absence is a state the section draws. */
@@ -335,12 +335,6 @@ export function AgentProfile({
 								checked={fact.enabled}
 								disabled={busy.has(fact.name)}
 								onChange={configure !== undefined && editable ? on => void configure(fact.name, { enabled: on }) : undefined}
-							/>
-							<SwitchField
-								label="Show in rail"
-								checked={fact.listed}
-								disabled={busy.has(fact.name)}
-								onChange={configure !== undefined ? on => void configure(fact.name, { listed: on }) : undefined}
 							/>
 						</>
 					) : null}

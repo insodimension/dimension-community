@@ -36,13 +36,19 @@ Machinist lives in the dock beside the page (the page's **Ask the Machinist**
 button reveals it). The rail draws the entry only while the pack is enabled: it
 ships `defaultEnabled: false`, so turn it on in Capabilities → Plugins.
 
+The `general-agents-page` component declares `opens: ["agent"]`. From
+Capabilities → General Agents, clicking an agent opens its profile on this same
+page through the `subject` fill prop (`{ kind: "agent", id: <agent name> }`).
+The page is reachable only while this pack is enabled. If the agent has no
+readable file in the page's listing, the page stays home and shows a notice.
+
 The component (`components[general-agents-page]`, `slot: workspace-surface`,
 export `GeneralAgentsPage`) is mounted in a seat with two grants:
 
 | Grant | What it opens |
 |---|---|
 | `artifactory:call` | `store.call("callOwnServerTool", { tool, args })`: this pack's own server's App-only tools, answered with their structured result or refused with their own words |
-| `agents:configure` | `store.call("configureGeneralAgent", { name, enabled?, listed? })`: the Capabilities page's two switches |
+| `agents:configure` | `store.call("configureGeneralAgent", { name, enabled })`: the Capabilities page's Enabled switch |
 
 ## What the page reads
 
@@ -88,8 +94,7 @@ or Never used, with a small voice chip beside it when somebody chose the agent's
 never for the default), and its week: Sessions 7d, Tokens 7d, Cost 7d, Rooms led.
 
 **Profile.** A header with the agent's face at hero size (it moves when pointed
-at), its title, tier, live badge, lineage and the Enabled and Show in rail
-switches, and the one action it offers: **Save**, **Create agent**, or, for a
+at), its title, tier, live badge, lineage and the Enabled switch, and the one action it offers: **Save**, **Create agent**, or, for a
 pack's agent, **Extend as a new agent** (a new agent with `extends: [<it>]`,
 prefilled with its settings). Under it the vitals strip: sessions, tokens and
 cost in 7 days, last active, rooms led, home. Then the sections, each drawn as

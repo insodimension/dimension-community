@@ -38,7 +38,7 @@ function listed(name: string, source: AgentSource, patch: Partial<AgentDraft> = 
 }
 
 function fact(name: string, provenance: AgentFact["provenance"], enabled = true): AgentFact {
-	return { name, description: `${name} agent`, provenance, enabled, listed: true };
+	return { name, description: `${name} agent`, provenance, enabled };
 }
 
 const FILES = [listed("machinist", "pack"), listed("coding", "pack"), listed("herald", "user"), listed("scribe", "user"), listed("reviewer", "workspace")];

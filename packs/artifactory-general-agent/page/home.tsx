@@ -249,7 +249,6 @@ const AgentCard = memo(function AgentCard({
 							<span className="fr-overflow max-w-24">{voice.name}</span>
 						</span>
 					) : null}
-					{agent.fact !== undefined && enabled && !agent.fact.listed ? <span className="font-secondary text-fr-xs text-fr-text-2">Hidden from rail</span> : null}
 				</span>
 			</div>
 			<dl className="m-0 mt-3 grid grid-cols-4 divide-x divide-fr-border-soft border-t border-fr-border-soft">
@@ -401,7 +400,7 @@ export function AgentsHome({
 	readonly onOpen: (name: string) => void;
 	readonly onCreate: () => void;
 	readonly onDock: (() => void) | undefined;
-	readonly configure: ((name: string, patch: { readonly enabled?: boolean }) => Promise<void>) | undefined;
+	readonly configure: ((name: string, patch: { readonly enabled: boolean }) => Promise<void>) | undefined;
 	readonly busy: ReadonlySet<string>;
 	readonly notice: string | undefined;
 }) {

@@ -166,6 +166,7 @@ Object.freeze({
 	vibrEnabled: true,
 	railVibr: true,
 	railVibrAllSessions: false,
+	replyVoice: false,
 	maxVisibleBlocks: 10,
 	maxVisibleTurns: 12,
 	collapseMode: "worked",
@@ -2082,9 +2083,9 @@ var AgentCard = memo(function AgentCard({ agent, activity, usage, now, face, bri
 						className: "fr-overflow",
 						children: stand.text
 					})]
-				}), /* @__PURE__ */ jsxs("span", {
+				}), /* @__PURE__ */ jsx("span", {
 					className: "flex shrink-0 items-center gap-2.5",
-					children: [isExplicitVoice(voice) ? /* @__PURE__ */ jsxs("span", {
+					children: isExplicitVoice(voice) ? /* @__PURE__ */ jsxs("span", {
 						title: `Speaks with ${voice.name}. ${SOURCE_LABELS[voice.source]}.`,
 						className: "flex min-w-0 items-center gap-1 font-secondary text-fr-xs text-fr-text-2",
 						children: [/* @__PURE__ */ jsx(Icon, {
@@ -2096,10 +2097,7 @@ var AgentCard = memo(function AgentCard({ agent, activity, usage, now, face, bri
 							className: "fr-overflow max-w-24",
 							children: voice.name
 						})]
-					}) : null, agent.fact !== void 0 && enabled && !agent.fact.listed ? /* @__PURE__ */ jsx("span", {
-						className: "font-secondary text-fr-xs text-fr-text-2",
-						children: "Hidden from rail"
-					}) : null]
+					}) : null
 				})]
 			}),
 			/* @__PURE__ */ jsxs("dl", {
@@ -5311,17 +5309,12 @@ function AgentProfile({ state, onChange, onClose, onExtend, onDecide, onSaved, f
 					}),
 					/* @__PURE__ */ jsxs("div", {
 						className: "relative flex w-full shrink-0 flex-col gap-2 @3xl:w-60",
-						children: [fact !== void 0 ? /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsx(SwitchField, {
+						children: [fact !== void 0 ? /* @__PURE__ */ jsx(Fragment, { children: /* @__PURE__ */ jsx(SwitchField, {
 							label: "Enabled",
 							checked: fact.enabled,
 							disabled: busy.has(fact.name),
 							onChange: configure !== void 0 && editable ? (on) => void configure(fact.name, { enabled: on }) : void 0
-						}), /* @__PURE__ */ jsx(SwitchField, {
-							label: "Show in rail",
-							checked: fact.listed,
-							disabled: busy.has(fact.name),
-							onChange: configure !== void 0 ? (on) => void configure(fact.name, { listed: on }) : void 0
-						})] }) : null, /* @__PURE__ */ jsx("div", {
+						}) }) : null, /* @__PURE__ */ jsx("div", {
 							className: "flex [&>button]:w-full [&>button]:justify-center",
 							children: primary
 						})]
@@ -5539,6 +5532,25 @@ function GeneralAgentsPage(props) {
 	const [decided, setDecided] = useState(/* @__PURE__ */ new Set());
 	/** The agent a save just wrote: its profile reopens on the fresh file. */
 	const reopen = useRef(null);
+	/** Object identity distinguishes another click on the same agent from a re-render. */
+	const appliedSubject = useRef(void 0);
+	useEffect(() => {
+		const subject = props.subject;
+		if (subject === void 0 || subject === appliedSubject.current || subject.kind !== "agent" || listing.value === void 0) return;
+		appliedSubject.current = subject;
+		const file = listed.find((agent) => agent.name === subject.id);
+		if (file === void 0) {
+			setProfile(null);
+			setNotice(`No agent named "${subject.id}" was found.`);
+		} else {
+			setNotice(void 0);
+			setProfile(openListed(file));
+		}
+	}, [
+		props.subject,
+		listing.value,
+		listed
+	]);
 	const pending = useMemo(() => proposalsToReview(proposals.value?.proposals ?? [], profile, decided), [
 		proposals.value,
 		profile,

@@ -89,6 +89,21 @@ export function GeneralAgentsPage(props: GeneralAgentsPageProps) {
 	const [decided, setDecided] = useState<ReadonlySet<string>>(new Set());
 	/** The agent a save just wrote: its profile reopens on the fresh file. */
 	const reopen = useRef<string | null>(null);
+	/** Object identity distinguishes another click on the same agent from a re-render. */
+	const appliedSubject = useRef<GeneralAgentsPageProps["subject"]>(undefined);
+	useEffect(() => {
+		const subject = props.subject;
+		if (subject === undefined || subject === appliedSubject.current || subject.kind !== "agent" || listing.value === undefined) return;
+		appliedSubject.current = subject;
+		const file = listed.find(agent => agent.name === subject.id);
+		if (file === undefined) {
+			setProfile(null);
+			setNotice(`No agent named "${subject.id}" was found.`);
+		} else {
+			setNotice(undefined);
+			setProfile(openListed(file));
+		}
+	}, [props.subject, listing.value, listed]);
 
 	const pending = useMemo(() => proposalsToReview(proposals.value?.proposals ?? [], profile, decided), [proposals.value, profile, decided]);
 
@@ -127,7 +142,7 @@ export function GeneralAgentsPage(props: GeneralAgentsPageProps) {
 	// Stable between renders (they reach every card), so a card is skipped when
 	// nothing it draws changed.
 	const configure = useCallback(
-		async (name: string, patch: { readonly enabled?: boolean; readonly listed?: boolean }) => {
+		async (name: string, patch: { readonly enabled: boolean }) => {
 			setBusy(current => new Set([...current, name]));
 			setNotice(undefined);
 			try {

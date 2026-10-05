@@ -31,6 +31,8 @@ export interface PageStore {
 
 /** The workspace-surface fill props the page reads (the rest are ignored). */
 export interface GeneralAgentsPageProps {
+	/** A fresh page-open request, addressed to a profile on this page. */
+	readonly subject?: { readonly kind: string; readonly id: string };
 	readonly store: PageStore;
 	/** The user's painted avatar: what the kit's face rule resolves against. */
 	readonly avatar: AvatarId;
@@ -57,7 +59,6 @@ export interface AgentFact {
 	readonly provenance: "dimension" | "community" | "local" | "workspace";
 	readonly pluginId?: string;
 	readonly enabled: boolean;
-	readonly listed: boolean;
 	readonly defaultEnabled?: boolean;
 	readonly workspacePolicy?: string;
 	readonly avatar?: { readonly id: string; readonly skin?: string; readonly accent?: string };
