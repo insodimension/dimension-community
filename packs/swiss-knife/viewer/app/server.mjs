@@ -31727,7 +31727,7 @@ async function readChunk(path, offset, length) {
 import { realpath as nativeRealpath, stat as nativeStat } from "node:fs/promises";
 import * as nodePath from "node:path";
 
-// ../../../../packages/sdk/src/artifactory/artifactory-decl.ts
+// ../../../../inso-media-lane-1-video-media-art-direction-1/packages/sdk/src/artifactory/artifactory-decl.ts
 var ARTIFACTORY_GRANT_META_KEY = "ai.insodimension/grant";
 var PACK_CONNECTION_REPORT_MAX_BYTES = 64 * 1024;
 
@@ -32158,8 +32158,8 @@ function comesFromView(req, listenerHost) {
   const origin = req.headers.origin;
   return req.headers.host === listenerHost && (origin === void 0 || origin === SANDBOXED_VIEW_ORIGIN);
 }
-async function streamRecording(req, res, lease) {
-  const file2 = await open2(lease.path, OPEN_FLAGS2);
+async function streamRecording(req, res, lease, openFile) {
+  const file2 = await openFile(lease.path, OPEN_FLAGS2);
   try {
     const stats = await file2.stat();
     if (res.destroyed) return;
@@ -32180,7 +32180,7 @@ async function streamRecording(req, res, lease) {
     await file2.close();
   }
 }
-async function startMediaServer(fence) {
+async function startMediaServer(fence, openFile = open2) {
   const leases = /* @__PURE__ */ new Map();
   const pendingAdmissions = /* @__PURE__ */ new Map();
   const releasedTokens = /* @__PURE__ */ new Set();
@@ -32218,16 +32218,26 @@ async function startMediaServer(fence) {
     }
     active++;
     lease.responses.add(res);
+    const socket = req.socket;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      active--;
+      lease.responses.delete(res);
+      socket.off("close", release);
+      if (!res.writableFinished) res.destroy();
+    };
+    socket.once("close", release);
     try {
       const verdict = await fence.check(lease.path, lease.meta);
       if (!verdict.ok || verdict.real !== lease.path) {
         res.writeHead(404).end();
         return;
       }
-      await streamRecording(req, res, lease);
+      await streamRecording(req, res, lease, openFile);
     } finally {
-      lease.responses.delete(res);
-      active--;
+      release();
     }
   }
   await new Promise((resolve, reject) => {

@@ -94,8 +94,8 @@ function comesFromView(req: IncomingMessage, listenerHost: string): boolean {
 	return req.headers.host === listenerHost && (origin === undefined || origin === SANDBOXED_VIEW_ORIGIN);
 }
 
-async function streamRecording(req: IncomingMessage, res: ServerResponse, lease: Lease): Promise<void> {
-	const file = await open(lease.path, OPEN_FLAGS);
+async function streamRecording(req: IncomingMessage, res: ServerResponse, lease: Lease, openFile: typeof open): Promise<void> {
+	const file = await openFile(lease.path, OPEN_FLAGS);
 	try {
 		const stats = await file.stat();
 		if (res.destroyed) return;
@@ -117,7 +117,7 @@ async function streamRecording(req: IncomingMessage, res: ServerResponse, lease:
 	}
 }
 
-export async function startMediaServer(fence: Fence): Promise<MediaServer> {
+export async function startMediaServer(fence: Fence, openFile: typeof open = open): Promise<MediaServer> {
 	const leases = new Map<string, Lease>();
 	const pendingAdmissions = new Map<string, { cancelled: boolean }>();
 	const releasedTokens = new Set<string>();
@@ -156,16 +156,27 @@ export async function startMediaServer(fence: Fence): Promise<MediaServer> {
 		}
 		active++;
 		lease.responses.add(res);
+		const socket = req.socket;
+		let released = false;
+		const release = () => {
+			if (released) return;
+			released = true;
+			active--;
+			lease.responses.delete(res);
+			socket.off("close", release);
+			if (!res.writableFinished) res.destroy();
+		};
+		// Bun reports a client abort on the socket only; destroying the response is what lets the pipeline reject and close the file.
+		socket.once("close", release);
 		try {
 			const verdict = await fence.check(lease.path, lease.meta);
 			if (!verdict.ok || verdict.real !== lease.path) {
 				res.writeHead(404).end();
 				return;
 			}
-			await streamRecording(req, res, lease);
+			await streamRecording(req, res, lease, openFile);
 		} finally {
-			lease.responses.delete(res);
-			active--;
+			release();
 		}
 	}
 
