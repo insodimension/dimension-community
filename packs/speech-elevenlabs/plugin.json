@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "speech-elevenlabs",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"description": "ElevenLabs speech provider: dictation by Scribe v2 Realtime, an agent's replies spoken by Eleven v4 Turbo (or v4, or Flash v2.5) with word-level caption timing, and live voice conversations through an ElevenLabs agent that hands repository work to your coding agent. Choose it from a voice profile by naming the provider \"elevenlabs\".",
 	"author": {
 		"name": "Dimension"
@@ -21,7 +21,6 @@
 			"title": "ElevenLabs voice",
 			"icon": "assets/icon.svg",
 			"category": "connector",
-			"channel": "canary",
 			"defaultEnabled": false,
 			"entry": "src/index.ts",
 			"providers": {

@@ -48,7 +48,7 @@ No tools, skills, prompts or rules.
 
 ## Who can use it
 
-Anyone on the canary release ring (`channel: "canary"`), running Dimension 0.11.1 or newer (`requires.dimension`; the
+Anyone, on every release ring, running Dimension 0.11.1 or newer (`requires.dimension`; the
 pack-provided speech providers, listening and live calls it relies on first ship in that release). It is off until you
 enable it (`defaultEnabled: false`) and connect a key. You need an ElevenLabs account and an API key with the Text to
 Speech permission to hear replies and the Speech to Text permission to dictate; to talk live the key also needs the
