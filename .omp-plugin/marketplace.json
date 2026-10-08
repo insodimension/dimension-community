@@ -1086,7 +1086,7 @@
 			"title": "Swiss Knife",
 			"icon": "packs/swiss-knife/assets/icon.webp",
 			"description": "Small useful things in one switch: `present` shows you a file as a card in the thread, the Viewer opens and annotates it, and a stream rule stops the agent mid-edit when it writes a code comment.",
-			"version": "0.3.3",
+			"version": "0.3.4",
 			"author": {
 				"name": "Dimension"
 			},
