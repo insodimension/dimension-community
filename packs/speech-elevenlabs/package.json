@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/community-speech-elevenlabs",
 	"author": "Dimension",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"description": "ElevenLabs speech provider: dictation by Scribe v2 Realtime, an agent's replies spoken by Eleven v4 Turbo (or v4, or Flash v2.5) with word-level caption timing, and live voice conversations through an ElevenLabs agent",
 	"type": "module",
 	"main": "src/index.ts",
