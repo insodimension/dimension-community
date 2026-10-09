@@ -1,0 +1,14 @@
+{
+	// The dock panel runs in the HOST's page against `@fraym/ui`, whose SOURCE the
+	// checker reaches through the import — so the panel is checked under the kit's
+	// own compiler settings (as the pr-viewer pack is), not the server's, and the
+	// root tsconfig excludes this directory. The kit's ambient declarations for its
+	// CSS / `?url` asset imports come along for the same reason.
+	"extends": "../../../../../fraym/tsconfig.base.json",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"lib": ["ES2024", "DOM", "DOM.Iterable"],
+		"types": ["node", "react", "react-dom"]
+	},
+	"include": [".", "../../../../../fraym/packages/ui/src/asset-imports.d.ts", "../../../../../fraym/packages/ui/src/globals.d.ts"]
+}

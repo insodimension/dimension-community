@@ -1,0 +1,2709 @@
+/* The browser's chrome. Colour, type and motion come from Fraym's --fr-*
+   tokens (loaded from @fraym/ui/theme.css and, where the host sends them,
+   overridden live by the host's own variables through useHostStyles). The
+   few derived colours below are mixes of those tokens, never literals. */
+
+:root {
+	color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	margin: 0;
+	overflow: hidden;
+}
+
+body {
+	background: var(--fr-bg);
+	color: var(--fr-text);
+	font-family: var(--fr-font-primary, var(--fr-sans, system-ui, sans-serif));
+	font-size: 13px;
+	line-height: 1.4;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+/* The host's theme lands on this element (`data-theme`), so the tokens the
+   chrome reads are resolved here, not on <body>. */
+.bx-root {
+	background: var(--fr-bg);
+	color: var(--fr-text);
+}
+button {
+	font: inherit;
+	color: inherit;
+}
+
+kbd {
+	font-family: inherit;
+	font-size: 11px;
+	line-height: 1;
+	padding: 3px 5px;
+	border-radius: 4px;
+	background: var(--fr-surface-3);
+	border: 1px solid var(--fr-border);
+	color: var(--fr-text-2);
+}
+
+.bx-root {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+
+	/* Derived surfaces. The strip sits BEHIND the toolbar: it is the frame,
+	   the toolbar and the active tab are the sheet lying on it. */
+	--bx-frame: color-mix(in oklab, var(--fr-bg) 82%, var(--fr-surface));
+	--bx-sheet: var(--fr-surface);
+	--bx-field: var(--fr-surface-2);
+	--bx-field-hover: color-mix(in oklab, var(--fr-surface-2) 88%, var(--fr-text));
+	--bx-field-focus: var(--fr-surface-3);
+	--bx-hover: color-mix(in oklab, var(--fr-text) 7%, transparent);
+	--bx-press: color-mix(in oklab, var(--fr-text) 12%, transparent);
+	--bx-hairline: color-mix(in oklab, var(--fr-border) 70%, transparent);
+	--bx-ring: color-mix(in oklab, var(--fr-accent) 55%, transparent);
+	--bx-glass: color-mix(in oklab, var(--fr-surface) 86%, transparent);
+	--bx-shadow: 0 1px 2px color-mix(in oklab, var(--fr-bg) 60%, transparent), 0 12px 32px -12px color-mix(in oklab, var(--fr-bg) 90%, transparent);
+	--bx-ease: var(--fr-ease-standard, cubic-bezier(0.2, 0, 0, 1));
+	--bx-ease-enter: var(--fr-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+	--bx-fast: var(--fr-motion-fast, 130ms);
+	--bx-base: var(--fr-motion-base, 220ms);
+	--bx-slow: var(--fr-motion-slow, 360ms);
+	--bx-num: var(--fr-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+/* Light: the frame needs a real step down from the white sheet. */
+.bx-root[data-theme="light"],
+[data-theme="light"] .bx-root {
+	--bx-frame: var(--fr-surface-2);
+	--bx-shadow: 0 1px 2px color-mix(in oklab, var(--fr-text) 8%, transparent), 0 12px 32px -12px color-mix(in oklab, var(--fr-text) 22%, transparent);
+	--bx-glass: color-mix(in oklab, var(--fr-surface) 93%, transparent);
+	--bx-hairline: var(--fr-border);
+}
+
+.bx-num {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Focus: one ring, everywhere, only for the keyboard. */
+:where(.bx-root) :focus-visible {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 1px;
+}
+
+.bx-boot {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: 24px;
+	text-align: center;
+	color: var(--fr-text-2);
+}
+
+.bx-boot h1 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+/* ── shell ──────────────────────────────────────────────────────────── */
+
+.bx-browser {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--bx-frame);
+	container-type: inline-size;
+}
+
+.bx-content {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	background: var(--fr-bg);
+}
+
+/* ── tab strip ──────────────────────────────────────────────────────── */
+
+.bx-strip {
+	display: flex;
+	align-items: flex-end;
+	height: 38px;
+	padding: 0 8px 0 8px;
+	background: var(--bx-frame);
+	flex: none;
+	user-select: none;
+	-webkit-app-region: drag;
+}
+
+.bx-tabs {
+	display: flex;
+	align-items: flex-end;
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	padding: 0 2px;
+	-webkit-app-region: no-drag;
+}
+
+.bx-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+/* More tabs than fit: the strip scrolls (wheel, keyboard, drag) and the
+   clipped edge fades so the overflow is visible as such. */
+.bx-tabs[data-overflow="end"],
+.bx-tabs[data-overflow="both"] {
+	mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+
+.bx-tabs[data-overflow="start"] {
+	mask-image: linear-gradient(to right, transparent, #000 32px);
+	-webkit-mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+
+.bx-tabs[data-overflow="both"] {
+	mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+	-webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+
+.bx-tab {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	flex: 1 1 224px;
+	min-width: 48px;
+	max-width: 224px;
+	padding: 0 8px 0 12px;
+	border-radius: 10px 10px 0 0;
+	color: var(--fr-text-2);
+	cursor: default;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		color var(--bx-fast) var(--bx-ease);
+}
+
+/* Hairlines between resting tabs, gone next to hover and selection. */
+.bx-tab + .bx-tab:not([aria-selected="true"])::before {
+	content: "";
+	position: absolute;
+	left: -1px;
+	top: 8px;
+	bottom: 8px;
+	width: 1px;
+	background: var(--bx-hairline);
+	transition: opacity var(--bx-fast) var(--bx-ease);
+}
+
+.bx-tab:hover + .bx-tab:not([aria-selected="true"])::before,
+.bx-tab[aria-selected="true"] + .bx-tab:not([aria-selected="true"])::before,
+.bx-tab:not([aria-selected="true"]):hover::before {
+	opacity: 0;
+}
+
+.bx-tab:hover {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-tab[aria-selected="true"] {
+	background: var(--bx-sheet);
+	color: var(--fr-text);
+	z-index: 1;
+}
+
+/* The active tab's feet: it belongs to the sheet below, not the frame. */
+.bx-tab[aria-selected="true"]::before,
+.bx-tab[aria-selected="true"]::after {
+	content: "";
+	position: absolute;
+	bottom: 0;
+	width: 10px;
+	height: 10px;
+	background: var(--bx-sheet);
+}
+
+.bx-tab[aria-selected="true"]::before {
+	left: -10px;
+	mask: radial-gradient(circle at 0 0, transparent 10px, #000 10.5px);
+}
+
+.bx-tab[aria-selected="true"]::after {
+	right: -10px;
+	mask: radial-gradient(circle at 100% 0, transparent 10px, #000 10.5px);
+}
+
+.bx-tab[aria-disabled="true"] {
+	opacity: 0.55;
+}
+
+.bx-tab-icon {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	display: grid;
+	place-items: center;
+	color: var(--fr-text-3);
+}
+
+.bx-tab[aria-selected="true"] .bx-tab-icon {
+	color: var(--fr-text-2);
+}
+
+.bx-tab-icon img {
+	width: 16px;
+	height: 16px;
+	border-radius: 3px;
+	object-fit: contain;
+}
+
+.bx-tab-title {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	font-weight: 400;
+	white-space: nowrap;
+	overflow: hidden;
+	mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+
+.bx-tab[aria-selected="true"] .bx-tab-title {
+	font-weight: 500;
+}
+
+.bx-tab-close {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	margin-right: -4px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-3);
+	opacity: 0;
+	cursor: pointer;
+	transition:
+		opacity var(--bx-fast) var(--bx-ease),
+		background-color var(--bx-fast) var(--bx-ease),
+		color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-tab:hover .bx-tab-close,
+.bx-tab[aria-selected="true"] .bx-tab-close,
+.bx-tab-close:focus-visible {
+	opacity: 1;
+}
+
+.bx-tab-close:hover {
+	background: var(--bx-press);
+	color: var(--fr-text);
+}
+
+.bx-tab-close:disabled {
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* Narrow seats start tabs smaller. */
+@container (max-width: 640px) {
+	.bx-tab {
+		flex-basis: 160px;
+		max-width: 160px;
+	}
+}
+
+.bx-tab-spinner {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	border: 2px solid color-mix(in oklab, var(--fr-accent) 25%, transparent);
+	border-top-color: var(--fr-accent);
+	animation: bx-spin 0.8s linear infinite;
+}
+
+.bx-newtab {
+	flex: none;
+	width: 28px;
+	height: 28px;
+	margin: 0 0 2px 4px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-2);
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+	transition: background-color var(--bx-fast) var(--bx-ease), color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-newtab:hover:not(:disabled) {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-newtab:disabled {
+	opacity: 0.4;
+}
+
+.bx-strip-drag {
+	flex: 1;
+	align-self: stretch;
+}
+
+/* ── toolbar ────────────────────────────────────────────────────────── */
+
+.bx-toolbar {
+	position: relative;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 44px;
+	padding: 0 8px;
+	background: var(--bx-sheet);
+	border-bottom: 1px solid var(--bx-hairline);
+	flex: none;
+}
+
+.bx-nav,
+.bx-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
+}
+
+.bx-tb {
+	width: 30px;
+	height: 30px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-2);
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		color var(--bx-fast) var(--bx-ease),
+		transform var(--bx-fast) var(--bx-ease);
+}
+
+.bx-tb:hover:not(:disabled) {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-tb:active:not(:disabled) {
+	background: var(--bx-press);
+	transform: scale(0.94);
+}
+
+.bx-tb:disabled {
+	color: var(--fr-text-3);
+	opacity: 0.5;
+	cursor: default;
+}
+
+.bx-tb[data-on] {
+	background: color-mix(in oklab, var(--fr-accent) 18%, transparent);
+	color: var(--fr-accent);
+}
+
+.bx-tb[data-on]:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--fr-accent) 26%, transparent);
+	color: var(--fr-accent);
+}
+
+/* omnibox */
+
+.bx-omni {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	height: 32px;
+	margin: 0 4px;
+	padding: 0 12px;
+	border-radius: 16px;
+	background: var(--bx-field);
+	color: var(--fr-text);
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease);
+}
+
+.bx-omni:hover {
+	background: var(--bx-field-hover);
+}
+
+.bx-omni[data-focused] {
+	background: var(--bx-field-focus);
+	box-shadow:
+		0 0 0 1px var(--fr-accent),
+		0 0 0 3px var(--bx-ring);
+}
+
+.bx-omni[data-error] {
+	box-shadow:
+		0 0 0 1px var(--fr-del),
+		0 0 0 4px color-mix(in oklab, var(--fr-del) 35%, transparent);
+}
+
+.bx-omni-lead {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 16px;
+	margin-right: 8px;
+	color: var(--fr-text-3);
+}
+
+.bx-omni[data-focused] .bx-omni-lead {
+	color: var(--fr-text-2);
+}
+
+.bx-omni-input {
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+}
+
+.bx-omni-input::placeholder {
+	color: var(--fr-text-3);
+}
+
+.bx-omni-input::selection {
+	background: color-mix(in oklab, var(--fr-accent) 40%, transparent);
+}
+
+.bx-omni-input[data-masked] {
+	color: transparent;
+	caret-color: transparent;
+}
+
+.bx-omni-display {
+	position: absolute;
+	left: 34px;
+	right: 10px;
+	top: 0;
+	bottom: 0;
+	display: flex;
+	align-items: center;
+	pointer-events: none;
+	white-space: nowrap;
+	overflow: hidden;
+	font-size: 13px;
+	mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+}
+
+.bx-omni-host {
+	color: var(--fr-text);
+}
+
+.bx-omni-rest {
+	color: var(--fr-text-2);
+}
+
+.bx-omni-flag {
+	flex: none;
+	margin-right: 8px;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--fr-text-2);
+	white-space: nowrap;
+}
+
+.bx-omni-progress {
+	position: absolute;
+	left: 10px;
+	right: 10px;
+	bottom: 0;
+	height: 2px;
+	border-radius: 2px;
+	overflow: hidden;
+	background: color-mix(in oklab, var(--fr-accent) 18%, transparent);
+}
+
+.bx-omni-progress::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	width: 40%;
+	border-radius: 2px;
+	background: var(--fr-accent);
+	animation: bx-indeterminate 1.1s var(--bx-ease) infinite;
+}
+
+.bx-omni-error {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: calc(100% + 6px);
+	margin: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-radius: 12px;
+	background: var(--bx-sheet);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	color: var(--fr-text);
+	font-size: 12px;
+	animation: bx-pop var(--bx-fast) var(--bx-ease-enter);
+	z-index: 5;
+}
+
+.bx-omni-error svg {
+	color: var(--fr-del);
+	flex: none;
+}
+
+/* hero omnibox (start page, blank tab) */
+
+.bx-omni[data-size="hero"] {
+	height: 52px;
+	margin: 0;
+	padding: 0 16px;
+	border-radius: 26px;
+	background: var(--bx-sheet);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+}
+
+.bx-omni[data-size="hero"] .bx-omni-lead {
+	width: 20px;
+	margin-right: 12px;
+}
+
+.bx-omni[data-size="hero"] .bx-omni-input {
+	font-size: 15px;
+}
+
+.bx-omni[data-size="hero"]:hover {
+	background: var(--bx-sheet);
+	border-color: var(--fr-border);
+}
+
+.bx-omni[data-size="hero"][data-focused] {
+	border-color: transparent;
+	box-shadow:
+		0 0 0 1.5px var(--fr-accent),
+		0 0 0 6px var(--bx-ring),
+		var(--bx-shadow);
+}
+
+.bx-omni[data-size="hero"] .bx-omni-error {
+	top: calc(100% + 10px);
+}
+
+/* profile chip + menu */
+
+.bx-profile-wrap {
+	display: flex;
+	align-items: center;
+}
+
+.bx-profile {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	height: 30px;
+	margin: 0 2px;
+	padding: 0 9px 0 4px;
+	border: 0;
+	border-radius: 999px;
+	background: var(--bx-hover);
+	color: var(--fr-text-2);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-fast) var(--bx-ease);
+}
+
+.bx-profile:hover,
+.bx-profile[aria-expanded="true"] {
+	background: var(--bx-press);
+	color: var(--fr-text);
+}
+
+.bx-profile:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+/* The person has the wheel: a warm ring says so without a word. */
+.bx-profile[data-state="driving"] {
+	box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--fr-warn) 75%, transparent);
+}
+
+.bx-profile-name {
+	max-width: 14ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--fr-text);
+}
+
+@container (max-width: 720px) {
+	.bx-profile {
+		gap: 4px;
+		padding-right: 6px;
+	}
+	.bx-profile-name {
+		display: none;
+	}
+}
+
+/* A profile's face: size, centring and type. Its colours are inline (src/profile-look.ts), the same in the dock panel. */
+.bx-avatar {
+	--size: 30px;
+	flex: none;
+	width: var(--size);
+	height: var(--size);
+	display: grid;
+	place-items: center;
+	border-radius: 50%;
+	font-size: calc(var(--size) * 0.42);
+	font-weight: 650;
+	letter-spacing: 0.02em;
+	line-height: 1;
+	user-select: none;
+}
+
+.bx-avatar[data-size="sm"] {
+	--size: 22px;
+}
+
+.bx-avatar[data-size="lg"] {
+	--size: 44px;
+}
+
+.bx-avatar[data-emoji] {
+	font-size: calc(var(--size) * 0.56);
+}
+
+/* The small disc in the toolbar chip: an emoji needs the room to be read. */
+.bx-avatar[data-emoji][data-size="sm"] {
+	font-size: calc(var(--size) * 0.64);
+}
+
+/* The profile menu hangs from the toolbar's right edge, whatever width the View is. */
+.bx-pmenu {
+	position: absolute;
+	right: 8px;
+	top: calc(100% + 6px);
+	width: min(328px, calc(100cqw - 16px));
+	max-height: min(600px, calc(100vh - 96px));
+	overflow-y: auto;
+	padding: 6px;
+	border-radius: 16px;
+	background: var(--bx-sheet);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-pop var(--bx-fast) var(--bx-ease-enter);
+	transform-origin: top right;
+	z-index: 10;
+}
+
+/* The page's own floating cards (a post to confirm, a task, Take over) keep out from under the open menu: at a narrow width the sheet covers them, and a card half-showing past its edge is still pressable. */
+.bx-float[data-under-menu] {
+	visibility: hidden;
+}
+
+.bx-pmenu-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 10px 8px;
+}
+
+.bx-pmenu-who {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.bx-pmenu-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--fr-text);
+}
+
+.bx-pmenu-detail {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+.bx-pmenu-control {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 2px 4px 4px;
+	padding: 8px 8px 8px 10px;
+	border-radius: 12px;
+	background: var(--bx-field);
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--fr-text-2);
+}
+
+.bx-pmenu-control[data-on] {
+	background: color-mix(in oklab, var(--fr-warn) 14%, var(--bx-sheet));
+	color: var(--fr-text);
+}
+
+.bx-pmenu-control-text {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.bx-pmenu-control-btn {
+	flex: none;
+	height: 28px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-pmenu-control-btn:hover {
+	background: var(--bx-press);
+}
+
+.bx-pmenu-control-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+.bx-consent {
+	flex-wrap: wrap;
+	justify-content: flex-start;
+}
+
+.bx-consent .bx-pmenu-control-text {
+	flex-basis: 100%;
+	overflow-wrap: anywhere;
+}
+
+.bx-consent .bx-pmenu-control-btn {
+	height: auto;
+	min-height: 28px;
+	max-width: 100%;
+	padding-block: 6px;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+/* The menu's actions stay at its bottom edge while a long list scrolls beneath them. */
+.bx-pmenu-foot {
+	position: sticky;
+	bottom: 0;
+	margin: 0 -6px -6px;
+	padding: 0 6px 6px;
+	background: var(--bx-sheet);
+}
+
+.bx-pmenu-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.bx-pmenu-note {
+	margin: 8px 10px;
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+.bx-prow {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	color: var(--fr-text);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-prow:hover:not([aria-disabled="true"]) {
+	background: var(--bx-hover);
+}
+
+.bx-prow:focus-visible {
+	outline: none;
+	background: var(--bx-hover);
+	box-shadow: inset 0 0 0 2px var(--fr-accent);
+}
+
+.bx-prow[aria-disabled="true"] {
+	cursor: default;
+}
+
+/* A row that cannot be opened is still read in full: only its name is dimmed, so the avatar and the reason under it stay legible. */
+.bx-prow[aria-disabled="true"] .bx-prow-name {
+	opacity: 0.55;
+}
+
+.bx-prow-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.bx-prow-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	font-weight: 550;
+}
+
+.bx-prow-sub {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	color: var(--fr-text-2);
+}
+
+/* Open here is green, an agent holding it is the accent: a glance down the list says where things are. */
+.bx-prow-dot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--fr-add);
+}
+
+.bx-prow[data-tone="agent"] .bx-prow-dot {
+	background: var(--fr-accent);
+}
+
+/* A browser left open in the background has a close button at the end of its row: always drawn (a keyboard or a touch has no hover), quiet until it is pressed for. */
+.bx-prow-wrap {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px;
+}
+
+/* What closing a row would lose, asked under the row in the control row's style: a post waiting or a task running is not discarded by one press. */
+.bx-prow-ask {
+	flex: 0 0 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	margin: 0 4px 4px;
+	padding: 8px 8px 8px 10px;
+	border-radius: 12px;
+	background: color-mix(in oklab, var(--fr-warn) 14%, var(--bx-sheet));
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--fr-text);
+}
+
+.bx-prow-ask-text {
+	min-width: 0;
+}
+
+.bx-prow-ask-actions {
+	flex: none;
+	display: flex;
+	gap: 6px;
+}
+
+.bx-prow-ask-actions .bx-pmenu-control-btn:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+.bx-prow-ask-actions .bx-pmenu-control-btn[data-danger] {
+	background: color-mix(in oklab, var(--fr-warn) 30%, var(--bx-hover));
+}
+
+.bx-prow-wrap > .bx-prow {
+	flex: 1;
+	min-width: 0;
+	width: auto;
+}
+
+.bx-prow-close {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-2);
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease), color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-prow-close:hover:not(:disabled) {
+	background: var(--bx-press);
+	color: var(--fr-text);
+}
+
+.bx-prow-close:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+.bx-prow-close:disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
+/* adding a profile */
+
+.bx-add {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	width: 100%;
+	padding: 6px 8px 8px;
+	text-align: left;
+}
+
+.bx-add-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: -4px;
+}
+
+.bx-add-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 650;
+	color: var(--fr-text);
+}
+
+.bx-add-name {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+.bx-add-field {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-top: 6px;
+}
+
+.bx-add-input {
+	height: 32px;
+	padding: 0 12px;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 10px;
+	background: var(--bx-field);
+	color: var(--fr-text);
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+	transition:
+		border-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease),
+		background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-add-input:focus {
+	border-color: var(--fr-accent);
+	background: var(--bx-field-focus);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+}
+
+.bx-add-input[aria-invalid="true"] {
+	border-color: var(--fr-del);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--fr-del) 25%, transparent);
+}
+
+.bx-add-problem {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--fr-del);
+}
+
+.bx-add-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.bx-add-label {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--fr-text-2);
+}
+
+.bx-swatches,
+.bx-avatars {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.bx-swatch {
+	width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 50%;
+	color: oklch(0.99 0 0);
+	cursor: pointer;
+	transition: box-shadow var(--bx-fast) var(--bx-ease), transform var(--bx-fast) var(--bx-ease);
+}
+
+.bx-swatch:hover {
+	transform: scale(1.1);
+}
+
+.bx-swatch[aria-checked="true"],
+.bx-swatch:focus-visible {
+	outline: none;
+	box-shadow:
+		0 0 0 2px var(--bx-sheet),
+		0 0 0 4px var(--fr-accent);
+}
+
+.bx-avatar-pick {
+	width: 32px;
+	height: 32px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 10px;
+	background: var(--bx-field);
+	color: var(--fr-text-2);
+	font-size: 16px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		border-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease);
+}
+
+.bx-avatar-pick:hover {
+	background: var(--bx-field-hover);
+}
+
+.bx-avatar-pick[aria-checked="true"] {
+	border-color: var(--fr-accent);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+	color: var(--fr-text);
+}
+
+.bx-avatar-pick:focus-visible {
+	outline: none;
+	border-color: var(--fr-accent);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+}
+
+.bx-add-foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.bx-add-cancel,
+.bx-add-submit {
+	height: 32px;
+	padding: 0 14px;
+	border: 0;
+	border-radius: 10px;
+	font-size: 12.5px;
+	font-weight: 600;
+	cursor: pointer;
+	transition:
+		background-color var(--bx-fast) var(--bx-ease),
+		filter var(--bx-fast) var(--bx-ease);
+}
+
+.bx-add-cancel {
+	background: transparent;
+	color: var(--fr-text-2);
+}
+
+.bx-add-cancel:hover {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-add-submit {
+	background: var(--fr-accent);
+	color: var(--fr-accent-ink, #fff);
+}
+
+.bx-add-submit:hover:not(:disabled) {
+	filter: brightness(1.08);
+}
+
+.bx-add-submit:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.bx-add-cancel:focus-visible,
+.bx-add-submit:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--bx-sheet), 0 0 0 4px var(--fr-accent);
+}
+
+/* On the start page the form lies on the page's own surface, not in a popover. */
+.bx-options-panel .bx-add {
+	max-width: 360px;
+	padding: 12px;
+	border: 1px solid var(--bx-hairline);
+	border-radius: 16px;
+	background: var(--bx-sheet);
+}
+
+/* who is driving, when it is not just the person */
+
+.bx-control {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: min(100%, 460px);
+	padding: 8px 8px 8px 12px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-accent) 25%, transparent);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-control[data-state="yours"] {
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-warn) 45%, transparent);
+}
+
+.bx-control-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--fr-accent);
+	background: color-mix(in oklab, var(--fr-accent) 14%, transparent);
+}
+
+.bx-control[data-state="yours"] .bx-control-mark {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
+.bx-control-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	line-height: 1.25;
+}
+
+.bx-control-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-control-sub {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11.5px;
+	color: var(--fr-text-2);
+}
+
+.bx-control-btn {
+	flex: none;
+	height: 28px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-control-btn:hover:not(:disabled) {
+	background: var(--bx-press);
+}
+
+.bx-control-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.bx-control-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--fr-accent);
+}
+
+.bx-offline {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fr-warn);
+}
+
+.bx-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	animation: bx-pulse 1.6s ease-in-out infinite;
+}
+
+.bx-menu-wrap {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.bx-menu {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	min-width: 220px;
+	padding: 8px;
+	border-radius: 12px;
+	background: var(--bx-sheet);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-pop var(--bx-fast) var(--bx-ease-enter);
+	transform-origin: top right;
+	z-index: 10;
+}
+
+.bx-menu-item {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	white-space: nowrap;
+	gap: 8px;
+	padding: 8px 12px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text);
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.bx-menu-item svg {
+	color: var(--fr-text-3);
+}
+
+.bx-menu-item:hover {
+	background: var(--bx-hover);
+}
+
+.bx-menu-item:focus-visible {
+	background: var(--bx-hover);
+	outline: none;
+	box-shadow: inset 0 0 0 2px var(--fr-accent);
+}
+
+.bx-menu-item[data-tone="danger"]:hover {
+	background: color-mix(in oklab, var(--fr-del) 14%, transparent);
+	color: var(--fr-del);
+}
+
+.bx-menu-item[data-tone="danger"]:hover svg {
+	color: var(--fr-del);
+}
+
+.bx-menu-sep {
+	height: 1px;
+	margin: 6px 4px;
+	background: var(--bx-hairline);
+}
+
+/* ── the page ───────────────────────────────────────────────────────── */
+
+.bx-stage {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	container-type: size;
+	background: var(--fr-bg);
+	background-image: radial-gradient(color-mix(in oklab, var(--fr-text) 6%, transparent) 1px, transparent 1px);
+	background-size: 18px 18px;
+	background-position: center;
+}
+
+.bx-page {
+	position: relative;
+	width: min(100cqw, calc(100cqh * var(--vw) / var(--vh)));
+	aspect-ratio: var(--vw) / var(--vh);
+	background: #fff;
+	overflow: hidden;
+	outline: none;
+	box-shadow: 0 0 0 1px var(--bx-hairline);
+	cursor: default;
+	touch-action: none;
+	user-select: none;
+	transition: box-shadow var(--bx-base) var(--bx-ease);
+}
+
+.bx-page:focus-visible,
+.bx-page:focus {
+	box-shadow:
+		0 0 0 1px var(--bx-hairline),
+		inset 0 0 0 2px var(--fr-accent);
+}
+
+.bx-stage[data-mode="annotate"] .bx-page {
+	box-shadow:
+		0 0 0 1px var(--fr-accent),
+		0 0 0 6px var(--bx-ring),
+		0 24px 64px -24px color-mix(in oklab, var(--fr-accent) 60%, transparent);
+}
+
+.bx-stage[data-mode="locked"] .bx-page,
+.bx-stage[data-mode="frozen"] .bx-page {
+	cursor: progress;
+}
+
+/* ── marking the page up ────────────────────────────────────────────────
+   The picture of the page sits in the same stage as the live page, at the page's own aspect; the shared annotation kit
+   (annotate.css) draws the tool strip, the marks and the list. The list is beside the picture when the seat is wide
+   and under it when it is not. Nothing here is measured against the real browser: the seat never resizes the page. */
+
+.bx-seat-frame {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	container: bx-seat / inline-size;
+}
+
+.bx-seat {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+}
+
+.bx-seat-main {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.bx-seat-panel {
+	flex: none;
+	width: 300px;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+@container bx-seat (max-width: 900px) {
+	.bx-seat {
+		flex-direction: column;
+	}
+	/* The kit's panel fills the box it is put in; under the picture nothing gives it a height, so it and its list take
+	   the size of what they hold, and only the list gives way (and scrolls) at the cap. */
+	.bx-seat-panel {
+		width: auto;
+		max-height: min(50%, 360px);
+	}
+	.bx-seat-panel .dam-panel {
+		flex: 0 1 auto;
+		border-inline-start: 0;
+		border-block-start: 1px solid var(--fr-border);
+	}
+	.bx-seat-panel .dam-list {
+		flex: 0 1 auto;
+	}
+	.bx-seat-panel .dam-empty {
+		flex: none;
+	}
+}
+
+.bx-frame {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: fill;
+	image-rendering: auto;
+}
+
+.bx-page-skeleton {
+	position: absolute;
+	inset: 0;
+	background:
+		linear-gradient(100deg, transparent 30%, color-mix(in oklab, var(--fr-text) 7%, transparent) 50%, transparent 70%) 0 0 / 300% 100%,
+		var(--fr-surface-2);
+	animation: bx-shimmer 1.6s linear infinite;
+}
+
+.bx-ripple {
+	position: absolute;
+	width: 28px;
+	height: 28px;
+	margin: -14px 0 0 -14px;
+	border-radius: 50%;
+	border: 2px solid var(--fr-accent);
+	pointer-events: none;
+	animation: bx-ripple 0.5s var(--bx-ease) forwards;
+}
+
+.bx-ripple[data-kind="right"] {
+	border-color: var(--fr-text-2);
+}
+
+.bx-ripple[data-kind="middle"] {
+	border-color: var(--fr-blue);
+}
+
+/* The agent is driving: a breathing accent edge on the page. */
+.bx-drive {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	box-shadow: inset 0 0 0 2px var(--fr-accent);
+	animation: bx-breathe 2.4s ease-in-out infinite;
+}
+
+/* ── floating layers ────────────────────────────────────────────────── */
+
+/* Floats live INSIDE the page box, so they compose with the page, not the
+   letterbox. The container is inert; each float is its own hit target. */
+.bx-floats {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	cursor: default;
+	user-select: text;
+}
+
+.bx-float {
+	position: absolute;
+	z-index: 4;
+	display: flex;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.bx-float > * {
+	pointer-events: auto;
+}
+
+/* Clear of the page's bottom edge and any device inset beneath it. */
+.bx-float-bottom {
+	bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+	left: 12px;
+	right: 12px;
+}
+
+/* Toasts live over everything, including an open menu. */
+.bx-float-corner {
+	z-index: 30;
+	top: 12px;
+	right: 12px;
+	left: auto;
+	width: min(360px, calc(100% - 24px));
+	justify-content: flex-end;
+}
+
+/* Corner toasts stack in flow, so their heights never collide. */
+.bx-stack {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 8px;
+	width: 100%;
+}
+
+/* Toasts step below the annotation tool strip and the reconnect banner. */
+.bx-browser[data-annotating] .bx-float-corner {
+	top: 52px;
+}
+
+.bx-content:has(> .bx-banner) .bx-float-corner {
+	top: 46px;
+}
+
+/* The primary action button: the publish bar's Post. (Marking the page up has its own, the annotation kit's.) */
+.bx-annotate-send {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 30px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--fr-accent);
+	color: var(--fr-accent-ink, #fff);
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		filter var(--bx-fast) var(--bx-ease),
+		opacity var(--bx-fast) var(--bx-ease);
+}
+
+.bx-annotate-send:hover:not(:disabled) {
+	filter: brightness(1.1);
+}
+
+.bx-annotate-send:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+/* publish confirm bar — Post / Cancel for a parked publish */
+
+/* The column spans the float; only its cards take the pointer. */
+.bx-float > .bx-float-column {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	pointer-events: none;
+}
+
+.bx-float-column > * {
+	pointer-events: auto;
+}
+
+.bx-publish {
+	/* Bar-local ink. Dark text-2 falls just short of 4.5:1 on the glass over a
+	   light page, so the bar's small copy and its marks step toward the text. */
+	--bx-publish-ink-2: color-mix(in oklab, var(--fr-text-2) 65%, var(--fr-text));
+	--bx-publish-mark: color-mix(in oklab, var(--fr-accent) 40%, var(--fr-text));
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 28%, transparent);
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(100%, 560px);
+	padding: 10px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-root[data-theme="light"] .bx-publish,
+[data-theme="light"] .bx-root .bx-publish {
+	--bx-publish-ink-2: var(--fr-text-2);
+	--bx-publish-mark: var(--fr-accent);
+	--bx-publish-mark-tile: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+}
+
+/* Focused programmatically when it appears, so a keyboard user can Tab into it.
+   The container is not a control: at most a hairline says where focus is. The
+   full ring stays on the stops inside it (Cancel, Post, the fields, Dismiss). */
+.bx-publish:focus {
+	outline: none;
+}
+
+.bx-publish:focus-visible {
+	outline: 1px solid color-mix(in oklab, var(--fr-accent) 34%, transparent);
+	outline-offset: 1px;
+}
+
+.bx-publish-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.bx-publish-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--bx-publish-mark);
+	background: var(--bx-publish-mark-tile);
+}
+
+.bx-publish[data-status="unknown"] .bx-publish-mark {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
+.bx-publish[data-status="failed"] .bx-publish-mark {
+	color: var(--fr-del);
+	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
+}
+
+.bx-publish[data-status="cancelled"] .bx-publish-mark,
+.bx-publish[data-status="expired"] .bx-publish-mark {
+	color: var(--bx-publish-ink-2);
+	background: var(--bx-hover);
+}
+
+/* At least the mark's height and centred in it, so a one-line outcome sits level
+   with the mark and Dismiss; longer copy grows down from the top. */
+.bx-publish-text {
+	flex: 1;
+	min-width: 0;
+	min-height: 26px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 2px;
+	font-size: var(--fr-fs-sm);
+	line-height: 1.45;
+}
+
+.bx-publish-title {
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+/* The confirm question: connecting words recede, the URL and profile carry it. */
+.bx-publish:not([data-status]) .bx-publish-title {
+	font-size: var(--fr-fs-base);
+	font-weight: 400;
+	color: var(--bx-publish-ink-2);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-key {
+	font-family: var(--bx-num);
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-publish-num {
+	font-family: var(--bx-num);
+}
+
+.bx-publish-detail {
+	color: var(--bx-publish-ink-2);
+	overflow-wrap: anywhere;
+}
+
+/* A preset not yet observed posting on the live site: quiet, the field captions' type, no colour of its own. */
+.bx-publish-caption {
+	font-size: var(--fr-fs-xs);
+	font-weight: 500;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-url {
+	font-family: var(--bx-num);
+	color: var(--fr-text);
+	overflow-wrap: anywhere;
+	user-select: all;
+	cursor: text;
+}
+
+.bx-publish-heading {
+	margin: 0;
+	font-size: var(--fr-fs-xs);
+	font-weight: 600;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
+/* The list's focus ring lives on this frame: the list's own fade mask would clip it. */
+.bx-publish-fields-frame {
+	margin: -4px 0 0;
+	border-radius: 8px;
+}
+
+.bx-publish-fields-frame:has(> .bx-publish-fields:focus-visible) {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 1px;
+}
+
+.bx-publish-fields {
+	--bx-fade-top: 0px;
+	--bx-fade-bottom: 0px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-height: 180px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	overflow-y: auto;
+	border-radius: 8px;
+}
+
+.bx-publish-fields:focus-visible {
+	outline: none;
+}
+
+.bx-publish-fields[data-fit] {
+	max-height: none;
+	overflow: visible;
+}
+
+/* More beyond the fold: fade that edge until it is scrolled to. */
+.bx-publish-fields[data-more-above] {
+	--bx-fade-top: 28px;
+}
+
+.bx-publish-fields[data-more-below] {
+	--bx-fade-bottom: 28px;
+}
+
+.bx-publish-fields:is([data-more-above], [data-more-below]) {
+	mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
+	-webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--bx-fade-top), #000 calc(100% - var(--bx-fade-bottom)), transparent);
+}
+
+.bx-publish-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: var(--bx-field);
+}
+
+.bx-publish-label {
+	font-size: var(--fr-fs-xs);
+	font-weight: 500;
+	line-height: 1.3;
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-value {
+	color: var(--fr-text);
+	font-size: var(--fr-fs-base);
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.bx-publish-empty {
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-error {
+	margin: 0;
+	font-size: var(--fr-fs-sm);
+	color: var(--fr-del);
+	overflow-wrap: anywhere;
+}
+
+.bx-publish-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* The icon slot holds a spinner while posting. */
+.bx-publish-post {
+	justify-content: center;
+}
+
+/* Every label a button can show shares one cell, so the widest sets the size and nothing moves. */
+.bx-publish-label-slot {
+	display: inline-grid;
+}
+
+.bx-publish-label-slot > * {
+	grid-area: 1 / 1;
+	text-align: center;
+}
+
+.bx-publish-label-slot > [data-hidden] {
+	visibility: hidden;
+}
+
+.bx-publish-post .bx-tab-spinner {
+	border-color: color-mix(in oklab, var(--fr-accent-ink, #fff) 30%, transparent);
+	border-top-color: var(--fr-accent-ink, #fff);
+}
+
+/* Busy, not disabled: "Posting…" stays fully legible through the receipt wait. */
+.bx-publish-post[data-busy]:disabled {
+	opacity: 1;
+	cursor: progress;
+}
+
+/* 24px beside the 26px mark: a pixel of margin puts both centres on one line. */
+.bx-publish .bx-toast-close {
+	margin-block: 1px;
+	color: var(--bx-publish-ink-2);
+}
+
+.bx-publish-cancel {
+	height: 30px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: var(--bx-hover);
+	color: var(--fr-text);
+	font-size: var(--fr-fs-sm);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-publish-cancel:hover:not(:disabled) {
+	background: var(--bx-press);
+}
+
+.bx-publish-cancel:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+/* agent pill */
+
+.bx-agent {
+	display: flex;
+	flex-direction: column;
+	width: min(100%, 640px);
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow:
+		var(--bx-shadow),
+		0 0 0 1px color-mix(in oklab, var(--fr-accent) 25%, transparent);
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+	overflow: hidden;
+}
+
+.bx-agent-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 44px;
+	padding: 0 8px 0 12px;
+	min-width: 0;
+}
+
+.bx-agent-mark {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--fr-accent);
+	background: color-mix(in oklab, var(--fr-accent) 16%, transparent);
+	animation: bx-breathe 2.4s ease-in-out infinite;
+}
+
+.bx-agent-name {
+	flex: none;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--fr-text);
+}
+
+.bx-agent-step {
+	flex: 1;
+	min-width: 0;
+	font-size: 12px;
+	color: var(--fr-text-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	animation: bx-fade var(--bx-base) var(--bx-ease-enter);
+}
+
+.bx-agent-meta {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+	color: var(--fr-text-2);
+	white-space: nowrap;
+}
+
+.bx-agent-sep {
+	width: 3px;
+	height: 3px;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.6;
+}
+
+.bx-agent-toggle {
+	flex: none;
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-3);
+	cursor: pointer;
+	transition: transform var(--bx-base) var(--bx-ease), background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-agent-toggle:hover {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+.bx-agent[data-expanded] .bx-agent-toggle {
+	transform: rotate(180deg);
+}
+
+.bx-agent-stop {
+	flex: none;
+	height: 28px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 8px;
+	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
+	color: var(--fr-del);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background-color var(--bx-fast) var(--bx-ease);
+}
+
+.bx-agent-stop:hover:not(:disabled) {
+	background: color-mix(in oklab, var(--fr-del) 26%, transparent);
+}
+
+.bx-agent-stop:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.bx-agent-body {
+	border-top: 1px solid var(--bx-hairline);
+	padding: 12px;
+	max-height: 240px;
+	overflow: auto;
+	animation: bx-fade var(--bx-base) var(--bx-ease-enter);
+}
+
+.bx-agent-goal {
+	margin: 0 0 8px;
+	font-size: 12px;
+	color: var(--fr-text);
+}
+
+.bx-agent-empty {
+	margin: 0;
+	font-size: 12px;
+	color: var(--fr-text-3);
+}
+
+.bx-agent-steps {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.bx-agent-steps li {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+.bx-agent-steps li:first-child {
+	color: var(--fr-text);
+}
+
+.bx-agent-steps li > .bx-num:first-child {
+	flex: none;
+	min-width: 18px;
+	text-align: right;
+	color: var(--fr-text-3);
+}
+
+.bx-agent-steptext {
+	flex: 1;
+	min-width: 0;
+}
+
+.bx-agent-steptime {
+	flex: none;
+	color: var(--fr-text-3);
+}
+
+@container (max-width: 640px) {
+	.bx-agent-meta span:first-child,
+	.bx-agent-meta .bx-agent-sep {
+		display: none;
+	}
+}
+
+/* toasts */
+
+.bx-toast {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	width: 100%;
+	padding: 12px;
+	border-radius: 16px;
+	background: var(--bx-glass);
+	backdrop-filter: blur(18px) saturate(1.4);
+	-webkit-backdrop-filter: blur(18px) saturate(1.4);
+	border: 1px solid var(--bx-hairline);
+	box-shadow: var(--bx-shadow);
+	animation: bx-drop var(--bx-slow) var(--bx-ease-enter);
+	font-size: 12px;
+	color: var(--fr-text);
+}
+
+.bx-toast-icon {
+	flex: none;
+	width: 22px;
+	height: 22px;
+	display: grid;
+	place-items: center;
+	border-radius: 8px;
+	color: var(--fr-add);
+	background: color-mix(in oklab, var(--fr-add) 16%, transparent);
+}
+
+.bx-toast[data-tone="error"] .bx-toast-icon,
+.bx-toast[data-status="failed"] .bx-toast-icon {
+	color: var(--fr-del);
+	background: color-mix(in oklab, var(--fr-del) 16%, transparent);
+}
+
+.bx-toast[data-status="blocked"] .bx-toast-icon {
+	color: var(--fr-warn);
+	background: color-mix(in oklab, var(--fr-warn) 16%, transparent);
+}
+
+.bx-toast[data-status="cancelled"] .bx-toast-icon {
+	color: var(--fr-text-2);
+	background: var(--bx-hover);
+}
+
+.bx-toast-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding-top: 2px;
+	overflow-wrap: anywhere;
+}
+
+.bx-toast-title {
+	font-weight: 600;
+}
+
+.bx-toast-meta {
+	font-weight: 400;
+	color: var(--fr-text-3);
+}
+
+.bx-toast-summary {
+	color: var(--fr-text-2);
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.bx-toast-close {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--fr-text-3);
+	cursor: pointer;
+}
+
+.bx-toast-close:hover {
+	background: var(--bx-hover);
+	color: var(--fr-text);
+}
+
+/* connection */
+
+.bx-banner {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	padding: 6px 12px;
+	font-size: 12px;
+	color: var(--fr-text);
+	background: color-mix(in oklab, var(--fr-warn) 14%, var(--bx-sheet));
+	border-bottom: 1px solid color-mix(in oklab, var(--fr-warn) 30%, transparent);
+	animation: bx-drop var(--bx-base) var(--bx-ease-enter);
+}
+
+.bx-banner .bx-tab-spinner {
+	border-color: color-mix(in oklab, var(--fr-warn) 25%, transparent);
+	border-top-color: var(--fr-warn);
+}
+
+/* Paused is a stop, not a load: a neutral strip with a still glyph, so it never
+   reads as the amber Reconnecting state stuck. */
+.bx-banner-paused {
+	background: color-mix(in oklab, var(--fr-accent) 10%, var(--bx-sheet));
+	border-bottom-color: color-mix(in oklab, var(--fr-accent) 28%, transparent);
+}
+
+.bx-banner-paused .bx-banner-action {
+	min-height: 28px;
+	padding: 0 12px;
+	font-size: var(--fr-fs-sm);
+	background: var(--bx-hover);
+	border: 0;
+	border-radius: 8px;
+}
+
+.bx-banner-paused .bx-banner-action:hover {
+	background: var(--bx-press);
+}
+
+.bx-banner-paused .bx-banner-action:focus-visible {
+	outline: 2px solid var(--fr-accent);
+}
+
+.bx-banner-detail {
+	color: var(--fr-text-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 50%;
+}
+
+.bx-banner-action {
+	flex: none;
+	padding: 2px 10px;
+	font: inherit;
+	font-weight: 600;
+	color: var(--fr-text);
+	background: color-mix(in oklab, var(--fr-warn) 22%, var(--bx-sheet));
+	border: 1px solid color-mix(in oklab, var(--fr-warn) 40%, transparent);
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.bx-banner-action:hover {
+	background: color-mix(in oklab, var(--fr-warn) 32%, var(--bx-sheet));
+}
+
+.bx-banner-action:focus-visible {
+	outline: 2px solid var(--fr-warn);
+	outline-offset: 1px;
+}
+
+/* ── start page & blank tab ─────────────────────────────────────────── */
+
+.bx-start,
+.bx-blank {
+	position: relative;
+	height: 100%;
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: grid;
+	place-items: center;
+	background: var(--fr-bg);
+	container-type: inline-size;
+}
+
+.bx-start-glow {
+	position: absolute;
+	inset: 0 0 auto;
+	height: 60%;
+	pointer-events: none;
+	background: radial-gradient(55% 60% at 50% -10%, color-mix(in oklab, var(--fr-accent) 14%, transparent), transparent 100%);
+}
+
+.bx-start-body,
+.bx-blank-body {
+	position: relative;
+	width: min(100% - 48px, 620px);
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	padding: 48px 0;
+	animation: bx-rise var(--bx-slow) var(--bx-ease-enter);
+}
+
+.bx-blank-body {
+	align-items: center;
+	gap: 18px;
+	width: min(100% - 48px, 560px);
+}
+
+.bx-blank .bx-omni {
+	width: 100%;
+}
+
+.bx-blank-hint {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 11px;
+	color: var(--fr-text-2);
+}
+
+.bx-start-head {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	text-align: center;
+}
+
+.bx-start-head h1 {
+	margin: 8px 0 0;
+	font-size: 28px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	line-height: 1.1;
+}
+
+.bx-start-head p {
+	margin: 0;
+	font-size: 13px;
+	color: var(--fr-text-2);
+}
+
+.bx-start-mark {
+	width: 44px;
+	height: 44px;
+	display: grid;
+	place-items: center;
+	border-radius: 12px;
+	color: var(--fr-accent);
+	background: color-mix(in oklab, var(--fr-accent) 14%, var(--bx-sheet));
+	border: 1px solid color-mix(in oklab, var(--fr-accent) 30%, transparent);
+	box-shadow: 0 8px 24px -12px var(--fr-accent);
+}
+
+.bx-start-section {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.bx-start-label {
+	margin: 0;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--fr-text-2);
+	text-align: center;
+}
+
+.bx-start-note {
+	margin: 0;
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+.bx-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: center;
+}
+
+.bx-chip {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 34px;
+	padding: 0 12px 0 6px;
+	border-radius: 999px;
+	border: 1px solid var(--bx-hairline);
+	background: var(--bx-sheet);
+	color: var(--fr-text);
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		border-color var(--bx-fast) var(--bx-ease),
+		background-color var(--bx-fast) var(--bx-ease),
+		box-shadow var(--bx-base) var(--bx-ease);
+}
+
+.bx-chip:hover {
+	border-color: var(--fr-border);
+	background: var(--fr-surface-2);
+}
+
+.bx-chip[aria-checked="true"] {
+	border-color: var(--fr-accent);
+	box-shadow: 0 0 0 3px var(--bx-ring);
+}
+
+.bx-chip-add {
+	padding-left: 10px;
+	color: var(--fr-text-2);
+	border-style: dashed;
+}
+
+.bx-start-foot {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	margin-top: 8px;
+}
+
+.bx-start-open {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	height: 40px;
+	padding: 0 18px 0 20px;
+	border: 0;
+	border-radius: 12px;
+	background: var(--fr-accent);
+	color: var(--fr-accent-ink, #fff);
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	box-shadow: 0 8px 24px -10px var(--fr-accent);
+	transition:
+		filter var(--bx-fast) var(--bx-ease),
+		transform var(--bx-fast) var(--bx-ease),
+		opacity var(--bx-fast) var(--bx-ease);
+}
+
+.bx-start-open kbd {
+	background: color-mix(in oklab, var(--fr-accent-ink, #fff) 18%, transparent);
+	border-color: transparent;
+	color: inherit;
+}
+
+.bx-start-open:hover:not(:disabled) {
+	filter: brightness(1.08);
+}
+
+.bx-start-open:active:not(:disabled) {
+	transform: scale(0.98);
+}
+
+.bx-start-open:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.bx-start-open .bx-tab-spinner {
+	border-color: color-mix(in oklab, var(--fr-accent-ink, #fff) 30%, transparent);
+	border-top-color: var(--fr-accent-ink, #fff);
+}
+
+.bx-start-error {
+	margin: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--fr-del);
+}
+
+.bx-chip:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+/* the one calm line after a browser ends by itself */
+.bx-start-closed {
+	align-self: center;
+	margin: 0;
+	padding: 4px 12px;
+	border-radius: 999px;
+	background: var(--fr-surface-2);
+	font-size: 12px;
+	color: var(--fr-text-2);
+}
+
+/* the single folded row of choices under Open */
+.bx-options {
+	display: flex;
+	flex-direction: column;
+	border-top: 1px solid var(--bx-hairline);
+}
+
+.bx-options-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 12px 0;
+	border: 0;
+	background: none;
+	color: var(--fr-text-2);
+	font: inherit;
+	font-size: 12px;
+	font-weight: 500;
+	text-align: left;
+	cursor: pointer;
+}
+
+.bx-options-toggle:hover {
+	color: var(--fr-text);
+}
+
+.bx-options-toggle:focus-visible {
+	outline: 2px solid var(--fr-accent);
+	outline-offset: 2px;
+	border-radius: 6px;
+}
+
+.bx-options-summary {
+	margin-left: auto;
+	font-weight: 600;
+	color: var(--fr-accent);
+}
+
+.bx-options-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 4px 0 12px;
+}
+
+.bx-option {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.bx-option input {
+	flex: none;
+	margin: 2px 0 0;
+	accent-color: var(--fr-accent);
+}
+
+.bx-option input:disabled + span {
+	opacity: 0.5;
+}
+
+.bx-option-block {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.bx-option-block .bx-chips {
+	justify-content: flex-start;
+}
+
+.bx-option-block .bx-start-label {
+	text-align: left;
+}
+
+/* ── motion ─────────────────────────────────────────────────────────── */
+
+@keyframes bx-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes bx-indeterminate {
+	0% {
+		transform: translateX(-100%);
+	}
+	100% {
+		transform: translateX(260%);
+	}
+}
+
+@keyframes bx-pop {
+	from {
+		opacity: 0;
+		transform: scale(0.96);
+	}
+}
+
+@keyframes bx-drop {
+	from {
+		opacity: 0;
+		transform: translateY(-8px);
+	}
+}
+
+@keyframes bx-rise {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+
+@keyframes bx-fade {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes bx-ripple {
+	from {
+		opacity: 0.9;
+		transform: scale(0.35);
+	}
+	to {
+		opacity: 0;
+		transform: scale(1.4);
+	}
+}
+
+@keyframes bx-breathe {
+	0%,
+	100% {
+		opacity: 0.55;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes bx-pulse {
+	0%,
+	100% {
+		opacity: 0.5;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes bx-shimmer {
+	from {
+		background-position: 100% 0, 0 0;
+	}
+	to {
+		background-position: -100% 0, 0 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bx-root *,
+	.bx-root *::before,
+	.bx-root *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+	.bx-tab-spinner {
+		border-top-color: color-mix(in oklab, var(--fr-accent) 25%, transparent);
+		border-right-color: var(--fr-accent);
+	}
+}
+
+[data-fr-motion="reduced"] .bx-root *,
+[data-fr-motion="reduced"] .bx-root *::before,
+[data-fr-motion="reduced"] .bx-root *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.01ms !important;
+}

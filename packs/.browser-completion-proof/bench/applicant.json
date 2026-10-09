@@ -1,0 +1,17 @@
+{
+  "firstName": "Ada",
+  "lastName": "Lovelock",
+  "email": "ada@example.test",
+  "phone": "+1 555 010 4477",
+  "city": "Riverton",
+  "yearsExperience": 7,
+  "linkedin": "https://linkedin.example.test/in/ada-lovelock",
+  "workAuthorized": true,
+  "skills": ["JavaScript", "TypeScript", "React"],
+  "coverLetter": "I build fast, accessible web interfaces and enjoy turning rough product ideas into polished frontends. I would love to bring seven years of React and TypeScript experience to your team.",
+  "mailUsername": "ada.lovelock",
+  "password": "Lovelock-1843",
+  "birthday": "1991-12-10",
+  "headline": "Senior Frontend Engineer",
+  "resume": "Ada Lovelock - Senior Frontend Engineer, Riverton, OR. 2019 to present: Senior Frontend Engineer at Brightwave, where I lead the React and TypeScript design system used by 40 engineers. 2016 to 2019: Frontend Developer at Northpeak, building accessible JavaScript and React dashboards. Skills: JavaScript, TypeScript, React, accessibility, web performance."
+}

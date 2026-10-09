@@ -1,0 +1,60 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "browser",
+	"version": "0.6.7",
+	"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
+	"keywords": [
+		"browser",
+		"mcp-apps",
+		"profiles",
+		"annotations"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"requires": { "dimension": ">=0.11.1" },
+			"title": "Browser",
+			"icon": "globe",
+			"artifactories": [
+				{
+					"mcpServer": "browser",
+					"label": "Browser",
+					"icon": "globe",
+					"modelSpaces": [
+						"code",
+						"build",
+						"chat",
+						"labor",
+						"watch",
+						"traction"
+					]
+				}
+			],
+			"entry": "dist/index.mjs",
+			"type": "component",
+			"components": [
+				{
+					"id": "browser-accounts",
+					"slot": "dock",
+					"label": "Browser",
+					"icon": "globe",
+					"grants": [
+						"artifactory:open"
+					],
+					"order": 10
+				}
+			],
+			"toolRenderer": [
+				{ "match": "browser_run", "use": "livePreview" },
+				{ "match": "browser_open", "use": "livePreview" },
+				{ "match": "browser_act", "use": "livePreview" },
+				{ "match": "browser_state", "use": "livePreview" },
+				{ "match": "browser_snapshot", "use": "livePreview" },
+				{ "match": "browser_inspect", "use": "livePreview" },
+				{ "match": "browser_screenshot", "use": "livePreview" },
+				{ "match": "browser_task", "use": "livePreview" },
+				{ "match": "browser_task_wait", "use": "livePreview" }
+			]
+		}
+	}
+}

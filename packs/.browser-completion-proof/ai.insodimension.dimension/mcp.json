@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "browser": {
+      "command": "node",
+      "args": ["app/server.mjs"],
+      "env": { "PYTHONIOENCODING": "utf-8" }
+    }
+  }
+}

@@ -1,0 +1,123 @@
+<!-- FIXTURE COPY, modelled on linkedin.com as of 2026-09. NOT the live site; the preset is unverified against it. -->
+<!--
+  Structure copied: /feed/ with ?shareActive=true opens the share box (the
+  "Start a post" modal, an artdeco modal with role=dialog) on load; without it
+  only the "Start a post" trigger shows. The editor is Quill: a .ql-editor
+  contenteditable inside .ql-container, one <p> per line, an empty line is
+  <p><br></p>, .ql-blank while empty, white-space: pre-wrap. The Post button
+  (share-actions__primary-action) is disabled until there is text. After
+  Post: the create call, the modal closes, and an artdeco toast "Post
+  successful." carries a "View post" link to
+  https://www.linkedin.com/feed/update/urn:li:activity:<id>/ (absolute, with
+  a trailing slash). The global nav's Me photo exists only when signed in.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Feed | LinkedIn</title>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .ql-editor { outline: none; white-space: pre-wrap; word-wrap: break-word; min-height: 80px; }
+  .ql-editor p { margin: 0; padding: 0; }
+  .artdeco-modal { position: fixed; inset: 40px 20%; background: #fff; border: 1px solid #ccc; padding: 12px; }
+  .artdeco-toasts { position: fixed; bottom: 16px; left: 16px; }
+</style>
+</head>
+<body>
+<header id="global-nav" class="global-nav">
+  <nav class="global-nav__nav" aria-label="Primary Navigation">
+    <a class="global-nav__primary-link" href="/feed/">Home</a>
+    <a class="global-nav__primary-link" href="/mynetwork/">My Network</a>
+    <!-- signed-in -->
+    <button type="button" class="global-nav__primary-link global-nav__primary-link-me-menu-trigger artdeco-dropdown__trigger" aria-expanded="false">
+      <img class="global-nav__me-photo evi-image ember-view" alt="Alice Example" width="24" height="24" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">
+      <span class="t-12 global-nav__primary-link-text">Me</span>
+    </button>
+    <!-- /signed-in -->
+  </nav>
+</header>
+<main class="scaffold-layout__main" aria-label="Main Feed">
+  <div class="share-box-feed-entry__closed-share-box">
+    <button type="button" class="share-box-feed-entry__trigger artdeco-button">Start a post</button>
+  </div>
+  <div class="scaffold-finite-scroll__content">
+    <div class="feed-shared-update-v2" data-urn="urn:li:activity:7239000000000000001">
+      <a class="app-aware-link" href="/feed/update/urn:li:activity:7239000000000000001/">an older post already on the page</a>
+    </div>
+  </div>
+</main>
+<div id="artdeco-modal-outlet"></div>
+<div class="artdeco-toasts" id="artdeco-toasts"></div>
+<template id="share-box">
+  <div class="artdeco-modal-overlay artdeco-modal-overlay--layer-default">
+    <div class="artdeco-modal artdeco-modal--layer-default share-box-v2__modal" role="dialog" aria-labelledby="share-to-linkedin-modal__header" size="large">
+      <button type="button" class="artdeco-modal__dismiss artdeco-button" aria-label="Dismiss">×</button>
+      <div class="share-box-v2__modal-header"><h2 id="share-to-linkedin-modal__header">Create a post</h2></div>
+      <div class="share-creation-state__text-editor">
+        <div class="editor-container">
+          <div class="editor-content ql-container">
+            <div class="ql-editor ql-blank" data-gramm="false" contenteditable="true" data-placeholder="What do you want to talk about?" aria-placeholder="What do you want to talk about?" aria-label="Text editor for creating content" role="textbox" aria-multiline="true"><p><br></p></div>
+            <div class="ql-clipboard" contenteditable="true" tabindex="-1"></div>
+          </div>
+        </div>
+      </div>
+      <div class="share-box_actions">
+        <button type="button" class="share-actions__primary-action artdeco-button artdeco-button--2 artdeco-button--primary ember-view" disabled><span class="artdeco-button__text">Post</span></button>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+  if (new URLSearchParams(location.search).get("shareActive") === "true") {
+    var outlet = document.getElementById("artdeco-modal-outlet");
+    outlet.appendChild(document.getElementById("share-box").content.cloneNode(true));
+    var editor = outlet.querySelector(".ql-editor");
+    var post = outlet.querySelector(".share-actions__primary-action");
+    // Quill's getText: every line (one <p>) is its text plus "\n", so the
+    // whole ends in "\n"; the share box trims that last "\n" when it posts.
+    // Built from the editor's DOM, never innerText: a line's text is its text
+    // nodes' data with each <br> a "\n", except the line's last <br>, Quill's
+    // empty-line marker (<p><br></p>), not text.
+    var lineText = function (p) {
+      var text = "";
+      var trailingBreak = false;
+      var walker = document.createTreeWalker(p, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+      for (var node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          text += node.data;
+          if (node.data !== "") trailingBreak = false;
+        } else if (node.nodeName === "BR") {
+          text += "\n";
+          trailingBreak = true;
+        }
+      }
+      return trailingBreak ? text.slice(0, -1) : text;
+    };
+    var getText = function () {
+      return Array.from(editor.querySelectorAll(":scope > p")).map(function (p) { return lineText(p) + "\n"; }).join("");
+    };
+    var plainText = function () {
+      var text = getText();
+      return text.endsWith("\n") ? text.slice(0, -1) : text;
+    };
+    editor.addEventListener("input", function () {
+      var empty = plainText().trim() === "";
+      editor.classList.toggle("ql-blank", empty);
+      post.disabled = empty;
+    });
+    post.addEventListener("click", async function () {
+      post.disabled = true;
+      var response = await fetch("/voyager/api/contentcreation/normShares", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: plainText() }) });
+      var urn = "urn:li:activity:72400000000000000" + String((await response.json()).id).padStart(2, "0");
+      outlet.textContent = "";
+      var toast = document.createElement("div");
+      toast.className = "artdeco-toast-item artdeco-toast-item--visible";
+      toast.setAttribute("role", "alert");
+      toast.innerHTML = '<p class="artdeco-toast-item__message">Post successful.</p> <a class="artdeco-toast-item__cta" href="' + location.origin + '/feed/update/' + urn + '/">View post</a>';
+      document.getElementById("artdeco-toasts").appendChild(toast);
+    });
+  }
+</script>
+</body>
+</html>

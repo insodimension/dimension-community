@@ -1,0 +1,13 @@
+{
+  "name": "bluesky-post",
+  "platform": "Bluesky",
+  "verified": false,
+  "verifiedAt": null,
+  "notes": "Modelled on bsky.app as of 2026-09; not run against live Bluesky. /intent/compose opens the composer dialog over the home feed (the URL becomes /). signedIn: the left nav's Profile link (aria-label Profile, href /profile/<handle>), rendered only when logged in. Post text: the composer's TipTap/ProseMirror contenteditable (.ProseMirror inside [role=dialog]; one <p> per line). submit: the composer's Post button (data-testid composerPublishBtn). receipt: the 'Your post has been published' toast (role=alert) and its View link to /profile/<handle>/post/<rkey>.",
+  "origin": "https://bsky.app",
+  "composeUrl": "https://bsky.app/intent/compose",
+  "signedIn": "a[aria-label=\"Profile\"][href^=\"/profile/\"]",
+  "fields": [{ "label": "Post text", "selector": "[role=\"dialog\"] .ProseMirror[contenteditable=\"true\"]" }],
+  "submit": "[data-testid=\"composerPublishBtn\"]",
+  "receipt": { "path": "/profile/{segment}/post/{segment}", "linkSelector": "[role=\"alert\"] a[href*=\"/post/\"]" }
+}

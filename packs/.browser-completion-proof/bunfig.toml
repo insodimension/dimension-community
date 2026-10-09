@@ -1,0 +1,17 @@
+# The dock panel's tests render it, and it imports the kit — whose source
+# carries Vite-only `?url` asset imports and a PDF worker. The kit already owns
+# adapters that keep those imports loadable under Bun; a pack run does not
+# inherit the kit's own preloads, so it names them here (as pr-viewer does).
+[test]
+preload = [
+	"../../../fraym/packages/ui/test/test-globals.ts",
+	"../../../fraym/packages/ui/test/pdfjs-test-adapter.ts",
+	"../../../fraym/packages/ui/test/asset-url-test-adapter.ts",
+	"./test/kit-react-preload.ts",
+]
+telemetry = false
+
+# src/code/prompt.md is the model-facing text of browser_run, imported as text (esbuild does the same through scripts/build.mjs).
+# Bun would otherwise render .md as HTML.
+[loader]
+".md" = "text"

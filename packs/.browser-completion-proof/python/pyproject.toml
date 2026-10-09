@@ -1,0 +1,26 @@
+[project]
+name = "dim-browser-bridge"
+version = "0.1.0"
+description = "Task worker running the jev agent loop against a Chrome over CDP."
+license = "MIT"
+# jev-ultrafast requires >=3.12.
+requires-python = ">=3.12,<4"
+dependencies = [
+  # jev's CDP transport; the worker also stops its daemon through the public admin API.
+  "browser-harness==0.1.13",
+  # jev-ultrafast is not published to PyPI (pypi.org/pypi/jev-ultrafast/json is
+  # 404), so it is pinned to the exact upstream commit. No vendoring, no fork.
+  "jev-ultrafast @ git+https://github.com/browser-use/jev-ultrafast@1231850a0bf1a0c0341fe408ef1668dbbfdfac46",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# jev-ultrafast is a direct (git) reference; hatchling refuses those unless the
+# project opts in explicitly.
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["dim_browser_bridge"]

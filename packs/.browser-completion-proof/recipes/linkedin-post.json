@@ -1,0 +1,13 @@
+{
+  "name": "linkedin-post",
+  "platform": "LinkedIn",
+  "verified": false,
+  "verifiedAt": null,
+  "notes": "Modelled on linkedin.com as of 2026-09; not run against live LinkedIn. /feed/?shareActive=true opens the share box (the 'Start a post' modal) on load. signedIn: the global nav's Me photo (img.global-nav__me-photo), rendered only when logged in. Post text: the share box's Quill editor (.ql-editor contenteditable inside [role=dialog]; one <p> per line). submit: the share box's Post button (button.share-actions__primary-action). receipt: the 'Post successful.' toast (.artdeco-toast-item) and its View post link (a.artdeco-toast-item__cta) to /feed/update/urn:li:activity:<id>/, with LinkedIn's trailing slash.",
+  "origin": "https://www.linkedin.com",
+  "composeUrl": "https://www.linkedin.com/feed/?shareActive=true",
+  "signedIn": "img.global-nav__me-photo",
+  "fields": [{ "label": "Post text", "selector": "[role=\"dialog\"] .ql-editor[contenteditable=\"true\"]" }],
+  "submit": "[role=\"dialog\"] button.share-actions__primary-action",
+  "receipt": { "path": "/feed/update/{segment}/", "linkSelector": ".artdeco-toast-item a.artdeco-toast-item__cta" }
+}

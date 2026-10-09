@@ -1,0 +1,13 @@
+{
+  "name": "reddit-comment",
+  "platform": "Reddit",
+  "verified": false,
+  "verifiedAt": null,
+  "notes": "Modelled on the new Reddit UI (shreddit) on www.reddit.com as of 2026-09; not run against live Reddit. target is the thread page to comment on. signedIn: the header's user drawer button (#expand-user-drawer-button), rendered only when logged in. Comment: the Lexical contenteditable ([data-lexical-editor=true]) inside <shreddit-composer>'s open shadow root, reached with pierce/; it assumes the thread's top-level composer is expanded on load. submit: the composer's slotted Comment button (button[slot=submit-button] in <shreddit-composer>'s light DOM). receipt: the new <shreddit-comment>'s timestamp permalink, /r/<sub>/comments/<post>/comment/<id>/ with Reddit's trailing slash; the thread's older comments were already on the page before submit, so they never count. Limitation: linkSelector matches any comment permalink, so another user's comment that loads on the page after submit (a live reply, a lazily loaded thread) could be taken as the receipt; only the path shape and not-on-the-page-before-submit are checked, not the author.",
+  "origin": "https://www.reddit.com",
+  "composeFrom": "target",
+  "signedIn": "#expand-user-drawer-button",
+  "fields": [{ "label": "Comment", "selector": "pierce/div[contenteditable=\"true\"][data-lexical-editor=\"true\"]" }],
+  "submit": "shreddit-composer button[slot=\"submit-button\"]",
+  "receipt": { "path": "/r/{segment}/comments/{segment}/comment/{segment}/", "linkSelector": "shreddit-comment a[href*=\"/comment/\"]" }
+}
