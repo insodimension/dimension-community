@@ -94,6 +94,9 @@ type RailActions = {
 	openFilterMenu: (event: never) => void;
 	openUserMenu: (event: never) => void;
 	sessionContextMenu: ComponentProps<typeof SessionRail>["onSessionContextMenu"];
+	resolveSession?: ComponentProps<typeof SessionRail>["onResolveSession"];
+	reopenSession?: ComponentProps<typeof SessionRail>["onReopenSession"];
+	dismissReopenRequest?: ComponentProps<typeof SessionRail>["onDismissReopenRequest"];
 	newSession?: (workspace?: never) => void;
 	newSessionAs?: (agentName: string, workspace?: never) => void;
 	newSessionOn?: (harnessId: string, workspace?: never) => void;
@@ -208,6 +211,9 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 			style={config.sessionRailStyle}
 			onSessionClick={actions.selectSession}
 			onSessionContextMenu={actions.sessionContextMenu}
+			onResolveSession={actions.resolveSession}
+			onReopenSession={actions.reopenSession}
+			onDismissReopenRequest={actions.dismissReopenRequest}
 			onSessionMultiContextMenu={actions.sessionMultiContextMenu}
 			onGroupContextMenu={actions.groupContextMenu}
 			groupAction={renderGroupAction}
