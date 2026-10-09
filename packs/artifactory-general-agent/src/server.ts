@@ -8,9 +8,9 @@
 // engine process, from the PLUGIN's root (`plugin-servers.ts`: `cwd: entry.cwd
 // ?? root`), and lends it to every session; its environment carries the
 // engine's home (`INSO_HOME`, `INSO_VAULT_DIR`, `INSO_ENV`) and its project
-// config dir (`PI_CONFIG_DIR`) — `app-host.ts` `engineHomeEnv`. The HOME is
-// enough for the tiers that matter: pack agents (`plugins/`) and the user's own
-// General Agents (`agent/general-agents/`), where new agents are written and which have a home.
+// config dir (`PI_CONFIG_DIR`) — `app-host.ts` `engineHomeEnv`. Product HOME
+// locates installed packs and managed workspaces; the negotiated host reader
+// root independently locates the current profile's user agents and skills.
 // A project's agents need a workspace, and a call's
 // `_meta["ai.insodimension/session"]` names the session but not its workspace
 // (`workspaceId` is reserved, never emitted). Two parties know it: the agent,
@@ -44,6 +44,7 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { GENERAL_AGENT_LAYOUT_CAPABILITY, supportsGeneralAgentLayout } from "@dimension/sdk/general-agent";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -72,6 +73,9 @@ const APP_ONLY = { ui: { visibility: ["app"] as const } };
 /** Callable by the model only: nothing on the page calls these. */
 const MODEL_ONLY = { ui: { visibility: ["model"] as const } };
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+// These reads may perform the verified first-run layout migration; do not
+// advertise them as filesystem-read-only before that initialization has run.
+const INITIALIZING_READ = { ...READ_ONLY, readOnlyHint: false };
 /** The proposals a server keeps at most; the oldest undecided one goes first. */
 const MAX_PROPOSALS = 32;
 
@@ -162,9 +166,9 @@ function sessionOf(extra: { _meta?: Record<string, unknown> }): string {
 }
 
 export interface ForgeServerOptions {
-	/** Defaults to `process.env`: `INSO_HOME` locates the plugin store, the user's
-	 *  agents and skills, and every agent home; `DIMENSION_FORGE_WORKSPACE` is the
-	 *  fallback workspace. */
+	/** Defaults to `process.env`: `INSO_HOME` locates the plugin store and
+	 *  managed workspaces; user agents/skills use the negotiated host reader
+	 *  root. `DIMENSION_FORGE_WORKSPACE` is the fallback workspace. */
 	readonly env?: NodeJS.ProcessEnv;
 }
 
@@ -177,6 +181,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 	const workspaces = new Map<string, string>();
 	/** The Machinist's undecided proposals, oldest first; the page decides each. */
 	const proposals: StoredProposal[] = [];
+	const server = new McpServer({ name: "dimension-community-general-agent", version: "0.4.0" });
 
 	/** The workspace the session behind a call bound with `forge_open`, else the fallback. */
 	const boundWorkspace = (extra: { _meta?: Record<string, unknown> }): string | null => workspaces.get(sessionOf(extra)) ?? fallback;
@@ -185,35 +190,37 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 	 *  the one its session bound (the agent), else the fallback. A string is why
 	 *  the named workspace cannot be used. */
 	const rootsOf = (extra: { _meta?: Record<string, unknown> }, workspace?: string): Roots | string => {
+		const capabilities = server.server.getClientCapabilities();
+		if (!supportsGeneralAgentLayout(capabilities) ||
+			!isAbsolute(capabilities.experimental[GENERAL_AGENT_LAYOUT_CAPABILITY].agentDir)) {
+			return "This host has not negotiated General Agent layout discovery, migration and active reader-root support. Update Dimension to a layout-aware build; no layout migration or agent write is attempted.";
+		}
+		const agentDir = capabilities.experimental[GENERAL_AGENT_LAYOUT_CAPABILITY].agentDir;
 		if (workspace !== undefined) {
 			if (!isAbsolute(workspace) || !isDirectory(workspace)) return `${workspace} is not an existing absolute directory.`;
-			return { workspace: resolve(workspace), home };
+			return { workspace: resolve(workspace), home, agentDir };
 		}
-		return { workspace: boundWorkspace(extra), home };
+		return { workspace: boundWorkspace(extra), home, agentDir };
 	};
 
-	const server = new McpServer({ name: "dimension-community-general-agent", version: "0.4.0" });
 
 	// ── the model's two doors ───────────────────────────────────────────────
 	server.registerTool(
 		"forge_open",
 		{
 			title: "General Agents",
-			description: `Read the General Agents the user sees on the General Agents page (the rail's General Agents entry): every General Agent the installed packs ship, the user's own, and the workspace's, or one agent by name. \`workspace\` is optional: the absolute path of the directory you are working in, which adds that project's General Agents (\`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\`) for the rest of this session. It writes nothing; to shape an agent, call forge_propose and the user decides on the page.`,
+			description: `Read the General Agents the user sees on the General Agents page (the rail's General Agents entry): every General Agent the installed packs ship, the user's own, and the workspace's, or one agent by name. \`workspace\` is optional: the absolute path of the directory you are working in, which adds that project's General Agents (\`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\`) for the rest of this session. The first read may relocate legacy General Agents with verified backups; it does not edit their definitions. To shape an agent, call forge_propose and the user decides on the page.`,
 			inputSchema: {
 				agent: agentName.optional().describe("read this agent"),
 				workspace: z.string().min(1).max(1024).optional().describe("absolute path of your working directory"),
 			},
-			annotations: READ_ONLY,
+			annotations: INITIALIZING_READ,
 			_meta: MODEL_ONLY,
 		},
 		async ({ agent, workspace }, extra) => {
-			if (workspace !== undefined) {
-				if (!isAbsolute(workspace) || !isDirectory(workspace)) return fail(`${workspace} is not an existing absolute directory.`);
-				workspaces.set(sessionOf(extra), resolve(workspace));
-			}
-			const roots = rootsOf(extra);
+			const roots = rootsOf(extra, workspace);
 			if (typeof roots === "string") return fail(roots);
+			if (workspace !== undefined) workspaces.set(sessionOf(extra), roots.workspace as string);
 			const listing = await listAgents(roots);
 			const found = agent === undefined ? undefined : listing.agents.find(candidate => candidate.name === agent);
 			const opened: ForgeOpened = { agent: found?.name ?? null, workspace: roots.workspace };
@@ -317,7 +324,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 		{
 			description: "Every General Agent the page can see (installed packs', the user's own, the workspace's), each with its tier and marked editable or read-only.",
 			inputSchema: { workspace: workspaceArg },
-			annotations: READ_ONLY,
+			annotations: INITIALIZING_READ,
 			_meta: APP_ONLY,
 		},
 		async ({ workspace }, extra) => {
@@ -333,14 +340,14 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 		{
 			description: "The skills, MCP servers, tool names and memory backends the profile can offer, with where each list was read and what could not be.",
 			inputSchema: { workspace: workspaceArg },
-			annotations: READ_ONLY,
+			annotations: INITIALIZING_READ,
 			_meta: APP_ONLY,
 		},
 		async ({ workspace }, extra) => {
 			const roots = rootsOf(extra, workspace);
 			if (typeof roots === "string") return fail(roots);
 			const { agents } = await listAgents(roots);
-			const listing = await listParts({ workspace: roots.workspace, pluginsDir: paths?.plugins ?? null, agentDir: paths?.agent ?? null, agents });
+			const listing = await listParts({ workspace: roots.workspace, pluginsDir: paths?.plugins ?? null, agentDir: roots.agentDir ?? null, agents });
 			return json(listing, `${listing.parts.length} parts`);
 		},
 	);
@@ -363,7 +370,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 	server.registerTool(
 		"save_agent",
 		{
-			description: `Write the draft. \`create: true\` writes a NEW General Agent into the user's own \`$INSO_HOME/agent/general-agents/<name>/agent.md\` by default, or into \`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\` when \`tier: workspace\` is given, and refuses a name taken anywhere. \`create: false\` rewrites the agent of that name in \`tier\` (\`user\` or \`workspace\`) and is refused unless \`revision\` is the one list_agents gave. The merged agent.md must load as a General Agent or nothing is written.`,
+			description: `Write the draft. \`create: true\` writes a NEW General Agent into the host's active user-agent directory \`<agent dir>/general-agents/<name>/agent.md\` by default, or into \`<workspace>/${WRITE_DIR}/general-agents/<name>/agent.md\` when \`tier: workspace\` is given, and refuses a name taken anywhere. \`create: false\` rewrites the agent of that name in \`tier\` (\`user\` or \`workspace\`) and is refused unless \`revision\` is the one list_agents gave. The merged agent.md must load as a General Agent or nothing is written.`,
 			inputSchema: { draft: draftSchema, create: z.boolean(), tier: z.enum(["workspace", "user"]).optional(), revision: z.string().max(64).optional(), workspace: workspaceArg },
 			annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 			_meta: APP_ONLY,
@@ -390,7 +397,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 		{
 			description: "An agent's home: its id (home-<name>), its folder under the engine's workspaces, whether the engine registers it, the memory room it follows, and its standing instructions (every AGENTS.md OMP looks at, which one wins, what it holds, and the `revision` of the file a save would write, which `save_instructions` needs). Works for a name that does not exist yet (the user tier, where new agents land).",
 			inputSchema: { name: agentName, workspace: workspaceArg },
-			annotations: READ_ONLY,
+			annotations: INITIALIZING_READ,
 			_meta: APP_ONLY,
 		},
 		async ({ name, workspace }, extra) => {

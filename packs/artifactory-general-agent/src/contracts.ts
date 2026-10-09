@@ -30,9 +30,9 @@ export interface ListedAgent {
 	readonly pack?: string;
 	/** Absolute path of the agent.md. */
 	readonly path: string;
-	/** Whether `save_agent` may rewrite it: false only for a pack agent and for a
-	 *  legacy `.omp/` file — every key the orrery does not draw is kept, so
-	 *  nothing else makes a file unwritable. */
+	/** Whether `save_agent` may rewrite the active file. Pack agents, legacy
+	 *  project fallback tiers and exact migration leftovers are read-only;
+	 *  a writable shadow never grants permission to overwrite that winner. */
 	readonly editable: boolean;
 	readonly readOnlyReason?: string;
 	/** Digest of the file as listed. A rewrite names it, and is refused when the

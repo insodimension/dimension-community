@@ -10,7 +10,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { type Dirent } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   agentHomeWorkspaceId,
   GENERAL_AGENT_FILE,
@@ -18,6 +18,7 @@ import {
   type GeneralAgentDecl,
   parseGeneralAgent,
 } from "@dimension/sdk/general-agent";
+import { ensureGeneralAgentLayout, type GeneralAgentLayoutResult } from "@dimension/sdk/general-agent/layout";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   type AgentDraft,
@@ -54,12 +55,12 @@ import { isRecord } from "./guards.js";
 export const WRITE_DIR = process.env.PI_CONFIG_DIR?.trim() || ".inso";
 export const LEGACY_DIR = ".omp";
 
-/** Where the engine keeps things, all under its one home (`INSO_HOME`). */
+/** Product-home resources; the active reader's user tier is resolved separately by agentDirOf. */
 export function pathsOf(home: string | null) {
   if (home === null) return null;
   return {
     plugins: join(home, "plugins"),
-    /** The agent dir: skills, settings, and the General Agent user tier. */
+    /** Default agent dir, used only by direct store callers without a negotiated reader root. */
     agent: join(home, "agent"),
     userAgents: join(home, "agent", GENERAL_AGENTS_DIR),
     /** `<home>/workspaces`: every agent home (`home-<name>`) — the engine pins `PI_AGENT_HOMES_DIR` here. */
@@ -73,8 +74,15 @@ export interface Roots {
   readonly workspace: string | null;
   /** `INSO_HOME`; null = the engine did not say. */
   readonly home: string | null;
+  /** The negotiated actual reader's active user-agent directory. */
+  readonly agentDir?: string;
   /** Why `workspace` is null, when it is. */
   readonly workspaceMissing?: string;
+}
+
+/** Server calls carry the negotiated reader root; direct store callers may anchor it to their explicit home. */
+export function agentDirOf(roots: Roots): string | null {
+  return roots.agentDir ?? pathsOf(roots.home)?.agent ?? null;
 }
 
 /**
@@ -359,6 +367,41 @@ async function scanAgents(dir: string, notices: string[]): Promise<Found[]> {
     else if (parsed.reason === "invalid")
       notices.push(`${path} is not a valid General Agent: ${parsed.errors.join("; ")}`);
   }
+
+  return found;
+}
+
+/** Only directories returned by the migration may claim the retired layout. */
+async function migrationFor(roots: Roots): Promise<GeneralAgentLayoutResult | null> {
+  const agentDir = agentDirOf(roots);
+  if (agentDir === null) return null;
+  return ensureGeneralAgentLayout({
+    cwd: roots.workspace ?? undefined,
+    agentDir,
+  });
+}
+
+async function scanLeft(
+  migration: GeneralAgentLayoutResult | null,
+  scope: "project" | "global",
+  notices: string[],
+): Promise<Found[]> {
+  const found: Found[] = [];
+  for (const left of migration?.left ?? []) {
+    if (left.scope !== scope) continue;
+    const name = basename(left.dir);
+    const path = join(left.dir, GENERAL_AGENT_FILE);
+    let content: string;
+    try {
+      content = await readFile(path, "utf8");
+    } catch {
+      continue;
+    }
+    const parsed = parseGeneralAgent(content, path, name);
+    if (parsed.ok) found.push({ name, path, content, decl: parsed.decl });
+    else if (parsed.reason === "invalid")
+      notices.push(`${path} is not a valid General Agent: ${parsed.errors.join("; ")}`);
+  }
   return found;
 }
 
@@ -376,11 +419,35 @@ export async function listAgents(roots: Roots): Promise<AgentListing> {
     return true;
   };
   const paths = pathsOf(roots.home);
+  // Migration owns the precise retired directories; never treat every task agent as a General Agent.
+  // An introspection failure must not advertise a shadowing new file as editable.
+  const migration = await migrationFor(roots);
+  const addLeft = async (scope: "project" | "global"): Promise<void> => {
+    for (const found of await scanLeft(migration, scope, notices)) {
+      if (!claim(found)) continue;
+      const left = migration?.left.find(
+        (entry) => entry.scope === scope && resolve(entry.dir) === resolve(dirname(found.path)),
+      );
+      agents.push({
+        name: found.name,
+        description: found.decl.description,
+        source: scope === "project" ? "workspace" : "user",
+        path: found.path,
+        editable: false,
+        readOnlyReason: `It remains in the retired agents/ layout (${left?.reason ?? "migration incomplete"}). Move it to general-agents/ before editing.`,
+        revision: revisionOf(found.content),
+        ...(found.decl.manifest.workspace?.id !== undefined
+          ? { workspaceId: found.decl.manifest.workspace.id }
+          : {}),
+        draft: draftFromFile(found.decl, found.content, `${scope === "project" ? "workspace" : "user"}::${found.name}`),
+      });
+    }
+  };
 
   // The engine's order: packs own their names, then the project, then the user.
   if (paths === null)
     notices.push(
-      "Pack and user agents are not listed: the engine did not tell this server where its home is (INSO_HOME is unset).",
+      "Pack agents are not listed: the engine did not tell this server where its home is (INSO_HOME is unset).",
     );
   else {
     for (const [pack, root] of await installedPluginRoots(paths.plugins)) {
@@ -409,6 +476,7 @@ export async function listAgents(roots: Roots): Promise<AgentListing> {
         "No workspace is bound, so project agents are not listed. Pack agents and yours are.",
     );
   } else {
+    await addLeft("project");
     for (const dirName of [WRITE_DIR, LEGACY_DIR]) {
       for (const found of await scanAgents(
         join(roots.workspace, dirName, GENERAL_AGENTS_DIR),
@@ -437,8 +505,10 @@ export async function listAgents(roots: Roots): Promise<AgentListing> {
     }
   }
 
-  if (paths !== null) {
-    for (const found of await scanAgents(paths.userAgents, notices)) {
+  const agentDir = agentDirOf(roots);
+  if (agentDir !== null) {
+    await addLeft("global");
+    for (const found of await scanAgents(join(agentDir, GENERAL_AGENTS_DIR), notices)) {
       if (!claim(found)) continue;
       agents.push({
         name: found.name,
@@ -457,7 +527,7 @@ export async function listAgents(roots: Roots): Promise<AgentListing> {
   return {
     workspace: roots.workspace,
     configDir: WRITE_DIR,
-    userAgentsDir: paths?.userAgents ?? null,
+    userAgentsDir: agentDir === null ? null : join(agentDir, GENERAL_AGENTS_DIR),
     agents,
     notices,
   };
@@ -509,19 +579,19 @@ const slash = (path: string) => path.replaceAll("\\", "/");
  */
 export async function saveAgent(options: SaveOptions): Promise<SaveOutcome> {
   const { roots, draft, target } = options;
-  const paths = pathsOf(roots.home);
+  const agentDir = agentDirOf(roots);
   const tier: WritableTier = target.create ? (target.tier ?? "user") : target.tier;
-  const tierRoot = tier === "user" ? roots.home : roots.workspace;
+  const tierRoot = tier === "user" ? agentDir : roots.workspace;
   const agentsDir =
     tier === "user"
-      ? paths?.userAgents
+      ? (agentDir === null ? undefined : join(agentDir, GENERAL_AGENTS_DIR))
       : roots.workspace === null
         ? undefined
         : join(roots.workspace, WRITE_DIR, GENERAL_AGENTS_DIR);
   if (tierRoot === null || agentsDir === undefined) {
     throw new SaveRefused(
       tier === "user"
-        ? "The user tier cannot be reached: the engine did not tell this server where its home is (INSO_HOME is unset)."
+        ? "The user tier cannot be reached: the host did not provide its active user-agent directory."
         : "No workspace is bound, so its project agents cannot be rewritten.",
     );
   }
@@ -530,9 +600,25 @@ export async function saveAgent(options: SaveOptions): Promise<SaveOutcome> {
   const rendered = renderDraft(draft, path);
   if ("problems" in rendered) throw new SaveRefused(rendered.problems.join(" "));
   const { content } = rendered;
+  let active: ListedAgent | undefined;
+  try {
+    active = (await listAgents(roots)).agents.find((agent) => agent.name === draft.name);
+  } catch (error) {
+    throw new SaveRefused(`Cannot verify the active General Agent layout; nothing was written: ${String(error)}`);
+  }
+  if (!target.create && (
+    active === undefined ||
+    !active.editable ||
+    active.source !== tier ||
+    resolve(active.path) !== resolve(path)
+  )) {
+    throw new SaveRefused(
+      `${draft.name} is not the active editable ${tier} agent at ${path}; reopen the active agent before saving.`,
+    );
+  }
 
   if (target.create) {
-    const taken = (await listAgents(roots)).agents.find((agent) => agent.name === draft.name);
+    const taken = active;
     if (taken !== undefined) {
       throw new SaveRefused(
         `An agent named "${draft.name}" already exists (${taken.source === "pack" ? `the ${taken.pack} pack ships it` : `${taken.source} agent at ${taken.path}`}). Pick another name.`,

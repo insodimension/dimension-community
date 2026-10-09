@@ -24,7 +24,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { agentHomeWorkspaceId, derivesAgentHome, GENERAL_AGENT_FILE, GENERAL_AGENTS_DIR } from "@dimension/sdk/general-agent";
 import type { AgentHome, AgentInstructions, AgentSource, InstructionFile, InstructionsSaved } from "./contracts.js";
-import { LEGACY_DIR, listAgents, pathsOf, type Roots, revisionOf, SaveRefused, WRITE_DIR } from "./store.js";
+import { agentDirOf, LEGACY_DIR, listAgents, pathsOf, type Roots, revisionOf, SaveRefused, WRITE_DIR } from "./store.js";
 
 const AGENTS_MD = "AGENTS.md";
 /** A generous ceiling on a standing-instructions file: a prompt, not a corpus. */
@@ -113,7 +113,8 @@ export async function describeHome(roots: Roots, name: string): Promise<AgentHom
 	const foreign = !derivesAgentHome(name, listed?.workspaceId);
 	const hasHome = canStandAtHome && !foreign;
 	const folder = canStandAtHome && paths !== null ? join(paths.homes, homeId) : null;
-	const agentFile = listed?.path ?? join(paths?.userAgents ?? "", name, GENERAL_AGENT_FILE);
+	const userDir = agentDirOf(roots);
+	const agentFile = listed?.path ?? join(userDir === null ? "" : join(userDir, GENERAL_AGENTS_DIR), name, GENERAL_AGENT_FILE);
 	const { files, text } = await resolveInstructions(roots, source, name, agentFile);
 	const folderExists = folder !== null && (await isDirectory(folder));
 

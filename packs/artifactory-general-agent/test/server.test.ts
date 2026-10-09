@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { agentHomeWorkspaceId, parseGeneralAgent } from "@dimension/sdk/general-agent";
+import { GENERAL_AGENT_LAYOUT_CAPABILITY, GENERAL_AGENT_LAYOUT_CAPABILITY_VERSION, agentHomeWorkspaceId, parseGeneralAgent } from "@dimension/sdk/general-agent";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -34,12 +34,15 @@ async function put(path: string, content: string): Promise<void> {
 	await writeFile(path, content);
 }
 
+function compatibleCapabilities(agentDir = join(home, "agent")): Record<string, unknown> {
+	return { experimental: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: GENERAL_AGENT_LAYOUT_CAPABILITY_VERSION, directory: "general-agents", agentDir } } };
+}
 /** A client on a fresh Forge server. `bound` = the agent named its workspace in `forge_open`. */
-async function connect(bound: boolean): Promise<Client> {
-	const server = createForgeServer({ env: { INSO_HOME: home } });
+async function connect(bound: boolean, capabilities: Record<string, unknown> = compatibleCapabilities(), env: Record<string, string> = { INSO_HOME: home }): Promise<Client> {
+	const server = createForgeServer({ env });
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 	await server.connect(serverSide);
-	const connected = new Client({ name: "forge-test", version: "0" });
+	const connected = new Client({ name: "forge-test", version: "0.11.1" }, { capabilities });
 	await connected.connect(clientSide);
 	open.push(connected);
 	if (bound) {
@@ -108,6 +111,105 @@ async function manifestAt(path: string, name: string) {
 	if (!parsed.ok) throw new Error(parsed.errors.join("; "));
 	return parsed.decl;
 }
+/** Includes directory names and exact file bytes; detects even a newly created empty ledger/backup. */
+async function treeBytes(dir: string): Promise<[string, string][]> {
+	const entries: [string, string][] = [];
+	async function visit(current: string, relative: string): Promise<void> {
+		for (const item of (await readdir(current, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+			const name = relative ? `${relative}/${item.name}` : item.name;
+			const path = join(current, item.name);
+			if (item.isDirectory()) {
+				entries.push([`${name}/`, ""]);
+				await visit(path, name);
+			} else if (item.isFile()) {
+				entries.push([name, (await readFile(path)).toString("hex")]);
+			} else {
+				entries.push([name, `link:${await readlink(path)}`]);
+			}
+		}
+	}
+	await visit(dir, "");
+	return entries;
+}
+
+describe("negotiated layout capability — before first read or write", () => {
+	test.each([
+		{ name: "missing", capabilities: {} },
+		{ name: "old layout version", capabilities: { experimental: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: 0, directory: "general-agents", agentDir: tmpdir() } } } },
+		{ name: "wrong layout directory", capabilities: { experimental: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: 1, directory: "agents", agentDir: tmpdir() } } } },
+		{ name: "missing reader root", capabilities: { experimental: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: 1, directory: "general-agents" } } } },
+		{ name: "relative reader root", capabilities: compatibleCapabilities("relative/agent") },
+	])("$name fails closed despite identical product version and caller spoofing", async ({ capabilities }) => {
+		const legacy = join(workspace, WRITE_DIR, "agents", "legacy-scout", "agent.md");
+		await put(legacy, PACK_AGENT.replace("name: helper", "name: legacy-scout"));
+		await put(join(home, "agent", "agents", "legacy-user", "agent.md"), PACK_AGENT.replace("name: helper", "name: legacy-user"));
+		const before = await treeBytes(root);
+		const old = await connect(false, capabilities);
+		const spoof = {
+			workspace,
+			version: "0.11.1",
+			profile: "new-layout",
+			capabilities: compatibleCapabilities(),
+			_meta: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: 1, directory: "general-agents", agentDir: join(home, "agent") } },
+		};
+		for (const [name, args] of [
+			["forge_open", spoof],
+			["list_agents", spoof],
+			["save_agent", { ...spoof, draft: draft(), create: true }],
+		] as const) {
+			const result = await call(name, args, old);
+			expect(result.isError).toBe(true);
+			expect(await treeBytes(root)).toEqual(before);
+		}
+		const withMeta = (await old.callTool({
+			name: "forge_open",
+			arguments: { workspace },
+			_meta: { [GENERAL_AGENT_LAYOUT_CAPABILITY]: { version: 1, directory: "general-agents", agentDir: join(home, "agent") } },
+		})) as CallToolResult;
+		expect(withMeta.isError).toBe(true);
+		expect(await treeBytes(root)).toEqual(before);
+	});
+
+	test("a named profile migrates and saves in the negotiated reader root, never the product home's default profile", async () => {
+		const active = join(root, "profiles", "named", "agent");
+		const legacy = join(active, "agents", "profile-scout", "agent.md");
+		const original = PACK_AGENT.replace("name: helper", "name: profile-scout");
+		await put(legacy, original);
+		const defaultAgent = userFile("default-scout");
+		await put(defaultAgent, PACK_AGENT.replace("name: helper", "name: default-scout"));
+		const defaultBefore = await treeBytes(join(home, "agent"));
+		const profiled = await connect(false, compatibleCapabilities(active));
+		const spoof = { workspace, agentDir: join(home, "agent"), profile: "default", _meta: { agentDir: join(home, "agent") } };
+		const roster = (await call("list_agents", spoof, profiled)).structuredContent as unknown as AgentListing;
+		expect(roster.agents.find(agent => agent.name === "profile-scout")).toMatchObject({ source: "user", path: join(active, "general-agents", "profile-scout", "agent.md") });
+		expect(roster.agents.some(agent => agent.name === "default-scout")).toBe(false);
+		expect(await readFile(join(active, "general-agents", "profile-scout", "agent.md"), "utf8")).toBe(original);
+		const saved = await call("save_agent", { ...spoof, draft: draft(), create: true }, profiled);
+		expect(saved.isError).toBeFalsy();
+		expect((saved.structuredContent as unknown as SaveOutcome).path).toBe(join(active, "general-agents", "release-herald", "agent.md"));
+		expect((await manifestAt(join(active, "general-agents", "release-herald", "agent.md"), "release-herald")).body).toBe(draft().charter);
+		expect(await treeBytes(join(home, "agent"))).toEqual(defaultBefore);
+	});
+
+	test("without INSO_HOME, explicit workspace still migrates both actual user and project legacy agents", async () => {
+		const active = join(root, "external-reader", "agent");
+		const userLegacy = PACK_AGENT.replace("name: helper", "name: user-legacy");
+		const projectLegacy = PACK_AGENT.replace("name: helper", "name: project-legacy");
+		await put(join(active, "agents", "user-legacy", "agent.md"), userLegacy);
+		await put(join(workspace, WRITE_DIR, "agents", "project-legacy", "agent.md"), projectLegacy);
+		const noHome = await connect(false, compatibleCapabilities(active), {});
+		const roster = (await call("list_agents", { workspace }, noHome)).structuredContent as unknown as AgentListing;
+		expect(roster.agents.find(agent => agent.name === "user-legacy")).toMatchObject({ source: "user", path: join(active, "general-agents", "user-legacy", "agent.md") });
+		expect(roster.agents.find(agent => agent.name === "project-legacy")).toMatchObject({ source: "workspace", path: projectFile("project-legacy") });
+		expect(await readFile(join(active, "general-agents", "user-legacy", "agent.md"), "utf8")).toBe(userLegacy);
+		expect(await readFile(projectFile("project-legacy"), "utf8")).toBe(projectLegacy);
+		const saved = await call("save_agent", { workspace, draft: draft(), create: true }, noHome);
+		expect(saved.isError).toBeFalsy();
+		expect((saved.structuredContent as unknown as SaveOutcome).path).toBe(join(active, "general-agents", "release-herald", "agent.md"));
+		expect((await manifestAt(join(active, "general-agents", "release-herald", "agent.md"), "release-herald")).body).toBe(draft().charter);
+	});
+});
+
 
 describe("save_agent — the user tier", () => {
 	test("a new agent is written beside the ones agent_create writes, carrying the human's tools and gate", async () => {
@@ -966,7 +1068,7 @@ describe("list_agents", () => {
 		if (WRITE_DIR === ".omp") return;
 		expect(await listed("old")).toMatchObject({ source: "workspace", editable: false });
 	});
-	test("only general-agents directories enter the roster, including the read-only legacy project tier", async () => {
+	test("legacy agents migrate into the discoverable roster, while .omp remains read-only", async () => {
 		const manifest = (name: string) => PACK_AGENT.replace("name: helper", `name: ${name}`);
 		await put(userFile("mine"), manifest("mine"));
 		await put(projectFile("project"), manifest("project"));
@@ -976,9 +1078,65 @@ describe("list_agents", () => {
 		await put(join(workspace, ".omp", "agents", "old-legacy", "agent.md"), manifest("old-legacy"));
 		const agents = (await listing()).agents;
 		expect(agents.map(agent => [agent.name, agent.source, agent.editable]).sort()).toEqual([
-			["helper", "pack", false], ["legacy", "workspace", false], ["mine", "user", true], ["project", "workspace", true],
+			["helper", "pack", false], ["legacy", "workspace", false], ["mine", "user", true],
+			["old-legacy", "workspace", false], ["old-project", "workspace", true],
+			["old-user", "user", true], ["project", "workspace", true],
 		]);
-		expect(agents.find(agent => agent.name === "legacy")?.readOnlyReason).toContain("general-agents");
+		expect(agents.find(agent => agent.name === "old-project")?.path).toBe(projectFile("old-project"));
+		expect(agents.find(agent => agent.name === "old-user")?.path).toBe(userFile("old-user"));
+	});
+
+	test("a previously listed writable shadow cannot be saved after a migration conflict appears", async () => {
+		const name = "late-conflict";
+		const shadow = PACK_AGENT.replace("name: helper", `name: ${name}`).replace("A pack-shipped helper", "original shadow");
+		await put(projectFile(name), shadow);
+		const prior = await listed(name);
+		expect(prior.editable).toBe(true);
+		const legacy = join(workspace, WRITE_DIR, "agents", name, "agent.md");
+		await put(legacy, shadow.replace("original shadow", "active legacy"));
+		const attempted = await call("save_agent", {
+			draft: { ...prior.draft, description: "should never write" },
+			create: false,
+			tier: "workspace",
+			revision: prior.revision,
+		});
+		expect(attempted.isError).toBe(true);
+		expect(await readFile(projectFile(name), "utf8")).toBe(shadow);
+		expect((await listed(name)).path).toBe(legacy);
+	});
+
+	test("active project migration conflict wins over the new-layout shadow and cannot be overwritten or recreated", async () => {
+		const name = "conflicted-project";
+		const legacy = join(workspace, WRITE_DIR, "agents", name, "agent.md");
+		const old = PACK_AGENT.replace("name: helper", `name: ${name}`).replace("A pack-shipped helper", "active legacy");
+		const shadow = old.replace("active legacy", "new-layout shadow");
+		await put(legacy, old);
+		await put(projectFile(name), shadow);
+		const winner = await listed(name);
+		expect(winner).toMatchObject({ name, source: "workspace", editable: false, path: legacy });
+		expect(winner.readOnlyReason).toBeTruthy();
+		expect(winner.draft.description).toBe("active legacy");
+		expect((await reforge(winner, { description: "attempted overwrite" })).isError).toBe(true);
+		expect((await call("save_agent", { draft: draft({ name }), create: true, tier: "workspace" })).isError).toBe(true);
+		expect(await readFile(legacy, "utf8")).toBe(old);
+		expect(await readFile(projectFile(name), "utf8")).toBe(shadow);
+	});
+
+	test("active user migration conflict is read-only even through a direct user-tier save", async () => {
+		const name = "conflicted-user";
+		const legacy = join(home, "agent", "agents", name, "agent.md");
+		const old = PACK_AGENT.replace("name: helper", `name: ${name}`).replace("A pack-shipped helper", "active legacy");
+		const shadow = old.replace("active legacy", "new-layout shadow");
+		await put(legacy, old);
+		await put(userFile(name), shadow);
+		const winner = await listed(name);
+		expect(winner).toMatchObject({ name, source: "user", editable: false, path: legacy });
+		expect(winner.readOnlyReason).toBeTruthy();
+		expect(winner.draft.description).toBe("active legacy");
+		expect((await reforge(winner, { description: "attempted overwrite" })).isError).toBe(true);
+		expect((await call("save_agent", { draft: draft({ name }), create: true, tier: "user" })).isError).toBe(true);
+		expect(await readFile(legacy, "utf8")).toBe(old);
+		expect(await readFile(userFile(name), "utf8")).toBe(shadow);
 	});
 
 	test("an explicit workspace creation writes a parseable project agent and never writes into the user tier", async () => {

@@ -131,11 +131,91 @@ takes one proposal; the next waits on the home.
 | Tier | Path | Home | On this page |
 |---|---|---|---|
 | **pack** | `<pack>/general-agents/<name>/agent.md` | yes (`home-<name>`) | read-only; *Extend as a new agent* |
-| **user** ("Yours") | `$INSO_HOME/agent/general-agents/<name>/agent.md`, where `agent_create` writes | yes | read, edit, **create here** |
+| **user** ("Yours") | `<active reader agentDir>/general-agents/<name>/agent.md`, where `agent_create` writes | yes | read, edit, **create here** |
 | **project** | `<workspace>/<PI_CONFIG_DIR>/general-agents/<name>/agent.md` (legacy `.omp/general-agents` is read-only) | none: it belongs to one project | read and edit; the page passes the active workspace |
 
 Precedence is the engine's: packs own their names, then the project, then the
 user; a shadowed file is reported.
+
+### Host compatibility and first-read migration
+
+The host must advertise the General Agent layout capability during MCP
+`initialize`, as a client capability:
+
+```json
+{
+  "experimental": {
+    "ai.insodimension/general-agents/layout": {
+      "version": 1,
+      "directory": "general-agents",
+      "agentDir": "/absolute/active-reader/agent"
+    }
+  }
+}
+```
+
+`@dimension/sdk/general-agent` exposes the Core-owned `GENERAL_AGENT_LAYOUT_CAPABILITY`,
+`GENERAL_AGENT_LAYOUT_CAPABILITY_VERSION`, `GeneralAgentLayoutCapability` and
+`supportsGeneralAgentLayout(capabilities: unknown)`, a type guard for the canonical
+version/directory and a non-empty string `agentDir`. The engine's `AppServer`
+advertises the descriptor only over known local SDK stdio or in-memory transports;
+marketplace consent provenance (`firstParty: false`) does not disable compatibility.
+OMP's direct MCP client only to local stdio peers (same-machine processes), never
+HTTP/SSE external providers. Remote or unknown transports receive no private reader
+root even when marked first-party. Those local connections receive
+`{ ...GENERAL_AGENT_DISCOVERY_LAYOUT, agentDir: getAgentDir() }` from the actual
+reader at MCP initialization. Other connections retain MCP Apps extensions or
+roots support respectively, without exposing the private reader/profile path;
+without the marker, Forge fails closed. The canonical `GENERAL_AGENT_DISCOVERY_LAYOUT` from
+`@oh-my-pi/pi-coding-agent/config/general-agents-layout-abi` stays static:
+`{ version: 1, directory: "general-agents" }`. The same pure ABI leaf supplies
+the actual scanner's directory constant, user directory getter and verified
+migration targets; each host adds its active reader root for the connection.
+That root follows the current profile/custom override independently of the
+product home, not a guessed `$INSO_HOME/agent`. The host does not reconstruct
+the descriptor from SDK constants: an old OMP without the ABI module cannot
+acquire compatibility from a new SDK alone.
+
+The server checks its own `server.server.getClientCapabilities()` in `rootsOf`
+before every root-based operation, including page calls that bypass `forge_open`.
+Missing, malformed or unsupported support, including a missing, empty, non-string
+or relative `agentDir`, returns a host-upgrade error before the operation reaches
+filesystem readers or writers: no relocation, backup, ledger, directory creation
+or agent/instructions write. Request `_meta`, session ids, model/profile selection,
+tool arguments, environment and server options cannot establish support or
+substitute the user-agent root. This marker is **host compatibility only**, not an
+authorization grant: existing tool visibility, seat grants and approval gates remain unchanged.
+A minimum product version (even matching `0.11.1`), a canary
+channel or a migration helper bundled into the pack is not host ABI proof.
+
+The server carries negotiated `agentDir` into user migration, listing, saves,
+user parts and the fallback definition path for standing instructions. Compatible
+direct OMP local stdio can migrate/read/write user and bound project agents without
+`INSO_HOME`. The product home still locates installed plugins and managed
+workspaces (`home-<name>`); without it those tiers are unavailable, not a reason
+to skip user/project migration. An explicit-home fallback exists only for direct
+low-level store callers; server calls always carry the negotiated reader root.
+
+On compatible hosts, the first read still awaits the canonical
+`ensureGeneralAgentLayout` from `@dimension/sdk/general-agent/layout`, once per
+process per resolved `(project, agent dir)` pair. Historical project and user
+`agents/<name>/` folders may move automatically to `general-agents/<name>/`
+without changing their contents, with verified backups and the migration ledger.
+Only exact directories returned in `layout.left` remain discoverable from the
+historical layout; they stay at their original scope, are excluded from `task`,
+and are read-only here. Packs still own their names; within each scope the legacy
+leftover wins over a new-layout copy. A shadowing copy cannot be written while
+that winner remains: relocate it, then reopen the active agent before editing.
+The server does not scan the general `agents/` task roots for General Agents.
+
+`@dimension/sdk/general-agent/layout` is a **server-only runtime subpath**, kept
+out of the browser-safe parser door and page code. Its portable `node:` lifecycle
+APIs serve the Node/Bun boundary without importing the full coding-agent runtime;
+frontmatter uses Bun's YAML parser under Bun and the declared `yaml` dependency
+under Node. Direct use of the helper is not a negotiated host-capability check.
+These are source contracts only. The committed generated `app/server.mjs` bundle
+is stale and has not been rebuilt for this change; build and Node/Bun runtime
+proof, and released-host compatibility, remain unverified.
 
 ## The server
 
