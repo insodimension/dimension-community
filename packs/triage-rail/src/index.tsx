@@ -90,7 +90,7 @@ interface RailFacts {
 	readonly sessions: readonly RailGroup[];
 	/** The host's own needs-you fold. Optional: an older host publishes none. */
 	readonly triage?: readonly RailRow[];
-	readonly projectLabel: string;
+	readonly workspaceLabel: string;
 	readonly search: { readonly open: boolean; readonly value: string };
 }
 

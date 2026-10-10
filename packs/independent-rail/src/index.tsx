@@ -78,7 +78,7 @@ type RailFacts = {
 	readonly mode: { readonly app: string; readonly rail: string; readonly activeSurface: unknown };
 	readonly sessions: ComponentProps<typeof SessionRail>["groups"];
 	readonly spaces: unknown;
-	readonly projectLabel: string;
+	readonly workspaceLabel: string;
 	readonly search: { readonly open: boolean; readonly value: string; readonly inputRef?: unknown };
 	readonly menu: unknown;
 	readonly renamingItemId?: string | null;
@@ -97,11 +97,11 @@ type RailActions = {
 	newSession?: (workspace?: never) => void;
 	newSessionAs?: (agentName: string, workspace?: never) => void;
 	newSessionOn?: (harnessId: string, workspace?: never) => void;
-	openProjectFilter?: (project: string, event: never) => void;
+	openWorkspaceFilter?: (workspaceId: string, event: never) => void;
 	selectSession?: ComponentProps<typeof SessionRail>["onSessionClick"];
 	sessionMultiContextMenu?: ComponentProps<typeof SessionRail>["onSessionMultiContextMenu"];
 	groupContextMenu?: ComponentProps<typeof SessionRail>["onGroupContextMenu"];
-	reorderProject?: (workspace: never, direction: "up" | "down", anchorWorkspaceId?: string) => void;
+	reorderWorkspace?: (workspace: never, direction: "up" | "down", anchorWorkspaceId?: string) => void;
 	renameItem?: ComponentProps<typeof SessionRail>["onRenameItem"];
 	showAllActivity?: ComponentProps<typeof SessionRail>["onShowAllActivity"];
 };
@@ -131,10 +131,10 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 	// The three assembly hooks — the pieces with judgement in them.
 	const renderGroupAction = useRailGroupAction(facts.sessions, {
 		onNewSession: actions.newSession as Parameters<typeof useRailGroupAction>[1]["onNewSession"],
-		onOpenProjectFilter: actions.openProjectFilter as Parameters<
+		onOpenProjectFilter: actions.openWorkspaceFilter as Parameters<
 			typeof useRailGroupAction
 		>[1]["onOpenProjectFilter"],
-		onReorderProject: actions.reorderProject as Parameters<typeof useRailGroupAction>[1]["onReorderProject"],
+		onReorderProject: actions.reorderWorkspace as Parameters<typeof useRailGroupAction>[1]["onReorderProject"],
 	});
 	const renderSessionPresence = useRailSessionPresence(facts.presence);
 	const railActions = useRailActionSet(
@@ -170,7 +170,7 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 	const sessionBar = useMemo(
 		() => (
 			<FraymRailSessionBar
-				projectLabel={facts.projectLabel}
+				workspaceLabel={facts.workspaceLabel}
 				menu={facts.menu as ComponentProps<typeof FraymRailSessionBar>["menu"]}
 				sessionSearchOpen={facts.search.open}
 				sessionSearch={facts.search.value}
@@ -181,7 +181,7 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 			/>
 		),
 		[
-			facts.projectLabel,
+			facts.workspaceLabel,
 			facts.menu,
 			facts.search.open,
 			facts.search.value,

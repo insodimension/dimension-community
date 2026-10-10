@@ -15,8 +15,8 @@ var IndependentRailSection = memo(function IndependentRailSection({ rail, action
 	const searchInputRef = facts.search.inputRef ?? ownSearchRef;
 	const renderGroupAction = useRailGroupAction(facts.sessions, {
 		onNewSession: actions.newSession,
-		onOpenProjectFilter: actions.openProjectFilter,
-		onReorderProject: actions.reorderProject
+		onOpenProjectFilter: actions.openWorkspaceFilter,
+		onReorderProject: actions.reorderWorkspace
 	});
 	const renderSessionPresence = useRailSessionPresence(facts.presence);
 	const railActions = useRailActionSet(facts.spaces, facts.mode.app);
@@ -48,7 +48,7 @@ var IndependentRailSection = memo(function IndependentRailSection({ rail, action
 			facts.mode.activeSurface
 		]),
 		sessionBar: useMemo(() => /* @__PURE__ */ jsx(FraymRailSessionBar, {
-			projectLabel: facts.projectLabel,
+			workspaceLabel: facts.workspaceLabel,
 			menu: facts.menu,
 			sessionSearchOpen: facts.search.open,
 			sessionSearch: facts.search.value,
@@ -57,7 +57,7 @@ var IndependentRailSection = memo(function IndependentRailSection({ rail, action
 			onSessionSearchOpenChange: actions.setSearchOpen,
 			onOpenFilterMenu: actions.openFilterMenu
 		}), [
-			facts.projectLabel,
+			facts.workspaceLabel,
 			facts.menu,
 			facts.search.open,
 			facts.search.value,
