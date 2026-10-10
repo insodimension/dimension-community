@@ -683,23 +683,25 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	/**
-	 * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so letting go is per chat: `by` is the hold
-	 * stepping away (its caller and host session), and the browser is closed only when no chat has work on it and nobody is watching it. Without a `by`
-	 * the caller wants the browser itself gone. Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
+	 * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so a chat's close only ever gives up its own
+	 * hold (`by`) while anyone else is on it — ending another chat's tabs is controlling them (doc 77 §7.4.5). The person's own close is the one gesture
+	 * that ends the browser however many chats are on it: it is theirs to end. Without a `by` the caller wants the browser itself gone. Answers whether
+	 * the browser was closed. Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
 	 */
-	async close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, by?: BrowserOpener): Promise<void> {
+	async close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, by?: BrowserOpener): Promise<boolean> {
 		// A failed close revokes reads/actions but remains retryable for cleanup.
 		const entry = this.byId.get(browserId);
 		if (!entry) {
 			// Already closed by the runtime (idle, or to make room): what was asked for is true, so it is not an error.
-			if (this.released.has(browserId)) return;
+			if (this.released.has(browserId)) return true;
 			fail("unknown_browser", "Unknown or already closed browserId.");
 		}
 		const mine = by === undefined ? undefined : openerKey(by);
+		let closed = false;
 		await this.serialize(entry, async () => {
 			if (guard !== undefined) await guard();
 			guard?.assertCurrent();
-			if (mine !== undefined) {
+			if (mine !== undefined && by?.caller !== "app") {
 				// Not this hold's to give up (a caller that never opened this browser): nothing of anyone's is ended by it.
 				if (!entry.openers.has(mine)) return;
 				// Others still have work on it, the person is watching, or they have the wheel: stepping away leaves them alone. No refusal below
@@ -717,9 +719,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			// The hold is given up only once the close is admitted: a close that was refused keeps it.
 			if (mine !== undefined) entry.openers.delete(mine);
 			await this.teardown(entry);
+			closed = true;
 		}, { evenIfClosed: true });
 		// A throwaway browser's data is gone by the time its close resolves.
 		await Promise.allSettled(this.removals);
+		return closed;
 	}
 
 	/** Retain ownership and the lock until the driver confirms shutdown. A throwaway that cannot be stopped is tried again soon. */

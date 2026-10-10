@@ -147,7 +147,7 @@ describeWithChrome("a model opening a saved profile", () => {
 		expect((await listedFor(r, MODEL))[0]?.heldBy).toBeNull();
 	}, BROWSER_TEST_TIMEOUT_MS);
 
-	test("every seat joins a profile's one browser, each told its own word for it; the id never reaches a seat that holds nothing, and a close behind it mints the next", async () => {
+	test("every seat joins a profile's one browser, each told its own word for it; the id never reaches a seat that holds nothing; a chat's close only steps away, the person's close ends the browser, and the next open mints the next", async () => {
 		const r = await setup();
 		const mine = browserIdOf(await r.call("browser_open", { profile: "work" }, MODEL));
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, PERSON))).toBe(mine);
@@ -162,11 +162,16 @@ describeWithChrome("a model opening a saved profile", () => {
 		expect((await listedFor(r, stranger))[0]?.heldBy).toBe("human");
 		expect(text(await r.call("browser_profiles", {}, stranger))).not.toContain(mine);
 
-		expect((await r.call("browser_close", { browserId: mine }, MODEL)).isError).toBeFalsy();
+		expect((await r.call("browser_close", { browserId: mine }, MODEL)).structuredContent).toEqual({ closed: false });
+		expect((await r.runtime.state(mine)).browserId).toBe(mine);
+		expect((await r.call("browser_close", { browserId: mine }, MODEL)).structuredContent).toEqual({ closed: false });
+		expect((await r.runtime.state(mine)).browserId).toBe(mine);
+		expect((await r.call("browser_close", { browserId: mine }, PERSON)).structuredContent).toEqual({ closed: true });
+		expect(await failureCode(() => r.runtime.state(mine))).toBe("unknown_browser");
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, OTHER_MODEL))).not.toBe(mine);
 	}, BROWSER_TEST_TIMEOUT_MS);
 
-	test("two chats racing to open the same new profile: one browser, both called the same id, neither refused", async () => {
+	test("two chats racing to open the same new profile: one browser, both called the same id, neither refused, the winner's close only steps away, and the last chat's close ends it", async () => {
 		const r = await setup();
 		const [first, second] = await Promise.all([
 			r.call("browser_open", { profile: "fresh" }, MODEL),
@@ -180,7 +185,10 @@ describeWithChrome("a model opening a saved profile", () => {
 		const racingStranger = { caller: "model", session: "chat-z" } as Who;
 		expect((await listedFor(r, racingStranger))[0]?.heldBy).toBe("another chat");
 		expect(text(await r.call("browser_profiles", {}, racingStranger))).not.toContain(browserId);
-		expect((await r.call("browser_close", { browserId }, MODEL)).isError).toBeFalsy();
+		expect((await r.call("browser_close", { browserId }, MODEL)).structuredContent).toEqual({ closed: false });
+		expect((await r.runtime.state(browserId)).browserId).toBe(browserId);
+		expect((await r.call("browser_close", { browserId }, OTHER_MODEL)).structuredContent).toEqual({ closed: true });
+		expect(await failureCode(() => r.runtime.state(browserId))).toBe("unknown_browser");
 		expect(browserIdOf(await r.call("browser_open", { profile: "fresh" }, OTHER_MODEL))).not.toBe(browserId);
 	}, BROWSER_TEST_TIMEOUT_MS);
 
@@ -190,17 +198,41 @@ describeWithChrome("a model opening a saved profile", () => {
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, OTHER_MODEL))).toBe(browserId);
 		expect((await listedFor(r, OTHER_MODEL))[0]?.heldBy).toBe("this chat");
 
-		await r.runtime.close(browserId, "model", undefined, MODEL);
+		await expect(r.runtime.close(browserId, "model", undefined, MODEL)).resolves.toBe(false);
 
 		expect((await r.runtime.state(browserId)).browserId).toBe(browserId);
 		expect((await listedFor(r, OTHER_MODEL))[0]?.heldBy).toBe("this chat");
 		expect((await listedFor(r, MODEL))[0]?.heldBy).toBe("another chat");
-		await expect(r.runtime.close(browserId, "model", undefined, MODEL)).resolves.toBeUndefined();
+		await perform(r.runtime, browserId, { kind: "navigate", url: r.fixture.url("/page2") });
+		expect(text(await r.call("browser_snapshot", { browserId }, OTHER_MODEL))).toContain("second page");
+
+		await expect(r.runtime.close(browserId, "model", undefined, MODEL)).resolves.toBe(false);
 		expect((await r.runtime.state(browserId)).browserId).toBe(browserId);
 
-		await r.runtime.close(browserId, "model", undefined, OTHER_MODEL);
+		await expect(r.runtime.close(browserId, "model", undefined, OTHER_MODEL)).resolves.toBe(true);
+
 		expect(await failureCode(() => r.runtime.state(browserId))).toBe("unknown_browser");
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, MODEL))).not.toBe(browserId);
+	}, BROWSER_TEST_TIMEOUT_MS);
+
+	test("the person's close ends a shared browser however many chats and stale holds are on it, and a session the host ended is only unheld, never closed", async () => {
+		const r = await setup();
+		const shared = browserIdOf(await r.call("browser_open", { profile: "work" }, MODEL));
+		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, OTHER_MODEL))).toBe(shared);
+		const departed: Who = { caller: "model", session: "chat-departed" };
+		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, departed))).toBe(shared);
+
+		expect((await r.call("browser_close", { browserId: shared }, PERSON)).structuredContent).toEqual({ closed: true });
+		expect(await failureCode(() => r.runtime.state(shared))).toBe("unknown_browser");
+
+		const again = browserIdOf(await r.call("browser_open", { profile: "work" }, MODEL));
+		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, PERSON))).toBe(again);
+		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, OTHER_MODEL))).toBe(again);
+		await r.runtime.endProfileSession(MODEL.session);
+		expect((await r.runtime.state(again)).browserId).toBe(again);
+		expect((await listedFor(r, MODEL))[0]?.heldBy).toBe("another chat");
+		expect((await listedFor(r, OTHER_MODEL))[0]?.heldBy).toBe("this chat");
+		await r.runtime.close(again, "model", undefined, OTHER_MODEL);
 	}, BROWSER_TEST_TIMEOUT_MS);
 
 	test("an open refused after its Chrome launched closes that Chrome, frees the profile and keeps the saved cookies", async () => {

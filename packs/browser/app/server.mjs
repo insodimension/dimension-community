@@ -14175,21 +14175,23 @@ var BrowserRuntime = class {
     this.removals.add(removal);
   }
   /**
-   * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so letting go is per chat: `by` is the hold
-   * stepping away (its caller and host session), and the browser is closed only when no chat has work on it and nobody is watching it. Without a `by`
-   * the caller wants the browser itself gone. Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
+   * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so a chat's close only ever gives up its own
+   * hold (`by`) while anyone else is on it — ending another chat's tabs is controlling them (doc 77 §7.4.5). The person's own close is the one gesture
+   * that ends the browser however many chats are on it: it is theirs to end. Without a `by` the caller wants the browser itself gone. Answers whether
+   * the browser was closed. Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
    */
   async close(browserId, caller, guard, by) {
     const entry = this.byId.get(browserId);
     if (!entry) {
-      if (this.released.has(browserId)) return;
+      if (this.released.has(browserId)) return true;
       fail("unknown_browser", "Unknown or already closed browserId.");
     }
     const mine = by === void 0 ? void 0 : openerKey(by);
+    let closed = false;
     await this.serialize(entry, async () => {
       if (guard !== void 0) await guard();
       guard?.assertCurrent();
-      if (mine !== void 0) {
+      if (mine !== void 0 && by?.caller !== "app") {
         if (!entry.openers.has(mine)) return;
         if (entry.openers.size > 1 || entry.viewers > 0 || entry.takenOver) {
           entry.openers.delete(mine);
@@ -14202,8 +14204,10 @@ var BrowserRuntime = class {
       }
       if (mine !== void 0) entry.openers.delete(mine);
       await this.teardown(entry);
+      closed = true;
     }, { evenIfClosed: true });
     await Promise.allSettled(this.removals);
+    return closed;
   }
   /** Retain ownership and the lock until the driver confirms shutdown. A throwaway that cannot be stopped is tried again soon. */
   async teardown(entry) {
@@ -17185,13 +17189,12 @@ async function createBrowserServer(options = {}) {
     return stateFor(callerOf(extra), state);
   }));
   server2.registerTool("browser_close", {
-    description: "Close this owned browser (stopping any task) and release its profile lock. Persisted logins remain; a throwaway's data is deleted; the user's relay browser is never terminated. Refused while a publish awaits confirmation (confirm, cancel or wait first).",
+    description: "Close this browser (stopping any task) and release its profile lock. Yours alone: a chat's close only releases its own hold while others are on a shared one, and answers closed: false. Persisted logins remain; a throwaway's data is deleted; the user's relay browser is never terminated. Refused while a publish awaits confirmation (confirm, cancel or wait first).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   }, ({ browserId }, extra) => result(async () => {
     await access(extra, browserId, true);
-    await runtime.close(browserId, callerOf(extra), accessGuard(extra, browserId, true), openerOf(extra));
-    return { closed: true };
+    return { closed: await runtime.close(browserId, callerOf(extra), accessGuard(extra, browserId, true), openerOf(extra)) };
   }));
   let reporting = Promise.resolve();
   const sendReport = () => {

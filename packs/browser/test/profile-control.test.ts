@@ -277,7 +277,7 @@ describeWithChrome("taking a browser over in the View", () => {
 	});
 
 	test(
-		"the person takes the wheel: the agent's actions are refused and its reads are not, the person's own input still works, and handing back gives the agent its hands again",
+		"the person takes the wheel: the agent's actions are refused and its reads are not, the person's own input still works, and handing back gives the agent its hands again; a chat's close only steps away, and the person's close ends it",
 		async () => {
 			const r = await rig();
 			const startedAt = Date.now();
@@ -309,7 +309,6 @@ describeWithChrome("taking a browser over in the View", () => {
 				["browser_act", { browserId: id, actions: [{ kind: "click", selector: "#idle" }] }],
 				["browser_act", { browserId: id, actions: [{ kind: "tab", op: "new", url: r.fixture.url("/show-cookie") }] }],
 				["browser_act", { browserId: id, actions: [{ kind: "wait", text: "never", timeoutMs: 100 }] }],
-				["browser_close", { browserId: id }],
 				["browser_task", { browserId: id, task: "do something", waitSeconds: 0 }],
 			];
 			for (const who of [CHAT, OTHER_CHAT, undefined]) {
@@ -368,6 +367,12 @@ describeWithChrome("taking a browser over in the View", () => {
 			const otherSeat = await open(r, OTHER_CHAT, { profile: "work" });
 			expect(otherSeat.browserId).toBe(id);
 			expect(entry(await listAs(r, OTHER_CHAT), "work")?.heldBy).toBe("this chat");
+			expect(stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT)).takenOver).toBe(true);
+			expect((await r.call("browser_close", { browserId: id }, CHAT)).structuredContent).toEqual({ closed: false });
+			expect((await r.call("browser_close", { browserId: id }, OTHER_CHAT)).structuredContent).toEqual({ closed: false });
+			expect((await r.call("browser_close", { browserId: id }, undefined)).structuredContent).toEqual({ closed: false });
+			expect((await stateAs(r, VIEW_OF_CHAT, id)).browserId).toBe(id);
+			expect((await r.call("browser_close", { browserId: id }, VIEW_OF_CHAT)).structuredContent).toEqual({ closed: true });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

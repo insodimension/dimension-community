@@ -769,21 +769,23 @@ describeWithChrome("browser_publish", () => {
 	);
 
 	test(
-		"while a publish awaits the human, an unstamped or a model's browser_close is refused publish_pending; the browser stays open",
+		"while a publish awaits the human, the holder's and a by-less close are refused publish_pending and the refusal keeps the hold; a close with no hold on the browser steps away without ending it",
 		async () => {
 			const s = await session("pub-close-refused");
 			const parked = await post(s, "nav");
 
-			for (const caller of [null, "model"] as const) {
-				const refused = await s.call("browser_close", { browserId: s.browserId }, caller);
-				expect({ caller, isError: refused.isError, text: refused.content[0]?.text }).toMatchObject({ caller, isError: true, text: expect.stringContaining(PENDING) });
-			}
+			const refused = await s.call("browser_close", { browserId: s.browserId }, "model");
+			expect({ isError: refused.isError, text: refused.content[0]?.text }).toMatchObject({ isError: true, text: expect.stringContaining(PENDING) });
 			expect(await failureCode(() => s.runtime.close(s.browserId, "model"))).toBe("publish_pending");
 			expect(await failureCode(() => s.runtime.close(s.browserId))).toBe("publish_pending");
+			expect((await s.call("browser_close", { browserId: s.browserId }, null)).structuredContent).toEqual({ closed: false });
 
 			// Still open: the human's Post still posts.
 			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
 			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
+			const holder = JSON.parse((await s.call("browser_profiles", {}, "model")).content[0]?.text ?? "null") as { profiles: Array<{ heldBy: string | null }> };
+			expect(holder.profiles[0]?.heldBy).toBe("this chat");
+			await expect(s.runtime.close(s.browserId, "model", undefined, { caller: "model", session: "publish-chat" })).resolves.toBe(true);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

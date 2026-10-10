@@ -49,8 +49,8 @@ export interface CodeSeam {
   /** `attach`: a browser somebody else owns to attach to instead of launching one (a cell's connected, spawned or relay browser; the engine is `chrome-relay`). */
   open(options: BrowserOpenOptions, opener: BrowserOpener, code: CodeLifetime, attach?: AttachTarget): Promise<BrowserState>;
   resize(browserId: string, viewport: Viewport, scale: number): Promise<BrowserState>;
-  /** Lets go of this hold; the browser is closed only when no chat has work on it (`by` names the hold stepping away). */
-  close(browserId: string, by?: BrowserOpener): Promise<void>;
+  /** Lets go of this hold; the browser is closed only when no chat has work on it (`by` names the hold stepping away). Answers whether it closed. */
+  close(browserId: string, by?: BrowserOpener): Promise<boolean>;
   /** The live entry; throws `unknown_browser` with the runtime's own reason when it closed the browser (idle, to make room). Stamps `lastUsed`. */
   require(browserId: string): CodeSeamEntry;
   /** The live entry without stamping it as used or throwing: what a clock reads. */

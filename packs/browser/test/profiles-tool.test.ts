@@ -225,10 +225,11 @@ describeWithChrome("opening a profile by the name an agent was given", () => {
 
 			// A second chat joins the same browser: a profile is one cookie jar, so there is no second Chrome and no refusal.
 			const stranger = await call("browser_open", { profile: "Work Account" }, { caller: "model", session: "s-2" });
-			expect(stranger.isError).toBe(false);
+			expect(stranger.isError).toBeFalsy();
 			expect(stranger.structuredContent?.browserId).toBe(first.structuredContent?.browserId);
 
 			expect(listOf(await call("browser_profiles", {}, { caller: "model", session: "s-2" })).profiles.map((profile) => profile.heldBy)).toEqual(["this chat"]);
+			expect(listOf(await call("browser_profiles", {}, MODEL)).profiles.map((profile) => profile.heldBy)).toEqual(["this chat"]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
