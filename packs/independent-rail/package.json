@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/independent-rail",
 	"author": "Dimension",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Independent rail — built from the published PARTS (SessionRail, the rail chrome pieces, and the three assembly hooks), not from the shipped rail implementation.",
 	"type": "module",
 	"main": "./src/index.tsx",
