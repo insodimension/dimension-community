@@ -428,8 +428,7 @@ describeWithChrome("what a full pool never gives up", () => {
 			expect((await refusal(() => runtime.state(throwaway.browserId))).code).toBe("unknown_browser");
 			expect((await runtime.state(newcomer.browserId)).browserId).toBe(newcomer.browserId);
 			for (const browserId of saved) expect((await runtime.state(browserId)).profile).toMatch(/^keep-/);
-			// The lock is intact: another chat still cannot take a profile that is open.
-			expect((await refusal(() => runtime.open({ profile: "keep-1", viewport: VIEWPORT }, asSession("s9")))).code).toBe("profile_held");
+			expect((await runtime.open({ profile: "keep-1", viewport: VIEWPORT }, asSession("s9"))).browserId).toBe(saved[0] as string);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -772,7 +771,7 @@ describeWithChrome("a throwaway nobody calls", () => {
 			await Bun.sleep(3_000);
 
 			expect((await runtime.state(browserId)).profile).toBe("stays");
-			expect((await refusal(() => runtime.open({ profile: "stays", viewport: VIEWPORT }, asSession("s2")))).code).toBe("profile_held");
+			expect((await runtime.open({ profile: "stays", viewport: VIEWPORT }, asSession("s2"))).browserId).toBe(browserId);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

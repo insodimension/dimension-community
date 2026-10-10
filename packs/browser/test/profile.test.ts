@@ -59,30 +59,19 @@ describeWithChrome("profiles", () => {
 	);
 
 	test(
-		"a second open of a live profile is refused instead of handing out its capability",
+		"a second open of a live profile joins it instead of starting a second Chrome",
 		async () => {
 			const { runtime } = await createRuntime();
-
-			// One engine serves many sessions: the second caller must never receive
-			// the first caller's browserId, and must never get a second Chrome on
-			// the same user-data dir.
 			const settled = await Promise.allSettled([
 				runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" }),
 				runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" }),
 			]);
 			const opened = settled.filter((r): r is PromiseFulfilledResult<BrowserState> => r.status === "fulfilled");
-			const refused = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
-			expect(opened).toHaveLength(1);
-			expect(refused).toHaveLength(1);
-			expect(refused[0]?.reason).toBeInstanceOf(BrowserRuntimeError);
-			expect((refused[0]?.reason as BrowserRuntimeError).code).toBe("profile_held");
-			// The person sees plain words for this refusal, not the runtime's: the View recognises the runtime's real message.
-			expect(openFailureText(refused[0]?.reason)).not.toMatch(/profile/i);
-
+			expect(opened).toHaveLength(2);
 			const live = opened[0]?.value as BrowserState;
+			expect(opened[1]?.value.browserId).toBe(live.browserId);
 			expect((await runtime.state(live.browserId)).profile).toBe("shared");
-			// Sequentially, too: the refusal is not a race artifact.
-			expect(await failureCode(() => runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" }))).toBe("profile_held");
+			expect((await runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" })).browserId).toBe(live.browserId);
 			expect((await runtime.profileList()).map((profile) => profile.name)).toEqual(["shared"]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
@@ -97,8 +86,7 @@ describeWithChrome("profiles", () => {
 			const intruder = newRuntime(rootDir);
 			const stolen = await intruder.open({ profile: "exclusive", viewport: VIEWPORT }, { caller: "app" }).catch((error: unknown) => error);
 			expect(stolen).toBeInstanceOf(BrowserRuntimeError);
-			expect((stolen as BrowserRuntimeError).code).toBe("profile_locked");
-			expect(openFailureText(stolen)).not.toMatch(/profile/i);
+			expect(openFailureText(stolen)).toBe("That profile's browser is already open in another window. Close it there, or open a Private one.");
 			// The refusal must not have disturbed the holder's browser.
 			expect((await runtime.state(holder.browserId)).browserId).toBe(holder.browserId);
 

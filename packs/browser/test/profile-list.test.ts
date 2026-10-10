@@ -265,7 +265,7 @@ describeWithChrome("who holds a profile", () => {
 
 describeWithChrome("asking for a profile by name", () => {
 	test(
-		"the same View gets its own browser back; a chat's parallel first opens share one browser; anyone else is refused without its id",
+		"the same View gets its own browser back; a chat's parallel first opens share one browser; anyone joining is handed the held browser's id",
 		async () => {
 			const { rootDir } = await rootWith((store) => store.ensureProfile("work"));
 			const runtime = newRuntime(rootDir);
@@ -274,11 +274,10 @@ describeWithChrome("asking for a profile by name", () => {
 			const first = await runtime.open({ profile: "work", viewport: VIEWPORT }, person);
 			expect((await runtime.open({ profile: "work", viewport: VIEWPORT }, person)).browserId).toBe(first.browserId);
 
-			const refused = await codeOf(runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-2" }));
-			expect(refused.code).toBe("profile_held");
-			expect(refused.message).not.toContain(first.browserId);
-			// An unstamped call is nobody's chat either.
-			expect((await codeOf(runtime.open({ profile: "work", viewport: VIEWPORT }))).code).toBe("profile_held");
+			const joined = await runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-2" });
+			expect(joined.browserId).toBe(first.browserId);
+			expect((await runtime.profileList("s-2"))[0]?.heldBy).toBe("this chat");
+			expect((await runtime.open({ profile: "work", viewport: VIEWPORT })).browserId).toBe(first.browserId);
 
 			// Parallel tool calls from one chat on a profile that is still starting: one browser.
 			const both = await Promise.all([runtime.open({ profile: "fresh", viewport: VIEWPORT }, chat), runtime.open({ profile: "fresh", viewport: VIEWPORT }, chat)]);
@@ -289,14 +288,14 @@ describeWithChrome("asking for a profile by name", () => {
 	);
 
 	test(
-		"a model cannot open a profile held by the human or learn its browser id",
+		"a model joins a profile held by the human and is told so from its own side",
 		async () => {
 			const { rootDir } = await rootWith((store) => store.ensureProfile("personal"));
 			const runtime = newRuntime(rootDir);
 			const held = await runtime.open({ profile: "personal", viewport: VIEWPORT }, { caller: "app", session: "s-view" });
-			const refused = await codeOf(runtime.open({ profile: "personal", viewport: VIEWPORT }, { caller: "model", session: "s-other" }));
-			expect(refused.code).toBe("profile_held");
-			expect(refused.message).not.toContain(held.browserId);
+			const joined = await runtime.open({ profile: "personal", viewport: VIEWPORT }, { caller: "model", session: "s-other" });
+			expect(joined.browserId).toBe(held.browserId);
+			expect((await runtime.profileList("s-other"))[0]?.heldBy).toBe("this chat");
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -365,20 +364,18 @@ describeWithChrome("asking for a profile by name", () => {
 	);
 
 	test(
-		"a chat is refused while a human's profile is launching or already open, and told nothing of the browser's id",
+		"a chat joins a human's profile while it is launching or already open, and gets the same browser each time",
 		async () => {
 			const { rootDir } = await rootWith((store) => store.ensureProfile("work"));
 			const runtime = newRuntime(rootDir);
 			const person = { caller: "app", session: "s-view" } as const;
 			const starting = runtime.open({ profile: "work", viewport: VIEWPORT }, person);
 			// Same tick: the first open has not finished launching.
-			const byChat = await codeOf(runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-other" }));
-			expect(byChat.code).toBe("profile_held");
+			const byChat = await runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-other" });
 			const first = await starting;
-			const again = await codeOf(runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-other" }));
-			expect(again.code).toBe("profile_held");
-			expect(again.message).not.toContain(first.browserId);
-			expect(byChat.message).not.toContain(first.browserId);
+			expect(byChat.browserId).toBe(first.browserId);
+			const again = await runtime.open({ profile: "work", viewport: VIEWPORT }, { caller: "model", session: "s-other" });
+			expect(again.browserId).toBe(first.browserId);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

@@ -110,7 +110,7 @@ describeWithChrome("throwaway browsers", () => {
 	);
 
 	test(
-		"throwaway browsers coexist without a lock while a saved profile stays exclusive, and closing one leaves the others alone",
+		"throwaway browsers coexist without a lock while a saved profile is one browser the second open joins, and closing one leaves the others alone",
 		async () => {
 			const { runtime, rootDir } = await createRuntime();
 			const ephemeral = join(rootDir, "ephemeral");
@@ -120,8 +120,9 @@ describeWithChrome("throwaway browsers", () => {
 			expect(a.browserId).not.toBe(b.browserId);
 			expect(await entries(ephemeral)).toHaveLength(2);
 
-			await runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" });
-			expect(await failureCode(() => runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" }))).toBe("profile_held");
+			const shared = await runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" });
+			expect((await runtime.open({ profile: "shared", viewport: VIEWPORT }, { caller: "app" })).browserId).toBe(shared.browserId);
+			expect(await entries(join(rootDir, "profiles"))).toEqual(["shared"]);
 
 			await runtime.close(a.browserId);
 			expect(await entries(ephemeral)).toHaveLength(1);

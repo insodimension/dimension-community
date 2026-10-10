@@ -1,9 +1,10 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: a cell that names a saved
  *  profile with browser.open({ profile }) does not get the person's logins, or
- *  gets another profile's, or a held profile is handed over instead of refused
- *  as profile_held, or a reopen starts a second Chrome, or two racing opens
- *  start two Chromes on one profile, or a profile combined with app is opened
- *  or refused as an attach consent instead of the conflict it is; or a tab name
+ *  gets another profile's, or one profile's browser is forked with a second
+ *  Chrome instead of shared per chat, or a reopen starts a second Chrome, or
+ *  two racing opens start two Chromes on one profile, or a profile combined
+ *  with app is opened or refused as an attach consent instead of the conflict
+ *  it is; or a tab name
  *  already bound to one browser is silently served another (the signed-out
  *  throwaway navigated when the cell asked for a profile, a profile's tab
  *  answering for a different profile), so logins are set or read in the wrong
@@ -17,7 +18,7 @@ import type { BrowserRuntime } from "../src/runtime";
 import { ProfileStore } from "../src/store";
 import { chromePidsByThrowaway } from "./chrome-processes";
 import { cell, failureOf, isFailure, newRig, textOf, valueOf, type Rig } from "./code-host-fixture";
-import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, type Fixture, startFixture, teardown } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, failureCode, type Fixture, startFixture, teardown } from "./fixture";
 
 let rig: Rig | undefined;
 
@@ -61,19 +62,28 @@ describeWithChrome("a cell opens a saved profile with no approval", () => {
     expect(await readBack("chat-3", "other")).toBe("COOKIE:none");
   }, BROWSER_TEST_TIMEOUT_MS);
 
-  test("a profile one chat holds is refused to another chat as profile_held, without handing over the holder's browser, while the holder goes on driving it", async () => {
+  test("two chats share a profile's one browser on tabs of their own: each reads its own tab, one's close leaves the other working, and the last one out turns the lights off", async () => {
     const site = startFixture();
     const { host, runtime } = await start();
     await valueOf(host, "chat-1", `await browser.open({ name: "a", profile: "work", url: ${q(site.url("/page2"))} }); 0`);
     const holderBrowser = await browserIdOf(runtime, "chat-1", "work");
 
-    const refused = await failureOf(host, "chat-2", `await browser.open({ name: "b", profile: "work", url: ${q(site.url("/show-cookie"))} }); 0`);
+    await valueOf(host, "chat-2", `await browser.open({ name: "b", profile: "work", url: ${q(site.url("/show-cookie"))} }); 0`);
 
-    expect(refused.message).toContain("profile_held");
-    expect(refused.message).not.toContain(holderBrowser);
-    expect(site.hits("/show-cookie")).toBe(0);
-    expect(await browserIdOf(runtime, "chat-1", "work")).toBe(holderBrowser);
+    expect(await browserIdOf(runtime, "chat-2", "work")).toBe(holderBrowser);
+    expect(site.hits("/show-cookie")).toBe(1);
     expect(await valueOf(host, "chat-1", "browser.tab('a').url()")).toBe(site.url("/page2"));
+    expect(await valueOf(host, "chat-2", "browser.tab('b').url()")).toBe(site.url("/show-cookie"));
+
+    await valueOf(host, "chat-1", `await browser.close({ name: "a" }); 0`);
+    expect(await heldBy(runtime, "chat-1", "work")).toBe("another chat");
+    expect(await heldBy(runtime, "chat-2", "work")).toBe("this chat");
+    expect((await runtime.state(holderBrowser)).browserId).toBe(holderBrowser);
+    expect(await valueOf(host, "chat-2", "browser.tab('b').url()")).toBe(site.url("/show-cookie"));
+
+    await valueOf(host, "chat-2", `await browser.close({ name: "b" }); 0`);
+    expect(await heldBy(runtime, "chat-2", "work")).toBeNull();
+    expect(await failureCode(() => runtime.state(holderBrowser))).toBe("unknown_browser");
   }, BROWSER_TEST_TIMEOUT_MS);
 
   test("a chat that asks again for the profile it holds gets its one browser with a second tab, not a refusal and not a second Chrome", async () => {
