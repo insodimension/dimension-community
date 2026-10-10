@@ -363,8 +363,9 @@ function openerKey(opener: BrowserOpener): string {
 }
 
 /** Whether the person has this browser open in a View (their open is one of its openers). */
-function personallyOpen(entry: Entry): boolean {
-	for (const opener of entry.openers.values()) if (opener.caller === "app") return true;
+function personallyOpen(openers: Map<string, BrowserOpener> | undefined): boolean {
+	if (openers === undefined) return false;
+	for (const opener of openers.values()) if (opener.caller === "app") return true;
 	return false;
 }
 
@@ -933,8 +934,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		let victim: Entry | undefined;
 		for (const entry of this.byId.values()) {
 			if (entry.profile !== null || entry.closed || entry.viewers > 0 || entry.takenOver || entry.code?.persist === true || this.working(entry)) continue;
-			const personal = personallyOpen(entry);
-			const victimPersonal = victim !== undefined && personallyOpen(victim);
+			const personal = personallyOpen(entry.openers);
+			const victimPersonal = victim !== undefined && personallyOpen(victim.openers);
 			if (victim === undefined || (!personal && victimPersonal) || (personal === victimPersonal && entry.lastUsed < victim.lastUsed)) victim = entry;
 		}
 		return victim;
@@ -1336,10 +1337,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * names the person's own presence, not a count.
 	 */
 	private holdOf(entry: Entry | undefined, openers: Map<string, BrowserOpener>): ProfileHold {
-		let by: "person" | "agent" = "agent";
-		for (const opener of openers.values()) if (opener.caller === "app") { by = "person"; break; }
 		return {
-			by,
+			by: personallyOpen(openers) ? "person" : "agent",
 			task: entry?.task?.status === "running",
 			takenOver: entry?.takenOver === true,
 			post: entry !== undefined && (isPending(entry.publish) || entry.starting === "post"),
@@ -1439,7 +1438,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * listed in the View's menu and closed from there.
 	 */
 	private keptOnLeave(entry: Entry, heldWheel: boolean): boolean {
-		return !personallyOpen(entry) || entry.profile === RELAY_PROFILE || heldWheel || this.working(entry) || isPending(entry.publish);
+		return !personallyOpen(entry.openers) || entry.profile === RELAY_PROFILE || heldWheel || this.working(entry) || isPending(entry.publish);
 	}
 
 	async connections(): Promise<ConnectionObservations> {
@@ -1513,8 +1512,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private holderOf(openers: Map<string, BrowserOpener> | undefined, asker: string | undefined): Exclude<ProfileHolder, null> {
 		if (openers === undefined || openers.size === 0) return "another chat";
 		if (asker !== undefined && openers.has(asker)) return "this chat";
-		for (const opener of openers.values()) if (opener.caller === "app") return "human";
-		return "another chat";
+		return personallyOpen(openers) ? "human" : "another chat";
 	}
 
 	/** Profiles are listed up to MAX_PROFILES; one more would exist where nothing lists it and the duplicate check cannot see it. */

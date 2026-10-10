@@ -24,8 +24,8 @@ standard MCP and MCP Apps. No host internals, no browser fork.
   most 1024 px. Code cells use `browser_run` instead.
 - **Throwaway by default, named profiles to keep logins.** A browser opened
   without a profile keeps nothing and is deleted when it closes. A named profile
-  persists logins across restarts, keeps its cookies separate from other profiles (not a barrier against code the agent runs: see Code cells), and is held by one caller at
-  a time. The exception is yours: the View's start page and the dock open the
+  persists logins across restarts, keeps its cookies separate from other profiles (not a barrier against code the agent runs: see Code cells), and is shared with any
+  other chat that opens it (each on its own tabs). The View's start page and the dock open the
   saved `default` profile unless you tick **Private** ([Browser panel](#browser-panel)).
 - **Annotations that carry pixels.** Freeze the page, mark it with the shared
   annotation kit (pin, box, circle, arrow, pen, a note on each mark); the numbered
@@ -412,8 +412,8 @@ deleted when it closes or the server exits, and any number can be open at once
 `browser_profiles` never lists it. If the server is killed first, the next start
 deletes the directory once its recorded owner (`owner.pid`) is provably dead and
 no Chrome still holds it. Pass `profile` to run on the saved profile of that
-name in `<root>/profiles/<name>`: it keeps logins, is held by one caller at a
-time, and is never deleted. Saved passwords (`generatePassword`,
+name in `<root>/profiles/<name>`: it keeps logins, is shared with any other chat
+that opens it (each on its own tabs), and is never deleted. Saved passwords (`generatePassword`,
 `useSavedPassword`), a `browser_task` `credential` and `browser_publish` need a
 saved profile and fail `profile_required` on a throwaway browser, before
 anything reaches the page.
