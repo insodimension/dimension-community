@@ -7,6 +7,8 @@ description: Drive an Android emulator the user can watch beside the chat — bo
 
 One device, shared when you want it to be. The `device_*` tools work with or without the pane open; `device_open` puts the same device in a View beside the chat, where the user sees live video and can tap and type on it too. You and the user drive the same screen: after the user touches it, read it again before acting.
 
+**Only you open the pane; the user has no button for it.** Call `device_open` when the user asks to see, watch, open or try the emulator, or when you start walking an Android app and a live view helps them follow. Do not open it for work with no Android app, or just because the tools exist.
+
 ## Start
 
 1. `device_list` first. It lists running devices (`serial`, `kind` emulator or physical, state, display size in px), the AVDs you can boot, and any missing prerequisite with its fix. A missing prerequisite is the answer: report the fix, do not work around it.
