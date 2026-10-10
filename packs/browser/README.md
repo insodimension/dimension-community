@@ -79,7 +79,8 @@ store), make network requests and discover another session's local Chrome
 debugging endpoint; a deliberately hostile cell can cross that API boundary.
 Use a throwaway browser for code. An explicit `app.cdp_url`, `app.path` or `app.relay` in a cell is refused
 unless `DIMENSION_BROWSER_CODE_ALLOW_ATTACH=1` (`code_needs_consent`); a saved profile opens with no approval of
-the pack's own (the host's permission mode is the gate), one holder at a time (`profile_held`), and cannot be
+the pack's own (the host's permission mode is the gate), shared with any other chat that opens it (each on its own
+tabs), and cannot be
 combined with `app`. Neither is a security boundary against arbitrary Node code.
 
 At startup the pack removes its task keys (`TYPESAFE_API_KEY`,
@@ -494,12 +495,12 @@ always that profile, whatever another profile is labelled (so a label can never 
 profile impossible to open). A label that two profiles share (`profile_ambiguous`), or a
 name that is not a valid name and matches no label (`profile_unknown`), is refused with
 the profiles' names and labels, never resolved to the closest. A valid name that
-matches nothing is a new profile, as it always was (an account's first sign-in). The
-chat that already holds a profile gets its own browser back; anyone else is refused
-`profile_held`, told whether the human or another chat has it, whether that profile is
-open or still starting.
+matches nothing is a new profile, as it always was (an account's first sign-in). Opening
+one that is already open joins that browser: a profile is ONE Chrome and one cookie jar,
+so chats share it and work on their own tabs. Only a second process on the same folder is
+refused (`profile_locked`), because two Chromes would fork the jar.
 
-**Using a saved profile.** An agent opens any saved profile the same way, with no approval of the pack's own: `browser_open`, `browser_view`, or a `browser_run` cell (`browser.open({ profile: "work" })`). The host's permission mode is the only gate: `browser_run` carries the `exec` tier and the other tools their own, so full access runs without asking and ask-on-commands asks, as for every other tool. One holder per profile still holds (`profile_held`), and the person can take the wheel at any time (`human_driving`). A web page can carry instructions meant for the agent, and the pack does not stop the agent acting inside a signed-in account: that is the cost of hands-free use.
+**Using a saved profile.** An agent opens any saved profile the same way, with no approval of the pack's own: `browser_open`, `browser_view`, or a `browser_run` cell (`browser.open({ profile: "work" })`). The host's permission mode is the only gate: `browser_run` carries the `exec` tier and the other tools their own, so full access runs without asking and ask-on-commands asks, as for every other tool. Chats on one profile share its browser and work beside each other on their own tabs (a chat's names reach only its own tabs; `browser.tabs()` lists the browser's, and `browser.active()` takes what is in front), and the person can take the wheel at any time (`human_driving`). A web page can carry instructions meant for the agent, and the pack does not stop the agent acting inside a signed-in account: that is the cost of hands-free use.
 
 A profile's sign-ins are kept in its Chrome folder on disk and are still there after the browser closes and opens again. A `browser_run` cell is full Node running as you, so it can read a profile's files (`chrome/`, `credentials.json`, and in the browser root `credentials.key`); that is equal to OMP's built-in eval browser (doc 77 §7.8 decision 1).
 
@@ -507,9 +508,9 @@ A profile's sign-ins are kept in its Chrome folder on disk and are still there a
 the person chose, else the label's first letter, on the profile's colour) and its label; Private for a
 throwaway browser, Your Chrome for the relay. Its face rides the browser's own state (`look`), so drawing it
 costs no call. Opening the menu reads `browser_profiles` and lists the others, Default first and then by
-label, each with where it is signed in or who has it: a profile open here (yours, or your agent's, or one
-an agent task is running on) is one click away; a profile another chat holds, or you hold in another chat's
-View, is shown dimmed and cannot be opened from here (the one-holder lock); its reason is still read out to a
+label, each with where it is signed in or who has it: every profile is one click away, and one another chat also
+has open joins that chat on its browser (a profile is one Chrome, shared per tab); who else is on it is still read
+out to a
 keyboard, because the row stays on the arrow keys. A click calls `browser_switch` for that profile (the browser on screen is named as the one being left) and the View
 shows the result, then calls `browser_leave` for the browser it left. The new browser is opened first, so a profile that cannot
 be opened never costs the person the one they are in; only with the pool full does the runtime close the browser being left
@@ -872,10 +873,10 @@ signed in (the first sites seen signed in, never a site's account).
 
 The View's start page and the tab's **Open a page** open on the saved `default`
 set, so a person's own browser keeps their logins, unless **Private** is ticked.
-Private sends no profile: a throwaway browser that saves nothing. One browser
-holds a saved set at a time, so a second open of `default` is refused
-(`profile_held`); the start page turns that into "That browser is already
-open. Use it, or open a Private one."
+Private sends no profile: a throwaway browser that saves nothing. A saved set is one
+browser that chats share, each on its own tabs; what is refused is a second process on the
+same folder (`profile_locked`), and the start page turns that into "That profile's browser
+is already open in another window. Close it there, or open a Private one."
 
 The tab acts only through `openArtifactoryView` (`browser_view` with
 `{ url?, profile? }`), which its `artifactory:open` grant admits. The host mounts

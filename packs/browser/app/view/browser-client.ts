@@ -325,11 +325,10 @@ export function failureText(cause: unknown): string {
 	return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** The runtime allows one holder per saved set of logins. Only the text of that
- *  refusal crosses the tool boundary (`profile_held` / `profile_locked`), so it
- *  is recognised by it. */
-const SET_TAKEN = /profile "[^"]*" is already (?:open|in use)/;
-const SET_TAKEN_TEXT = "That browser is already open. Use it, or open a Private one.";
+/** A saved set of logins is one Chrome, so a second PROCESS on the same folder is refused. Only the text of that
+ *  refusal crosses the tool boundary (`profile_locked`), so it is recognised by it. */
+const SET_TAKEN = /profile "[^"]*" is already in use/;
+const SET_TAKEN_TEXT = "That profile's browser is already open in another window. Close it there, or open a Private one.";
 
 /** Why an open opened nothing, as the start page says it: the runtime's own
  *  text, except a taken set of logins, which is plain language and a way out. */

@@ -703,23 +703,25 @@ export class CodeSession {
     return { text: had ? `Released managed tab ${JSON.stringify(name)}` : `No tab named ${JSON.stringify(name)}`, details: { action: "close", name } };
   }
 
-  /** Releases a named tab: its page closes, and the browser with it when this was the cell's own and no other tab of the session uses it (matrix C11). */
+  /**
+   * Releases a named tab: its page closes, and this chat's hold on the browser with it once no tab of the session uses it (matrix C11). Whether the
+   * browser itself closes is the runtime's to say — several chats work on one saved-profile browser (doc 77 §7.4.5), so one chat's last tab must not
+   * end another's. `kill` (ending an application the pack started) is the maker's alone.
+   */
   async #releaseTab(name: string, kill: boolean): Promise<void> {
     const tab = this.#tabs.get(name);
     if (tab === undefined) return;
     this.#forgetTab(name);
     await this.#d.browsers.closeTab(tab.browserId, tab.handle.tabId).catch(() => undefined);
     const record = this.#browsers.get(tab.browserId);
-    if (record === undefined || !record.createdByCode || [...this.#tabs.values()].some(other => other.browserId === record.browserId)) return;
-    await this.#dropBrowser(record, kill);
+    if (record === undefined || [...this.#tabs.values()].some(other => other.browserId === record.browserId)) return;
+    await this.#dropBrowser(record, kill && record.createdByCode);
   }
 
-  /** Lets go of a browser the cell made: the runtime closes it unless a View has joined it (the person's eyes outrank a cell's tidiness). */
+  /** Lets go of this chat's hold on a browser. It closes only when the runtime agrees: other chats may be working on it, and the person's eyes outrank a cell's tidy-up. */
   async #dropBrowser(record: BrowserRecord, kill: boolean): Promise<void> {
-    const { browsers } = this.#d;
-    if ((browsers.activity(record.browserId)?.viewers ?? 0) > 0) return;
     this.#forgetBrowser(record.browserId);
-    await browsers.release(record.browserId, { kill }).catch((error: unknown) => console.error("A cell's browser did not close:", codedMessage(error)));
+    await this.#d.browsers.release(record.browserId, { kill, session: this.#d.session }).catch((error: unknown) => console.error("A cell's browser did not close:", codedMessage(error)));
   }
 
   #forgetTab(name: string): void {

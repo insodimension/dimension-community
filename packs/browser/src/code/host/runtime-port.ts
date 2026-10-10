@@ -36,7 +36,7 @@ export interface CodeSeamEntry {
   readonly driver: EngineDriver;
   readonly profile: string | null;
   readonly engine: BrowserEngine;
-  readonly opener: BrowserOpener;
+  readonly openers: Map<string, BrowserOpener>;
   readonly closed: boolean;
   readonly viewers: number;
   readonly pending: number;
@@ -49,7 +49,8 @@ export interface CodeSeam {
   /** `attach`: a browser somebody else owns to attach to instead of launching one (a cell's connected, spawned or relay browser; the engine is `chrome-relay`). */
   open(options: BrowserOpenOptions, opener: BrowserOpener, code: CodeLifetime, attach?: AttachTarget): Promise<BrowserState>;
   resize(browserId: string, viewport: Viewport, scale: number): Promise<BrowserState>;
-  close(browserId: string): Promise<void>;
+  /** Lets go of this chat's hold; the browser is closed only when no chat has work on it (`session` names the one letting go). */
+  close(browserId: string, session?: string): Promise<void>;
   /** The live entry; throws `unknown_browser` with the runtime's own reason when it closed the browser (idle, to make room). Stamps `lastUsed`. */
   require(browserId: string): CodeSeamEntry;
   /** The live entry without stamping it as used or throwing: what a clock reads. */
@@ -163,7 +164,7 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
       started.promise.then(settle, settle);
       // A browser made for an open that nobody waits for any more (its deadline passed or the cell was cancelled) must not outlive it: no Chrome, no application and no cmux connection left behind (matrix C8).
       started.promise.then(async made => {
-        if (made.created && started.waiting === 0) await this.#letGo(made.browserId);
+        if (made.created && started.waiting === 0) await this.#letGo(made.browserId, session);
       }, () => undefined);
     }
     launch.waiting += 1;
@@ -188,11 +189,11 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
    * A browser this port made that no open waits for any more: the runtime closes it, and an application the pack started for it goes too (nothing else holds that application: no entry, no idle clock, no retry, and it
    * was started detached). `terminate` exists only for one this open started, so an application that was already running is only let go of.
    */
-  async #letGo(browserId: string): Promise<void> {
+  async #letGo(browserId: string, session?: string): Promise<void> {
     if (this.#cmux.owns(browserId)) return await this.#cmux.release(browserId).catch(() => undefined);
     const entry = this.#seam.peek(browserId);
     if (entry?.code?.kind?.kind === "spawned") entry.code.kill = true;
-    await this.#seam.close(browserId).catch(() => undefined);
+    await this.#seam.close(browserId, session).catch(() => undefined);
   }
 
   async #acquire(session: string, kind: BrowserKind, req: Parameters<CodeBrowserPort["acquire"]>[1], signal: AbortSignal): Promise<AcquiredBrowser> {
@@ -261,7 +262,7 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
       return { browserId: state.browserId, created, wsEndpoint: entry.driver.cdpEndpoint(), label: attach.label };
     } catch (error) {
       if (attach.terminate !== undefined) {
-        if (opened !== undefined) await this.#letGo(opened);
+        if (opened !== undefined) await this.#letGo(opened, session);
         await attach.terminate().catch(() => undefined);
       }
       throw error;
@@ -356,13 +357,13 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
     return this.#seam.hold(this.#seam.require(browserId));
   }
 
-  async release(browserId: string, o: { kill: boolean }): Promise<void> {
+  async release(browserId: string, o: { kill: boolean; session?: string }): Promise<void> {
     if (this.#cmux.owns(browserId)) return await this.#cmux.release(browserId);
     // `kill` ends an application the pack started, after it lets go; a browser the person started is never ended, and a Chromium of the pack's closes either way.
     const entry = this.#seam.peek(browserId);
     if (o.kill && entry?.code?.kind?.kind === "spawned") entry.code.kill = true;
     try {
-      await this.#seam.close(browserId);
+      await this.#seam.close(browserId, o.session);
     } catch (error) {
       // Already closed by the runtime (idle, to make room) is what was asked for.
       if (!(error instanceof BrowserRuntimeError && error.code === "unknown_browser")) throw error;

@@ -198,7 +198,8 @@ export interface CodeBrowserPort {
   setFrozen(browserId: string, tabId: string, frozen: boolean): Promise<void>;
   /** Counts as a call in flight; throws human_driving, publish_pending, task_running. */
   holdWork(browserId: string): () => void;
-  release(browserId: string, o: { kill: boolean }): Promise<void>;
+  /** Lets go of one chat's hold (`o.session`); with several chats on a saved-profile browser it stays until the last one is done. */
+  release(browserId: string, o: { kill: boolean; session?: string }): Promise<void>;
   /** `reason` is the runtime's own account when it closed the browser (idle, to make room): what the cell is told in place of "not alive". */
   onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over", reason?: string) => void): () => void;
   // ---- ADDED by L2 (the host needs them on reuse, on a View mounting, and for the freeze clock).
