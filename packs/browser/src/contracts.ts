@@ -440,8 +440,9 @@ export type ReadResult =
 /** Capability is the opaque browserId; it must never appear in global listings. */
 export interface BrowserRuntimePort {
   /**
-   * `opener`: who is asking (the host's stamps). A profile already open for the SAME chat comes back as that browser;
-   * for anyone else it is refused (`profile_held`), naming whose it is.
+   * `opener`: who is asking (the host's stamps). One profile is one Chrome and one cookie jar, so a profile already open — for this chat or any other —
+   * comes back as that browser: chats share it and are told apart by the tabs they own on it. Refused only for a second process on the same profile
+   * folder (`profile_locked`).
    */
   open(options: BrowserOpenOptions, opener?: BrowserOpener, code?: undefined, attach?: undefined, guard?: EffectGuard): Promise<BrowserState>;
   state(browserId: string, guard?: EffectGuard): Promise<BrowserState>;
@@ -540,8 +541,8 @@ export interface BrowserRuntimePort {
    * taken it over, or it is their own Chrome: those stay open, listed in the View's menu, and are closed from there.
    */
   leave(browserId: string, caller?: ToolCaller): Promise<LeaveOutcome>;
-  /** Settles a pending publish first. Refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
-  close(browserId: string, caller?: ToolCaller, guard?: EffectGuard): Promise<void>;
+  /** Lets go of one hold (`by`); a chat's close leaves the browser while anyone else is on it, and the person's ends it. Answers whether it was closed. Settles a pending publish first — refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
+  close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, by?: BrowserOpener): Promise<boolean>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard, workerGuard?: EffectGuard): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */

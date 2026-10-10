@@ -215,7 +215,7 @@ describeWithChrome("opening a profile by the name an agent was given", () => {
 	const errorOf = (result: ToolResult): string | undefined => (result.isError ? textOf(result) : undefined);
 
 	test(
-		"a label opens its profile with no approval step, the same chat reuses its browser, and another chat is refused without its browser id",
+		"a label opens its profile with no approval step, every chat joins the one browser, and each is told it is its own",
 		async () => {
 			const { call } = await connect((store) => store.saveMeta("acme-work", { label: "Work Account" }));
 			const first = await call("browser_open", { profile: "work account" }, MODEL);
@@ -223,13 +223,13 @@ describeWithChrome("opening a profile by the name an agent was given", () => {
 			const again = await call("browser_open", { profile: "ACME-WORK" }, MODEL);
 			expect(again.structuredContent?.browserId).toBe(first.structuredContent?.browserId);
 
+			// A second chat joins the same browser: a profile is one cookie jar, so there is no second Chrome and no refusal.
 			const stranger = await call("browser_open", { profile: "Work Account" }, { caller: "model", session: "s-2" });
-			expect(stranger.isError).toBe(true);
-			const other = errorOf(stranger);
-			expect(other).toContain("is already open");
-			expect(other).not.toContain(String(first.structuredContent?.browserId));
+			expect(stranger.isError).toBeFalsy();
+			expect(stranger.structuredContent?.browserId).toBe(first.structuredContent?.browserId);
 
-			expect(listOf(await call("browser_profiles", {}, { caller: "model", session: "s-2" })).profiles.map((profile) => profile.heldBy)).toEqual(["another chat"]);
+			expect(listOf(await call("browser_profiles", {}, { caller: "model", session: "s-2" })).profiles.map((profile) => profile.heldBy)).toEqual(["this chat"]);
+			expect(listOf(await call("browser_profiles", {}, MODEL)).profiles.map((profile) => profile.heldBy)).toEqual(["this chat"]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

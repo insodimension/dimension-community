@@ -199,7 +199,7 @@ describeWithChrome("switching profiles in the View", () => {
 	);
 
 	test(
-		"a profile held in the background is refused to every other seat — in words, never its id — and is free once its holder closes it",
+		"a profile held in the background is joined by every other seat — one browser per profile, each seat told its own word — and is free once its holder closes it for good",
 		async () => {
 			const r = await rig();
 			const a = await open(r, VIEW, { profile: "a", engine: "chromium" });
@@ -207,34 +207,26 @@ describeWithChrome("switching profiles in the View", () => {
 			// `a` is in the background now.
 			const c = await open(r, CHAT, { profile: "c" });
 
-			for (const who of [CHAT, VIEW_TWO]) {
-				const asked = refusal(await r.call("browser_open", { profile: "a" }, who));
-				expect(asked).not.toContain(a.browserId);
+			for (const [who, slugged, held] of [[CHAT, "a", a], [VIEW_TWO, "b", b]] as const) {
+				expect((await open(r, who, { profile: slugged })).browserId).toBe(held.browserId);
 			}
-			expect(await failureCode(() => r.runtime.open({ profile: "a" }, { caller: "model", session: "s-chat" }))).toBe("profile_held");
-			expect(await failureCode(() => r.runtime.open({ profile: "b" }, { caller: "app", session: "s-view-2" }))).toBe("profile_held");
-			// An unstamped call is nobody's seat.
-			expect(await failureCode(() => r.runtime.open({ profile: "a" }))).toBe("profile_held");
-			// The View is told the same of a chat's browser.
-			const taken = refusal(await r.call("browser_open", { profile: "c" }, VIEW));
-			expect(taken).toContain("another chat");
-			expect(taken).not.toContain(c.browserId);
-
-			// A refusal disturbed nothing, and each seat sees the hold from its own side.
+			expect((await r.runtime.open({ profile: "a" })).browserId).toBe(a.browserId);
+			expect((await open(r, VIEW, { profile: "c" })).browserId).toBe(c.browserId);
 			expect((await stateAs(r, VIEW, a.browserId)).browserId).toBe(a.browserId);
 			const asChat = await listAs(r, CHAT);
-			expect([entry(asChat, "a")?.heldBy, entry(asChat, "b")?.heldBy, entry(asChat, "c")?.heldBy]).toEqual(["human", "human", "this chat"]);
+			expect([entry(asChat, "a")?.heldBy, entry(asChat, "b")?.heldBy, entry(asChat, "c")?.heldBy]).toEqual(["this chat", "human", "this chat"]);
 			const asViewTwo = await listAs(r, VIEW_TWO);
 			expect(entry(asViewTwo, "a")).toMatchObject({ heldBy: "human", hold: { by: "person", task: false, takenOver: false } });
-			expect(entry(asViewTwo, "c")).toMatchObject({ heldBy: "another chat", hold: { by: "agent", task: false, takenOver: false } });
+			expect(entry(asViewTwo, "b")).toMatchObject({ heldBy: "this chat", hold: { by: "person", task: false, takenOver: false } });
+			expect(entry(asViewTwo, "c")).toMatchObject({ heldBy: "human", hold: { by: "person", task: false, takenOver: false } });
 
-			// The holder closes the background one: the chat can have it; the other stays held.
+			// The holder closes the background one for good: no browser, and the next open of that profile is a browser of its own.
 			expect((await r.call("browser_close", { browserId: a.browserId }, VIEW)).isError).toBeFalsy();
 			expect(entry(await listAs(r, CHAT), "a")?.heldBy).toBeNull();
 			const adopted = await open(r, CHAT, { profile: "a" });
 			expect(adopted.browserId).not.toBe(a.browserId);
 			expect(entry(await listAs(r, CHAT), "a")?.heldBy).toBe("this chat");
-			expect((await r.call("browser_open", { profile: "b" }, CHAT)).isError).toBe(true);
+			expect((await open(r, VIEW_TWO, { profile: "b" })).browserId).toBe(b.browserId);
 			expect((await stateAs(r, VIEW, b.browserId)).browserId).toBe(b.browserId);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
@@ -285,7 +277,7 @@ describeWithChrome("taking a browser over in the View", () => {
 	});
 
 	test(
-		"the person takes the wheel: the agent's actions are refused and its reads are not, the person's own input still works, and handing back gives the agent its hands again",
+		"the person takes the wheel: the agent's actions are refused and its reads are not, the person's own input still works, and handing back gives the agent its hands again; a chat's close only steps away, and the person's close ends it",
 		async () => {
 			const r = await rig();
 			const startedAt = Date.now();
@@ -317,7 +309,6 @@ describeWithChrome("taking a browser over in the View", () => {
 				["browser_act", { browserId: id, actions: [{ kind: "click", selector: "#idle" }] }],
 				["browser_act", { browserId: id, actions: [{ kind: "tab", op: "new", url: r.fixture.url("/show-cookie") }] }],
 				["browser_act", { browserId: id, actions: [{ kind: "wait", text: "never", timeoutMs: 100 }] }],
-				["browser_close", { browserId: id }],
 				["browser_task", { browserId: id, task: "do something", waitSeconds: 0 }],
 			];
 			for (const who of [CHAT, OTHER_CHAT, undefined]) {
@@ -373,8 +364,15 @@ describeWithChrome("taking a browser over in the View", () => {
 			await navigate(r, CHAT, id, "/show-cookie");
 			expect(r.fixture.hits("/show-cookie")).toBe(2);
 			expect((await stateAs(r, CHAT, id)).agentActionAt).toBeGreaterThan(working.agentActionAt ?? Infinity);
-			expect(await failureCode(() => r.runtime.open({ profile: "work" }, { caller: "model", session: "s-other" }))).toBe("profile_held");
-			expect(refusal(await r.call("browser_open", { profile: "work" }, OTHER_CHAT))).toContain("held by another chat");
+			const otherSeat = await open(r, OTHER_CHAT, { profile: "work" });
+			expect(otherSeat.browserId).toBe(id);
+			expect(entry(await listAs(r, OTHER_CHAT), "work")?.heldBy).toBe("this chat");
+			expect(stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT)).takenOver).toBe(true);
+			expect((await r.call("browser_close", { browserId: id }, CHAT)).structuredContent).toEqual({ closed: false });
+			expect((await r.call("browser_close", { browserId: id }, OTHER_CHAT)).structuredContent).toEqual({ closed: false });
+			expect((await r.call("browser_close", { browserId: id }, undefined)).structuredContent).toEqual({ closed: false });
+			expect((await stateAs(r, VIEW_OF_CHAT, id)).browserId).toBe(id);
+			expect((await r.call("browser_close", { browserId: id }, VIEW_OF_CHAT)).structuredContent).toEqual({ closed: true });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -905,19 +903,15 @@ describeWithChrome("leaving a browser for another profile in the View", () => {
 	const alive = (r: Rig, who: Who, browserId: string): Promise<PageState> => stateAs(r, who, browserId);
 
 	test(
-		"with room in the pool the next browser opens first and the one being left stays until it is left: a switch that cannot open loses nothing",
+		"a switch to a profile another chat holds joins its browser, and the one being left stays until it is left",
 		async () => {
 			const r = await rig();
 			const a = await open(r, VIEW, { profile: "a" });
 			const held = await open(r, CHAT, { profile: "h" });
 
-			// Refused: another chat has "h". The browser being left is exactly as it was.
-			expect(refusal(await switchTo(r, a.browserId, "h"))).toContain("already open");
-			expect((await alive(r, VIEW, a.browserId)).browserId).toBe(a.browserId);
-
-			const b = stateOf(await switchTo(r, a.browserId, "b"));
-			expect(b.profile).toBe("b");
-			// Opened, not yet left: the View leaves it once it shows the new one.
+			const joined = stateOf(await switchTo(r, a.browserId, "h"));
+			expect(joined.browserId).toBe(held.browserId);
+			expect(joined.profile).toBe("h");
 			expect((await alive(r, VIEW, a.browserId)).browserId).toBe(a.browserId);
 			expect(await r.runtime.leave(a.browserId, "app")).toEqual({ closed: true });
 			expect((await alive(r, CHAT, held.browserId)).browserId).toBe(held.browserId);
@@ -946,17 +940,18 @@ describeWithChrome("leaving a browser for another profile in the View", () => {
 	);
 
 	test(
-		"a refused switch at the cap loses nothing either: a profile another chat holds is refused before anything is closed",
+		"a switch at the cap joins the held profile for free — no slot, nothing closed",
 		async () => {
 			const r = await rig();
 			const a = await open(r, VIEW, { profile: "a" });
 			const first = await open(r, OTHER_CHAT, {});
 			const second = await open(r, OTHER_CHAT, {});
-			await open(r, OTHER_CHAT, { profile: "h" });
+			const held = await open(r, OTHER_CHAT, { profile: "h" });
 
-			expect(refusal(await switchTo(r, a.browserId, "h"))).toContain("already open");
+			const joined = stateOf(await switchTo(r, a.browserId, "h"));
+			expect(joined.browserId).toBe(held.browserId);
 
-			for (const [who, browser] of [[VIEW, a], [OTHER_CHAT, first], [OTHER_CHAT, second]] as const) expect((await alive(r, who, browser.browserId)).browserId).toBe(browser.browserId);
+			for (const [who, browser] of [[VIEW, a], [OTHER_CHAT, first], [OTHER_CHAT, second], [OTHER_CHAT, held]] as const) expect((await alive(r, who, browser.browserId)).browserId).toBe(browser.browserId);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

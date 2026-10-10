@@ -65,9 +65,10 @@ function holdLine(hold: ProfileHold | undefined): { readonly line: string; reado
 /** What a row says about its profile, and whether the person can open it from here. */
 export function profileStatus(profile: ProfileListing): { readonly line: string; readonly openable: boolean; readonly tone?: "open" | "agent" } {
 	const { heldBy, hold } = profile;
+	// A saved profile is one Chrome chats share, each on its own tabs: someone else being on it is no reason it cannot be opened.
 	if (heldBy === null) return { line: signInSummary(profile.sites), openable: true };
 	if (heldBy === "this chat") return { ...holdLine(hold), openable: true };
-	return { line: heldBy === "human" ? "Open in another chat" : "In use by another chat", openable: false };
+	return { line: heldBy === "human" ? "Also open in another chat" : "Also in use by another chat", openable: true };
 }
 
 /** What closing a browser left open here costs, said on the button that does it. */

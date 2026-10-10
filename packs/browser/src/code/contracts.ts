@@ -2,6 +2,8 @@
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../third-party/omp/LICENSE.
 // Changed for the Browser pack: the shapes are OMP's, re-cut as the contract between the lanes of doc 77 §7.7 (the bridge, the host/worker messages, the three ports).
 
+import type { BrowserOpener } from "../contracts.js";
+
 /**
  * The contract between the lanes that build the `browser_run` tool (doc 77 §7.7). L1 froze it in wave 0; a lane may ADD to it,
  * and changing a shape is a message to every lane. Shapes are OMP's wherever OMP has one.
@@ -198,7 +200,8 @@ export interface CodeBrowserPort {
   setFrozen(browserId: string, tabId: string, frozen: boolean): Promise<void>;
   /** Counts as a call in flight; throws human_driving, publish_pending, task_running. */
   holdWork(browserId: string): () => void;
-  release(browserId: string, o: { kill: boolean }): Promise<void>;
+  /** Lets go of one hold (`o.by`); with several chats on a saved-profile browser it stays until the last is done. */
+  release(browserId: string, o: { kill: boolean; by?: BrowserOpener }): Promise<void>;
   /** `reason` is the runtime's own account when it closed the browser (idle, to make room): what the cell is told in place of "not alive". */
   onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over", reason?: string) => void): () => void;
   // ---- ADDED by L2 (the host needs them on reuse, on a View mounting, and for the freeze clock).
