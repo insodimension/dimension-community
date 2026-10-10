@@ -3,11 +3,16 @@
 An Android emulator in a View beside your conversation. You watch it as live
 video and tap and type on it; your agent drives the **same device** through
 typed tools. Built as a community plugin on standard MCP and MCP Apps: one
-artifactory (the MCP server and its View), a dock component, a connector and a
-skill. No new primitive, no host internals.
+artifactory (the MCP server and its View), a connector and a skill. No new
+primitive, no host internals.
 
-Desktop only. The pane declares `phone: "none"` ([doc 94 §4.7.1](../../../docs/design/94-dimension-mobile.md)):
-on a phone the host draws its own "Open on your computer" card for it.
+**It has no rail entry and no dock tab.** An emulator only matters when the work
+involves an Android app, so the pane is not something to keep a button for. Your
+agent opens it with `device_open` when you ask, or when it is building or running
+an Android app and a look at the screen helps; the skill says so. You can always
+ask: "open the simulator".
+
+Desktop only: it needs `adb` and the Android emulator on the machine Dimension runs on.
 
 ## What it does
 
@@ -370,7 +375,7 @@ visible), one without gets only the SDK's minimal default.
 ## Develop
 
 ```sh
-bun run build      # esbuild only: app/server.mjs, app/view.html (self-contained), dist/index.mjs (the dock)
+bun run build      # esbuild only: app/server.mjs, app/view.html (self-contained)
 ```
 
 `bun`, not `node`: the SDK's `@dimension/sdk/artifactory` is TypeScript source.

@@ -1062,7 +1062,7 @@
 			"title": "Simulator",
 			"icon": "phone",
 			"description": "An Android emulator in a View beside your chat that your agent drives while you watch. Boot, screenshot, tap by label, type, install and launch apps. Live H.264 video for you, cheap screenshots for the agent.",
-			"version": "0.1.3",
+			"version": "0.1.4",
 			"author": {
 				"name": "Dimension"
 			},
