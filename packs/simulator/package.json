@@ -1,6 +1,6 @@
 {
   "name": "@dimension/community-simulator",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "author": "Dimension",
@@ -8,7 +8,7 @@
   "engines": { "node": ">=22.12.0" },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check:types": "tsc --noEmit && tsc --noEmit -p src/dock",
+    "check:types": "tsc --noEmit",
     "test": "bun test test/",
     "start": "node app/server.mjs"
   },
@@ -19,7 +19,7 @@
     "category": "artifactory",
     "keywords": ["simulator", "android", "emulator", "mcp-apps", "mobile"]
   },
-  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/view.html", "dist/", "skills/", "README.md"],
+  "files": ["plugin.json", "ai.insodimension.dimension/", "app/server.mjs", "app/view.html", "skills/", "README.md"],
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.29.0",

@@ -1,4 +1,4 @@
-// Builds the three artifacts the pack ships, with esbuild alone:
+// Builds the two artifacts the pack ships, with esbuild alone:
 //
 //   app/server.mjs   the MCP server (packages stay external: they are the pack's
 //                    declared dependencies, installed beside it)
@@ -6,11 +6,6 @@
 //                    inlined): the host serves it as the App resource, so it does
 //                    not depend on how sibling files would resolve inside a
 //                    sandboxed frame
-//   dist/index.mjs   the dock component, the rung-3 bundle the host loads at
-//                    runtime: ONE entry whose DEFAULT export is the component, and
-//                    an externals list that is the pack's IMPORT contract
-//                    (doc 68 §9.1 Q1). Unminified because `dist/` is committed and
-//                    must stay reviewable.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,17 +84,4 @@ const html = [
 ].join("\n");
 await writeFile(resolve(root, "app/view.html"), html);
 
-await build({
-  entryPoints: [resolve(root, "src/dock/index.ts")],
-  outfile: resolve(root, "dist/index.mjs"),
-  bundle: true,
-  platform: "browser",
-  format: "esm",
-  target: "es2022",
-  jsx: "automatic",
-  // The dock's tsconfig extends the kit's (for the type checker); esbuild needs only the JSX mode.
-  tsconfigRaw: { compilerOptions: { jsx: "react-jsx" } },
-  minify: false,
-  external: ["react", "react-dom", "react/jsx-runtime", "@fraym/ui"],
-});
-console.log(`simulator: server ${(await readFile(resolve(root, "app/server.mjs"))).length} B, view ${html.length} B, dock built`);
+console.log(`simulator: server ${(await readFile(resolve(root, "app/server.mjs"))).length} B, view ${html.length} B`);
