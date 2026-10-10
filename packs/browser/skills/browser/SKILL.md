@@ -44,11 +44,11 @@ shows the user a browser you hold.
   ask the user). It never shows which account a site is signed in to: ask the
   user if that matters. Pass the name or the label, in any case; an exact name is
   always that profile, and a label two profiles share, or a name that is none, is
-  refused with the choices: ask the user which, never guess. A profile another
-  chat or the user holds, open or still starting, is refused (`profile_held`);
-  your own chat gets the same browser back. Name a new one (`personal`, `work`,
-  `jobs`…) only to keep logins and cookies across sessions. Profiles never share
-  cookies.
+  refused with the choices: ask the user which, never guess. A profile is one
+  Chrome that chats share, each on its own tabs: one another chat or the user
+  already has open is joined, and you get a tab of your own on it. Name a new
+  one (`personal`, `work`, `jobs`…) only to keep logins and cookies across
+  sessions. Profiles never share cookies.
 - `engine`: `chromium` (default, a Chrome this pack manages) or `chrome-relay`
   (the user's own running Chrome; its profile is always `relay`, which you may
   omit). `abp` and `browser4` are refused with the reason.

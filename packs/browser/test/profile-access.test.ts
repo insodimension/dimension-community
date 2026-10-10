@@ -190,15 +190,15 @@ describeWithChrome("a model opening a saved profile", () => {
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, OTHER_MODEL))).toBe(browserId);
 		expect((await listedFor(r, OTHER_MODEL))[0]?.heldBy).toBe("this chat");
 
-		await r.runtime.close(browserId, "model", undefined, MODEL.session);
+		await r.runtime.close(browserId, "model", undefined, MODEL);
 
 		expect((await r.runtime.state(browserId)).browserId).toBe(browserId);
 		expect((await listedFor(r, OTHER_MODEL))[0]?.heldBy).toBe("this chat");
 		expect((await listedFor(r, MODEL))[0]?.heldBy).toBe("another chat");
-		await expect(r.runtime.close(browserId, "model", undefined, MODEL.session)).resolves.toBeUndefined();
+		await expect(r.runtime.close(browserId, "model", undefined, MODEL)).resolves.toBeUndefined();
 		expect((await r.runtime.state(browserId)).browserId).toBe(browserId);
 
-		await r.runtime.close(browserId, "model", undefined, OTHER_MODEL.session);
+		await r.runtime.close(browserId, "model", undefined, OTHER_MODEL);
 		expect(await failureCode(() => r.runtime.state(browserId))).toBe("unknown_browser");
 		expect(browserIdOf(await r.call("browser_open", { profile: "work" }, MODEL))).not.toBe(browserId);
 	}, BROWSER_TEST_TIMEOUT_MS);

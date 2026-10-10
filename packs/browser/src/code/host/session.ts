@@ -721,7 +721,7 @@ export class CodeSession {
   /** Lets go of this chat's hold on a browser. It closes only when the runtime agrees: other chats may be working on it, and the person's eyes outrank a cell's tidy-up. */
   async #dropBrowser(record: BrowserRecord, kill: boolean): Promise<void> {
     this.#forgetBrowser(record.browserId);
-    await this.#d.browsers.release(record.browserId, { kill, session: this.#d.session }).catch((error: unknown) => console.error("A cell's browser did not close:", codedMessage(error)));
+    await this.#d.browsers.release(record.browserId, { kill, by: { caller: "model", session: this.#d.session } }).catch((error: unknown) => console.error("A cell's browser did not close:", codedMessage(error)));
   }
 
   #forgetTab(name: string): void {
@@ -734,6 +734,9 @@ export class CodeSession {
     for (const key of [...this.#frozen]) if (key.startsWith(`${browserId}\u0000`)) this.#frozen.delete(key);
     this.#active?.holds.get(browserId)?.();
     this.#active?.holds.delete(browserId);
+    // The hold goes with the tabs — including when a take-over dropped them and the browser lives on. Letting go is per hold, so this never ends
+    // another chat's work or the person's hands (`#dropBrowser` makes the same call, and a second let-go of the same hold is a no-op).
+    void this.#d.browsers.release(browserId, { kill: false, by: { caller: "model", session: this.#d.session } }).catch(() => undefined);
   }
 
   #forgetBrowser(browserId: string): void {

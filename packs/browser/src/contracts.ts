@@ -541,8 +541,8 @@ export interface BrowserRuntimePort {
    * taken it over, or it is their own Chrome: those stay open, listed in the View's menu, and are closed from there.
    */
   leave(browserId: string, caller?: ToolCaller): Promise<LeaveOutcome>;
-  /** Lets go of one chat's hold (`session`); with several chats on one saved-profile browser it stays until the last is done. Settles a pending publish first — refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
-  close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, session?: string): Promise<void>;
+  /** Lets go of one hold (`by`); with several chats on one saved-profile browser it stays until the last is done. Settles a pending publish first — refused (`publish_pending`) while one awaits confirmation, unless `caller` is "app". */
+  close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, by?: BrowserOpener): Promise<void>;
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard, workerGuard?: EffectGuard): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */

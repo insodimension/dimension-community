@@ -287,7 +287,7 @@ describe("opening from the start page", () => {
 		expect(dom.text()).not.toContain(TAKEN_SENTENCE);
 	});
 
-	test("any other opening text — one a holder's profile_held refusal among them — is shown as it came, not rewritten", async () => {
+	test("any other opening text is shown as it came, not rewritten", async () => {
 		const held = `profile "default" is already open, held by another chat. Ask the human to close it, or open a Private one.`;
 		const { app } = fakeApp(call => (call.name !== "browser_open" ? failure("connection reset") : failure(held)));
 		const dom = await mount(<BrowserApp app={app} toolState={null} />);

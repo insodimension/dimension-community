@@ -355,11 +355,18 @@ interface Entry {
 }
 
 /**
- * Who a browser is open for, keyed by the host session the call was stamped with. The person's View open is one entry too, and a caller that
- * stamps no session shares one bucket per caller kind.
+ * Who a browser is open for. The key carries the caller as well as the host session: a chat's own View open (`app`) and its cells (`model`) are two
+ * holds on one session, and letting go of one must never give up the other (the person's eyes outrank a cell's tidy-up).
  */
 function openerKey(opener: BrowserOpener): string {
-	return opener.session ?? (opener.caller === "app" ? "#app" : "#agent");
+	return `${opener.caller ?? ""} ${opener.session ?? ""}`;
+}
+
+/** Whether `asker`'s session has this browser open — their View, their cells, or both. */
+function openedBy(openers: Map<string, BrowserOpener>, asker: string | undefined): boolean {
+	if (asker === undefined) return false;
+	for (const opener of openers.values()) if (opener.session === asker) return true;
+	return false;
 }
 
 /** Whether the person has this browser open in a View (their open is one of its openers). */
@@ -369,11 +376,16 @@ function personallyOpen(openers: Map<string, BrowserOpener> | undefined): boolea
 	return false;
 }
 
+/** Whether any AGENT has work on this browser: one that did is never closed from under its chat. */
+function openedByAgent(openers: Map<string, BrowserOpener>): boolean {
+	for (const opener of openers.values()) if (opener.caller !== "app") return true;
+	return false;
+}
+
 /** The opener to name in a message: the asker's own when they have one, else the first. */
 function openerFor(openers: Map<string, BrowserOpener>, asker: string | undefined): BrowserOpener {
 	if (asker !== undefined) {
-		const own = openers.get(asker);
-		if (own !== undefined) return own;
+		for (const opener of openers.values()) if (opener.session === asker) return opener;
 	}
 	return openers.values().next().value ?? {};
 }
@@ -465,7 +477,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * call, or a second chat — joins the browser already open (or on its way up) and gets the same capability back, instead of forking the jar with a
 	 * second Chrome. Chats are told apart by the tabs they own on it, not by the browser: each opens its own and never drives another's (doc 77 §7.4.5).
 	 * What is refused is a second PROCESS on the same profile folder (`profile_locked`, from the on-disk `runtime.lock`): two Chromes would fork the
-	 * cookie jar whatever the chats agreed. An id is handed only to a caller that opened the browser itself.
+	 * cookie jar whatever the chats agreed. The id goes to every chat that opens the profile — they share the one browser — and to nobody else.
 	 *
 	 * `profile` is a slug or a label, in any case. An exact slug is always that
 	 * profile; a label that two profiles share is refused (`profile_ambiguous`),
@@ -671,11 +683,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	/**
-	 * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so letting go is per chat: `session` is the one
-	 * stepping away, and the browser is closed only when no chat has work on it. Without a `session` the caller wants the browser itself gone.
-	 * Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
+	 * Let go of a browser. Several chats work on one saved-profile browser at once, each on its own tabs, so letting go is per chat: `by` is the hold
+	 * stepping away (its caller and host session), and the browser is closed only when no chat has work on it and nobody is watching it. Without a `by`
+	 * the caller wants the browser itself gone. Refused (`publish_pending`) while a publish awaits confirmation, unless `caller` is "app".
 	 */
-	async close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, session?: string): Promise<void> {
+	async close(browserId: string, caller?: ToolCaller, guard?: EffectGuard, by?: BrowserOpener): Promise<void> {
 		// A failed close revokes reads/actions but remains retryable for cleanup.
 		const entry = this.byId.get(browserId);
 		if (!entry) {
@@ -683,20 +695,27 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (this.released.has(browserId)) return;
 			fail("unknown_browser", "Unknown or already closed browserId.");
 		}
-		if (session !== undefined) {
-			// Not this chat's to let go of (an id it was never an opener of), or others still have work on it: their tabs outlive this call.
-			if (!entry.openers.delete(session)) return;
-			// The person's eyes outrank a cell's tidy-up: a browser they are watching stays until they close it.
-			if (entry.openers.size > 0 || entry.viewers > 0) return;
-		}
+		const mine = by === undefined ? undefined : openerKey(by);
 		await this.serialize(entry, async () => {
 			if (guard !== undefined) await guard();
 			guard?.assertCurrent();
+			if (mine !== undefined) {
+				// Not this hold's to give up (a caller that never opened this browser): nothing of anyone's is ended by it.
+				if (!entry.openers.has(mine)) return;
+				// Others still have work on it, the person is watching, or they have the wheel: stepping away leaves them alone. No refusal below
+				// may stop this — a chat is always free to leave, and what it leaves is another chat's tabs or the person's own hands.
+				if (entry.openers.size > 1 || entry.viewers > 0 || entry.takenOver) {
+					entry.openers.delete(mine);
+					return;
+				}
+			}
 			if (!entry.closed) {
 				refuseWhilePublishing(entry, caller);
 				// An agent closing a browser the person took over would end what they are doing in it.
 				refuseWhileTakenOver(entry, caller);
 			}
+			// The hold is given up only once the close is admitted: a close that was refused keeps it.
+			if (mine !== undefined) entry.openers.delete(mine);
 			await this.teardown(entry);
 		}, { evenIfClosed: true });
 		// A throwaway browser's data is gone by the time its close resolves.
@@ -832,7 +851,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.byId.get(browserId);
 		if (!entry) return { ok: false, code: "unknown_source" };
 		if (entry.closed) return { ok: false, code: "source_closed" };
-		if (!entry.openers.has(session) && this.viewOf(session) !== browserId) return { ok: false, code: "not_owner" };
+		if (!openedBy(entry.openers, session) && this.viewOf(session) !== browserId) return { ok: false, code: "not_owner" };
 		if (entry.engine !== "chromium" || this.options.headless === false) return { ok: false, code: "not_headless" };
 		const state = this.redact(entry, { url: entry.url, title: entry.title });
 		return { ok: true, profile: entry.profile === null ? "throwaway" : "saved", url: state.url, title: state.title };
@@ -965,7 +984,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 	/** Why nothing could be given up. It names what `asker` itself holds, never what anyone else does: an id is a capability. */
 	private refusal(asker: string | undefined, because: string): string {
-		const held = asker === undefined ? [] : [...this.byId.values()].filter((entry) => entry.openers.has(asker) && !entry.closed).map((entry) => entry.browserId);
+		const held = asker === undefined ? [] : [...this.byId.values()].filter((entry) => openedBy(entry.openers, asker) && !entry.closed).map((entry) => entry.browserId);
 		const why = `at most ${MAX_BROWSERS} browsers may be open at once, and ${because}`;
 		return held.length > 0 ? `${why}. You hold ${held.join(", ")}: browser_close the ones you are done with` : `${why}. None is yours; try again shortly`;
 	}
@@ -1058,7 +1077,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				const entry = this.byId.get(browserId);
 				return entry === undefined || entry.closed ? undefined : entry;
 			},
-			browsersOf: (session) => [...this.byId.values()].filter((entry) => !entry.closed && (entry.profile === null || entry.profile === RELAY_PROFILE) && entry.openers.has(session)),
+			browsersOf: (session) => [...this.byId.values()].filter((entry) => !entry.closed && (entry.profile === null || entry.profile === RELAY_PROFILE) && openedBy(entry.openers, session)),
 			viewOf: (session) => {
 				const id = this.viewOf(session);
 				const entry = id === undefined ? undefined : this.byId.get(id);
@@ -1299,8 +1318,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	async endProfileSession(sessionId: string): Promise<void> {
-		for (const entry of this.byId.values()) {
+		for (const entry of [...this.byId.values()]) {
 			if (entry.worker && entry.taskSession === sessionId) await this.stopTask(entry);
+			// The host says a session ended: its holds go with it. It says so rarely — a chat that dies unheard is the idle clock's business, as it has
+			// always been — but what it does say must not leave a hold standing that would block the last live chat's close.
+			for (const key of [...entry.openers.keys()]) if (entry.openers.get(key)?.session === sessionId) entry.openers.delete(key);
 		}
 	}
 
@@ -1438,7 +1460,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * listed in the View's menu and closed from there.
 	 */
 	private keptOnLeave(entry: Entry, heldWheel: boolean): boolean {
-		return !personallyOpen(entry.openers) || entry.profile === RELAY_PROFILE || heldWheel || this.working(entry) || isPending(entry.publish);
+		// An AGENT has work on it (any one of its openers, however the person came to be on it too): its chat may be mid-task, so the person's switch
+		// never closes it. A browser only the person opened is theirs to leave behind.
+		return openedByAgent(entry.openers) || entry.profile === RELAY_PROFILE || heldWheel || this.working(entry) || isPending(entry.publish);
 	}
 
 	async connections(): Promise<ConnectionObservations> {
@@ -1511,7 +1535,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 */
 	private holderOf(openers: Map<string, BrowserOpener> | undefined, asker: string | undefined): Exclude<ProfileHolder, null> {
 		if (openers === undefined || openers.size === 0) return "another chat";
-		if (asker !== undefined && openers.has(asker)) return "this chat";
+		if (openedBy(openers, asker)) return "this chat";
 		return personallyOpen(openers) ? "human" : "another chat";
 	}
 

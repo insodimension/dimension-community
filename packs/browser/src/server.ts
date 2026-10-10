@@ -718,7 +718,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     description: "Close this owned browser (stopping any task) and release its profile lock. Persisted logins remain; a throwaway's data is deleted; the user's relay browser is never terminated. Refused while a publish awaits confirmation (confirm, cancel or wait first).",
     inputSchema: { browserId: capability },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, ({ browserId }, extra) => result(async () => { await access(extra, browserId, true); await runtime.close(browserId, callerOf(extra), accessGuard(extra, browserId, true)); return { closed: true }; }));
+  }, ({ browserId }, extra) => result(async () => { await access(extra, browserId, true); await runtime.close(browserId, callerOf(extra), accessGuard(extra, browserId, true), openerOf(extra)); return { closed: true }; }));
   // The connection report (connection.ts, dimension#1219): the full current map
   // once the host has initialized, then after every observation (a check, a
   // post, a deleted profile). Sends run one at a time and each reads the map
