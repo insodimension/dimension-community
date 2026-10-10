@@ -133,7 +133,7 @@ function facts(rows: readonly Row[]) {
 		identity: { version: "0.0.0", productLabel: "Test", userName: "tester", planLabel: "dev" },
 		mode: { app: "code", rail: "expanded", activeSurface: "session" },
 		sessions: [{ repo: "app", branch: "main", dot: "", items: rows }],
-		projectLabel: "Projects",
+		workspaceLabel: "Projects",
 		search: { open: false, value: "" },
 	};
 }
