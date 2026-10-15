@@ -172,7 +172,7 @@ describe("recording range leases", () => {
 		const openings = tokens.map(token => server.acquire(path, revision.size, revision.mtimeMs, undefined, token));
 		const settled = Promise.allSettled(openings);
 		try {
-			await expect(server.acquire(path, revision.size, revision.mtimeMs, undefined, "f".repeat(48))).rejects.toThrow("Close an open recording before opening another.");
+			await expect(server.acquire(path, revision.size, revision.mtimeMs, undefined, "f".repeat(48))).rejects.toThrow(/The viewer already serves/);
 		} finally {
 			for (const token of tokens) server.release(token);
 			approve();
@@ -298,7 +298,7 @@ describe("recording range leases", () => {
 	test("releasing a lease restores capacity after the lease limit is reached", async () => {
 		const first = await lease();
 		for (let index = 1; index < MAX_LEASES; index++) await lease();
-		await expect(lease()).rejects.toThrow(/Close an open recording/);
+		await expect(lease()).rejects.toThrow(/The viewer already serves/);
 		server.release(first.token);
 		const result = await response((await lease()).url, { Range: "bytes=0-11" });
 		expect(result.status).toBe(206);

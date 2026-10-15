@@ -15,7 +15,7 @@ import { mediaSourceSchema } from "../../src/contract";
 import { loadDocumentBytes, readLimit } from "./document-bytes";
 import { shownMode } from "./annotate-modes";
 import { FOCUS } from "./focus-ring";
-import { failureAction, type FailureStage, isRecording } from "./media-failure";
+import { failureAction, isRecording, type FailureStage, slotRefusalFor } from "./media-failure";
 import { trackMediaWork } from "./media-lifecycle";
 import { loadRenderer } from "./renderers";
 import { Opening } from "./opening";
@@ -149,6 +149,13 @@ export function DocPane({ app, tab, active, theme }: DocPaneProps) {
 	const modeShown = shownMode(tab.kind, phase.name);
 	const retryAction = { label: "Try again", onClick: () => setRetry(count => count + 1) };
 	const copyAction = { label: copied ? "Path copied" : "Copy path", onClick: copy };
+	const closeOtherRecordings = () => {
+		void createToolCaller(app)
+			.raw("close_other_recordings", {})
+			.catch(() => undefined)
+			.then(() => setRetry(count => count + 1));
+	};
+	const closeOtherAction = { label: "Close other recordings", onClick: closeOtherRecordings };
 
 	return (
 		<div className={active ? "relative flex h-full min-h-0 flex-col" : "hidden"} data-slot="viewer-pane" data-key={tab.key} data-annotate={modeShown ?? undefined}>
@@ -180,7 +187,13 @@ export function DocPane({ app, tab, active, theme }: DocPaneProps) {
 						<Message
 							title="This file could not be shown"
 							body={phase.message}
-							action={isRecording(tab.kind) && failureAction({ where: phase.stage, message: phase.message }) === "copy-path" ? copyAction : retryAction}
+							actions={
+								phase.name === "error" && isRecording(tab.kind) && slotRefusalFor(phase.message)
+									? [closeOtherAction, retryAction]
+									: isRecording(tab.kind) && failureAction({ where: phase.stage, message: phase.message }) === "copy-path"
+										? [copyAction]
+										: [retryAction]
+							}
 						/>
 					) : null}
 				</div>
@@ -200,26 +213,27 @@ export function FailedPane({ tab, failure, active }: { readonly tab: DocTab; rea
 		<div className={active ? "flex h-full min-h-0 flex-col" : "hidden"} data-slot="viewer-pane" data-key={tab.key} data-failed="">
 			<Toolbar filename={tab.filename} path={tab.path} />
 			<div className="relative min-h-0 flex-1">
-				<Message title="This file could not be opened" body={failure.message} action={failure.copyPath ? { label: copied ? "Path copied" : "Copy path", onClick: copy } : undefined} />
+				<Message title="This file could not be opened" body={failure.message} actions={failure.copyPath ? [{ label: copied ? "Path copied" : "Copy path", onClick: copy }] : undefined} />
 			</div>
 		</div>
 	);
 }
 
-export function Message({ title, body, action }: { readonly title: string; readonly body: string; readonly action?: { readonly label: string; readonly onClick: () => void } }) {
+export function Message({ title, body, actions }: { readonly title: string; readonly body: string; readonly actions?: readonly { readonly label: string; readonly onClick: () => void }[] }) {
 	return (
 		<div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-fr-bg px-6 text-center">
 			<p className="text-fr-md font-semibold text-fr-text">{title}</p>
 			<p className="max-w-[44ch] text-fr-sm text-fr-text-2 [overflow-wrap:anywhere]">{body}</p>
-			{action ? (
+			{actions?.map(({ label, onClick }) => (
 				<button
+					key={label}
 					type="button"
-					onClick={action.onClick}
+					onClick={onClick}
 					className={cn("mt-2 rounded-md border border-fr-border px-3 py-1.5 text-fr-sm text-fr-text-2 hover:bg-fr-surface hover:text-fr-text", FOCUS)}
 				>
-					{action.label}
+					{label}
 				</button>
-			) : null}
+			))}
 		</div>
 	);
 }

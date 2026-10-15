@@ -55,3 +55,17 @@ export const mediaSourceSchema = z.object({
 	token: mediaTokenSchema,
 	mime: z.string().min(1),
 });
+
+/* Wire keys the engine's app host stamps; see `@dimension/sdk/artifactory` and the engine's `SESSION_META_KEY`. */
+export const SESSION_META_KEY = "ai.insodimension/session";
+export const HOST_CONTEXT_REFERENCE_META_KEY = "ai.insodimension/host-context";
+export const HOST_CONTEXT_ENDED_METHOD = "notifications/ai.insodimension/host-context-ended";
+export const RECORDING_SLOT_REFUSAL_FIRST_WORDS = "The viewer already serves";
+
+
+export type MediaSession = string | undefined;
+
+export function recordingSlotRefusalSentence(held: number, names: readonly string[]): string {
+	const offered = names.slice(0, 3).map((name) => `"${name}"`).join(", ");
+	return `${RECORDING_SLOT_REFUSAL_FIRST_WORDS} ${held} recordings of this engine open — ${names.length === 0 ? `one of them is unnamed` : offered}${names.length === 3 ? ", and others" : ""}. Close one of those tabs (or close its session) before opening another.`;
+}

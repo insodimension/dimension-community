@@ -1,4 +1,5 @@
 import type { ViewerKind } from "../../src/contract";
+import { RECORDING_SLOT_REFUSAL_FIRST_WORDS } from "../../src/contract";
 import { describeMediaError, OPEN_TIMEOUT_SENTENCE } from "./media-messages";
 
 /** Audio and video: played, not shown. */
@@ -23,4 +24,8 @@ const WORTH_ANOTHER_GO: readonly string[] = [OPEN_TIMEOUT_SENTENCE, describeMedi
 export function failureAction(failure: RecordingFailure): FailureAction {
 	if (failure.where === "load") return "try-again";
 	return WORTH_ANOTHER_GO.includes(failure.message) ? "try-again" : "copy-path";
+}
+
+export function slotRefusalFor(message: string): boolean {
+	return message.startsWith(RECORDING_SLOT_REFUSAL_FIRST_WORDS);
 }

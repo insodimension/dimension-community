@@ -14,8 +14,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { readChunk, readRange } from "./chunk";
-import { ANNOTATE_META_KEY, MAX_CHUNK_BYTES, mediaTokenSchema, TAB_META_KEY, VIEWER_VIEW_URI, type ViewedFile } from "./contract";
+import { ANNOTATE_META_KEY, MAX_CHUNK_BYTES, TAB_META_KEY, VIEWER_VIEW_URI, type ViewedFile } from "./contract";
 import { createFence, type Fence } from "./fence";
+import {
+	HOST_CONTEXT_ENDED_METHOD,
+	HOST_CONTEXT_REFERENCE_META_KEY,
+	type MediaSession,
+	SESSION_META_KEY,
+	mediaTokenSchema,
+} from "./contract";
 import { detectKind, KIND_HEAD_BYTES } from "./kind";
 import { type MediaServer, startMediaServer } from "./media-server";
 
@@ -51,6 +58,22 @@ function describeError(error: unknown): string {
 	return `${error.message}${code}`;
 }
 
+const sessionMetaSchema = z.object({ sessionId: z.string().min(1) });
+
+const hostReferenceSchema = z.object({ sessionId: z.string().min(1), token: z.string().regex(/^[a-f0-9]{64}$/) });
+
+interface CallStamp {
+	readonly session: MediaSession;
+	readonly reference: z.infer<typeof hostReferenceSchema> | undefined;
+}
+
+function callStamp(meta: unknown): CallStamp {
+	const record = typeof meta === "object" && meta !== null && Object.hasOwn(meta as object, SESSION_META_KEY) ? (meta as Record<string, unknown>) : undefined;
+	const session = record === undefined ? undefined : sessionMetaSchema.safeParse(record[SESSION_META_KEY]).data?.sessionId;
+	const reference = session === undefined ? undefined : hostReferenceSchema.safeParse(record?.[HOST_CONTEXT_REFERENCE_META_KEY]).data;
+	return { session, reference };
+}
+
 export async function createViewerServer(options: ViewerServerOptions = {}): Promise<McpServer> {
 	// An outside-the-roots refusal says one sentence to the caller; its cause goes to stderr, which the host keeps (stdout is the protocol).
 	const fence =
@@ -62,8 +85,19 @@ export async function createViewerServer(options: ViewerServerOptions = {}): Pro
 
 	const media = await startMediaServer(fence);
 	server.server.onclose = () => { void media.close().catch(error => console.error(error)); };
+	const sessionStamps = new Map<string, string>();
+	const rememberStamp = (call: CallStamp): void => {
+		if (call.session !== undefined && call.reference !== undefined && call.reference.sessionId === call.session)
+			sessionStamps.set(call.session, call.reference.token);
+	};
+	server.server.setNotificationHandler(
+		z.object({ method: z.literal(HOST_CONTEXT_ENDED_METHOD), params: hostReferenceSchema }),
+		({ params }) => {
+			if (sessionStamps.get(params.sessionId) === params.token) media.releaseSession(params.sessionId);
+		},
+	);
 	try {
-		await registerViewer(server, { fence, html, viewDir, media });
+		await registerViewer(server, { fence, html, viewDir, media, rememberStamp });
 	} catch (error) {
 		await media.close();
 		throw error;
@@ -76,9 +110,10 @@ interface ViewerParts {
 	readonly html: string;
 	readonly viewDir: string;
 	readonly media: MediaServer;
+	readonly rememberStamp: (call: CallStamp) => void;
 }
 
-async function registerViewer(server: McpServer, { fence, html, viewDir, media }: ViewerParts): Promise<void> {
+async function registerViewer(server: McpServer, { fence, html, viewDir, media, rememberStamp }: ViewerParts): Promise<void> {
 	const metadata = { ui: { prefersBorder: false, permissions: { clipboardWrite: {} }, csp: { resourceDomains: [media.origin] } } };
 	registerAppResource(server, "Viewer", VIEWER_VIEW_URI, { _meta: metadata }, async () => ({
 		contents: [{ uri: VIEWER_VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: html, _meta: metadata }],
@@ -116,6 +151,7 @@ async function registerViewer(server: McpServer, { fence, html, viewDir, media }
 			_meta: { ui: { resourceUri: VIEWER_VIEW_URI } },
 		},
 		async ({ path, filename, annotate }, extra) => {
+			rememberStamp(callStamp(extra._meta));
 			const verdict = await fence.check(path, extra._meta);
 			if (!verdict.ok) return failure(verdict.reason);
 			try {
@@ -173,8 +209,10 @@ async function registerViewer(server: McpServer, { fence, html, viewDir, media }
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 		_meta: APP_ONLY,
 	}, async ({ path, size, mtimeMs, token }, extra) => {
+		const stamped = callStamp(extra._meta);
+		rememberStamp(stamped);
 		try {
-			const source = await media.acquire(path, size, mtimeMs, extra._meta, token);
+			const source = await media.acquire(path, size, mtimeMs, extra._meta, token, stamped.session);
 			return { content: [{ type: "text", text: "Recording ready for range playback." }], structuredContent: { ...source } };
 		} catch (error) {
 			return failure(describeError(error));
@@ -184,8 +222,22 @@ async function registerViewer(server: McpServer, { fence, html, viewDir, media }
 		inputSchema: { token: mediaTokenSchema },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 		_meta: APP_ONLY,
-	}, async ({ token }) => {
+	}, async ({ token }, extra) => {
+		rememberStamp(callStamp(extra._meta));
 		media.release(token);
 		return { content: [{ type: "text", text: "Recording released." }], structuredContent: {} };
+	});
+	registerAppTool(server, "close_other_recordings", {
+		title: "Close other recordings",
+		description: "Release every recording this session holds in the viewer except one. The View calls it from the slot-refusal card; it is not for the model.",
+		inputSchema: { keep: mediaTokenSchema.optional().describe("The recording whose lease stays; absent closes every one this session holds") },
+		annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+		_meta: APP_ONLY,
+	}, async ({ keep }, extra) => {
+		const stamped = callStamp(extra._meta);
+		rememberStamp(stamped);
+		if (stamped.session === undefined) return failure("No session rode this call, so there is nothing to count the recordings of.");
+		media.releaseSession(stamped.session, keep);
+		return { content: [{ type: "text", text: "The session's other recordings are released." }], structuredContent: {} };
 	});
 }

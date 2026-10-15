@@ -1,10 +1,16 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
+import { basename } from "node:path";
 import { createServer } from "node:http";
 import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from "node:http";
 import { pipeline } from "node:stream/promises";
 import { readRange } from "./chunk";
-import { MEDIA_TOKEN_PATTERN } from "./contract";
+import {
+	MEDIA_TOKEN_PATTERN,
+	RECORDING_SLOT_REFUSAL_FIRST_WORDS,
+	type MediaSession,
+	recordingSlotRefusalSentence,
+} from "./contract";
 import type { Fence } from "./fence";
 import { KIND_HEAD_BYTES, sniffMedia } from "./kind";
 
@@ -17,12 +23,20 @@ const STREAM_BUFFER_BYTES = 64 * 1024;
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0);
 const SANDBOXED_VIEW_ORIGIN = "null";
 
-type Lease = { path: string; size: number; mtimeMs: number; mime: string; meta: unknown; responses: Set<ServerResponse> };
+type Lease = { name: string; path: string; size: number; mtimeMs: number; mime: string; meta: unknown; responses: Set<ServerResponse>; session: MediaSession };
 
 export interface MediaServer {
 	readonly origin: string;
-	acquire(path: string, size: number, mtimeMs: number, meta: unknown, token: string): Promise<{ url: string; token: string; mime: string }>;
+	acquire(
+		path: string,
+		size: number,
+		mtimeMs: number,
+		meta: unknown,
+		token: string,
+		session?: MediaSession,
+	): Promise<{ url: string; token: string; mime: string }>;
 	release(token: string): void;
+	releaseSession(session: MediaSession, keep?: string): void;
 	close(): Promise<void>;
 }
 
@@ -37,7 +51,7 @@ async function admitRecording(fence: Fence, path: string, size: number, mtimeMs:
 	if (!matchesRevision(head, size, mtimeMs)) throw new Error("The file changed. Open it again.");
 	const media = sniffMedia(head.bytes, verdict.real);
 	if (media === undefined) throw new Error("This file is not a supported recording.");
-	return { path: verdict.real, size, mtimeMs, mime: media.mime, meta, responses: new Set() };
+	return { name: basename(verdict.real), path: verdict.real, size, mtimeMs, mime: media.mime, meta, responses: new Set(), session: "" };
 }
 
 type ByteWindow = { start: number; end: number };
@@ -119,7 +133,7 @@ async function streamRecording(req: IncomingMessage, res: ServerResponse, lease:
 
 export async function startMediaServer(fence: Fence): Promise<MediaServer> {
 	const leases = new Map<string, Lease>();
-	const pendingAdmissions = new Map<string, { cancelled: boolean }>();
+	const pendingAdmissions = new Map<string, { cancelled: boolean; session: MediaSession }>();
 	const releasedTokens = new Set<string>();
 	let active = 0;
 	let host = "";
@@ -182,17 +196,24 @@ export async function startMediaServer(fence: Fence): Promise<MediaServer> {
 	const origin = `http://${host}`;
 	return {
 		origin,
-		async acquire(path: string, size: number, mtimeMs: number, meta: unknown, token: string) {
+		async acquire(path: string, size: number, mtimeMs: number, meta: unknown, token: string, session?: MediaSession) {
 			if (closing !== undefined) throw new Error("The recording server is closed.");
 			if (!MEDIA_TOKEN_PATTERN.test(token) || leases.has(token) || pendingAdmissions.has(token)) throw new Error("Invalid recording capability.");
 			if (releasedTokens.has(token)) throw new Error("Recording opening was cancelled.");
-			if (leases.size + pendingAdmissions.size >= MAX_LEASES) throw new Error("Close an open recording before opening another.");
-			const admission = { cancelled: false };
+			if (leases.size + pendingAdmissions.size >= MAX_LEASES) {
+				throw new Error(
+					recordingSlotRefusalSentence(
+						leases.size + pendingAdmissions.size,
+						[...leases.values()].slice(0, 3).map((lease) => lease.name),
+					),
+				);
+			}
+			const admission = { cancelled: false, session: session ?? undefined };
 			pendingAdmissions.set(token, admission);
 			try {
 				const lease = await admitRecording(fence, path, size, mtimeMs, meta);
 				if (admission.cancelled) throw new Error("Recording opening was cancelled.");
-				leases.set(token, lease);
+				leases.set(token, { ...lease, session: session ?? undefined });
 				return { url: `${origin}/media/${token}`, token, mime: lease.mime };
 			} finally {
 				pendingAdmissions.delete(token);
@@ -208,6 +229,10 @@ export async function startMediaServer(fence: Fence): Promise<MediaServer> {
 				const oldest = releasedTokens.values().next();
 				if (!oldest.done) releasedTokens.delete(oldest.value);
 			}
+		},
+		releaseSession(session: MediaSession, keep?: string) {
+			for (const [token, lease] of [...leases.entries()]) if (token !== keep && lease.session === session) this.release(token);
+			for (const [token, admission] of pendingAdmissions) if (token !== keep && admission.session === session) this.release(token);
 		},
 		close() {
 			closing ??= new Promise<void>((resolve, reject) => {
