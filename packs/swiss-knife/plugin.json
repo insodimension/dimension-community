@@ -43,7 +43,8 @@
 					"match": "present",
 					"use": "presentation",
 					"icon": "image",
-					"title": "Present"
+					"title": "Present",
+					"hoist": true
 				}
 			],
 			"artifactories": [
