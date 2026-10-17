@@ -593,6 +593,7 @@ export class CodeSession {
     let ref: TabRef;
     try {
       ref = await browsers.openTab(record.browserId, {
+        session: this.#d.session,
         ...(request.url === undefined ? {} : { url: request.url }),
         ...(request.wait_until === undefined ? {} : { waitUntil: request.wait_until }),
         ...(request.dialogs === undefined ? {} : { dialogs: request.dialogs }),
@@ -746,11 +747,10 @@ export class CodeSession {
 
   /** Every browser the session holds, including one the person opened in the View that no cell has named yet. */
   #known(): BrowserRecord[] {
+    const held = [...this.#browsers.values()];
     const found = this.#d.browsers.existing(this.#d.session);
-    if (found !== undefined && !this.#browsers.has(found.browserId)) {
-      this.#browsers.set(found.browserId, { browserId: found.browserId, wsEndpoint: found.wsEndpoint, kind: found.kind, createdByCode: false });
-    }
-    return [...this.#browsers.values()];
+    if (found === undefined || this.#browsers.has(found.browserId)) return held;
+    return [...held, { browserId: found.browserId, wsEndpoint: found.wsEndpoint, kind: found.kind, createdByCode: false }];
   }
 
   async #listTabs(run: Run): Promise<HostReply> {
@@ -758,6 +758,7 @@ export class CodeSession {
     for (const record of this.#known()) {
       this.#holdFor(run, record.browserId);
       for (const ref of await this.#d.browsers.tabs(record.browserId)) {
+        if (this.#d.browsers.ownedByAnotherChat(record.browserId, ref.tabId, this.#d.session)) continue;
         const named = [...this.#tabs.values()].find(tab => tab.browserId === record.browserId && tab.handle.tabId === ref.tabId);
         value.push({ ...(named === undefined ? {} : { name: named.name }), id: ref.tabId, url: ref.url, title: ref.title, active: ref.active });
       }
@@ -767,16 +768,23 @@ export class CodeSession {
 
   /** `browser.active()`: the tab the person is looking at, adopted like an `open` under its own name or one made up from its id. */
   async #activeTab(run: Run): Promise<HostReply> {
+    let heldByAnotherChat = false;
     for (const record of this.#known()) {
       this.#holdFor(run, record.browserId);
       const current = (await this.#d.browsers.tabs(record.browserId)).find(ref => ref.active);
       if (current === undefined) continue;
+      if (this.#d.browsers.ownedByAnotherChat(record.browserId, current.tabId, this.#d.session)) {
+        heldByAnotherChat = true;
+        continue;
+      }
       const named = [...this.#tabs.values()].find(tab => tab.browserId === record.browserId && tab.handle.tabId === current.tabId);
       const name = named?.name ?? `tab-${current.tabId.slice(0, 6)}`;
       const handle = this.#handleFor(current, record, { created: named?.handle.created ?? false });
+      this.#browsers.set(record.browserId, record);
       this.#tabs.set(name, { name, browserId: record.browserId, kind: record.kind, handle });
       return { text: "", details: { action: "active", name, url: current.url }, attach: handle };
     }
+    if (heldByAnotherChat) throw new ToolError("The page in view belongs to another chat, and each chat works only on its own tabs. Open a tab of your own with browser.open().");
     throw new ToolError("No browser is open in this session. Open one with browser.open() first.");
   }
 

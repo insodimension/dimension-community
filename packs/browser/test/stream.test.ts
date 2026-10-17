@@ -19,7 +19,7 @@ import { KIND_PICTURE, KIND_PING, KIND_STATE, type Message, PING_QUERY, Reader }
 const VIEWPORT = { width: 800, height: 600 };
 
 function stateOf(browserId: string, over: Partial<BrowserState> = {}): BrowserState {
-	return { browserId, url: "http://page.test/", title: "t", viewport: VIEWPORT, tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false, task: null, publish: null, dialogs: [], revision: 1, profile: null, look: null, engine: "chromium", app: null, takenOver: false, agentActionAt: null, ...over };
+	return { browserId, url: "http://page.test/", title: "t", viewport: VIEWPORT, tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false, task: null, publish: null, dialogs: [], revision: 1, profile: null, look: null, engine: "chromium", app: null, takenOver: false, agentActionAt: null, signedInTo: [], ...over };
 }
 
 /** A browser as the listener sees one: frames pushed on demand, state it can change, input it records. */

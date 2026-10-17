@@ -98,23 +98,25 @@ describe("what one look at a page decides", () => {
 
 	test("Google: the email in the account button's label — never the display name, and no email at all is no account", async () => {
 		const probe = probeOf("google.com");
-		const button = 'a[aria-label^="Google Account"]';
-		const email = fakeReader({ present: [button], labels: { [button]: "Google Account: Jane Doe  \n(jane@gmail.com)" } });
+		const marker = probe.signedIn;
+		const button = 'a[aria-label^="Google Account:"]';
+		const email = fakeReader({ present: [marker], labels: { [button]: "Google Account: Jane Doe  \n(jane@gmail.com)" } });
 		expect(await readProbe(email, probe, "https://www.google.com/", 50)).toEqual({ signedIn: true, account: "jane@gmail.com" });
-		const named = fakeReader({ present: [button], labels: { [button]: "Google Account: Jane Doe" } });
+		const named = fakeReader({ present: [marker], labels: { [button]: "Google Account: Jane Doe" } });
 		expect(await readProbe(named, probe, "https://www.google.com/", 50)).toEqual({ signedIn: true });
 	});
 
 	test("Google: no count of other accounts is taken from the page — a mail body holds any link its sender likes, so `authuser` links, foreign or on Google's own host, add nothing", async () => {
 		const probe = probeOf("google.com");
-		const button = 'a[aria-label^="Google Account"]';
+		const marker = probe.signedIn;
+		const button = 'a[aria-label^="Google Account:"]';
 		const forged = [
 			...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((slot) => `https://evil.example/?authuser=${slot}`),
 			"https://accounts.google.com/AccountChooser?authuser=10",
 			"https://mail.google.com/mail/u/11/?authuser=11",
 		];
 		// Whatever selector the probe asks for, the page answers with the sender's links.
-		const reader = { ...fakeReader({ present: [button], labels: { [button]: "Google Account: Jane Doe (jane@gmail.com)" } }), linkHrefs: async () => forged };
+		const reader = { ...fakeReader({ present: [marker], labels: { [button]: "Google Account: Jane Doe (jane@gmail.com)" } }), linkHrefs: async () => forged };
 		expect(await readProbe(reader, probe, "https://mail.google.com/mail/u/0/", 50)).toEqual({ signedIn: true, account: "jane@gmail.com" });
 	});
 
@@ -146,19 +148,21 @@ interface Rig {
 	rootDir: string;
 	runtime: BrowserRuntime;
 	store: ProfileStore;
-	/** Resolves once a look has finished on `url`: the product's own signal, so "nothing was recorded" is a fact, not a wait. */
+	/** Every page a look has finished on, in order: the product's own signal, so "nothing was recorded" is a fact, not a wait. */
+	looks: readonly string[];
+	/** Resolves once a look has finished on `url`. */
 	lookedAt(url: string): Promise<unknown>;
 }
 
-async function setup(table: readonly SiteProbe[], extra: { recordVisit?: (url: string) => boolean; settleMs?: number } = {}): Promise<Rig> {
+async function setup(table: readonly SiteProbe[], extra: { recordVisit?: (url: string) => boolean; settleMs?: number; relookMs?: number } = {}): Promise<Rig> {
 	const site = startProfileSite();
 	sites.push(site);
 	const looks: string[] = [];
 	const rootDir = await createRoot();
 	const runtime = newRuntime(rootDir, {
-		probes: { table, settleMs: extra.settleMs ?? 300, looked: (url) => looks.push(url), ...(extra.recordVisit ? { recordVisit: extra.recordVisit } : {}) },
+		probes: { table, settleMs: extra.settleMs ?? 300, relookMs: extra.relookMs ?? 300, looked: (url) => looks.push(url), ...(extra.recordVisit ? { recordVisit: extra.recordVisit } : {}) },
 	});
-	return { site, rootDir, runtime, store: new ProfileStore(rootDir), lookedAt: (url) => waitUntil(`a look at ${url}`, () => looks, (seen) => seen.includes(url)) };
+	return { site, rootDir, runtime, store: new ProfileStore(rootDir), looks, lookedAt: (url) => waitUntil(`a look at ${url}`, () => looks, (seen) => seen.includes(url)) };
 }
 
 const HUMAN = { caller: "app", session: "s-human" } as const;
@@ -185,6 +189,27 @@ describeWithChrome("a sign-in the person makes in the View", () => {
 	);
 
 	test(
+		"the state the View streams names the sites its profile is signed in to, so the chip needs no read of its own: a throwaway has none, and a note written after the state was first read shows in the next",
+		async () => {
+			const { site, runtime } = await setup([markerProbe("in.localhost"), markerProbe("out.localhost")]);
+			const throwaway = await runtime.open({ viewport: VIEWPORT }, HUMAN);
+			const work = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
+			expect((await runtime.liveState(work.browserId)).signedInTo).toEqual([]);
+			expect((await runtime.liveState(throwaway.browserId)).signedInTo).toEqual([]);
+
+			await perform(runtime, work.browserId, { kind: "navigate", url: site.url("in.localhost", "/signed-in") });
+			await waitUntil("work's sign-in", () => sitesOf(runtime, "work"), (list) => list.length === 1);
+			expect((await runtime.liveState(work.browserId)).signedInTo).toEqual(["in.localhost"]);
+
+			// A site seen signed out is not one it is signed in to.
+			await perform(runtime, work.browserId, { kind: "navigate", url: site.url("out.localhost", "/") });
+			await waitUntil("work's sign-out", () => sitesOf(runtime, "work"), (list) => list.length === 2);
+			expect((await runtime.liveState(work.browserId)).signedInTo).toEqual(["in.localhost"]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"a page where a missing marker proves nothing records nothing, and a single-page app that draws its nav late is signed in, not signed out",
 		async () => {
 			const { site, runtime, lookedAt } = await setup([markerProbe("deep.localhost"), markerProbe("late.localhost", ["/late"])], { settleMs: 1_800 });
@@ -199,6 +224,67 @@ describeWithChrome("a sign-in the person makes in the View", () => {
 			await perform(runtime, opened.browserId, { kind: "navigate", url: site.url("late.localhost", "/late") });
 			const late = await waitUntil("the late marker", () => sitesOf(runtime, "work"), (list) => list.length === 1);
 			expect(late[0]).toMatchObject({ site: "late.localhost", signedIn: true, account: "@late" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a marker drawn after the first look gave up is signed in: the first miss is not a verdict, the page is looked at again as it is",
+		async () => {
+			const { site, runtime } = await setup([markerProbe("slow.localhost", ["/slow"])], { settleMs: 300, relookMs: 2_600 });
+			const opened = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
+			await perform(runtime, opened.browserId, { kind: "navigate", url: site.url("slow.localhost", "/slow") });
+
+			// The first look (about 0.7 s after load) finds nothing and, before the fix, wrote "signed out" here; the marker only draws at 1.5 s.
+			const noted = await waitUntil("slow's note", () => sitesOf(runtime, "work"), (list) => list.length === 1);
+			expect(noted[0]).toMatchObject({ site: "slow.localhost", signedIn: true, account: "@slow" });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a page that never draws its marker is still signed out, once the re-look has found it missing too",
+		async () => {
+			const { site, runtime } = await setup([markerProbe("out.localhost")], { settleMs: 300, relookMs: 600 });
+			const opened = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
+			await perform(runtime, opened.browserId, { kind: "navigate", url: site.url("out.localhost", "/") });
+			const noted = await waitUntil("out's note", () => sitesOf(runtime, "work"), (list) => list.length === 1);
+			expect(noted[0]).toMatchObject({ site: "out.localhost", signedIn: false });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a signed-out front page the person leaves before the re-look is not written down: one miss is weak evidence",
+		async () => {
+			const { site, runtime, lookedAt } = await setup([markerProbe("out.localhost")], { settleMs: 300, relookMs: 5_000 });
+			const opened = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
+			const out = site.url("out.localhost", "/");
+			await perform(runtime, opened.browserId, { kind: "navigate", url: out });
+			await lookedAt(out);
+			const plain = site.url("plain.localhost", "/plain");
+			await perform(runtime, opened.browserId, { kind: "navigate", url: plain });
+			await lookedAt(plain);
+			expect(await sitesOf(runtime, "work")).toEqual([]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a re-look is of the page that missed: switching to another tab meanwhile never gives that tab a verdict from a look it never had",
+		async () => {
+			const { site, runtime, looks, lookedAt } = await setup([markerProbe("out.localhost"), markerProbe("elsewhere.localhost")], { settleMs: 300, relookMs: 1_500 });
+			const opened = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
+			const tabOfFirst = (await perform(runtime, opened.browserId, { kind: "navigate", url: site.url("out.localhost", "/") })).activeTabId;
+			const second = site.url("elsewhere.localhost", "/");
+			await runtime.tab(opened.browserId, { op: "new", url: second });
+			await lookedAt(second);
+			// The second page's own re-look is pending; the person goes back to the first tab, which loads nothing.
+			await runtime.tab(opened.browserId, { op: "activate", tabId: tabOfFirst });
+			const looked = looks.length;
+
+			await waitUntil("the second page's re-look to finish", () => looks.length, (count) => count > looked);
+			expect(await sitesOf(runtime, "work")).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -240,7 +326,7 @@ describeWithChrome("a sign-in the person makes in the View", () => {
 	test(
 		"the shipped Google and Bluesky probes read their accounts off pages with the sites' markup; a form control's label is never read",
 		async () => {
-			const { site, runtime } = await setup([shippedProbeOn("google.com", "g.localhost"), shippedProbeOn("bsky.app", "b.localhost"), { ...markerProbe("ctl.localhost"), account: { from: "label", selector: "#acct", pick: (label: string) => label } }]);
+			const { site, runtime } = await setup([shippedProbeOn("google.com", "g.localhost"), shippedProbeOn("google.com", "m.localhost"), shippedProbeOn("bsky.app", "b.localhost"), { ...markerProbe("ctl.localhost"), account: { from: "label", selector: "#acct", pick: (label: string) => label } }]);
 			const opened = await runtime.open({ profile: "work", viewport: VIEWPORT }, HUMAN);
 			const seen = async (host: string, path: string) => {
 				await perform(runtime, opened.browserId, { kind: "navigate", url: site.url(host, path) });
@@ -248,6 +334,8 @@ describeWithChrome("a sign-in the person makes in the View", () => {
 			};
 			// The page also carries a mail body's worth of `authuser` links: none of them is a count.
 			expect(await seen("g.localhost", "/google")).toMatchObject({ signedIn: true, account: "jane@gmail.com" });
+			// Google's own account page: "Google Account settings" links match the marker first, and name nobody.
+			expect(await seen("m.localhost", "/google-account")).toMatchObject({ signedIn: true, account: "jane@gmail.com" });
 			expect(await seen("b.localhost", "/bsky")).toMatchObject({ signedIn: true, account: "@alice.bsky.social" });
 			const control = await seen("ctl.localhost", "/control");
 			expect(control).toMatchObject({ signedIn: true });

@@ -76,14 +76,14 @@ describe("which page of an attached browser a cell gets", () => {
     ];
     for (const [kind, front] of cases) {
       const { port, adopted } = over(kind);
-      await port.openTab("b", { timeoutMs: 1_000 }, never);
+      await port.openTab("b", { session: "s", timeoutMs: 1_000 }, never);
       expect(adopted).toEqual([{ preferVisible: front }]);
     }
   });
 
   test("a target the cell named is matched, whatever is in front", async () => {
     const { port, adopted } = over({ kind: "connected", cdpUrl: "http://x" });
-    await port.openTab("b", { target: "Page two", timeoutMs: 1_000 }, never);
+    await port.openTab("b", { session: "s", target: "Page two", timeoutMs: 1_000 }, never);
     expect(adopted).toEqual([{ match: "Page two", preferVisible: false }]);
   });
 

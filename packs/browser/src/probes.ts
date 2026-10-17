@@ -18,6 +18,7 @@
  * site's page and tested against a copy of it (test/profile-probes.test.ts),
  * not yet seen on the live site.
  */
+import { SETTLE_MS } from "./probe-timing.js";
 import { accountFromText } from "./connection.js";
 import { account as xAccount, signedIn as xSignedIn } from "../recipes/x-post.json";
 import { signedIn as blueskySignedIn } from "../recipes/bluesky-post.json";
@@ -72,6 +73,8 @@ const bskyHandle = (href: string): string | undefined => {
 const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/u;
 /** The email in Google's "Google Account: Jane Doe (jane@gmail.com)". The name is never kept: an email names the account. */
 const googleEmail = (label: string): string | undefined => label.match(EMAIL)?.[0];
+/** The signed-in button's own label, "Google Account: Jane Doe (jane@gmail.com)": the links labelled "Google Account settings" match the marker too, come first on Google's account page, and name nobody. */
+const GOOGLE_ACCOUNT_BUTTON = 'a[aria-label^="Google Account:"]';
 const GOOGLE_MARKER = 'a[aria-label^="Google Account"]';
 
 export const SITE_PROBES: readonly SiteProbe[] = [
@@ -83,7 +86,7 @@ export const SITE_PROBES: readonly SiteProbe[] = [
 	{
 		host: "google.com",
 		signedIn: GOOGLE_MARKER,
-		account: { from: "label", selector: GOOGLE_MARKER, pick: googleEmail },
+		account: { from: "label", selector: GOOGLE_ACCOUNT_BUTTON, pick: googleEmail },
 		loginPaths: [],
 	},
 ];
@@ -93,8 +96,6 @@ export function probeFor(host: string, table: readonly SiteProbe[] = SITE_PROBES
 	return table.find((probe) => probe.host === host);
 }
 
-/** How long a missing marker is waited for on a page where its absence decides: a single-page app draws it after `load`. */
-export const SETTLE_MS = 3_000;
 const ACCOUNT_CHARS = 256;
 
 /** Whether a missing marker on `url` is a verdict: the site's front page, or one of its login pages. */
@@ -109,7 +110,7 @@ function decides(probe: SiteProbe, url: URL): boolean {
  */
 export async function readProbe(reader: ProbeReader, probe: SiteProbe, url: string, settleMs: number = SETTLE_MS): Promise<ProbeVerdict | undefined> {
 	const decisive = decides(probe, new URL(url));
-	// Waiting is for a page that is still drawing; `settleMs: 0` (the look as a browser closes) asks the page as it is, once.
+	// Waiting is for a page that is still drawing; `settleMs: 0` (the re-look of a page that missed, and the look as a browser closes) asks the page as it is, once.
 	const shown = decisive && settleMs > 0 ? await reader.waitFor({ selector: probe.signedIn }, settleMs, (value) => value) : await reader.hasElement(probe.signedIn);
 	if (!shown) return decisive ? { signedIn: false } : undefined;
 	const account = await readAccount(reader, probe.account);

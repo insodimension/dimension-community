@@ -1,5 +1,6 @@
 /**
- * How a THROWAWAY AGENT browser presents itself to the sites it visits.
+ * How a browser presents itself to the sites it visits: a THROWAWAY AGENT browser, and (for its window alone) every headless browser the pack
+ * starts, a saved profile's included.
  *
  * An agent that opens a browser without a profile does real work on the real
  * web, and the first bot check it meets decides whether the work happens. A
@@ -11,7 +12,12 @@
  *    1280x800 desktop page reporting `portrait-primary`: headless Chrome's
  *    virtual screen is 800x600 whatever the viewport. A device-metrics
  *    override and the window bounds, both native CDP commands, made again
- *    whenever the viewport changes (`fitAgentScreen`).
+ *    whenever the viewport changes (`fitScreen`). This one is not hiding
+ *    anything: a headless Chrome has no window, and a window that disagrees
+ *    with its own page is what no person's browser reports. A saved profile's
+ *    browser gets it too (X refused a real sign-in from a page larger than its
+ *    own screen, where the same account went on in a plain Chrome); everything
+ *    below stays the agent browser's alone.
  *  - CDP `Runtime.enable`, which stock puppeteer sends in every page, frame
  *    and worker and a page can detect, and the driver's own DOM reads, which
  *    stock puppeteer runs in the page's own JavaScript world (a hook on
@@ -86,22 +92,36 @@ export function deviceMetrics(viewport: Viewport, scale: number): Protocol.Emula
  * Chrome's own window is 780x580 whatever the page measures. `cdp` is any
  * session on the page.
  */
-export async function fitAgentScreen(cdp: CDPSession, viewport: Viewport, scale: number): Promise<void> {
+export async function fitScreen(cdp: CDPSession, viewport: Viewport, scale: number): Promise<void> {
 	await cdp.send("Emulation.setDeviceMetricsOverride", deviceMetrics(viewport, scale));
 	const { windowId } = await cdp.send("Browser.getWindowForTarget");
 	await cdp.send("Browser.setWindowBounds", { windowId, bounds: { left: 0, top: 0, width: viewport.width, height: viewport.height + WINDOW_CHROME_HEIGHT } });
 }
 
+/**
+ * The size a headless browser's pages and window are given: the viewport and pixel ratio the driver is at now. Whoever drives the
+ * browser keeps it current, so a target fitted before its tab exists gets today's size.
+ */
+export interface ScreenFit {
+	viewport: Viewport;
+	scale: number;
+}
+
+/**
+ * Fit a NEW page target's screen before it runs a line of its own: `presentAsHeadful` (puppeteer.ts) holds every target Chrome opens until
+ * this is sent on its own session. Nothing for another kind of target, and nothing in a browser with a real window (`fit` is undefined).
+ */
+export function fitTargetEarly(session: CDPSession, targetType: string, fit: ScreenFit | undefined): Array<Promise<unknown>> {
+	if (fit === undefined || targetType !== "page") return [];
+	return [session.send("Emulation.setDeviceMetricsOverride", deviceMetrics(fit.viewport, fit.scale))];
+}
+
 /** What an agent browser's targets are shaped with. */
 export interface AgentShape {
-	/** Give each page a screen and window that fit it. Not in a browser with a real window, which already has both. */
-	screen: boolean;
 	/** The GPU to report instead of a software renderer, when the binary renders in software here. */
 	graphics: MaskedGraphics | undefined;
 	/** `shapeTargetEarly` runs for every new target (a headless browser, where `presentAsHeadful` holds each one); otherwise the driver shapes each page as it adopts it. */
 	early: boolean;
-	/** The viewport and pixel ratio the driver is at now. The driver keeps it current, so a target shaped before its tab exists gets today's size. */
-	view: { viewport: Viewport; scale: number };
 }
 
 /**
@@ -109,18 +129,16 @@ export interface AgentShape {
  * (puppeteer.ts) holds every target Chrome opens (the first tab, a popup, a
  * `target=_blank` page, a cross-origin iframe, a worker) until these are
  * sent on its own session. Pages and out-of-process frames get the software
- * renderer mask in every document and, in a headless browser, a screen that
- * fits; dedicated and shared workers get the mask in their global scope, so a
- * worker's OffscreenCanvas names the same GPU as its page. The window's own
- * bounds are set when the tab is adopted (`fitAgentScreen`).
+ * renderer mask in every document; dedicated and shared workers get the mask in
+ * their global scope, so a worker's OffscreenCanvas names the same GPU as its
+ * page. A page also gets the screen that fits it (`fitTargetEarly`); the window's
+ * own bounds are set when the tab is adopted (`fitScreen`).
  */
-export function shapeTargetEarly(session: CDPSession, targetType: string, shape: AgentShape): Array<Promise<unknown>> {
+export function shapeTargetEarly(session: CDPSession, targetType: string, shape: AgentShape, fit: ScreenFit | undefined): Array<Promise<unknown>> {
 	const mask = shape.graphics ? graphicsMaskExpression(shape.graphics) : undefined;
 	if (targetType === "page" || targetType === "iframe") {
 		// A session's document scripts run only once its Page domain is on.
-		const sent: Array<Promise<unknown>> = [session.send("Page.enable"), session.send("Page.addScriptToEvaluateOnNewDocument", { source: [mask, LOOPBACK_EXCEPTIONS].filter(Boolean).join(";\n") })];
-		if (shape.screen && targetType === "page") sent.push(session.send("Emulation.setDeviceMetricsOverride", deviceMetrics(shape.view.viewport, shape.view.scale)));
-		return sent;
+		return [session.send("Page.enable"), session.send("Page.addScriptToEvaluateOnNewDocument", { source: [mask, LOOPBACK_EXCEPTIONS].filter(Boolean).join(";\n") }), ...fitTargetEarly(session, targetType, fit)];
 	}
 	if ((targetType === "worker" || targetType === "shared_worker") && mask) return [session.send("Runtime.evaluate", { expression: mask })];
 	return [];

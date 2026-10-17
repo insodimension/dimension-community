@@ -43,7 +43,7 @@ class Source implements LiveSource {
 	}
 	async liveState(): Promise<BrowserState> {
 		if (this.closed) throw new BrowserRuntimeError("unknown_browser", "closed");
-		return { browserId: "one", url: "http://page.test/", title: "page", viewport, tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false, task: null, publish: null, dialogs: [], revision: 1, profile: null, look: null, engine: "chromium", app: null, takenOver: false, agentActionAt: null };
+		return { browserId: "one", url: "http://page.test/", title: "page", viewport, tabs: [], activeTabId: "", loading: false, canGoBack: false, canGoForward: false, task: null, publish: null, dialogs: [], revision: 1, profile: null, look: null, engine: "chromium", app: null, takenOver: false, agentActionAt: null, signedInTo: [] };
 	}
 	async input(_id: string, events: unknown): Promise<void> { this.inputs.push(events); }
 	push(width: number, byte: number): void {

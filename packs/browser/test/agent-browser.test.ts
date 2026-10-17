@@ -42,6 +42,9 @@ const CONTROLLED = [
 	"cdp-runtime-enabled", "worker-runtime-enabled", "driver-main-world",
 ];
 
+/** The rows about the window and screen: what a page measures of the place it is drawn in. */
+const GEOMETRY = ["outer-smaller-than-inner", "viewport-larger-than-screen", "screen-orientation", "screen-default", "window-fits-screen", "outer-window"];
+
 /**
  * Known and measured, not closed: on a host with no GPU a same-origin frame's own `Function.prototype.toString` reads a replaced function of this window
  * as `function () { [native code] }`, with no name (and this window's reads the frame's so). Closing it took a call from every frame into a function the page
@@ -228,9 +231,25 @@ describeWithChrome("a saved profile's browser (the View) stays the real browser"
 		expect(row(rows, "worker-runtime-enabled")).toMatchObject({ tell: true });
 		// Stock reads in the page's own world: a hook on the page's APIs hears them.
 		expect(row(rows, "driver-main-world")).toMatchObject({ tell: true });
-		// No screen or window fitting: headless Chrome's own 800x600 screen under the page.
-		expect(row(rows, "screen-default")).toMatchObject({ tell: true });
-		expect(row(rows, "viewport-larger-than-screen")).toMatchObject({ tell: true });
+	}, BROWSER_TEST_TIMEOUT_MS);
+
+	test("has a window and a screen that agree with its page, as any browser with a window does: headless Chrome has neither, and X refused a sign-in from a page larger than its own screen", async () => {
+		const server = await detector();
+		const runtime = newRuntime(await createRoot());
+		const { browserId } = await runtime.open({ profile: "person" });
+		const geometry = (rows: readonly DetectRow[]) => rows.filter((candidate) => candidate.tell && GEOMETRY.includes(candidate.id)).map((candidate) => candidate.id);
+		expect(geometry(await look(runtime, server, browserId))).toEqual([]);
+
+		await perform(runtime, browserId, { kind: "resize", width: 1000, height: 700 });
+		const resized = await look(runtime, server, browserId);
+		expect(geometry(resized)).toEqual([]);
+		expect(JSON.parse(row(resized, "outer-smaller-than-inner").value).slice(2)).toEqual([1000, 700]);
+
+		await runtime.tab(browserId, { op: "new" });
+		expect(geometry(await look(runtime, server, browserId))).toEqual([]);
+
+		// A site that opens a tab itself (a sign-in popup) shows it the same window from its first line.
+		expect(geometry(await lookInNewTab(runtime, server, browserId))).toEqual([]);
 	}, BROWSER_TEST_TIMEOUT_MS);
 });
 

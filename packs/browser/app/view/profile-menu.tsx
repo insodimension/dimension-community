@@ -19,16 +19,20 @@ export interface Identity {
 	readonly label: string;
 	readonly colour: ProfileColour;
 	readonly avatar?: string;
-	/** One line under the name; null until it is known (the profiles have not loaded). */
-	readonly detail: string | null;
+	/** One line under the name. */
+	readonly detail: string;
 }
 
-/** "Signed in to google.com, x.com +2": only what was seen signed in, newest first, never more than two named. */
-export function signInSummary(sites: readonly ProfileSiteListing[]): string {
-	const signedIn = sites.filter(site => site.signedIn === true).map(site => site.site);
+/** "Signed in to google.com, x.com +2": the sites it was seen signed in to, newest first, never more than two named. */
+export function signInLine(signedIn: readonly string[]): string {
 	if (signedIn.length === 0) return "No sign-ins yet";
 	const named = signedIn.slice(0, 2).join(", ");
 	return signedIn.length > 2 ? `Signed in to ${named} +${signedIn.length - 2}` : `Signed in to ${named}`;
+}
+
+/** The same for a listed profile (the menu's rows): only what was seen signed in. */
+export function signInSummary(sites: readonly ProfileSiteListing[]): string {
+	return signInLine(sites.filter(site => site.signedIn === true).map(site => site.site));
 }
 
 /** The profiles as a person is offered them: the implicit Default always there, first; the rest by name. */
@@ -38,13 +42,13 @@ export function offered(profiles: readonly ProfileListing[]): ProfileListing[] {
 	return all.sort((a, b) => (a.name === DEFAULT_PROFILE ? -1 : b.name === DEFAULT_PROFILE ? 1 : a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" })));
 }
 
-/** The browser on screen as the chip shows it. `look` is its profile's own face, carried by its state; the sign-ins are read from the listing, and unknown until it loads. */
-export function identityOf(profile: string | null, engine: BrowserEngine, look: ResolvedProfileMeta | null, profiles: readonly ProfileListing[] | null): Identity {
+/** The browser on screen as the chip shows it. `look` is its profile's own face and `signedInTo` the sites it is signed in to, both carried by its state: nothing is read to draw it. */
+export function identityOf(profile: string | null, engine: BrowserEngine, look: ResolvedProfileMeta | null, profiles: readonly ProfileListing[] | null, signedInTo: readonly string[]): Identity {
 	if (engine === "chrome-relay") return { kind: "chrome", label: "Your Chrome", colour: "grey", detail: "Signed in as you" };
 	if (profile === null) return { kind: "private", label: "Private", colour: "grey", detail: "Nothing is saved" };
 	const listed = profiles?.find(candidate => candidate.name === profile);
 	const { label, colour, avatar } = look ?? resolveProfileMeta(profile, listed === undefined ? {} : { label: listed.label, colour: listed.colour, avatar: listed.avatar });
-	return { kind: "profile", label, colour, ...(avatar === undefined ? {} : { avatar }), detail: profiles === null ? null : signInSummary(listed?.sites ?? []) };
+	return { kind: "profile", label, colour, ...(avatar === undefined ? {} : { avatar }), detail: signInLine(signedInTo) };
 }
 
 function profileMeaning(kind: Identity["kind"]): string {
@@ -93,6 +97,8 @@ export interface ProfileSwitcherProps {
 	readonly engine: BrowserEngine;
 	/** null while they load */
 	readonly profiles: readonly ProfileListing[] | null;
+	/** The sites that profile is signed in to, as the browser's state carries them. */
+	readonly signedInTo: readonly string[];
 	readonly profilesError: string | null;
 	/** The profile being opened right now (`""`: a Private one), or null. */
 	readonly switching: string | null;
@@ -120,7 +126,7 @@ export interface ProfileSwitcherProps {
 }
 
 export function ProfileSwitcher(props: ProfileSwitcherProps) {
-	const { profile, look, engine, profiles, profilesError, switching, takenOver, agentActive, canTakeOver, onMenu } = props;
+	const { profile, look, engine, profiles, signedInTo, profilesError, switching, takenOver, agentActive, canTakeOver, onMenu } = props;
 	const [open, setOpen] = useState(false);
 	const [adding, setAdding] = useState(false);
 	/** The browser whose close is waiting for the person's yes (it would discard a post or stop a task). */
@@ -128,7 +134,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 	/** Each close button by its browser, so focus can go back to it when the question is answered no. */
 	const closers = useRef(new Map<string, HTMLButtonElement>());
-	const identity = identityOf(profile, engine, look, profiles);
+	const identity = identityOf(profile, engine, look, profiles, signedInTo);
 
 	const close = useCallback(() => {
 		setOpen(false);
@@ -216,8 +222,8 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 				type="button"
 				className="bx-profile"
 				data-state={takenOver ? "driving" : undefined}
-				title={identity.detail === null ? identity.label : `${identity.label} · ${identity.detail}`}
-				aria-label={identity.detail === null ? `${identity.label} — profiles` : `${identity.label}, ${identity.detail} — profiles`}
+				title={`${identity.label} · ${identity.detail}`}
+				aria-label={`${identity.label}, ${identity.detail} — profiles`}
 				aria-haspopup="menu"
 				aria-expanded={open}
 				onClick={toggle}
@@ -244,7 +250,7 @@ export function ProfileSwitcher(props: ProfileSwitcherProps) {
 								<ProfileAvatar label={identity.label} colour={identity.colour} avatar={identity.avatar} icon={identity.kind === "private" ? "shield" : identity.kind === "chrome" ? "globe" : undefined} size="lg" />
 								<span className="bx-pmenu-who">
 									<span className="bx-pmenu-name">{identity.label}</span>
-									<span className="bx-pmenu-detail">{identity.detail ?? "Checking sign-ins…"}</span>
+									<span className="bx-pmenu-detail">{identity.detail}</span>
 								</span>
 							</div>
 							<p className="bx-pmenu-note">{profileMeaning(identity.kind)}</p>

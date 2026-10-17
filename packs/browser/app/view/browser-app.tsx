@@ -632,6 +632,7 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 					look: state.look,
 					engine: state.engine,
 					profiles,
+					signedInTo: state.signedInTo,
 					profilesError,
 					switching,
 					takenOver: state.takenOver,

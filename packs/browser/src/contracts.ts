@@ -324,6 +324,8 @@ export interface BrowserState {
   takenOver: boolean;
   /** Epoch ms of the newest page action an agent (anyone but the View) ran here; null when none has. The View shows "working" for a few seconds after it. */
   agentActionAt: number | null;
+  /** The sites this browser's profile was last seen signed in to, newest first: the View's chip names them, so a sign-in the pack notes reaches it on the stream. Empty for a throwaway and for the relay. A model is not sent it. */
+  signedInTo: string[];
   /** Set by `open` alone, when something a person should know about the profile just opened: the browser build under its logins changed. */
   notice?: string;
 }

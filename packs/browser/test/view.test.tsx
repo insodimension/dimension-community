@@ -178,6 +178,7 @@ const LIVE: BrowserState = {
 	dialogs: [],
 	takenOver: false,
 	agentActionAt: null,
+	signedInTo: [],
 };
 
 interface Call {
@@ -478,6 +479,19 @@ describe("the live connection", () => {
 		// Many more state reads happen on the listener than there are tool calls: there is exactly the one.
 		expect(calls.map(call => call.name)).toEqual(["browser_stream"]);
 		expect(calls[0]?.args).toEqual({ browserId: "b1" });
+	});
+
+	test("a sign-in the pack writes reaches the profile chip on the stream while the menu stays closed: no tool call is made to learn it", async () => {
+		const browser = new ListeningBrowser();
+		browser.state = { ...browser.state, profile: "work" };
+		const { app, calls } = appOnListener(browser);
+		const dom = await mount(<BrowserApp app={app} toolState={{ state: browser.state, seq: 1 }} />);
+		const chip = () => dom.find('button[aria-haspopup="menu"]').find(el => (el.textContent ?? "").trim().length > 0)?.getAttribute("aria-label");
+		await until(dom, () => chip() === "work, No sign-ins yet — profiles");
+
+		browser.state = { ...browser.state, signedInTo: ["google.com", "epicgames.com"] };
+		await until(dom, () => chip() === "work, Signed in to google.com, epicgames.com — profiles");
+		expect(calls.map(call => call.name)).toEqual(["browser_stream"]);
 	});
 
 	test("the picture watcher runs while the View shows the page, and stops while the human annotates it", async () => {

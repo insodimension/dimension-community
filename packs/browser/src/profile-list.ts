@@ -30,6 +30,28 @@ export interface HoldFact {
 	browserId?: string;
 }
 
+/** One profile's checked sites, newest first, as the list shows them (a site only visited has no check and is left out; an old one is not claimed). */
+export function profileSites(store: ProfileStore, slug: string, now: number): ProfileSiteListing[] {
+	const sites: ProfileSiteListing[] = [];
+	for (const [site, observed] of Object.entries(store.connections(slug))) {
+		const seen = new Date(observed.observedAt);
+		if (observed.signedIn === null || Number.isNaN(seen.getTime())) continue;
+		const account = reportableAccount(observed.account);
+		sites.push({
+			site,
+			...(account === undefined ? {} : { account }),
+			signedIn: effectiveSignedIn(observed.signedIn, observed.observedAt, now),
+			seenAt: seen.toISOString(),
+		});
+	}
+	return sites.sort((a, b) => b.seenAt.localeCompare(a.seenAt) || a.site.localeCompare(b.site));
+}
+
+/** The sites among `sites` it was last seen signed in to, in the order given. No account: the View's chip names sites only. */
+export function signedInHosts(sites: readonly ProfileSiteListing[]): string[] {
+	return sites.filter((site) => site.signedIn === true).map((site) => site.site);
+}
+
 /** Every saved profile, by slug. `holdOf` says who holds each, from the asking chat's side. */
 export function buildProfileList(store: ProfileStore, holdOf: (slug: string) => HoldFact, now: number): ProfileListing[] {
 	return store
@@ -38,21 +60,8 @@ export function buildProfileList(store: ProfileStore, holdOf: (slug: string) => 
 		.map((slug): ProfileListing => {
 			const stored = store.meta(slug);
 			const { label, colour, avatar } = resolveProfileMeta(slug, stored);
-			const sites: ProfileSiteListing[] = [];
-			for (const [site, observed] of Object.entries(store.connections(slug))) {
-				const seen = new Date(observed.observedAt);
-				if (observed.signedIn === null || Number.isNaN(seen.getTime())) continue;
-				const account = reportableAccount(observed.account);
-				sites.push({
-					site,
-					...(account === undefined ? {} : { account }),
-					signedIn: effectiveSignedIn(observed.signedIn, observed.observedAt, now),
-					seenAt: seen.toISOString(),
-				});
-			}
-			sites.sort((a, b) => b.seenAt.localeCompare(a.seenAt) || a.site.localeCompare(b.site));
 			const { heldBy, hold, browserId } = holdOf(slug);
-			return { name: slug, label, colour, ...(avatar === undefined ? {} : { avatar }), heldBy, ...(hold === undefined ? {} : { hold }), ...(browserId === undefined ? {} : { browserId }), sites };
+			return { name: slug, label, colour, ...(avatar === undefined ? {} : { avatar }), heldBy, ...(hold === undefined ? {} : { hold }), ...(browserId === undefined ? {} : { browserId }), sites: profileSites(store, slug, now) };
 		});
 }
 

@@ -378,6 +378,20 @@ describeWithChrome("taking a browser over in the View", () => {
 	);
 
 	test(
+		"opening a page in the View is not the agent working: the page a chat's browser_view opened carries no agent activity until the agent acts in it",
+		async () => {
+			const r = await rig();
+			const opened = stateOf(await r.call("browser_view", { profile: "w", url: r.fixture.url("/nav") }, CHAT));
+			expect(opened.url).toBe(r.fixture.url("/nav"));
+			expect(opened.agentActionAt).toBeNull();
+
+			await navigate(r, CHAT, opened.browserId, "/show-cookie");
+			expect((await stateAs(r, VIEW_OF_CHAT, opened.browserId)).agentActionAt).not.toBeNull();
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
 		"only the person in the View can take the wheel or give it back; an agent asking changes nothing",
 		async () => {
 			const r = await rig();

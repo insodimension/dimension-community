@@ -269,6 +269,7 @@ function readState(tool: string, value: unknown): BrowserState {
 		dialogs: readDialogs(value.dialogs),
 		takenOver: value.takenOver === true,
 		agentActionAt: readNumber(value, "agentActionAt") ?? null,
+		signedInTo: Array.isArray(value.signedInTo) ? value.signedInTo.filter((site): site is string => typeof site === "string") : [],
 	};
 }
 

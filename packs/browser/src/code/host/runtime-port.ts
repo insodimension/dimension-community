@@ -60,6 +60,9 @@ export interface CodeSeam {
   /** The session's open browsers, whoever opened them. */
   browsersOf(session: string): CodeSeamEntry[];
   viewOf(session: string): string | undefined;
+  shownTo(session: string): CodeSeamEntry | undefined;
+  tabOwner(browserId: string, tabId: string): string | undefined;
+  claimTab(browserId: string, tabId: string, session: string): void;
   bindView(session: string, browserId: string): void;
   /** One call in flight: out of idle close and make-room. Throws `task_running`, `publish_pending` (and `human_driving` once the person has the wheel). */
   hold(entry: CodeSeamEntry): () => void;
@@ -274,13 +277,17 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
     const entry = this.#seam.require(browserId);
     // A browser the pack only attached to (the person's own Chrome, an application) hands over a page it already has; a Chromium of the pack's opens one.
     if (this.#attachedEntry(entry)) return await abortable(this.#seam.serialize(entry, () => this.#adopt(entry, o, signal)), signal);
-    return await abortable(this.#seam.serialize(entry, () => entry.driver.openTab(o.url, {
-      waitUntil: o.waitUntil ?? "load",
-      timeoutMs: o.timeoutMs,
-      signal,
-      reuseBlank: true,
-      ...(o.dialogs === undefined ? {} : { dialogs: o.dialogs }),
-    })), signal);
+    return await abortable(this.#seam.serialize(entry, async () => {
+      const ref = await entry.driver.openTab(o.url, {
+        waitUntil: o.waitUntil ?? "load",
+        timeoutMs: o.timeoutMs,
+        signal,
+        reuseBlank: true,
+        ...(o.dialogs === undefined ? {} : { dialogs: o.dialogs }),
+      });
+      this.#seam.claimTab(browserId, ref.tabId, o.session);
+      return ref;
+    }), signal);
   }
 
   /** The page the person has in front (or the one `app.target` names), as it is; navigated only when the cell gave a URL. Its dialog policy is set before it navigates, as OMP's worker does. */
@@ -348,8 +355,14 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
   }
 
   existing(session: string): { browserId: string; wsEndpoint: string; kind: BrowserKind } | undefined {
-    const entry = this.#reusable(session);
+    const entry = this.#seam.shownTo(session) ?? this.#reusable(session);
     return entry === undefined ? undefined : { browserId: entry.browserId, wsEndpoint: entry.driver.cdpEndpoint(), kind: entry.code?.kind ?? { kind: "headless", headless: this.#hidden } };
+  }
+
+  ownedByAnotherChat(browserId: string, tabId: string, session: string): boolean {
+    if (this.#cmux.owns(browserId)) return false;
+    const owner = this.#seam.tabOwner(browserId, tabId);
+    return owner !== undefined && owner !== session;
   }
 
   holdWork(browserId: string): () => void {

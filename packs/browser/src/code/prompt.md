@@ -9,6 +9,7 @@ Drive real Chromium tabs by running JavaScript with the global `browser` object;
 - Static public page? Use `browser_read`. Use `browser_run` for interaction, JavaScript execution and logged-in pages.
 - Logged-in accounts live in saved profiles: `browser_profiles` lists them (name, label, signed-in sites); `browser.open({ profile: "<name or label>" })` opens one with its sign-ins and keeps them. A profile is one Chrome chats share: `open` gives you a tab of your own, and your names reach only your own tabs. Ask for a profile only by a name or label the user gave or `browser_profiles` showed. An avatar or a missing Sign in button proves no sign-in: open a page only a signed-in user can.
 - `await browser.open(options)` returns a `BrowserTab`; `browser.tab(name)` returns an existing handle; `await browser.close(options)` releases tabs.
+- What the person has open in the View or just marked, on any profile: `await browser.active().observe()`; do not `open` it. `browser.tabs()` lists the session's tabs.
 - `open` options: `name` (default `main`), `url`, `profile`, `app`, `viewport`, `wait_until`, `dialogs`, `timeout`, `persist`. `close` options: `name`, `all`, `kill`, `timeout`.
 - Direct tab helpers:
   - Navigation: `url`, `title`, `goto`.

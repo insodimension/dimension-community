@@ -192,10 +192,10 @@ async function previewResult(runtime: BrowserRuntimePort, browserId: string, ses
 
 
 
-/** A state as its caller reads it: the View draws the tabs' favicons (data: URLs of up to 32 KB each) and the profile's look (label, colour, avatar); a model would pay for every one, every call. */
+/** A state as its caller reads it: the View draws the tabs' favicons (data: URLs of up to 32 KB each), the profile's look (label, colour, avatar) and the sites it is signed in to (the chip); a model would pay for every one, every call. */
 function stateFor(caller: ToolCaller | undefined, state: BrowserState): object {
   if (caller === "app") return state;
-  const { look: _look, ...rest } = state;
+  const { look: _look, signedInTo: _signedInTo, ...rest } = state;
   return { ...rest, tabs: state.tabs.map(({ favicon: _favicon, ...tab }) => tab) };
 }
 
@@ -372,7 +372,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
       fail("publish_pending", "a post awaits confirmation on this browser; post or cancel it before opening a page in it");
     }
     await access(extra, state.browserId);
-    const navigated = await runtime.act(state.browserId, action, opener.caller, opener.session, accessGuard(extra, state.browserId));
+    const navigated = await runtime.act(state.browserId, action, opener.caller, opener.session, accessGuard(extra, state.browserId), opener.tool === "browser_view");
     assertAccess(extra, state.browserId);
     if (navigated.status !== "completed") throw new Error(`Opened, but navigating to ${url} ${navigated.status}: ${navigated.error}`);
     return navigated.state;

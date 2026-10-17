@@ -384,6 +384,36 @@ describeWithChrome("tabs the person opened", () => {
     expect(tabs.filter(tab => tab.active).map(tab => tab.url)).toEqual([pages.url("/other")]);
     expect(await valueOf(host, "s1", "browser.active().url()")).toBe(pages.url("/other"));
   }, BROWSER_TEST_TIMEOUT_MS);
+
+  test("a page the person opened in the View on a saved profile is what browser.active() reads and browser.tabs() lists, though the cell never opened a browser", async () => {
+    const { host, runtime } = await start();
+    const opened = await runtime.open({ profile: "person-view" }, { caller: "app", session: "s1" });
+    runtime.bindView("s1", opened.browserId);
+    await runtime.act(opened.browserId, { kind: "navigate", url: pages.url("/form") });
+    expect(await valueOf(host, "s1", "browser.active().url()")).toBe(pages.url("/form"));
+    expect(await valueOf(host, "s1", "(await browser.tabs()).map(tab => tab.url).join()")).toBe(pages.url("/form"));
+  }, BROWSER_TEST_TIMEOUT_MS);
+
+  test("on a saved profile two chats hold, browser.active() never adopts and browser.tabs() never lists a tab the other chat's cell opened", async () => {
+    const { host, runtime } = await start();
+    const mine = await runtime.open({ profile: "shared-view" }, { caller: "app", session: "s1" });
+    runtime.bindView("s1", mine.browserId);
+    await runtime.act(mine.browserId, { kind: "navigate", url: pages.url("/form") });
+    await valueOf(host, "s2", `await browser.open({ name: "theirs", profile: "shared-view", url: ${JSON.stringify(pages.url("/other"))} }); 0`);
+    const refused = await failureOf(host, "s1", "browser.active().url()");
+    expect(refused.message).toMatch(/another chat/);
+    expect(await valueOf(host, "s1", "(await browser.tabs()).map(tab => tab.url).join()")).toBe(pages.url("/form"));
+    expect(await valueOf(host, "s2", "(await browser.tabs()).map(tab => tab.url).join()")).toContain(pages.url("/other"));
+  }, BROWSER_TEST_TIMEOUT_MS);
+
+  test("a cell that only listed the tabs of the person's saved profile does not hold it afterwards: the person taking it over refuses nothing the chat's next cell does", async () => {
+    const { host, runtime } = await start();
+    const mine = await runtime.open({ profile: "held-view" }, { caller: "app", session: "s1" });
+    runtime.bindView("s1", mine.browserId);
+    await valueOf(host, "s1", "(await browser.tabs()).length");
+    await runtime.control(mine.browserId, "take", "app");
+    expect(isFailure(await cell(host, "s1", "1 + 1"))).toBe(false);
+  }, BROWSER_TEST_TIMEOUT_MS);
 });
 
 describeWithChrome("a person takes the browser over while a cell is using it", () => {

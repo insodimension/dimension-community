@@ -137,6 +137,7 @@ function browserOf(browserId: string, profile: ProfileListing | null, over: Part
 		dialogs: [],
 		takenOver: false,
 		agentActionAt: null,
+		signedInTo: profile === null ? [] : profile.sites.filter(listed => listed.signedIn === true).map(listed => listed.site),
 		...over,
 	};
 }
@@ -237,6 +238,20 @@ describe("the profile chip", () => {
 			const dom = await mountView(host, state);
 
 			expect(chipOf(dom).textContent).toContain(chip);
+			expect(callsTo(host, "browser_profiles")).toEqual([]);
+		});
+	}
+
+	for (const { name, signedInTo, label } of [
+		{ name: "a profile with no sign-in", signedInTo: [], label: "Default, No sign-ins yet" },
+		{ name: "one site", signedInTo: ["google.com"], label: "Default, Signed in to google.com" },
+		{ name: "three sites, two named", signedInTo: ["google.com", "x.com", "reddit.com"], label: "Default, Signed in to google.com, x.com +1" },
+	]) {
+		test(`the chip says what the browser's own state says its profile is signed in to, with no read of its own: ${name}`, async () => {
+			const host = fakeHost(SHELF);
+			const dom = await mountView(host, browserOf("b1", listing("default", "Default"), { signedInTo }));
+
+			expect(chipOf(dom).getAttribute("aria-label")).toBe(`${label} — profiles`);
 			expect(callsTo(host, "browser_profiles")).toEqual([]);
 		});
 	}
@@ -798,12 +813,12 @@ describe("taking over from the agent", () => {
 	const controlled = (from: BrowserState) => (call: Call): CallToolResult => (call.name === "browser_control" ? answer({ ...from, takenOver: call.args.mode === "take" }) : failure(`unexpected ${call.name}`));
 
 	for (const { name, state, offered } of [
-		{ name: "an agent acted a moment ago", state: agentAt(2_000), offered: true },
-		{ name: "an agent acted long ago", state: agentAt(60_000), offered: false },
-		{ name: "no agent has acted", state: WORK_BROWSER, offered: false },
+		{ name: "an agent acted a moment ago", state: () => agentAt(2_000), offered: true },
+		{ name: "an agent acted long ago", state: () => agentAt(60_000), offered: false },
+		{ name: "no agent has acted", state: () => WORK_BROWSER, offered: false },
 	]) {
 		test(`the page offers Take over when ${name}: ${offered}`, async () => {
-			const dom = await mountView(fakeHost(SHELF), state);
+			const dom = await mountView(fakeHost(SHELF), state());
 
 			expect(controls(dom, "page")).toEqual(offered ? ["Take over"] : []);
 			expect(dom.text().includes("Your agent is working here")).toBe(offered);

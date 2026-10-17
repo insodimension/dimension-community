@@ -136,8 +136,9 @@ describe("what the model is made to read", () => {
 
   // OMP's 1,783 and 1,099, plus 32 of slack, plus 72 for the guidance the transcripts asked for (1,171 - 1,099): read an unseen page with ariaSnapshot first, no sleep after goto, a function (not a string) for evaluate, and no
   // sign-in proven by an avatar. Two measured jobs (2026-10-08) spent 11 of 18 browser_run calls without them; each call costs more than these tokens cost a turn.
-  const MODEL_SET_TOKENS = 1_783 + 32 + 72;
-  const DESCRIPTION_TOKENS = 1_099 + 32 + 72;
+  const PERSON_PAGE_TOKENS = 44;
+  const MODEL_SET_TOKENS = 1_783 + 32 + 72 + PERSON_PAGE_TOKENS;
+  const DESCRIPTION_TOKENS = 1_099 + 32 + 72 + PERSON_PAGE_TOKENS;
 
   test("the model of a code space is offered browser_run, browser_view, browser_read, browser_profiles and browser_close, and their text is within the budget", async () => {
     const tools = await modelTools();

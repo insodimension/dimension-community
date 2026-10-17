@@ -67,7 +67,7 @@ import {
 import { LOOPBACK_EXCEPTIONS, watchPageLog } from "./page-log.js";
 import { ToolError } from "../code/errors.js";
 import { type AdmittedInput, inputCall } from "../input.js";
-import { AGENT_IGNORED_DEFAULT_ARGS, type AgentShape, fitAgentScreen, maskedGraphics, READER_PRESENTS_AS_CHROME, shapeTargetEarly } from "./agent-browser.js";
+import { AGENT_IGNORED_DEFAULT_ARGS, type AgentShape, fitScreen, fitTargetEarly, maskedGraphics, READER_PRESENTS_AS_CHROME, type ScreenFit, shapeTargetEarly } from "./agent-browser.js";
 import { agentPuppeteer } from "./agent-puppeteer.js";
 import { type AttachTarget, BROWSER_PROTOCOL_TIMEOUT_MS, connectAttached, pickAttachedPage, relayTarget } from "./attach.js";
 import { environmentLaunchArgs } from "./launch-env.js";
@@ -259,9 +259,11 @@ const binaryIdentities = identityPerBinary({
  * paused target is always released (a service worker answers only once it
  * runs, so nothing waits on a reply before the release). For an agent browser
  * `shape` is sent in the same breath, so a popup, a new tab, a frame or a
- * worker starts its first document already shaped (`shapeTargetEarly`).
+ * worker starts its first document already shaped (`shapeTargetEarly`). In any
+ * headless browser `fit` gives each new page the screen that fits it before it
+ * runs (`fitTargetEarly`).
  */
-async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity, shape?: AgentShape): Promise<void> {
+async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity, shape?: AgentShape, fit?: ScreenFit): Promise<void> {
 	const root = await browser.target().createCDPSession();
 	const connection = root.connection();
 	if (!connection) fail("launch_failed", "the browser's DevTools connection is gone");
@@ -279,7 +281,7 @@ async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity, sha
 			if (!serviceWorker) watch(child);
 			const sent: Promise<unknown>[] = [child.send("Emulation.setUserAgentOverride", override)];
 			if (!serviceWorker) sent.push(child.send("Target.setAutoAttach", autoAttach));
-			if (shape) sent.push(...shapeTargetEarly(child, targetInfo.type, shape));
+			sent.push(...(shape ? shapeTargetEarly(child, targetInfo.type, shape, fit) : fitTargetEarly(child, targetInfo.type, fit)));
 			if (waitingForDebugger) sent.push(child.send("Runtime.runIfWaitingForDebugger"));
 			const adopted = Promise.allSettled(sent).then(async () => {
 				if (serviceWorker) await session.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
@@ -297,11 +299,10 @@ async function presentAsHeadful(browser: Browser, identity: HeadfulIdentity, sha
 /**
  * How an agent browser's targets are shaped: the GPU it reports instead of a
  * software renderer (only when the binary renders in software here; undefined
- * when it has a GPU, or nothing was read), and whether pages get a screen that
- * fits (not in a browser with a real window).
+ * when it has a GPU, or nothing was read).
  */
-function agentShape(identity: HeadfulIdentity | undefined, screen: boolean, viewport: Viewport): AgentShape {
-	return { screen, early: identity !== undefined, graphics: identity?.softwareGraphics ? maskedGraphics(identity.metadata.platform) : undefined, view: { viewport, scale: 1 } };
+function agentShape(identity: HeadfulIdentity | undefined): AgentShape {
+	return { early: identity !== undefined, graphics: identity?.softwareGraphics ? maskedGraphics(identity.metadata.platform) : undefined };
 }
 
 /** Launch the user's browser (launch.ts decides which, and how) on the profile directory this driver owns. */
@@ -340,6 +341,8 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
 	own(browser);
 
 	let shape: AgentShape | undefined;
+	// A headless browser has no window or screen of its own: its pages get ones that fit (agent-browser.ts `fitScreen`), a saved profile's as well as an agent's.
+	const screen: ScreenFit | undefined = headless ? { viewport: options.viewport, scale: 1 } : undefined;
 	try {
 		if (identity) {
 			// An update the stamp missed shows as a version the identity does not
@@ -348,13 +351,13 @@ async function launchChromium(options: EngineOptions, release: () => void): Prom
 			const running = (await browser.version()).split("/").pop() ?? "";
 			identity = await binaryIdentities.confirm(resolved.executablePath, identity, running, launchArgs);
 		}
-		shape = agent ? agentShape(identity, headless, options.viewport) : undefined;
-		if (identity) await presentAsHeadful(browser, identity, shape);
+		shape = agent ? agentShape(identity) : undefined;
+		if (identity) await presentAsHeadful(browser, identity, shape, screen);
 		const pages = await browser.pages();
 		if (pages.length === 0) pages.push(await browser.newPage());
 		const tabs: Tab[] = [];
-		for (const page of pages) tabs.push(await prepareTab(page, options.viewport, 1, undefined, false, shape));
-		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...(shape ? { agent: shape } : {}), ...(options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {}) });
+		for (const page of pages) tabs.push(await prepareTab(page, options.viewport, 1, undefined, false, shape, screen));
+		return new PuppeteerDriver({ browser, tabs, viewport: options.viewport, ownsBrowser: true, release, app: resolved.app, ...(shape ? { agent: shape } : {}), ...(screen ? { screen } : {}), ...(options.onPageLoaded ? { onPageLoaded: options.onPageLoaded } : {}) });
 	} catch (err) {
 		try {
 			// `browser.close()` resolves once the process is gone; only then is the
@@ -444,9 +447,9 @@ async function launchShapedReader(executablePath: string, launchArgs: readonly s
 		if (!identity) identity = headfulIdentity(await readIdentity(browser));
 		identity = await binaryIdentities.confirm(executablePath, identity, running, launchArgs);
 		binaryIdentities.learn(executablePath, identity, launchArgs);
-		const shape = agentShape(identity, true, READER_VIEWPORT);
-		await presentAsHeadful(browser, identity, shape);
-		return new PuppeteerReader(browser, shape);
+		const screen: ScreenFit = { viewport: READER_VIEWPORT, scale: 1 };
+		await presentAsHeadful(browser, identity, agentShape(identity), screen);
+		return new PuppeteerReader(browser, screen);
 	} catch (err) {
 		await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, "failed reader launch cleanup").catch(() => undefined);
 		throw err;
@@ -455,13 +458,13 @@ async function launchShapedReader(executablePath: string, launchArgs: readonly s
 
 class PuppeteerReader implements PageReader {
 	readonly #browser: Browser;
-	readonly #shape: AgentShape | undefined;
+	readonly #screen: ScreenFit | undefined;
 	/** Set once closing starts, or when a read could not dispose of its context. */
 	#spent = false;
 
-	constructor(browser: Browser, shape?: AgentShape) {
+	constructor(browser: Browser, screen?: ScreenFit) {
 		this.#browser = browser;
-		this.#shape = shape;
+		this.#screen = screen;
 	}
 
 	get usable(): boolean {
@@ -499,7 +502,7 @@ class PuppeteerReader implements PageReader {
 		const page = await context.newPage();
 		primary = page.target();
 		// The session stays attached: a session's emulation is undone when it detaches. It goes with the page when the context closes.
-		if (this.#shape?.screen) await fitAgentScreen(await page.createCDPSession(), READER_VIEWPORT, 1);
+		if (this.#screen) await fitScreen(await page.createCDPSession(), this.#screen.viewport, this.#screen.scale);
 
 		// Set from event handlers; the cast keeps TypeScript from narrowing it to `null` here.
 		let refusal = null as { url: string; reason: string } | null;
@@ -610,7 +613,7 @@ interface Guarded {
 	dialogs: DialogLog;
 }
 
-async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded, foreign = false, agent?: AgentShape): Promise<Tab> {
+async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Guarded, foreign = false, agent?: AgentShape, screen?: ScreenFit): Promise<Tab> {
 	const { cdp, dialogs } = early ?? (await guardPage(await page.createCDPSession(), foreign));
 	const tab: Tab = { id: "", documentId: "", page, target: page.target(), cdp, loading: false, navSeq: 0, dialogs, log: [] };
 	// Subscribed before the first read: a commit racing setup is never missed.
@@ -621,7 +624,7 @@ async function prepareTab(page: Page, viewport: Viewport, scale = 1, early?: Gua
 		// The person's own page is left as it is: no viewport override and no focus emulation (it is the one they are looking at).
 		if (!foreign) {
 			await page.setViewport({ ...viewport, deviceScaleFactor: scale });
-			if (agent?.screen) await fitAgentScreen(cdp, viewport, scale);
+			if (screen) await fitScreen(cdp, viewport, scale);
 			if (agent && !agent.early) await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: LOOPBACK_EXCEPTIONS });
 			// A tab behind another (a background tab) is not rendered, and puppeteer's element clicks wait on rendering.
 			// Focus emulation keeps our tabs rendering without stealing the window.
@@ -707,6 +710,8 @@ interface DriverParts {
 	app: BrowserApp | null;
 	/** Set for a throwaway agent browser: how each of its pages is shaped (agent-browser.ts). */
 	agent?: AgentShape;
+	/** Set for a headless browser: the screen and window its pages are fitted to, kept current as the viewport changes (agent-browser.ts `ScreenFit`). */
+	screen?: ScreenFit;
 	/** `AttachTarget.terminate`: what `kill` ends beyond closing (an attached application the pack started). */
 	terminate?: () => Promise<void>;
 	/** A cell's attach target: every page of this browser is the person's (a popup of one included), never resized, raised or answered for. */
@@ -741,6 +746,7 @@ class PuppeteerDriver implements EngineDriver {
 	#scale = 1;
 	readonly #ownsBrowser: boolean;
 	readonly #agent: AgentShape | undefined;
+	readonly #screen: ScreenFit | undefined;
 	readonly #terminate: (() => Promise<void>) | undefined;
 	readonly #attached: boolean;
 	readonly #release: () => void;
@@ -777,6 +783,7 @@ class PuppeteerDriver implements EngineDriver {
 		this.#viewport = parts.viewport;
 		this.#ownsBrowser = parts.ownsBrowser;
 		this.#agent = parts.agent;
+		this.#screen = parts.screen;
 		this.#terminate = parts.terminate;
 		this.#attached = parts.attached === true;
 		this.#release = parts.release;
@@ -1899,7 +1906,7 @@ class PuppeteerDriver implements EngineDriver {
 				await early.cdp.detach().catch(() => undefined);
 				return undefined;
 			}
-			const tab = await prepareTab(page, this.#viewport, this.#scale, early, foreign || readOnlySetup, this.#agent);
+			const tab = await prepareTab(page, this.#viewport, this.#scale, early, foreign || readOnlySetup, this.#agent, this.#screen);
 			if (foreign) tab.foreign = true;
 			if (this.#closed || page.isClosed()) {
 				await tab.cdp.detach().catch(() => undefined);
@@ -2102,9 +2109,7 @@ class PuppeteerDriver implements EngineDriver {
 				const admission = guard();
 				if (admission !== undefined) await admission;
 				guard.assertCurrent();
-				this.#viewport = viewport;
-				this.#scale = scale;
-				if (this.#agent) this.#agent.view = { viewport, scale };
+				this.#setSize(viewport, scale);
 				if (this.#watchers.size > 0) {
 					await this.#stopScreencast();
 					await this.#restartScreencast();
@@ -2117,9 +2122,7 @@ class PuppeteerDriver implements EngineDriver {
 				throw error;
 			}
 		}
-		this.#viewport = viewport;
-		this.#scale = scale;
-		if (this.#agent) this.#agent.view = { viewport, scale };
+		this.#setSize(viewport, scale);
 		// The person's own pages (an attach target's) are never resized: their window is theirs.
 		await Promise.all(this.#tabs.filter((tab) => !tab.foreign).map((tab) => this.#pendingNativeTabSetup.has(tab)
 			? this.#prepareOwnedTab(tab)
@@ -2131,10 +2134,20 @@ class PuppeteerDriver implements EngineDriver {
 		for (const width of this.#cardWatchers.keys()) void this.#restartCard(width);
 	}
 
-	/** One tab's viewport, and for an agent browser the screen and window around it (agent-browser.ts). */
+	/** The size every later tab, popup and early-fitted target is given. */
+	#setSize(viewport: Viewport, scale: number): void {
+		this.#viewport = viewport;
+		this.#scale = scale;
+		if (this.#screen) {
+			this.#screen.viewport = viewport;
+			this.#screen.scale = scale;
+		}
+	}
+
+	/** One tab's viewport, and for a headless browser the screen and window around it (agent-browser.ts `fitScreen`). */
 	async #fit(tab: Tab, viewport: Viewport, scale: number): Promise<void> {
 		await tab.page.setViewport({ ...viewport, deviceScaleFactor: scale });
-		if (this.#agent?.screen) await fitAgentScreen(tab.cdp, viewport, scale);
+		if (this.#screen) await fitScreen(tab.cdp, viewport, scale);
 	}
 
 	/** Serial per-size handoff prevents an old cast's detach from stopping its successor. */
