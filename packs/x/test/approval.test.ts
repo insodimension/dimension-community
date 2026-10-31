@@ -65,21 +65,28 @@ interface RegisteredTool {
 	execute?: (id: string, params: unknown) => Promise<unknown>;
 }
 
-const tools = new Map<string, RegisteredTool>();
-xExtension({
-	registerTool(tool: RegisteredTool) {
-		tools.set(tool.name, tool);
-	},
-} as unknown as Parameters<typeof xExtension>[0]);
+type Session = Map<string, RegisteredTool>;
 
-function tool(name: string): RegisteredTool {
-	const found = tools.get(name);
+function loadSession(): Session {
+	const session: Session = new Map();
+	xExtension({
+		registerTool(tool: RegisteredTool) {
+			session.set(tool.name, tool);
+		},
+	} as unknown as Parameters<typeof xExtension>[0]);
+	return session;
+}
+
+const tools = loadSession();
+
+function tool(name: string, session: Session = tools): RegisteredTool {
+	const found = session.get(name);
 	if (!found) throw new Error(`x extension did not register ${name}`);
 	return found;
 }
 
-function card(name: string, args: unknown): string {
-	const format = tool(name).formatApprovalDetails;
+function card(name: string, args: unknown, session: Session = tools): string {
+	const format = tool(name, session).formatApprovalDetails;
 	if (!format) throw new Error(`${name} has no approval card`);
 	return format(args).join("\n");
 }
@@ -152,4 +159,59 @@ test("an empty or blank replyTo is no reply target: the card and the post both g
 		await tool("x_post").execute?.("call-2", { text: "top level", replyTo });
 		expect(posted).toEqual([{ text: "top level" }]);
 	}
+});
+
+function countLookups(): string[] {
+	const lookups: string[] = [];
+	const stubbed = globalThis.fetch;
+	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+		if (String(input).includes("/users/me")) lookups.push(String(input));
+		return stubbed(input, init);
+	}) as typeof fetch;
+	return lookups;
+}
+
+test("sessions share one account lookup: the handle one session cached names the account in the other's card", async () => {
+	await connect("access-carol", "refresh-carol");
+	stubX("carol");
+	const lookups = countLookups();
+	const first = loadSession();
+	const second = loadSession();
+
+	await tool("x_me", first).execute?.("call-a", {});
+	await tool("x_me", second).execute?.("call-b", {});
+
+	expect(lookups).toHaveLength(1);
+	expect(card("x_post", { text: "hi" }, first)).toContain("As: @carol");
+	expect(card("x_post", { text: "hi" }, second)).toContain("As: @carol");
+});
+
+test("a reconnect as another account drops the old handle in every session at once", async () => {
+	await connect("access-erin", "refresh-erin");
+	stubX("erin");
+	const first = loadSession();
+	const second = loadSession();
+	await tool("x_me", first).execute?.("call-a", {});
+
+	await connect("access-frank", "refresh-frank");
+	stubX("frank");
+	const lookups = countLookups();
+	for (const session of [first, second]) {
+		const shown = card("x_post", { text: "hi" }, session);
+		expect(shown).not.toContain("@erin");
+		expect(shown).toContain("As: the connected X account");
+	}
+
+	await tool("x_me", second).execute?.("call-b", {});
+	expect(lookups).toHaveLength(1);
+	expect(card("x_post", { text: "hi" }, first)).toContain("As: @frank");
+});
+
+test("every session registers its own tool objects over the same tool surface", () => {
+	const first = loadSession();
+	const second = loadSession();
+
+	expect([...second.keys()]).toEqual([...first.keys()]);
+	expect(first.size).toBe(tools.size);
+	for (const [name, registered] of first) expect(second.get(name)).not.toBe(registered);
 });

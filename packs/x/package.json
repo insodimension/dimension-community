@@ -1,7 +1,7 @@
 {
 	"name": "@inso/x",
 	"author": "Dimension",
-	"version": "0.2.6",
+	"version": "0.2.7",
 	"description": "X (Twitter) connector — research free via x.com web GraphQL with your browser cookies; post/reply/thread/DM via the official X API v2 (OAuth 2.0 PKCE, bring-your-own developer app)",
 	"type": "module",
 	"main": "index.ts",
