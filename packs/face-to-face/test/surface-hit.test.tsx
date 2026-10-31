@@ -13,7 +13,7 @@ import { mountPage, unmountAll } from "./surface-dom";
 
 afterEach(unmountAll);
 
-type Rule = { selector: string; value: string; weight: number };
+type Rule = { selector: string; value: string; weight: number; index: number };
 
 function weight(selector: string): number {
 	const ids = (selector.match(/#[\w-]+/g) ?? []).length;
@@ -28,7 +28,7 @@ function pointerRules(css: string): Rule[] {
 	for (const [, selectors, body] of flat.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
 		const value = /(?:^|;|\s)pointer-events\s*:\s*([a-z-]+)/.exec(body)?.[1];
 		if (!value) continue;
-		for (const selector of selectors.split(",")) rules.push({ selector: selector.trim(), value, weight: weight(selector) });
+		for (const selector of selectors.split(",")) rules.push({ selector: selector.trim(), value, weight: weight(selector), index: rules.length });
 	}
 	return rules;
 }
@@ -45,7 +45,7 @@ function effectivePointerEvents(el: Element, rules: Rule[]): string {
 	for (let node: Element | null = el; node; node = node.parentElement) {
 		const own = rules
 			.filter((rule) => matches(node, rule.selector))
-			.sort((a, b) => b.weight - a.weight || 0)[0];
+			.sort((a, b) => b.weight - a.weight || b.index - a.index)[0];
 		if (own && own.value !== "inherit") return own.value;
 	}
 	return "auto";
