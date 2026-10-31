@@ -1,6 +1,5 @@
-// Face to face: one bundle, two components. `FaceSurface` (default export) fills the Chat space's `face`
-// workspace surface; `FaceDoor` (named export, declared with `"export": "FaceDoor"` in plugin.json) is the
-// pinned orb that opens it. This module is the ONLY place the two are wired to the host: the surface's
+// Face to face: one bundle, one component. `FaceSurface` (default export) fills the Chat space's `face`
+// workspace surface; the space's rail row opens it. This module is the ONLY place it is wired to the host: the surface's
 // voice and its Live call come from the kit hooks through `surface/voice.ts` and `surface/live.ts`, the head from `surface/head-source.ts`.
 import { memo, useCallback, useRef } from "react";
 import { FaceSurfaceBody } from "./surface/face-surface";
@@ -10,8 +9,6 @@ import headUrl from "./surface/head-source";
 import { STYLES } from "./surface/styles";
 import { useFaceLive } from "./surface/live";
 import { useFaceVoice } from "./surface/voice";
-
-export { FaceDoor } from "./surface/face-door";
 
 /** The workspace-surface fill props this pack reads (the host passes many more) plus the seat's `store`. */
 export interface FaceSurfaceProps {

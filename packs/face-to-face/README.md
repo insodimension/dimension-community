@@ -3,21 +3,21 @@
 ## What it is
 
 Talk to your agent and watch it answer. A full-screen surface for the Chat space: a halftone dot-matrix head
-that turns, blinks and lip-syncs to the **actual spoken audio**, captions every word as it is said, and a small
-living orb that opens it.
+that turns, blinks and lip-syncs to the **actual spoken audio**, and captions every word as it is said. It opens from
+the Chat space's rail, on its **Face to face** row.
 
 ## What it contains
 
-One bundle, two components (`plugin.json`):
+One bundle, one component (`plugin.json`):
 
 | id | export | fills |
 |---|---|---|
 | `face-to-face` | default (`FaceSurface`) | the space's `face` workspace surface (`components.face`) |
-| `face-to-face-door` | `FaceDoor` | the pinned widget `widgets.pinned: [{ fill: "face-to-face-door", post: "bottom-right" }]` |
 
 A space opts in with `workspace.surfaces: [..., "face"]`, `workspace.chrome.face: "none"`,
-`components.face: "face-to-face"`, the pinned door, a rail action `{ target: "surface", surface: "face" }`,
-and `requires.plugins: ["face-to-face"]` (the Chat space's `packs/chat/plugin.json` is the wiring proof).
+`components.face: "face-to-face"`, a rail action `{ target: "surface", surface: "face" }` and
+`requires.plugins: ["face-to-face"]` (the Chat space's `packs/chat/plugin.json` is the wiring proof). The rail row is the
+only way in: the pack ships no pinned door or other launcher of its own.
 
 No tools, skills, prompts or rules.
 
@@ -33,7 +33,7 @@ The pack has **no transport of its own**. All voice comes from the kit hook `use
 | `words` + `audioClock()` | the two-line captions and the procedural lip timing |
 | `faceAt()` (52 ARKit weights, `ARKIT_52_NAMES` order) | the mouth, when non-null; otherwise the procedural mouth, cross-faded |
 | `partial` | the person's live words, in the captions' place |
-| `notice` / `error` | shown verbatim (a key to connect, a model downloading), with a hint only when the words name the cause |
+| `notice` / `error` | shown verbatim (a key to connect, a model downloading, a voice or lip-sync model skipped), with a hint only when the words name the cause. In the voice conversation the notice has its own line above the captions and the person's words, and it grows upward, so it never covers them; in a Live call it sits above the Live bar |
 | `micLive` | the red dot and **Mic on**, always visible |
 
 ### Talk live
@@ -91,9 +91,9 @@ data URL (`vite build` with `assetsInclude: ["**/*.bin"]` and `import ... ?inlin
 
 ### Layout
 
-- `src/index.tsx` — the two components; the only wiring to the host.
-- `src/surface/` — the surface: `surface-model.ts` (pure: phase to screen, Back/Esc), `face-surface.tsx`, `face-door.tsx`,
-  `orb.ts` (the door's dots), `waveform*.ts(x)`, `voice.ts` and `live.ts` (hook adapters), `live-mouth.ts` (how a call moves the mouth), `head*.ts` (asset), `styles.ts`.
+- `src/index.tsx` — the component; the only wiring to the host.
+- `src/surface/` — the surface: `surface-model.ts` (pure: phase to screen, Back/Esc), `face-surface.tsx`,
+  `waveform*.ts(x)`, `voice.ts` and `live.ts` (hook adapters), `live-mouth.ts` (how a call moves the mouth), `head*.ts` (asset), `styles.ts`.
 - `src/face/` — the face itself: animator, lip-sync, expressions, WebGL2 dot renderer, captions (see `PROVENANCE.md`
   for the head's licence).
 

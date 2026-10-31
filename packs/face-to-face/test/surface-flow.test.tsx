@@ -2,7 +2,7 @@
 // "loading" so no WebGL is asked for). Defended here: CONSENT (the microphone opens from the user's click on
 // "Tap to talk" and nowhere else, in every phase and after an error), the ways OUT (Back and Esc both end the
 // conversation and leave), and that the mic state on screen is the hook's. The pure phase mapping is in
-// surface-model.test.ts; the door in surface-door.test.tsx.
+// surface-model.test.ts.
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { act, useState } from "react";
 import { readFileSync } from "node:fs";
@@ -133,6 +133,11 @@ describe("consent: the microphone opens from the click on Tap to talk, and only 
 	});
 });
 
+async function readyHead(): Promise<HeadState> {
+	const bytes = readFileSync(resolve(import.meta.dir, "../assets/head-f01.bin"));
+	return { status: "ready", asset: await loadHead(`data:application/octet-stream;base64,${bytes.toString("base64")}`) };
+}
+
 describe("a face that cannot be drawn does not take the conversation with it", () => {
 	// Bun prints a logged Error by source-mapping the whole react-dom dev bundle (seconds); the boundary, not the log, is under test.
 	const { error, warn } = console;
@@ -144,9 +149,7 @@ describe("a face that cannot be drawn does not take the conversation with it", (
 	test("no WebGL2 (linkedom has none): the card says so in the middle of the page, and Tap to talk and Back still work", async () => {
 		console.error = () => {};
 		console.warn = () => {};
-		const bytes = readFileSync(resolve(import.meta.dir, "../assets/head-f01.bin"));
-		const asset = await loadHead(`data:application/octet-stream;base64,${bytes.toString("base64")}`);
-		const view = await mount({ phase: "idle", supported: true }, { status: "ready", asset });
+		const view = await mount({ phase: "idle", supported: true }, await readyHead());
 		expect(view.find(".f2f-center")?.textContent).toContain("The face could not be drawn");
 		expect(view.find(".f2f-center")?.textContent).toContain("WebGL2");
 		await view.press(view.buttonByText("Tap to talk"));
@@ -347,6 +350,48 @@ describe("words the host could not send", () => {
 
 		expect(has(view, ".f2f-note")).toBe(false);
 		expect(has(view, ".f2f-usercap")).toBe(false);
+	});
+});
+
+describe("the engine's notice has a line of its own", () => {
+	const SKIPPED = "Face animation local/wav2arkit skipped: its model needs a download (Lip-sync (wav2arkit) is not downloaded yet (~400 MB)).";
+	const { error, warn } = console;
+	afterEach(() => {
+		console.error = error;
+		console.warn = warn;
+	});
+
+	test("in the voice conversation it sits above the person's words, never among them", async () => {
+		const view = await mount({ ...LISTENING, partial: "What's the plan for Saturday in Lisbon?", notice: SKIPPED });
+		const note = view.find(".f2f-note");
+		const words = view.find(".f2f-words");
+
+		expect(note?.textContent).toBe(SKIPPED);
+		expect(words?.textContent).toContain("What's the plan for Saturday in Lisbon?");
+		expect(words?.textContent).not.toContain("skipped");
+		expect(note?.nextElementSibling).toBe(words);
+		expect(note?.parentElement?.getAttribute("class")).toBe("f2f-lower");
+	});
+
+	test("while the agent speaks it sits above the captions, which keep their own place", async () => {
+		console.error = () => {};
+		console.warn = () => {};
+		const view = await mount({ phase: "speaking", words: [{ w: "Saturday", s: 0, e: 0.5 }], notice: SKIPPED }, await readyHead());
+		const note = view.find(".f2f-note");
+		const place = view.find(".f2f-words");
+
+		expect(note?.nextElementSibling).toBe(place);
+		expect(place?.querySelector('[aria-live="off"]')).not.toBeNull();
+		expect(place?.contains(note ?? null)).toBe(false);
+	}, 60_000);
+
+	test("in a Live call it stays above the Live bar, which carries its own words", async () => {
+		const view = await mount({}, LOADING, { available: true, phase: "listening", voice: "Sol via codex-live" });
+		const note = view.find(".f2f-note");
+
+		expect(note?.parentElement?.getAttribute("class")).toBe("f2f-bottom");
+		expect(note?.nextElementSibling?.getAttribute("data-slot")).toBe("live-bar");
+		expect(view.find(".f2f-lower")?.querySelector(".f2f-note")).toBeNull();
 	});
 });
 
