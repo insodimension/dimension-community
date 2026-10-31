@@ -93,6 +93,13 @@ interface LaneCache {
 }
 let laneCache: LaneCache | null = null;
 
+interface LaneProbe {
+	readonly mode: LaneCache["mode"];
+	readonly envKey: string;
+	readonly lane: Promise<LaneCache>;
+}
+let laneProbeInFlight: LaneProbe | null = null;
+
 /** `auto` (default) prefers the free lane and falls back; `official` disables
  *  it entirely; `bird` is a diagnostic pin that does NOT fall back silently. */
 function configuredBackend(): "auto" | "bird" | "official" {
@@ -133,9 +140,21 @@ async function resolveLane(): Promise<LaneCache> {
 	if (laneCache && laneCache.mode === mode && laneCache.envKey === envKey && now - laneCache.at < LANE_TTL_MS) {
 		return laneCache;
 	}
+	if (laneProbeInFlight?.mode === mode && laneProbeInFlight.envKey === envKey) return laneProbeInFlight.lane;
 
+	const probe: LaneProbe = { mode, envKey, lane: probeLane(mode, envKey, now) };
+	laneProbeInFlight = probe;
+	try {
+		laneCache = await probe.lane;
+		return laneCache;
+	} finally {
+		if (laneProbeInFlight === probe) laneProbeInFlight = null;
+	}
+}
+
+async function probeLane(mode: LaneCache["mode"], envKey: string, now: number): Promise<LaneCache> {
 	if (mode === "official") {
-		laneCache = {
+		return {
 			at: now,
 			mode,
 			envKey,
@@ -146,7 +165,6 @@ async function resolveLane(): Promise<LaneCache> {
 				detail: `Free lane disabled by ${BACKEND_ENV}=official — reads bill on the official API.`,
 			},
 		};
-		return laneCache;
 	}
 
 	process.env.BIRD_QUERY_IDS_CACHE ??= QUERY_ID_CACHE;
@@ -180,17 +198,16 @@ async function resolveLane(): Promise<LaneCache> {
 			mode === "bird"
 				? `${BACKEND_ENV}=bird but no x.com cookies were found${why}. Log into x.com in Safari/Chrome/Firefox, or set X_AUTH_TOKEN and X_CT0.`
 				: `No x.com cookies found — reads bill on the official API${why}. Log into x.com in Safari/Chrome/Firefox (or set X_AUTH_TOKEN/X_CT0) to read for free.`;
-		laneCache = {
+		return {
 			at: now,
 			mode,
 			envKey,
 			client: null,
 			status: { backend: "official", cookieSource: null, detail },
 		};
-		return laneCache;
 	}
 
-	laneCache = {
+	return {
 		at: now,
 		mode,
 		envKey,
@@ -201,7 +218,6 @@ async function resolveLane(): Promise<LaneCache> {
 			detail: `Free lane active — x.com web GraphQL, cookies from ${source ?? "env"}. Reads cost $0; writes still use the official API.`,
 		},
 	};
-	return laneCache;
 }
 
 /** The lane a read would take right now. Never throws. */

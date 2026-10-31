@@ -1452,7 +1452,7 @@
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
 			"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
-			"version": "0.2.6",
+			"version": "0.2.7",
 			"author": {
 				"name": "Dimension"
 			},
