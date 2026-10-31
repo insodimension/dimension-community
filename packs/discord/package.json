@@ -1,7 +1,7 @@
 {
 	"name": "@inso/discord",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Discord connector — list servers/channels, read and post messages over the Discord REST API (bot token)",
 	"type": "module",
 	"main": "index.ts",
@@ -13,8 +13,7 @@
 		"extensions": [
 			"index.ts"
 		],
-		"bundle": true,
-		"sharedModule": true
+		"bundle": true
 	},
 	"files": [
 		"skills/",

@@ -1,7 +1,7 @@
 {
 	"name": "@inso/reddit",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Reddit connector — browse feeds, read posts/comments, search, submit, comment, vote, and read your inbox via the Reddit OAuth API (script app)",
 	"type": "module",
 	"main": "index.ts",
@@ -12,8 +12,7 @@
 		"name": "reddit",
 		"extensions": [
 			"index.ts"
-		],
-		"sharedModule": true
+		]
 	},
 	"files": [
 		"skills/",

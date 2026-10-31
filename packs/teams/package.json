@@ -1,7 +1,7 @@
 {
 	"name": "@inso/teams",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Microsoft Teams connector — list teams/channels and post channel messages over Microsoft Graph (Azure AD app, client-credentials)",
 	"type": "module",
 	"main": "index.ts",
@@ -12,8 +12,7 @@
 		"name": "teams",
 		"extensions": [
 			"index.ts"
-		],
-		"sharedModule": true
+		]
 	},
 	"files": [
 		"skills/",

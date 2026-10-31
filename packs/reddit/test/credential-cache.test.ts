@@ -1,5 +1,5 @@
-// The bearer-token cache's credential key. This module is `dimension.sharedModule`, so
-// `tokenCache` is evaluated ONCE PER PROCESS and outlives a session: a user who
+// The bearer-token cache's credential key. Module top-level state is process-wide
+// (the factory runs per session), so `tokenCache` outlives a session: a user who
 // reconnects mid-process (new account, rotated secret) must not keep acting as
 // the old account until the old token expires. A wrong-but-still-valid token
 // never trips the 401 path that clears the cache, so the cache key is the only
