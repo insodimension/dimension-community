@@ -62,8 +62,16 @@ export interface SubjectView {
 	readonly notice: string | undefined;
 }
 
-export function viewOfSubject(subject: PageSubject | undefined, applied: PageSubject | undefined, agents: readonly ListedAgent[] | undefined): SubjectView | undefined {
+export function viewOfSubject(
+	subject: PageSubject | undefined,
+	applied: PageSubject | undefined,
+	agents: readonly ListedAgent[] | undefined,
+	open: ProfileState | null,
+): SubjectView | undefined {
 	if (subject === undefined || subject === applied || subject.kind !== "agent" || agents === undefined) return undefined;
+	if (open !== null && isDirty(open)) {
+		return { profile: open, notice: `You have unsaved changes. Save or discard them, then open "${subject.id}".` };
+	}
 	const file = agents.find(agent => agent.name === subject.id);
 	if (file === undefined) return { profile: null, notice: `No agent named "${subject.id}" was found.` };
 	return { profile: openListed(file), notice: undefined };

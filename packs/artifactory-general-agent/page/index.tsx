@@ -104,12 +104,12 @@ export function GeneralAgentsPage(props: GeneralAgentsPageProps) {
 
 	const appliedSubject = useRef<PageSubject | undefined>(undefined);
 	useEffect(() => {
-		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents);
+		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents, profile);
 		if (view === undefined) return;
 		appliedSubject.current = props.subject;
 		setProfile(view.profile);
 		setNotice(view.notice);
-	}, [props.subject, listing.value]);
+	}, [props.subject, listing.value, profile]);
 
 	// A proposal for the agent on screen lands on it as soon as it is read.
 	useEffect(() => {

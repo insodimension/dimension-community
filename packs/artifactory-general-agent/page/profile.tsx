@@ -1,5 +1,5 @@
 // One agent's profile: who it is at the top (its face, name, tier, where it
-// stands, its switches and the one action it offers), its week as a vitals
+// stands, its Enabled switch and the one action it offers), its week as a vitals
 // strip, then every part of it as a section of real things (faces, files,
 // marks, models, choices), never rows of label and value. A pack's agent reads
 // the same, with its controls at rest and a way to extend it; yours and your

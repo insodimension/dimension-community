@@ -367,29 +367,49 @@ describe("a page subject", () => {
 	const agentNamed = (id: string) => ({ kind: "agent", id });
 
 	test("opens the profile of the agent it names, on that agent's own file", () => {
-		const view = viewOfSubject(agentNamed("herald"), undefined, FILES);
+		const view = viewOfSubject(agentNamed("herald"), undefined, FILES, null);
 		expect(view?.notice).toBeUndefined();
 		expect(view?.profile?.agent?.name).toBe("herald");
 		expect(view?.profile?.readOnly).toBeUndefined();
 	});
 
 	test("opens a pack's agent read-only", () => {
-		expect(viewOfSubject(agentNamed("coding"), undefined, FILES)?.profile?.readOnly).toBe("It ships in a pack.");
+		expect(viewOfSubject(agentNamed("coding"), undefined, FILES, null)?.profile?.readOnly).toBe("It ships in a pack.");
 	});
 
 	test("leaves the page home with a notice for an agent the listing does not hold", () => {
-		expect(viewOfSubject(agentNamed("ghost"), undefined, FILES)).toEqual({ profile: null, notice: 'No agent named "ghost" was found.' });
+		expect(viewOfSubject(agentNamed("ghost"), undefined, FILES, null)).toEqual({ profile: null, notice: 'No agent named "ghost" was found.' });
 	});
 
 	test("waits for the listing, and ignores a subject of another kind or no subject", () => {
-		expect(viewOfSubject(agentNamed("herald"), undefined, undefined)).toBeUndefined();
-		expect(viewOfSubject({ kind: "room", id: "herald" }, undefined, FILES)).toBeUndefined();
-		expect(viewOfSubject(undefined, undefined, FILES)).toBeUndefined();
+		expect(viewOfSubject(agentNamed("herald"), undefined, undefined, null)).toBeUndefined();
+		expect(viewOfSubject({ kind: "room", id: "herald" }, undefined, FILES, null)).toBeUndefined();
+		expect(viewOfSubject(undefined, undefined, FILES, null)).toBeUndefined();
 	});
 
 	test("opens once per subject object: the same object again is a re-render, a new object for the same agent is another click", () => {
 		const click = agentNamed("herald");
-		expect(viewOfSubject(click, click, FILES)).toBeUndefined();
-		expect(viewOfSubject(agentNamed("herald"), click, FILES)?.profile?.agent?.name).toBe("herald");
+		expect(viewOfSubject(click, click, FILES, null)).toBeUndefined();
+		expect(viewOfSubject(agentNamed("herald"), click, FILES, null)?.profile?.agent?.name).toBe("herald");
+	});
+
+	test("replaces a profile with nothing unsaved on it", () => {
+		const open = openListed(listed("scribe", "user"));
+		expect(viewOfSubject(agentNamed("herald"), undefined, FILES, open)?.profile?.agent?.name).toBe("herald");
+	});
+
+	test("keeps a profile with unsaved edits open, and says why, for a known and for an unknown agent alike", () => {
+		const base = listed("scribe", "user");
+		const edited: ProfileState = { ...openListed(base), draft: { ...base.draft, description: "Edited line" } };
+		for (const id of ["herald", "ghost"]) {
+			const view = viewOfSubject(agentNamed(id), undefined, FILES, edited);
+			expect(view?.profile).toBe(edited);
+			expect(view?.notice).toBe(`You have unsaved changes. Save or discard them, then open "${id}".`);
+		}
+	});
+
+	test("keeps an unsaved new agent open", () => {
+		const blank = openBlank();
+		expect(viewOfSubject(agentNamed("herald"), undefined, FILES, blank)?.profile).toBe(blank);
 	});
 });

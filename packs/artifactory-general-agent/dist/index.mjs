@@ -2852,8 +2852,12 @@ function openListed(agent) {
 		...agent.editable ? {} : { readOnly: agent.readOnlyReason ?? "This agent is read-only here." }
 	};
 }
-function viewOfSubject(subject, applied, agents) {
+function viewOfSubject(subject, applied, agents, open) {
 	if (subject === void 0 || subject === applied || subject.kind !== "agent" || agents === void 0) return void 0;
+	if (open !== null && isDirty(open)) return {
+		profile: open,
+		notice: `You have unsaved changes. Save or discard them, then open "${subject.id}".`
+	};
 	const file = agents.find((agent) => agent.name === subject.id);
 	if (file === void 0) return {
 		profile: null,
@@ -5641,12 +5645,16 @@ function GeneralAgentsPage(props) {
 	}, [listing.value]);
 	const appliedSubject = useRef(void 0);
 	useEffect(() => {
-		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents);
+		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents, profile);
 		if (view === void 0) return;
 		appliedSubject.current = props.subject;
 		setProfile(view.profile);
 		setNotice(view.notice);
-	}, [props.subject, listing.value]);
+	}, [
+		props.subject,
+		listing.value,
+		profile
+	]);
 	useEffect(() => {
 		if (profile === null) return;
 		const mine = proposalsForProfile(profile, pending);

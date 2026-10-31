@@ -41,8 +41,9 @@ Capabilities → General Agents opens this page on that agent's profile, through
 the `subject` fill prop (`{ kind: "agent", id: <agent name> }`). The page opens
 each subject object once, so a re-render never reopens it and a second click on
 the same agent does. An agent the page's listing does not hold leaves the page
-on the home with a notice. The page is reachable only while this pack is
-enabled.
+on the home with a notice. A profile with unsaved edits is never replaced by a
+click: the page keeps it and says to save or discard first. The page is
+reachable only while this pack is enabled.
 
 The component (`components[general-agents-page]`, `slot: workspace-surface`,
 export `GeneralAgentsPage`) is mounted in a seat with three grants:
