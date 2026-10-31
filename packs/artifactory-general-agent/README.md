@@ -59,7 +59,7 @@ All from the fenced Store the seat hands it, never from a driver:
 
 | Fact | For |
 |---|---|
-| `agents/list` | the roster: title, face, tier, the two switches, capability counts, home id |
+| `agents/list` | the roster: title, face, tier, whether it is enabled, capability counts, home id |
 | `sessions/list` | activity, folded ONCE per page (coalesced to one read per 250 ms): sessions in 7 days, last active, working or waiting on you, rooms led |
 | `agents/usage` | tokens and cost in 7 days |
 | `capabilities/catalog` | the marks and names of every plugin, skill, MCP server and tool |
