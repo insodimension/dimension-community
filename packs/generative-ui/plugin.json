@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "generative-ui",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Generative UI: the assistant shows you a designed interface (a trip plan, a comparison, a checklist, a schedule, a summary with numbers) instead of a wall of text. A closed palette of blocks, drawn in your theme, with buttons that answer back.",
 	"author": {
 		"name": "Dimension"

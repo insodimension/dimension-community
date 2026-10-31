@@ -1,6 +1,6 @@
 {
 	"name": "@inso/watch",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"description": "Watch videos: sample frames with ffmpeg, transcribe from captions or local speech-to-text, and hand the agent grounded frames + a transcript quoted as untrusted data",
 	"type": "module",
 	"scripts": {
@@ -10,8 +10,7 @@
 		"name": "watch",
 		"extensions": [
 			"index.ts"
-		],
-		"sharedModule": true
+		]
 	},
 	"files": [
 		"index.ts",

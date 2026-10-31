@@ -1,6 +1,6 @@
 {
 	"name": "@dimension/generative-ui",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"private": true,
 	"type": "module",
 	"author": "Dimension",
@@ -17,7 +17,6 @@
 		"name": "generative-ui",
 		"optIn": true,
 		"toolLoading": "eager",
-		"sharedModule": true,
 		"extensions": [
 			"dist/index.mjs"
 		]

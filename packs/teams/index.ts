@@ -52,7 +52,7 @@ async function readCredential(): Promise<StoredCredential> {
 // In-memory access-token cache. App-only tokens are cheap to re-mint and hold
 // no user context, so a single module-level slot is enough; a 401 clears it.
 //
-// KEYED BY CREDENTIAL, not by expiry alone. This module is `dimension.sharedModule`,
+// KEYED BY CREDENTIAL, not by expiry alone. Module top-level state is process-wide,
 // so the slot outlives a session: a user who reconnects mid-process (a different
 // tenant, a rotated secret) would otherwise keep using the OLD tenant's token
 // until it expired, and a wrong-but-valid token never trips the 401 that clears
