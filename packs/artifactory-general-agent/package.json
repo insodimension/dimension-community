@@ -1,6 +1,6 @@
 {
   "name": "@dimension/community-general-agent",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "author": "Dimension",
@@ -17,7 +17,6 @@
   },
   "dimension": {
     "name": "artifactory-general-agent",
-    "defaultEnabled": false,
     "category": "artifactory",
     "keywords": [
       "general-agents",
