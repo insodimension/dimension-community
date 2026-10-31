@@ -133,6 +133,11 @@ describe("consent: the microphone opens from the click on Tap to talk, and only 
 	});
 });
 
+async function readyHead(): Promise<HeadState> {
+	const bytes = readFileSync(resolve(import.meta.dir, "../assets/head-f01.bin"));
+	return { status: "ready", asset: await loadHead(`data:application/octet-stream;base64,${bytes.toString("base64")}`) };
+}
+
 describe("a face that cannot be drawn does not take the conversation with it", () => {
 	// Bun prints a logged Error by source-mapping the whole react-dom dev bundle (seconds); the boundary, not the log, is under test.
 	const { error, warn } = console;
@@ -144,9 +149,7 @@ describe("a face that cannot be drawn does not take the conversation with it", (
 	test("no WebGL2 (linkedom has none): the card says so in the middle of the page, and Tap to talk and Back still work", async () => {
 		console.error = () => {};
 		console.warn = () => {};
-		const bytes = readFileSync(resolve(import.meta.dir, "../assets/head-f01.bin"));
-		const asset = await loadHead(`data:application/octet-stream;base64,${bytes.toString("base64")}`);
-		const view = await mount({ phase: "idle", supported: true }, { status: "ready", asset });
+		const view = await mount({ phase: "idle", supported: true }, await readyHead());
 		expect(view.find(".f2f-center")?.textContent).toContain("The face could not be drawn");
 		expect(view.find(".f2f-center")?.textContent).toContain("WebGL2");
 		await view.press(view.buttonByText("Tap to talk"));
@@ -373,9 +376,7 @@ describe("the engine's notice has a line of its own", () => {
 	test("while the agent speaks it sits above the captions, which keep their own place", async () => {
 		console.error = () => {};
 		console.warn = () => {};
-		const bytes = readFileSync(resolve(import.meta.dir, "../assets/head-f01.bin"));
-		const asset = await loadHead(`data:application/octet-stream;base64,${bytes.toString("base64")}`);
-		const view = await mount({ phase: "speaking", words: [{ w: "Saturday", s: 0, e: 0.5 }], notice: SKIPPED }, { status: "ready", asset });
+		const view = await mount({ phase: "speaking", words: [{ w: "Saturday", s: 0, e: 0.5 }], notice: SKIPPED }, await readyHead());
 		const note = view.find(".f2f-note");
 		const place = view.find(".f2f-words");
 
