@@ -33,8 +33,9 @@ bun run test         # the server's contracts, the page's rules, the KPI fold, t
 `component: general-agents-page`, `session.agent: machinist`. One click opens
 the page full-width; the page's backing session is the Machinist's, and the
 Machinist lives in the dock beside the page (the page's **Ask the Machinist**
-button reveals it). The rail draws the entry only while the pack is enabled: it
-ships `defaultEnabled: false`, so turn it on in Capabilities → Plugins.
+button reveals it). The rail draws the entry while the pack is enabled, and it
+is enabled by default (`defaultEnabled: true`) so that naming an assistant is
+findable on a fresh install; turn it off in Capabilities → Plugins.
 
 The component declares `opens: ["agent"]`. Clicking an agent's card in
 Capabilities → General Agents opens this page on that agent's profile, through
