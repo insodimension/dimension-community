@@ -120,7 +120,7 @@ const proposalShape = {
 		.max(20_000)
 		.optional()
 		.describe(
-			"YAML for manifest keys the profile does not draw — title, defaultListed, engine.model/profile/roles, routing, loop, memory.namespace, capabilities.autoloadSkills/slashCommands, subagents.maxDepth, … One `key: value` per line, sections indented two spaces. It is laid over the draft's own, key by key (a key it names that the profile also draws, like engine.model, is then held as written). Keys that GRANT — capabilities.tools/mcp/plugins/control/ignore/optIn, subagents.allowed, gate.*, workspace.*, harness, allowedHarnesses — are refused: only the user sets those.",
+			"YAML for manifest keys the profile does not draw — title, engine.model/profile/roles, routing, loop, memory.namespace, capabilities.autoloadSkills/slashCommands, subagents.maxDepth, … One `key: value` per line, sections indented two spaces. It is laid over the draft's own, key by key (a key it names that the profile also draws, like engine.model, is then held as written). Keys that GRANT — capabilities.tools/mcp/plugins/control/ignore/optIn, subagents.allowed, gate.*, workspace.*, harness, allowedHarnesses — are refused: only the user sets those.",
 		),
 };
 
@@ -192,7 +192,7 @@ export function createForgeServer(options: ForgeServerOptions = {}): McpServer {
 		return { workspace: boundWorkspace(extra), home };
 	};
 
-	const server = new McpServer({ name: "dimension-community-general-agent", version: "0.4.0" });
+	const server = new McpServer({ name: "dimension-community-general-agent", version: "0.5.0" });
 
 	// ── the model's two doors ───────────────────────────────────────────────
 	server.registerTool(

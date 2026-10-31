@@ -1,5 +1,5 @@
 // One agent's profile: who it is at the top (its face, name, tier, where it
-// stands, its switches and the one action it offers), its week as a vitals
+// stands, its Enabled switch and the one action it offers), its week as a vitals
 // strip, then every part of it as a section of real things (faces, files,
 // marks, models, choices), never rows of label and value. A pack's agent reads
 // the same, with its controls at rest and a way to extend it; yours and your
@@ -329,20 +329,12 @@ export function AgentProfile({
 				</div>
 				<div className="relative flex w-full shrink-0 flex-col gap-2 @3xl:w-60">
 					{fact !== undefined ? (
-						<>
-							<SwitchField
-								label="Enabled"
-								checked={fact.enabled}
-								disabled={busy.has(fact.name)}
-								onChange={configure !== undefined && editable ? on => void configure(fact.name, { enabled: on }) : undefined}
-							/>
-							<SwitchField
-								label="Show in rail"
-								checked={fact.listed}
-								disabled={busy.has(fact.name)}
-								onChange={configure !== undefined ? on => void configure(fact.name, { listed: on }) : undefined}
-							/>
-						</>
+						<SwitchField
+							label="Enabled"
+							checked={fact.enabled}
+							disabled={busy.has(fact.name)}
+							onChange={configure !== undefined && editable ? on => void configure(fact.name, { enabled: on }) : undefined}
+						/>
 					) : null}
 					<div className="flex [&>button]:w-full [&>button]:justify-center">{primary}</div>
 				</div>

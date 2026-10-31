@@ -1,5 +1,5 @@
 // The roster the page draws: every agent the HOST knows (`agents/list`, which
-// is live and carries the face, the switches and the capability counts) joined
+// is live and carries the face, whether it is enabled and the capability counts) joined
 // by name to the file the pack's server read (`list_agents`, which carries the
 // tier, whether it may be rewritten and the draft). Pure: no React, no kit, so
 // the rules read the same wherever they are drawn and the tests need no DOM.

@@ -36,14 +36,23 @@ Machinist lives in the dock beside the page (the page's **Ask the Machinist**
 button reveals it). The rail draws the entry only while the pack is enabled: it
 ships `defaultEnabled: false`, so turn it on in Capabilities → Plugins.
 
+The component declares `opens: ["agent"]`. Clicking an agent's card in
+Capabilities → General Agents opens this page on that agent's profile, through
+the `subject` fill prop (`{ kind: "agent", id: <agent name> }`). The page opens
+each subject object once, so a re-render never reopens it and a second click on
+the same agent does. An agent the page's listing does not hold leaves the page
+on the home with a notice. A profile with unsaved edits is never replaced by a
+click: the page keeps it and says to save or discard first. The page is
+reachable only while this pack is enabled.
+
 The component (`components[general-agents-page]`, `slot: workspace-surface`,
 export `GeneralAgentsPage`) is mounted in a seat with three grants:
 
 | Grant | What it opens |
 |---|---|
 | `artifactory:call` | `store.call("callOwnServerTool", { tool, args })`: this pack's own server's App-only tools, answered with their structured result or refused with their own words |
-| `agents:configure` | `store.call("configureGeneralAgent", { name, enabled?, listed? })`: the Capabilities page's two switches |
-| `agents:rename` | `store.call("configureGeneralAgent", { name, title })`: the display name (blank text clears it). Its own grant because the text reaches the agent's system prompt, which the switches never do |
+| `agents:configure` | `store.call("configureGeneralAgent", { name, enabled })`: the Enabled switch, the one the Capabilities page has |
+| `agents:rename` | `store.call("configureGeneralAgent", { name, title })`: the display name (blank text clears it). Its own grant because the text reaches the agent's system prompt, which the Enabled switch never does |
 
 ## What the page reads
 
@@ -51,7 +60,7 @@ All from the fenced Store the seat hands it, never from a driver:
 
 | Fact | For |
 |---|---|
-| `agents/list` | the roster: title, face, tier, the two switches, capability counts, home id |
+| `agents/list` | the roster: title, face, tier, whether it is enabled, capability counts, home id |
 | `sessions/list` | activity, folded ONCE per page (coalesced to one read per 250 ms): sessions in 7 days, last active, working or waiting on you, rooms led |
 | `agents/usage` | tokens and cost in 7 days |
 | `capabilities/catalog` | the marks and names of every plugin, skill, MCP server and tool |
@@ -89,8 +98,8 @@ or Never used, with a small voice chip beside it when somebody chose the agent's
 never for the default), and its week: Sessions 7d, Tokens 7d, Cost 7d, Rooms led.
 
 **Profile.** A header with the agent's face at hero size (it moves when pointed
-at), its title, tier, live badge, lineage and the Enabled and Show in rail
-switches, and the one action it offers: **Save**, **Create agent**, or, for a
+at), its title, tier, live badge, lineage and the Enabled switch, and the one
+action it offers: **Save**, **Create agent**, or, for a
 pack's agent, **Extend as a new agent** (a new agent with `extends: [<it>]`,
 prefilled with its settings). Under it the vitals strip: sessions, tokens and
 cost in 7 days, last active, rooms led, home. Then the sections, each drawn as

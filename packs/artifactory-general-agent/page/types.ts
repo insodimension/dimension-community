@@ -29,8 +29,14 @@ export interface PageStore {
 	call?(intent: string, payload: unknown): Promise<unknown>;
 }
 
+export interface PageSubject {
+	readonly kind: string;
+	readonly id: string;
+}
+
 /** The workspace-surface fill props the page reads (the rest are ignored). */
 export interface GeneralAgentsPageProps {
+	readonly subject?: PageSubject;
 	readonly store: PageStore;
 	/** The user's painted avatar: what the kit's face rule resolves against. */
 	readonly avatar: AvatarId;
@@ -60,7 +66,6 @@ export interface AgentFact {
 	/** New engines identify the source directly; older engines omit it. */
 	readonly scope?: "plugin" | "project" | "global";
 	readonly enabled: boolean;
-	readonly listed: boolean;
 	readonly defaultEnabled?: boolean;
 	readonly workspacePolicy?: string;
 	readonly avatar?: { readonly id: string; readonly skin?: string; readonly accent?: string };

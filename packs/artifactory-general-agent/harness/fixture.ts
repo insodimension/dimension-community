@@ -18,7 +18,7 @@ interface Seed {
 	readonly source: AgentSource;
 	readonly pack?: string;
 	readonly draft: Partial<AgentDraft> & Pick<AgentDraft, "name" | "description" | "charter">;
-	readonly fact: { readonly enabled: boolean; readonly listed: boolean; readonly title?: string; readonly avatar?: AgentFact["avatar"] };
+	readonly fact: { readonly enabled: boolean; readonly title?: string; readonly avatar?: AgentFact["avatar"] };
 	readonly titleOverride?: string;
 	readonly instructions?: string;
 }
@@ -43,7 +43,7 @@ const SEEDS: readonly Seed[] = [
 			charter:
 				"You write the changelog and the release notes.\n\n- Read the merged pull requests, never the branch names.\n- One line per change, in the past tense.\n- Never invent a change; when unsure, ask.",
 		},
-		fact: { enabled: true, listed: true, avatar: { id: "orb" } },
+		fact: { enabled: true, avatar: { id: "orb" } },
 		instructions: "Keep entries under 100 characters. Group by area: Desktop, Engine, Packs.",
 	},
 	{
@@ -71,7 +71,7 @@ const SEEDS: readonly Seed[] = [
 				"  card: Marketing, positioning and launch questions",
 			].join("\n"),
 		},
-		fact: { enabled: true, listed: true, title: "Chief Marketing Officer", avatar: { id: "mochi", skin: "pearl", accent: "coral" } },
+		fact: { enabled: true, title: "Chief Marketing Officer", avatar: { id: "mochi", skin: "pearl", accent: "coral" } },
 	},
 	{
 		source: "user",
@@ -83,7 +83,7 @@ const SEEDS: readonly Seed[] = [
 			skills: ["x-posting"],
 			charter: "You post on X. Short, specific, never hype.",
 		},
-		fact: { enabled: true, listed: true, title: "X", avatar: { id: "plugin:traction-vibrs/x-vibr" } },
+		fact: { enabled: true, title: "X", avatar: { id: "plugin:traction-vibrs/x-vibr" } },
 	},
 	{
 		source: "user",
@@ -95,7 +95,7 @@ const SEEDS: readonly Seed[] = [
 			tools: ["read", "write", "palace"],
 			charter: "You write terse, precise, dated entries. No filler.",
 		},
-		fact: { enabled: false, listed: true, avatar: { id: "static" } },
+		fact: { enabled: false, avatar: { id: "static" } },
 	},
 	{
 		source: "workspace",
@@ -110,7 +110,7 @@ const SEEDS: readonly Seed[] = [
 			approval: "always-ask",
 			charter: "You review changes for correctness, security and the storefront's standards. Every finding carries evidence.",
 		},
-		fact: { enabled: true, listed: true, avatar: { id: "quasar" } },
+		fact: { enabled: true, avatar: { id: "quasar" } },
 	},
 	{
 		source: "pack",
@@ -126,7 +126,7 @@ const SEEDS: readonly Seed[] = [
 			approval: "write",
 			charter: "You configure the machine: loops, model roles and profiles, plugins, marketplaces and MCP servers.\n\nYou never do the user's project work.",
 		},
-		fact: { enabled: true, listed: true, title: "Machinist", avatar: { id: "cube" } },
+		fact: { enabled: true, title: "Machinist", avatar: { id: "cube" } },
 		instructions: "Prefer the smallest configuration change that works. Explain every grant you ask for.",
 	},
 	{
@@ -142,7 +142,7 @@ const SEEDS: readonly Seed[] = [
 			promptMode: "append",
 			charter: "You work the repository this session was opened in. Read before you edit, prove before you claim.",
 		},
-		fact: { enabled: true, listed: true, title: "Coding", avatar: { id: "lattice" } },
+		fact: { enabled: true, title: "Coding", avatar: { id: "lattice" } },
 	},
 	{
 		source: "pack",
@@ -157,7 +157,7 @@ const SEEDS: readonly Seed[] = [
 			charter: "You are the person's companion across every project. Remember what matters; bring it back when it helps.",
 			extra: "workspace:\n  policy: pinned\n  id: inso-personal",
 		},
-		fact: { enabled: true, listed: false, title: "Aether", avatar: { id: "aurora" } },
+		fact: { enabled: true, title: "Aether", avatar: { id: "aurora" } },
 	},
 ];
 
@@ -234,7 +234,6 @@ function factOf(seed: Seed): AgentFact {
 		provenance: seed.source === "pack" ? "dimension" : seed.source === "user" ? "local" : "workspace",
 		...(seed.pack ? { pluginId: seed.pack } : {}),
 		enabled: seed.fact.enabled,
-		listed: seed.fact.listed,
 		...(seed.fact.avatar ? { avatar: seed.fact.avatar } : {}),
 		capabilities: { tools: count(draft.tools), skills: count(draft.skills), mcp: count(draft.mcp), plugins: "all" },
 		...(seed.source !== "workspace" ? { homeWorkspaceId: `home-${seed.draft.name}` } : {}),
@@ -351,7 +350,7 @@ export function fixtureStore(params: URLSearchParams, voiceCells: ReadonlyMap<st
 			case "save_agent": {
 				const draft = args.draft as AgentDraft;
 				const existing = seeds.findIndex(seed => seed.draft.name === draft.name);
-				const seed: Seed = { source: existing >= 0 ? (seeds[existing]?.source ?? "user") : "user", draft, fact: { enabled: true, listed: true, avatar: { id: draft.vibr || "nebula" } } };
+				const seed: Seed = { source: existing >= 0 ? (seeds[existing]?.source ?? "user") : "user", draft, fact: { enabled: true, avatar: { id: draft.vibr || "nebula" } } };
 				if (existing >= 0) seeds[existing] = { ...seeds[existing], ...seed } as Seed;
 				else seeds = [...seeds, seed];
 				publish();
@@ -384,7 +383,7 @@ export function fixtureStore(params: URLSearchParams, voiceCells: ReadonlyMap<st
 			? {}
 			: {
 					call: async (intent: string, payload: unknown) => {
-						const body = payload as { tool?: string; args?: Record<string, unknown>; name?: string; enabled?: boolean; listed?: boolean; title?: string };
+						const body = payload as { tool?: string; args?: Record<string, unknown>; name?: string; enabled?: boolean; title?: string };
 						if (intent === "configureGeneralAgent") {
 							const at = seeds.findIndex(seed => seed.draft.name === body.name);
 							const seed = seeds[at];
@@ -392,7 +391,7 @@ export function fixtureStore(params: URLSearchParams, voiceCells: ReadonlyMap<st
 							const { titleOverride: _previous, ...unnamed } = seed;
 							const title = body.title?.trim();
 							const named = body.title === undefined ? seed : title ? { ...unnamed, titleOverride: title } : unnamed;
-							seeds[at] = { ...named, fact: { ...seed.fact, ...(body.enabled !== undefined ? { enabled: body.enabled } : {}), ...(body.listed !== undefined ? { listed: body.listed } : {}) } };
+							seeds[at] = { ...named, fact: { ...seed.fact, ...(body.enabled !== undefined ? { enabled: body.enabled } : {}) } };
 							publish();
 							return undefined;
 						}

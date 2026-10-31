@@ -2107,9 +2107,9 @@ var AgentCard = memo(function AgentCard({ agent, activity, usage, now, face, bri
 						className: "fr-overflow",
 						children: stand.text
 					})]
-				}), /* @__PURE__ */ jsxs("span", {
+				}), /* @__PURE__ */ jsx("span", {
 					className: "flex shrink-0 items-center gap-2.5",
-					children: [isExplicitVoice(voice) ? /* @__PURE__ */ jsxs("span", {
+					children: isExplicitVoice(voice) ? /* @__PURE__ */ jsxs("span", {
 						title: `Speaks with ${voice.name}. ${SOURCE_LABELS[voice.source]}.`,
 						className: "flex min-w-0 items-center gap-1 font-secondary text-fr-xs text-fr-text-2",
 						children: [/* @__PURE__ */ jsx(Icon, {
@@ -2121,10 +2121,7 @@ var AgentCard = memo(function AgentCard({ agent, activity, usage, now, face, bri
 							className: "fr-overflow max-w-24",
 							children: voice.name
 						})]
-					}) : null, agent.fact !== void 0 && enabled && !agent.fact.listed ? /* @__PURE__ */ jsx("span", {
-						className: "font-secondary text-fr-xs text-fr-text-2",
-						children: "Hidden from rail"
-					}) : null]
+					}) : null
 				})]
 			}),
 			/* @__PURE__ */ jsxs("dl", {
@@ -2853,6 +2850,22 @@ function openListed(agent) {
 		draft: { ...agent.draft },
 		agent,
 		...agent.editable ? {} : { readOnly: agent.readOnlyReason ?? "This agent is read-only here." }
+	};
+}
+function viewOfSubject(subject, applied, agents, open) {
+	if (subject === void 0 || subject === applied || subject.kind !== "agent" || agents === void 0) return void 0;
+	if (open !== null && isDirty(open)) return {
+		profile: open,
+		notice: `You have unsaved changes. Save or discard them, then open "${subject.id}".`
+	};
+	const file = agents.find((agent) => agent.name === subject.id);
+	if (file === void 0) return {
+		profile: null,
+		notice: `No agent named "${subject.id}" was found.`
+	};
+	return {
+		profile: openListed(file),
+		notice: void 0
 	};
 }
 /** A new agent: a blank charter, speaking only as itself. */
@@ -5391,17 +5404,12 @@ function AgentProfile({ state, onChange, onClose, onExtend, onDecide, onSaved, f
 					}),
 					/* @__PURE__ */ jsxs("div", {
 						className: "relative flex w-full shrink-0 flex-col gap-2 @3xl:w-60",
-						children: [fact !== void 0 ? /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsx(SwitchField, {
+						children: [fact !== void 0 ? /* @__PURE__ */ jsx(SwitchField, {
 							label: "Enabled",
 							checked: fact.enabled,
 							disabled: busy.has(fact.name),
 							onChange: configure !== void 0 && editable ? (on) => void configure(fact.name, { enabled: on }) : void 0
-						}), /* @__PURE__ */ jsx(SwitchField, {
-							label: "Show in rail",
-							checked: fact.listed,
-							disabled: busy.has(fact.name),
-							onChange: configure !== void 0 ? (on) => void configure(fact.name, { listed: on }) : void 0
-						})] }) : null, /* @__PURE__ */ jsx("div", {
+						}) : null, /* @__PURE__ */ jsx("div", {
 							className: "flex [&>button]:w-full [&>button]:justify-center",
 							children: primary
 						})]
@@ -5635,6 +5643,18 @@ function GeneralAgentsPage(props) {
 		reopen.current = null;
 		setProfile(openListed(file));
 	}, [listing.value]);
+	const appliedSubject = useRef(void 0);
+	useEffect(() => {
+		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents, profile);
+		if (view === void 0) return;
+		appliedSubject.current = props.subject;
+		setProfile(view.profile);
+		setNotice(view.notice);
+	}, [
+		props.subject,
+		listing.value,
+		profile
+	]);
 	useEffect(() => {
 		if (profile === null) return;
 		const mine = proposalsForProfile(profile, pending);

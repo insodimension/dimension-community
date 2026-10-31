@@ -10,7 +10,6 @@ export const NO_CALL_DOOR = "This host does not let the General Agents page call
 
 export interface AgentConfigurePatch {
 	readonly enabled?: boolean;
-	readonly listed?: boolean;
 	readonly title?: string;
 }
 
@@ -22,7 +21,6 @@ export interface Forge {
 	saveInstructions(name: string, text: string, revision: string): Promise<InstructionsSaved>;
 	pendingProposals(): Promise<PendingProposals>;
 	dismissProposal(id: string): Promise<ProposalDismissed>;
-	/** Switch an agent on or off, show or hide it in the rail, give it a display name or clear it with blank text (`agents:configure` for the switches, `agents:rename` for the name). */
 	configure(name: string, patch: AgentConfigurePatch): Promise<void>;
 }
 
