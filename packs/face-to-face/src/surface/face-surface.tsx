@@ -20,8 +20,6 @@ const SLOW_FRAME_MS = 9;
 const SLOW_FRAMES_TO_DEGRADE = 120;
 const ANIMATOR_SEED = 7;
 
-/** Where the captions sit: the same box `FaceView` gives them, for the fallback that draws them without a face. */
-const CAPTION_BOX: CSSProperties = { position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: "8.5%", width: "min(92%, 60em)" };
 /** The face fills the surface. A constant, so the memoised `FaceView` sees the same style every render. */
 const FACE_STYLE: CSSProperties = { position: "absolute", inset: 0 };
 /** The face draws no captions of its own here: the surface places them (below), so a new word re-renders them alone. */
@@ -172,7 +170,7 @@ function useLeave(latest: { readonly current: Latest }, onIntent: (intent: Inten
 export function useFrameFeed(latest: { readonly current: Latest }, voice: FaceVoice, inLive: boolean) {
 	const animator = useMemo(() => {
 		const a = new FaceAnimator(ANIMATOR_SEED);
-		// the orb gathers into the face on entry (the door click that mounted this surface)
+		// the dots gather into the face on entry
 		a.setFormation(0);
 		a.setFormationTarget(1);
 		return a;
@@ -259,15 +257,20 @@ function Stage({ view, live, getSilence, onTalk, onLive }: StageProps) {
 	);
 }
 
-/** The status note, then the call's own surface: the Live bar in a Live call, the waveform mark with the word beside it in the voice conversation. A failed call is the card's, which can try again. */
+function StatusNote({ view }: { view: SurfaceView }) {
+	if (!view.status) return null;
+	return (
+		<span className="f2f-note" data-warn={view.micSilent || view.unsent} role="status">
+			{view.status}
+		</span>
+	);
+}
+
+/** The call's own surface: the Live bar under its status line in a Live call, the waveform mark with the word beside it in the voice conversation. A failed call is the card's, which can try again. */
 function BottomBar({ view, live, getWaveLevel }: { view: SurfaceView; live: FaceLive; getWaveLevel: () => number }) {
 	return (
 		<div className="f2f-bottom">
-			{view.status && (
-				<span className="f2f-note" data-warn={view.micSilent || view.unsent} role="status">
-					{view.status}
-				</span>
-			)}
+			{view.mode === "live" && <StatusNote view={view} />}
 			{view.mode === "live" && view.phase !== "error" && <LivePresence live={live} />}
 			{view.label && (
 				<div className="f2f-state">
@@ -324,8 +327,8 @@ export function FaceSurfaceBody({ voice, live, head, onIntent }: FaceSurfaceBody
 		detail: message,
 		hint: "Face to face draws with WebGL2. Turn on hardware acceleration for this window, then reopen it.",
 	});
-	// The voice conversation's words under the face (alone, when the face cannot be drawn). The person's own words take the floor instead; a Live call's words are the Live bar's.
-	const wordCaptions = !view.userCaption && !inLive ? <Captions words={voice.words} getTime={getCaptionTime} dark={dark} style={CAPTION_BOX} /> : null;
+	// The voice conversation's words under the face. The person's own words take the floor instead; a Live call's words are the Live bar's.
+	const wordCaptions = head.status === "ready" && !view.userCaption && !inLive ? <Captions words={voice.words} getTime={getCaptionTime} dark={dark} /> : null;
 
 	return (
 		// Follows the host theme: warm paper on a light host, warm near-black on a dark one (the halftone then
@@ -335,12 +338,9 @@ export function FaceSurfaceBody({ voice, live, head, onIntent }: FaceSurfaceBody
 			{head.status === "ready" && (
 				<FaceBoundary
 					fallback={(message) => (
-						<>
-							<div className="f2f-center">
-								<ProblemCard problem={cannotDraw(message)} />
-							</div>
-							{wordCaptions}
-						</>
+						<div className="f2f-center">
+							<ProblemCard problem={cannotDraw(message)} />
+						</div>
 					)}
 				>
 					<FaceView
@@ -356,7 +356,6 @@ export function FaceSurfaceBody({ voice, live, head, onIntent }: FaceSurfaceBody
 						onFrameCost={onFrameCost}
 						style={FACE_STYLE}
 					/>
-					{wordCaptions}
 				</FaceBoundary>
 			)}
 
@@ -374,7 +373,13 @@ export function FaceSurfaceBody({ voice, live, head, onIntent }: FaceSurfaceBody
 					<ProblemCard problem={cannotLoad(faceFailed)} />
 				</div>
 			)}
-			<Stage view={view} live={live} getSilence={getSilence} onTalk={startTalking} onLive={startLive} />
+			<div className="f2f-lower">
+				{view.mode === "voice" && <StatusNote view={view} />}
+				<div className="f2f-words">
+					{wordCaptions}
+					<Stage view={view} live={live} getSilence={getSilence} onTalk={startTalking} onLive={startLive} />
+				</div>
+			</div>
 			<BottomBar view={view} live={live} getWaveLevel={getWaveLevel} />
 		</div>
 	);

@@ -1,9 +1,9 @@
 {
 	"name": "@dimension/face-to-face",
 	"author": "Dimension",
-	"version": "0.1.8",
+	"version": "0.1.9",
 	"private": true,
-	"description": "Face to face — the Chat space's full-screen halftone face and the orb that opens it.",
+	"description": "Face to face — the Chat space's full-screen halftone face.",
 	"type": "module",
 	"main": "./src/index.tsx",
 	"dimension": {
