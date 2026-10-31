@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "face-to-face",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"description": "Talk to your agent and watch it answer: a full-screen face that lip-syncs to the real audio and captions every word as it is spoken. Where available, Talk live adds a real-time voice.",
 	"author": {
 		"name": "Dimension"

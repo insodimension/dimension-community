@@ -28,7 +28,8 @@ export const STYLES = `
 	display: flex; align-items: center; justify-content: space-between; gap: 12px;
 	padding: 18px 22px;
 }
-.f2f-cluster { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+.f2f-top > * { pointer-events: auto; }
+.f2f-cluster { display: flex; align-items: center; gap: 10px; }
 .f2f-btn {
 	display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
 	padding: 9px 15px; border-radius: 999px; border: 1px solid var(--f2f-line);
