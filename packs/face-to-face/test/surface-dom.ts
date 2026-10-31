@@ -1,4 +1,4 @@
-// A linkedom page for mounting the surface and the door with react-dom, and the few browser APIs they read
+// A linkedom page for mounting the surface with react-dom, and the few browser APIs it reads
 // stubbed to "nothing to observe". Globals are installed as own properties and their original descriptors put
 // back by `unmountAll`, so no sibling suite inherits this DOM. Not a test file: bun only runs *.test.*.
 import { parseHTML } from "linkedom";
@@ -21,6 +21,25 @@ const GLOBALS = [
 
 const prior = new Map<string, PropertyDescriptor | undefined>();
 const roots: Root[] = [];
+
+const pendingFrames = new Map<number, (now: number) => void>();
+let lastFrameId = 0;
+const requestFrame = (frame: (now: number) => void): number => {
+	pendingFrames.set(++lastFrameId, frame);
+	return lastFrameId;
+};
+const cancelFrame = (id: number): void => {
+	pendingFrames.delete(id);
+};
+
+/** Run the animation frames requested so far, once, as a browser would at time `now` (ms). */
+export async function runFrame(now = 0): Promise<void> {
+	await act(async () => {
+		const due = [...pendingFrames.values()];
+		pendingFrames.clear();
+		for (const frame of due) frame(now);
+	});
+}
 
 class Watcher {
 	observe() {}
@@ -52,10 +71,9 @@ function trackFocus(window: Window & typeof globalThis): void {
 
 function installDom(): HTMLElement {
 	const { window } = parseHTML('<html><body><div id="root"></div></body></html>');
-	const raf = () => 0;
 	Object.assign(window, {
-		requestAnimationFrame: raf,
-		cancelAnimationFrame: () => {},
+		requestAnimationFrame: requestFrame,
+		cancelAnimationFrame: cancelFrame,
 		matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
 	});
 	const values: Record<(typeof GLOBALS)[number], unknown> = {
@@ -67,8 +85,8 @@ function installDom(): HTMLElement {
 		MutationObserver: Watcher,
 		IntersectionObserver: Watcher,
 		getComputedStyle: () => ({ backgroundColor: "", getPropertyValue: () => "" }),
-		requestAnimationFrame: raf,
-		cancelAnimationFrame: () => {},
+		requestAnimationFrame: requestFrame,
+		cancelAnimationFrame: cancelFrame,
 		IS_REACT_ACT_ENVIRONMENT: true,
 	};
 	trackFocus(window);
@@ -90,6 +108,7 @@ export async function unmountAll(): Promise<void> {
 		else Reflect.deleteProperty(globalThis, key);
 	}
 	prior.clear();
+	pendingFrames.clear();
 	restoreFocus?.();
 	restoreFocus = undefined;
 }

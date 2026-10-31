@@ -210,7 +210,7 @@
 			"pluginId": "chat",
 			"title": "Chat",
 			"description": "A calm space for talking to Aether, with no code or branches in sight, your past sessions listed and a viewer for the documents, slides and images it makes.",
-			"version": "0.2.6",
+			"version": "0.2.7",
 			"author": {
 				"name": "Dimension"
 			},
@@ -501,7 +501,7 @@
 			"title": "Face to face",
 			"icon": "waveform",
 			"description": "Talk to your agent and watch it answer: a full-screen face that lip-syncs to the real audio and captions every word as it is spoken. Where available, Talk live adds a real-time voice.",
-			"version": "0.1.8",
+			"version": "0.1.9",
 			"author": {
 				"name": "Dimension"
 			},

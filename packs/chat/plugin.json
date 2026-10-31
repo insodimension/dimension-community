@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "chat",
-	"version": "0.2.6",
+	"version": "0.2.7",
 	"description": "A calm space for talking to Aether, with no code or branches in sight, your past sessions listed and a viewer for the documents, slides and images it makes.",
 	"author": {
 		"name": "Dimension"
@@ -52,14 +52,6 @@
 						"ch-rail": "chat-rail",
 						"ch-workspace": "classic-workspace",
 						"face": "face-to-face"
-					},
-					"widgets": {
-						"pinned": [
-							{
-								"fill": "face-to-face-door",
-								"post": "bottom-right"
-							}
-						]
 					},
 					"rail": {
 						"actions": [

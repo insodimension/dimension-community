@@ -2519,9 +2519,15 @@ var STYLES = `
 	gap: 14px; padding: 0 24px max(22px, 2.8vh);
 }
 .f2f-bottom > * { pointer-events: auto; }
-.f2f-stage {
+.f2f-lower {
 	position: absolute; left: 50%; transform: translateX(-50%); bottom: 8.5%; z-index: 2;
-	width: min(92%, 60em); min-height: 3.3em; display: flex; flex-direction: column;
+	width: min(92%, 60em); display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none;
+}
+.f2f-lower > .f2f-note { max-width: 100%; }
+.f2f-words { display: grid; width: 100%; }
+.f2f-words > * { grid-area: 1 / 1; }
+.f2f-stage {
+	min-height: 3.3em; display: flex; flex-direction: column;
 	align-items: center; justify-content: flex-start; text-align: center; pointer-events: none;
 }
 .f2f-stage > * { pointer-events: auto; }
@@ -2549,7 +2555,7 @@ var STYLES = `
 		radial-gradient(circle at 74% 30%, #7fdcae 0, #4fa57f 40%, transparent 62%),
 		conic-gradient(from 210deg, #ee7a3f, #d8583a, #4f9d7c, #ee7a3f);
 }
-.f2f-note { font-size: 14px; line-height: 1.5; color: var(--f2f-ink-3); letter-spacing: -0.005em; }
+.f2f-note { font-size: 14px; line-height: 1.5; color: var(--f2f-ink-3); letter-spacing: -0.005em; text-align: center; overflow-wrap: anywhere; }
 .f2f-note[data-warn="true"] { color: var(--f2f-warn); }
 .f2f-usercap {
 	font-size: clamp(18px, 2.45vh, 34px); line-height: 1.62; letter-spacing: -0.005em;
@@ -2591,24 +2597,8 @@ var STYLES = `
 	display: block; width: 5px; border-radius: 3px;
 	background: linear-gradient(to bottom, var(--f2f-bar-top), var(--f2f-bar-bottom));
 }
-.f2f-door {
-	position: relative; width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%;
-	background: transparent; cursor: pointer; display: block;
-	transition: transform .2s cubic-bezier(.3,.7,.3,1);
-}
-.f2f-door:hover, .f2f-door:focus-visible { transform: scale(1.08); }
-.f2f-door canvas { display: block; width: 56px; height: 56px; pointer-events: none; }
-.f2f-door-label {
-	position: absolute; right: 66px; top: 50%; transform: translate(6px, -50%);
-	padding: 7px 13px; border-radius: 999px; white-space: nowrap; pointer-events: none;
-	background: #1c1a17; color: #f4f2ee; border: 1px solid rgba(255,255,255,.14);
-	font: 500 13px/1 Inter, "SF Pro Display", system-ui, sans-serif; letter-spacing: -0.005em;
-	opacity: 0; transition: opacity .16s ease, transform .16s ease;
-}
-.f2f-door:hover .f2f-door-label, .f2f-door:focus-visible .f2f-door-label { opacity: 1; transform: translate(0, -50%); }
-.f2f-door:focus-visible { outline: 2px solid #e2613a; outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) {
-	.f2f-root *, .f2f-door, .f2f-door * { animation: none !important; transition: none !important; }
+	.f2f-root * { animation: none !important; transition: none !important; }
 }
 `;
 //#endregion
@@ -2826,14 +2816,6 @@ var PROBE_GRACE_MS = 2500;
 var SLOW_FRAME_MS = 9;
 var SLOW_FRAMES_TO_DEGRADE = 120;
 var ANIMATOR_SEED = 7;
-/** Where the captions sit: the same box `FaceView` gives them, for the fallback that draws them without a face. */
-var CAPTION_BOX = {
-	position: "absolute",
-	left: "50%",
-	transform: "translateX(-50%)",
-	bottom: "8.5%",
-	width: "min(92%, 60em)"
-};
 /** The face fills the surface. A constant, so the memoised `FaceView` sees the same style every render. */
 var FACE_STYLE = {
 	position: "absolute",
@@ -3059,17 +3041,21 @@ function Stage({ view, live, getSilence, onTalk, onLive }) {
 		]
 	});
 }
-/** The status note, then the call's own surface: the Live bar in a Live call, the waveform mark with the word beside it in the voice conversation. A failed call is the card's, which can try again. */
+function StatusNote({ view }) {
+	if (!view.status) return null;
+	return /* @__PURE__ */ jsx("span", {
+		className: "f2f-note",
+		"data-warn": view.micSilent || view.unsent,
+		role: "status",
+		children: view.status
+	});
+}
+/** The call's own surface: the Live bar under its status line in a Live call, the waveform mark with the word beside it in the voice conversation. A failed call is the card's, which can try again. */
 function BottomBar({ view, live, getWaveLevel }) {
 	return /* @__PURE__ */ jsxs("div", {
 		className: "f2f-bottom",
 		children: [
-			view.status && /* @__PURE__ */ jsx("span", {
-				className: "f2f-note",
-				"data-warn": view.micSilent || view.unsent,
-				role: "status",
-				children: view.status
-			}),
+			view.mode === "live" && /* @__PURE__ */ jsx(StatusNote, { view }),
 			view.mode === "live" && view.phase !== "error" && /* @__PURE__ */ jsx(LivePresence, { live }),
 			view.label && /* @__PURE__ */ jsxs("div", {
 				className: "f2f-state",
@@ -3127,11 +3113,10 @@ function FaceSurfaceBody({ voice, live, head, onIntent }) {
 		detail: message,
 		hint: "Face to face draws with WebGL2. Turn on hardware acceleration for this window, then reopen it."
 	});
-	const wordCaptions = !view.userCaption && !inLive ? /* @__PURE__ */ jsx(Captions, {
+	const wordCaptions = head.status === "ready" && !view.userCaption && !inLive ? /* @__PURE__ */ jsx(Captions, {
 		words: voice.words,
 		getTime: getCaptionTime,
-		dark,
-		style: CAPTION_BOX
+		dark
 	}) : null;
 	return /* @__PURE__ */ jsxs("div", {
 		ref: root,
@@ -3142,12 +3127,12 @@ function FaceSurfaceBody({ voice, live, head, onIntent }) {
 		"data-quality": quality,
 		children: [
 			/* @__PURE__ */ jsx("style", { children: STYLES }),
-			head.status === "ready" && /* @__PURE__ */ jsxs(FaceBoundary, {
-				fallback: (message) => /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsx("div", {
+			head.status === "ready" && /* @__PURE__ */ jsx(FaceBoundary, {
+				fallback: (message) => /* @__PURE__ */ jsx("div", {
 					className: "f2f-center",
 					children: /* @__PURE__ */ jsx(ProblemCard, { problem: cannotDraw(message) })
-				}), wordCaptions] }),
-				children: [/* @__PURE__ */ jsx(FaceView, {
+				}),
+				children: /* @__PURE__ */ jsx(FaceView, {
 					head: head.asset,
 					animator,
 					getInput,
@@ -3159,7 +3144,7 @@ function FaceSurfaceBody({ voice, live, head, onIntent }) {
 					quality,
 					onFrameCost,
 					style: FACE_STYLE
-				}), wordCaptions]
+				})
 			}),
 			/* @__PURE__ */ jsx(TopBar, {
 				onBack: leave,
@@ -3173,12 +3158,18 @@ function FaceSurfaceBody({ voice, live, head, onIntent }) {
 				className: "f2f-center",
 				children: /* @__PURE__ */ jsx(ProblemCard, { problem: cannotLoad(faceFailed) })
 			}),
-			/* @__PURE__ */ jsx(Stage, {
-				view,
-				live,
-				getSilence,
-				onTalk: startTalking,
-				onLive: startLive
+			/* @__PURE__ */ jsxs("div", {
+				className: "f2f-lower",
+				children: [view.mode === "voice" && /* @__PURE__ */ jsx(StatusNote, { view }), /* @__PURE__ */ jsxs("div", {
+					className: "f2f-words",
+					children: [wordCaptions, /* @__PURE__ */ jsx(Stage, {
+						view,
+						live,
+						getSilence,
+						onTalk: startTalking,
+						onLive: startLive
+					})]
+				})]
 			}),
 			/* @__PURE__ */ jsx(BottomBar, {
 				view,
@@ -3298,190 +3289,6 @@ function useFaceVoice() {
 	}, [voice]);
 }
 //#endregion
-//#region src/surface/orb.ts
-var DOTS = 360;
-var GOLDEN = 2.399963229728653;
-var BUCKETS = 24;
-var SPRITE_PX = 32;
-/** Coral -> orange -> peach -> mint -> deep green, the palette of the launch video's orb and waveform. */
-var STOPS = [
-	[
-		226,
-		84,
-		52
-	],
-	[
-		240,
-		134,
-		74
-	],
-	[
-		246,
-		196,
-		146
-	],
-	[
-		132,
-		214,
-		170
-	],
-	[
-		58,
-		118,
-		88
-	]
-];
-function orbColor(c) {
-	const x = Math.min(1, Math.max(0, c)) * (STOPS.length - 1);
-	const i = Math.min(STOPS.length - 2, Math.floor(x));
-	const k = x - i;
-	const a = STOPS[i];
-	const b = STOPS[i + 1];
-	return [
-		a[0] + (b[0] - a[0]) * k,
-		a[1] + (b[1] - a[1]) * k,
-		a[2] + (b[2] - a[2]) * k
-	];
-}
-function makeSprites() {
-	return Array.from({ length: BUCKETS }, (_, i) => {
-		const cv = document.createElement("canvas");
-		cv.width = cv.height = SPRITE_PX;
-		const g = cv.getContext("2d");
-		if (g) {
-			const [r, gg, b] = orbColor(i / (BUCKETS - 1)).map(Math.round);
-			const grad = g.createRadialGradient(SPRITE_PX / 2, SPRITE_PX / 2, 0, SPRITE_PX / 2, SPRITE_PX / 2, SPRITE_PX / 2);
-			grad.addColorStop(0, `rgba(${r},${gg},${b},1)`);
-			grad.addColorStop(.5, `rgba(${r},${gg},${b},0.75)`);
-			grad.addColorStop(1, `rgba(${r},${gg},${b},0)`);
-			g.fillStyle = grad;
-			g.fillRect(0, 0, SPRITE_PX, SPRITE_PX);
-		}
-		return cv;
-	});
-}
-function createOrb(canvas, size, dpr) {
-	const g = canvas.getContext("2d");
-	if (!g) return null;
-	canvas.width = Math.round(size * dpr);
-	canvas.height = Math.round(size * dpr);
-	const half = size / 2;
-	const radius = half - 6;
-	const sprites = makeSprites();
-	const dots = Array.from({ length: 370 }, (_, i) => {
-		if (i >= DOTS) {
-			const k = i - DOTS;
-			return {
-				r0: radius * (1.08 + .2 * (k * .37 % 1)),
-				a0: k * 2.1,
-				seed: k * 1.7,
-				size: .9
-			};
-		}
-		return {
-			r0: radius * Math.sqrt((i + .5) / DOTS),
-			a0: i * GOLDEN,
-			seed: i * .618034,
-			size: 1.15 + 1.1 * (i * 7919 % 97 / 97)
-		};
-	});
-	return { draw(t) {
-		g.setTransform(dpr, 0, 0, dpr, 0, 0);
-		g.clearRect(0, 0, size, size);
-		const breath = 1 + .035 * Math.sin(t * 1.1);
-		const axis = t * .157 - .9;
-		const ax = Math.cos(axis);
-		const ay = Math.sin(axis);
-		for (let i = 0; i < dots.length; i++) {
-			const d = dots[i];
-			const stray = i >= DOTS;
-			const depth = stray ? .3 : Math.sqrt(Math.max(0, 1 - (d.r0 / radius) ** 2));
-			const ang = d.a0 + t * (stray ? .05 : .11) * (1.15 - .6 * (d.r0 / radius));
-			const r = d.r0 * breath * (1 + .05 * Math.sin(t * .9 + d.seed * 6.283));
-			const x = half + Math.cos(ang) * r;
-			const y = half + Math.sin(ang) * r;
-			const field = ((x - half) * ax + (y - half) * ay) / radius;
-			const c = .5 + .5 * Math.max(-1, Math.min(1, field * 1.1 + .25 * Math.sin(d.seed * 3 + t * .35)));
-			const bucket = Math.round(c * (BUCKETS - 1));
-			const s = d.size * (.75 + .55 * depth) * (stray ? 1 : 1 + .12 * Math.sin(t * 1.7 + d.seed * 9)) * 2.4;
-			g.globalAlpha = stray ? .55 : .5 + .5 * depth;
-			g.drawImage(sprites[bucket], x - s / 2, y - s / 2, s, s);
-		}
-		g.globalAlpha = 1;
-	} };
-}
-//#endregion
-//#region src/surface/face-door.tsx
-var SIZE = 56;
-var FRAME_MS = 33;
-/** The pinned widget that opens the face: a small living orb. Gone while the face is up. */
-function FaceDoor({ activeSurface, onIntent }) {
-	return activeSurface === "face" ? null : /* @__PURE__ */ jsx(DoorOrb, { onOpen: () => onIntent({
-		t: "mount",
-		surface: "face"
-	}) });
-}
-function DoorOrb({ onOpen }) {
-	const canvas = useRef(null);
-	useEffect(() => {
-		const cv = canvas.current;
-		if (!cv) return;
-		const orb = createOrb(cv, SIZE, Math.min(2, window.devicePixelRatio || 1));
-		if (!orb) return;
-		const still = window.matchMedia("(prefers-reduced-motion: reduce)");
-		const origin = performance.now();
-		let visible = true;
-		let raf = 0;
-		let last = 0;
-		const frame = (now) => {
-			raf = requestAnimationFrame(frame);
-			if (now - last < FRAME_MS) return;
-			last = now;
-			orb.draw((now - origin) / 1e3);
-		};
-		const sync = () => {
-			const run = visible && !document.hidden && !still.matches;
-			if (run && !raf) raf = requestAnimationFrame(frame);
-			else if (!run && raf) {
-				cancelAnimationFrame(raf);
-				raf = 0;
-			}
-			if (still.matches) orb.draw(2);
-		};
-		const io = new IntersectionObserver((entries) => {
-			visible = entries[entries.length - 1].isIntersecting;
-			sync();
-		});
-		io.observe(cv);
-		document.addEventListener("visibilitychange", sync);
-		still.addEventListener("change", sync);
-		sync();
-		return () => {
-			io.disconnect();
-			document.removeEventListener("visibilitychange", sync);
-			still.removeEventListener("change", sync);
-			cancelAnimationFrame(raf);
-		};
-	}, []);
-	return /* @__PURE__ */ jsxs(Fragment, { children: [/* @__PURE__ */ jsx("style", { children: STYLES }), /* @__PURE__ */ jsxs("button", {
-		type: "button",
-		className: "f2f-door",
-		"aria-label": "Talk face to face",
-		onClick: onOpen,
-		children: [/* @__PURE__ */ jsx("canvas", {
-			ref: canvas,
-			style: {
-				width: SIZE,
-				height: SIZE
-			}
-		}), /* @__PURE__ */ jsx("span", {
-			className: "f2f-door-label",
-			"aria-hidden": "true",
-			children: "Face to face"
-		})]
-	})] });
-}
-//#endregion
 //#region src/index.tsx
 var Seated = memo(function Seated({ onIntent }) {
 	return /* @__PURE__ */ jsx(FaceSurfaceBody, {
@@ -3529,4 +3336,4 @@ function FaceSurface(props) {
 	return /* @__PURE__ */ jsx(FaceSurfaceSeat, { ...props });
 }
 //#endregion
-export { FaceDoor, FaceSurface as default };
+export { FaceSurface as default };
