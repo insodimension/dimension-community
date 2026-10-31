@@ -501,7 +501,7 @@
 			"title": "Face to face",
 			"icon": "waveform",
 			"description": "Talk to your agent and watch it answer: a full-screen face that lip-syncs to the real audio and captions every word as it is spoken. Where available, Talk live adds a real-time voice.",
-			"version": "0.1.7",
+			"version": "0.1.8",
 			"author": {
 				"name": "Dimension"
 			},
