@@ -20,6 +20,7 @@ import {
 	proposalsToReview,
 	receiveProposal,
 	saveBlockers,
+	viewOfSubject,
 } from "../page/profile-state";
 import { displayNameToWrite } from "../page/display-name";
 import { allowlistOf, defaultDisplayName, displayName, type Facet, inFacet, isEditable, isUnreadable, joinRoster, type RosterAgent } from "../page/roster";
@@ -39,7 +40,7 @@ function listed(name: string, source: AgentSource, patch: Partial<AgentDraft> = 
 }
 
 function fact(name: string, provenance: AgentFact["provenance"], enabled = true): AgentFact {
-	return { name, description: `${name} agent`, provenance, enabled, listed: true };
+	return { name, description: `${name} agent`, provenance, enabled };
 }
 
 const FILES = [listed("machinist", "pack"), listed("coding", "pack"), listed("herald", "user"), listed("scribe", "user"), listed("reviewer", "workspace")];
@@ -359,5 +360,36 @@ describe("a display name the person chose", () => {
 		expect(displayNameToWrite("", "Juno")).toBe("");
 		expect(displayNameToWrite("   ", "Juno")).toBe("");
 		expect(displayNameToWrite("   ", undefined)).toBeUndefined();
+	});
+});
+
+describe("a page subject", () => {
+	const agentNamed = (id: string) => ({ kind: "agent", id });
+
+	test("opens the profile of the agent it names, on that agent's own file", () => {
+		const view = viewOfSubject(agentNamed("herald"), undefined, FILES);
+		expect(view?.notice).toBeUndefined();
+		expect(view?.profile?.agent?.name).toBe("herald");
+		expect(view?.profile?.readOnly).toBeUndefined();
+	});
+
+	test("opens a pack's agent read-only", () => {
+		expect(viewOfSubject(agentNamed("coding"), undefined, FILES)?.profile?.readOnly).toBe("It ships in a pack.");
+	});
+
+	test("leaves the page home with a notice for an agent the listing does not hold", () => {
+		expect(viewOfSubject(agentNamed("ghost"), undefined, FILES)).toEqual({ profile: null, notice: 'No agent named "ghost" was found.' });
+	});
+
+	test("waits for the listing, and ignores a subject of another kind or no subject", () => {
+		expect(viewOfSubject(agentNamed("herald"), undefined, undefined)).toBeUndefined();
+		expect(viewOfSubject({ kind: "room", id: "herald" }, undefined, FILES)).toBeUndefined();
+		expect(viewOfSubject(undefined, undefined, FILES)).toBeUndefined();
+	});
+
+	test("opens once per subject object: the same object again is a re-render, a new object for the same agent is another click", () => {
+		const click = agentNamed("herald");
+		expect(viewOfSubject(click, click, FILES)).toBeUndefined();
+		expect(viewOfSubject(agentNamed("herald"), click, FILES)?.profile?.agent?.name).toBe("herald");
 	});
 });

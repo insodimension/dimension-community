@@ -1,7 +1,7 @@
 // The General Agents page (C-A): a `workspace-surface` component the host
 // mounts on the Code space's `page` surface when the rail's General Agents
 // entry is chosen, in a seat granted `artifactory:call` (its own server's
-// App-only tools), `agents:configure` (the switches) and `agents:rename` (the display name). It reads the host's
+// App-only tools), `agents:configure` and `agents:rename` (the display name). It reads the host's
 // facts from the fenced Store and draws every agent as a card, then one agent
 // as a profile to read, edit, create from or extend.
 import { agentPresenceFace } from "@fraym/ui";
@@ -12,7 +12,7 @@ import { useActivity, useFact, useNow, usePolled } from "./facts";
 import { type AgentConfigurePatch, errorText, forgeOf } from "./forge";
 import { AgentsHome } from "./home";
 import { AgentProfile } from "./profile";
-import { acceptProposal, discardProposal, extendFrom, openBlank, openListed, type ProfileState, proposalsForProfile, proposalsToReview, receiveProposal } from "./profile-state";
+import { acceptProposal, discardProposal, extendFrom, openBlank, openListed, type ProfileState, proposalsForProfile, proposalsToReview, receiveProposal, viewOfSubject } from "./profile-state";
 import { joinRoster } from "./roster";
 import { usePageStyles } from "./styles";
 import {
@@ -25,6 +25,7 @@ import {
 	MODELS_KEY,
 	type ModelFact,
 	PAGE_SLOT,
+	type PageSubject,
 	USAGE_KEY,
 	type UsageFact,
 } from "./types";
@@ -100,6 +101,15 @@ export function GeneralAgentsPage(props: GeneralAgentsPageProps) {
 		reopen.current = null;
 		setProfile(openListed(file));
 	}, [listing.value]);
+
+	const appliedSubject = useRef<PageSubject | undefined>(undefined);
+	useEffect(() => {
+		const view = viewOfSubject(props.subject, appliedSubject.current, listing.value?.agents);
+		if (view === undefined) return;
+		appliedSubject.current = props.subject;
+		setProfile(view.profile);
+		setNotice(view.notice);
+	}, [props.subject, listing.value]);
 
 	// A proposal for the agent on screen lands on it as soon as it is read.
 	useEffect(() => {

@@ -17,6 +17,7 @@ import {
 	type ProposableField,
 } from "../src/agent-md";
 import type { ListedAgent, SaveTarget, StoredProposal } from "../src/contracts";
+import type { PageSubject } from "./types";
 
 /** A Machinist proposal the human has not decided on: the server's id for it,
  *  the fields it changed, and the draft to go back to on Discard (`null`: it
@@ -54,6 +55,18 @@ export function openListed(agent: ListedAgent): ProfileState {
 		agent,
 		...(agent.editable ? {} : { readOnly: agent.readOnlyReason ?? "This agent is read-only here." }),
 	};
+}
+
+export interface SubjectView {
+	readonly profile: ProfileState | null;
+	readonly notice: string | undefined;
+}
+
+export function viewOfSubject(subject: PageSubject | undefined, applied: PageSubject | undefined, agents: readonly ListedAgent[] | undefined): SubjectView | undefined {
+	if (subject === undefined || subject === applied || subject.kind !== "agent" || agents === undefined) return undefined;
+	const file = agents.find(agent => agent.name === subject.id);
+	if (file === undefined) return { profile: null, notice: `No agent named "${subject.id}" was found.` };
+	return { profile: openListed(file), notice: undefined };
 }
 
 /** A new agent: a blank charter, speaking only as itself. */

@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "artifactory-general-agent",
-	"version": "0.4.4",
+	"version": "0.5.0",
 	"description": "See every agent you can run as a card with its face and its week at a glance, open one to edit it, or ask the Machinist to draft a new one.",
 	"keywords": [
 		"general-agents",
@@ -36,6 +36,7 @@
 					"label": "General Agents",
 					"slot": "workspace-surface",
 					"export": "GeneralAgentsPage",
+					"opens": ["agent"],
 					"grants": [
 						"artifactory:call",
 						"agents:configure",

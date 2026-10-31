@@ -329,20 +329,12 @@ export function AgentProfile({
 				</div>
 				<div className="relative flex w-full shrink-0 flex-col gap-2 @3xl:w-60">
 					{fact !== undefined ? (
-						<>
-							<SwitchField
-								label="Enabled"
-								checked={fact.enabled}
-								disabled={busy.has(fact.name)}
-								onChange={configure !== undefined && editable ? on => void configure(fact.name, { enabled: on }) : undefined}
-							/>
-							<SwitchField
-								label="Show in rail"
-								checked={fact.listed}
-								disabled={busy.has(fact.name)}
-								onChange={configure !== undefined ? on => void configure(fact.name, { listed: on }) : undefined}
-							/>
-						</>
+						<SwitchField
+							label="Enabled"
+							checked={fact.enabled}
+							disabled={busy.has(fact.name)}
+							onChange={configure !== undefined && editable ? on => void configure(fact.name, { enabled: on }) : undefined}
+						/>
 					) : null}
 					<div className="flex [&>button]:w-full [&>button]:justify-center">{primary}</div>
 				</div>
