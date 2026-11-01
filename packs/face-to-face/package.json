@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/face-to-face",
 	"author": "Dimension",
-	"version": "0.1.9",
+	"version": "0.1.10",
 	"private": true,
 	"description": "Face to face — the Chat space's full-screen halftone face.",
 	"type": "module",

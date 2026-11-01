@@ -62,9 +62,9 @@ describe("the manifests", () => {
 		expect(record((await readJson("package.json")).dimension).optIn).toBe(true);
 	});
 
-	test("the pack ships on the canary ring and floors the app at the release that draws it", async () => {
+	test("the pack ships to every ring, which is safe only because it floors the app at the release that draws it", async () => {
 		const namespace = record(record((await readJson("plugin.json")).extensions)[DIMENSION_KEY]);
-		expect(namespace.channel).toBe("canary");
+		expect(namespace.channel).toBeUndefined();
 		expect(record(namespace.requires).dimension).toMatch(/^>=\d+\.\d+\.\d+$/);
 	});
 
