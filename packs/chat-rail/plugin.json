@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "chat-rail",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "The session list for the Chat space: only your conversations, newest first, with search, a New session button and collections you make yourself.",
 	"author": {
 		"name": "Dimension"
@@ -16,12 +16,11 @@
 	"extensions": {
 		"ai.insodimension.dimension": {
 			"contractVersion": 1,
-			"requires": { "dimension": ">=0.11.1" },
+			"requires": { "dimension": ">=0.11.19" },
 			"title": "Chat Rail",
 			"icon": "panel",
 			"category": "component",
 			"defaultEnabled": true,
-			"channel": "canary",
 			"entry": "dist/index.mjs",
 			"type": "component",
 			"slot": "rail"

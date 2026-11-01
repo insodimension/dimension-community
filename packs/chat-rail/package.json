@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/chat-rail",
 	"author": "Dimension",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Chat rail — a sessions-only rail with user collections, built from @fraym/ui primitives and the rail channels alone. Imports no shipped rail.",
 	"type": "module",
 	"main": "./src/index.tsx",

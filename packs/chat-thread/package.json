@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/chat-thread",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Chat thread - the conversation and nothing else: your words, the assistant's words, and one quiet 'Worked for' line per turn. Built from the kit's StoreThread part; no tool cards, no shipped thread inside.",
 	"type": "module",
 	"main": "./src/index.tsx",

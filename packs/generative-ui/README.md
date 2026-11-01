@@ -13,7 +13,7 @@ The assistant can show you a designed interface instead of a wall of text: a thr
 
 ## Who can use it
 
-The canary release ring only (`"channel": "canary"`), and Dimension 0.11.19 or later, the first release whose engine and kit know the `generativeUi` card. It is **opt-in**: the pack declares `optIn` in `package.json`, so it loads only for an agent that names it in `capabilities.optIn`. Today that is **Aether** alone (`packages/dimension-agents/general-agents/aether/agent.md`); the Coding agent, the Designer and the Machinist never load it. The `chat` space requires it, so it arrives with Chat. No sign-in, key or CLI.
+Either release ring, and Dimension 0.11.19 or later (`requires.dimension`), the first release whose engine and kit know the `generativeUi` card. It is **opt-in**: the pack declares `optIn` in `package.json`, so it loads only for an agent that names it in `capabilities.optIn`. Today that is **Aether** alone (`packages/dimension-agents/general-agents/aether/agent.md`); the Coding agent, the Designer and the Machinist never load it. The `chat` space requires it, so it arrives with Chat. No sign-in, key or CLI.
 
 ## Limits and risks
 

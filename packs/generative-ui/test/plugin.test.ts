@@ -62,10 +62,13 @@ describe("the manifests", () => {
 		expect(record((await readJson("package.json")).dimension).optIn).toBe(true);
 	});
 
-	test("the pack ships on the canary ring and floors the app at the release that draws it", async () => {
+	test("the pack ships to every ring, which is safe only because it floors the app at the release that draws it", async () => {
 		const namespace = record(record((await readJson("plugin.json")).extensions)[DIMENSION_KEY]);
-		expect(namespace.channel).toBe("canary");
-		expect(record(namespace.requires).dimension).toMatch(/^>=\d+\.\d+\.\d+$/);
+		expect(namespace.channel).toBeUndefined();
+		const floor = String(record(namespace.requires).dimension);
+		expect(floor).toMatch(/^>=\d+\.\d+\.\d+$/);
+		expect(Bun.semver.satisfies("0.11.18", floor)).toBe(false);
+		expect(Bun.semver.satisfies("0.11.19", floor)).toBe(true);
 	});
 
 	test("the tool card is the built-in generativeUi card for exactly the tool the bundle registers", async () => {
