@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "swiss-knife",
-	"version": "0.7.0",
+	"version": "0.7.1",
 	"description": "A few small helpers in one switch: your agent can show you files as cards you can open and mark up, a library finds every file you have made, and it stops the agent adding code comments.",
 	"author": {
 		"name": "Dimension"

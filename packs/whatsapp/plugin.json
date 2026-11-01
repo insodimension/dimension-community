@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "whatsapp",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "Let your agent send WhatsApp text messages and message templates through your WhatsApp Business account.",
 	"author": {
 		"name": "Dimension"
