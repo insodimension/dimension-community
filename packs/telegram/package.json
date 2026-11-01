@@ -1,7 +1,7 @@
 {
 	"name": "@inso/telegram",
 	"author": "Dimension",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Telegram connector — send messages, read updates, and inspect chats via the Telegram Bot API",
 	"type": "module",
 	"main": "index.ts",
@@ -12,8 +12,7 @@
 		"name": "telegram",
 		"extensions": [
 			"index.ts"
-		],
-		"sharedModule": true
+		]
 	},
 	"files": [
 		"skills/",

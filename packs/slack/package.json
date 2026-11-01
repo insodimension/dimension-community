@@ -1,7 +1,7 @@
 {
 	"name": "@inso/slack",
 	"author": "Dimension",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"description": "Slack connector: a bot app over the Slack Web API, or your own Slack account through Slack's official MCP server (OAuth with PKCE, bring-your-own Slack app)",
 	"type": "module",
 	"main": "index.ts",
@@ -13,8 +13,7 @@
 		"extensions": [
 			"index.ts"
 		],
-		"bundle": true,
-		"sharedModule": true
+		"bundle": true
 	},
 	"files": [
 		"skills/",

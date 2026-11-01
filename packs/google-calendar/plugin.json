@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "google-calendar",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Let your agent manage your Google Calendar events and schedule.",
 	"author": {
 		"name": "Dimension"

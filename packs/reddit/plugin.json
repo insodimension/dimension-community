@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "reddit",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Let your agent read Reddit feeds, posts, comments and your inbox, search, and post or vote when you ask.",
 	"author": {
 		"name": "Dimension"
