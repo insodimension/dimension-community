@@ -22,7 +22,7 @@ It talks to the General Agent `aether` in the `inso-personal` workspace. It has 
 
 ## Who can use it
 
-Anyone on Dimension 0.11.19 or later, on either release ring: no pack of the Chat set carries a `channel` any more, and this pack and the three it requires that were Chat's own (`chat-rail`, `chat-thread`, `face-to-face`) declare `requires.dimension` `>=0.11.19`, the same floor `generative-ui` has, so a build older than the one that carries the whole set cannot use the space. It is on by default. On an older build the app keeps the space out of the switcher and the Space Store lists it as "Requires Dimension >=0.11.19" with Install disabled: the fix is updating Dimension. To talk, a voice profile must name a ready speech provider; **Talk live** needs a Live-capable provider (an ElevenLabs key with the Agents permissions, or Codex realtime) and a session in the pane, which a brand-new Chat does not have yet: send a first message, or press **Tap to talk** once.
+Anyone on Dimension 0.11.19 or later, on either release ring (`requires.dimension` `>=0.11.19`, the floor of every pack in the Chat set). It is on by default. On an older build the app keeps the space out of the switcher and the Space Store lists it as "Requires Dimension >=0.11.19" with Install disabled: the fix is updating Dimension. To talk, a voice profile must name a ready speech provider; **Talk live** needs a Live-capable provider (an ElevenLabs key with the Agents permissions, or Codex realtime) and a session in the pane, which a brand-new Chat does not have yet: send a first message, or press **Tap to talk** once.
 
 ## Limits and risks
 
