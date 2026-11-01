@@ -87,8 +87,8 @@ async function readCredential(): Promise<StoredCredential> {
 // this slot. The User-Agent is derived from the same credential, so it rides
 // along in the cache.
 //
-// KEYED BY CREDENTIAL, not by expiry alone. This module is `dimension.sharedModule`,
-// so the slot outlives a session: a user who reconnects mid-process (a new
+// KEYED BY CREDENTIAL, not by expiry alone. The slot is process-wide, so it
+// outlives a session: a user who reconnects mid-process (a new
 // account, rotated secret) would otherwise keep acting as the OLD account until
 // the token expired — and a wrong-but-valid token never trips the 401 path that
 // clears this cache. The fingerprint is the whole stored credential, so any
