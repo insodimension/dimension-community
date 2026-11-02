@@ -163,9 +163,10 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 				onNewSessionAs={actions.newSessionAs as ComponentProps<typeof FraymRailActions>["onNewSessionAs"]}
 				onIntent={actions.intent as ComponentProps<typeof FraymRailActions>["onIntent"]}
 				activeSurface={facts.mode.activeSurface as ComponentProps<typeof FraymRailActions>["activeSurface"]}
+				space={facts.mode.app}
 			/>
 		),
-		[railActions, actions, capabilities.agents, capabilities.bodies, facts.mode.activeSurface],
+		[railActions, actions, capabilities.agents, capabilities.bodies, facts.mode.activeSurface, facts.mode.app],
 	);
 	const sessionBar = useMemo(
 		() => (

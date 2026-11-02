@@ -39,13 +39,15 @@ var IndependentRailSection = memo(function IndependentRailSection({ rail, action
 			onNewSessionOn: actions.newSessionOn,
 			onNewSessionAs: actions.newSessionAs,
 			onIntent: actions.intent,
-			activeSurface: facts.mode.activeSurface
+			activeSurface: facts.mode.activeSurface,
+			space: facts.mode.app
 		}), [
 			railActions,
 			actions,
 			capabilities.agents,
 			capabilities.bodies,
-			facts.mode.activeSurface
+			facts.mode.activeSurface,
+			facts.mode.app
 		]),
 		sessionBar: useMemo(() => /* @__PURE__ */ jsx(FraymRailSessionBar, {
 			workspaceLabel: facts.workspaceLabel,
