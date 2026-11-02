@@ -17,3 +17,5 @@ packs/browser/.cache/
 packs/browser/.relay-host-*/
 packs/browser/.stream-host-*/
 __pycache__/
+# The release gate's scratch copies of a pack (dimension scripts/pack-bundle-drift.ts); a run killed before its cleanup leaves one behind.
+.bundle-drift/
