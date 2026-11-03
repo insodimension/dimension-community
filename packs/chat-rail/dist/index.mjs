@@ -1692,7 +1692,8 @@ var ChatRailSection = memo(function ChatRailSection({ rail, actions, capabilitie
 					actions: extraActions,
 					onIntent: actions.intent,
 					onOpenRailSession: actions.openRailSession,
-					activeSurface: facts.mode.activeSurface ?? "session"
+					activeSurface: facts.mode.activeSurface ?? "session",
+					space: facts.mode.app
 				}) : null,
 				/* @__PURE__ */ jsxs("div", {
 					className: "er-list",

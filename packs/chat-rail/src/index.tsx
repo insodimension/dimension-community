@@ -960,6 +960,7 @@ export const ChatRailSection = memo(function ChatRailSection({ rail, actions, ca
 						onIntent={actions.intent as ComponentProps<typeof FraymRailActions>["onIntent"]}
 						onOpenRailSession={actions.openRailSession}
 						activeSurface={(facts.mode.activeSurface ?? "session") as ComponentProps<typeof FraymRailActions>["activeSurface"]}
+						space={facts.mode.app}
 					/>
 				) : null}
 				<div className="er-list" data-slot="chat-list">
