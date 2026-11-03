@@ -19,7 +19,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, uptime } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type ConnectionObservations, keepFirst, type SiteObservation, type SiteObservations } from "./connection.js";
 import { PROFILE_NAME, profileSlug } from "./profile-name.js";
@@ -209,7 +209,7 @@ export class ProfileStore {
 			fd = openSync(path, "wx", 0o600);
 		} catch (err) {
 			const existing = readLock(path);
-			if (existing?.pid !== undefined && existing.pid !== process.pid && !processAlive(existing.pid)) {
+			if (existing?.pid !== undefined && existing.pid !== process.pid && !lockOwnerAlive(existing)) {
 				unlinkSync(path);
 				return this.acquireLock(slug);
 			}
@@ -275,8 +275,8 @@ export class ProfileStore {
 	 * another runtime's on this root), and the profile is not free to open.
 	 */
 	heldElsewhere(slug: string): boolean {
-		const pid = readLock(join(this.profileDir(slug), "runtime.lock"))?.pid;
-		return pid !== undefined && processAlive(pid);
+		const lock = readLock(join(this.profileDir(slug), "runtime.lock"));
+		return lock !== undefined && lockOwnerAlive(lock);
 	}
 
 	/** This profile's persisted sign-in observations; none when it was never observed or the file is unreadable. */
@@ -385,6 +385,16 @@ function readLock(path: string): { pid?: number; token?: string; at?: string } |
 	} catch {
 		return undefined;
 	}
+}
+
+const BOOT_CLOCK_SLACK_MS = 60_000;
+
+function lockOwnerAlive(lock: { pid?: number; at?: string }): boolean {
+	if (lock.pid === undefined) return false;
+	const writtenAt = lock.at === undefined ? Number.NaN : Date.parse(lock.at);
+	const bootedAt = Date.now() - uptime() * 1_000;
+	if (writtenAt < bootedAt - BOOT_CLOCK_SLACK_MS) return false;
+	return processAlive(lock.pid);
 }
 
 /** Signal 0 probes existence only. EPERM means it exists but is not ours to signal. */
