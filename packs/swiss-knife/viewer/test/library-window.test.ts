@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GRID_LAYOUT, gridGeometry, itemRange, LIST_LAYOUT, moveSelection, revealScrollTop, rowTop, visibleRows, wantsNextPage } from "../app/view/library/window";
+import { GRID_LAYOUT, gridGeometry, itemRange, LIST_LAYOUT, moveSelection, revealScrollTop, rowTop, visibleRows, wantsNextPage } from "@fraym/ui/features/media-library";
 
 const ROWS = 50_000;
 

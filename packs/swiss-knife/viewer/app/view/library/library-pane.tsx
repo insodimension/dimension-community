@@ -1,8 +1,8 @@
-import type { PresentedKind } from "@dimension/sdk/presentation";
 import { Button } from "@fraym/ui/elements/button";
 import { IconButton } from "@fraym/ui/elements/icon-button";
 import { Kbd } from "@fraym/ui/elements/kbd";
 import { Select } from "@fraym/ui/elements/select";
+import { FacetRail, LibraryGrid, type LibraryLayout, type RowRange, toggleTag, wantsNextPage } from "@fraym/ui/features/media-library";
 import { Icon } from "@fraym/ui/icons";
 import { cn } from "@fraym/ui/lib/cn";
 import type { App } from "@modelcontextprotocol/ext-apps";
@@ -14,8 +14,6 @@ import type { LibraryTab } from "../tabs";
 import { AddFileDialog } from "./add-file-dialog";
 import { ArtifactSurface, useMinuteClock } from "./artifact-surface";
 import { DiscardDialog, TRASH_NAME } from "./discard-dialog";
-import { FilterRail } from "./filter-rail";
-import { LibraryGrid, type LibraryLayout } from "./library-grid";
 import { GridCell, ListRow } from "./library-item";
 import { LibraryToast } from "./library-toast";
 import { type ArtifactPatchInput, createLibraryTools, errorText, thumbUrl } from "./library-tools";
@@ -32,11 +30,9 @@ import {
 	reduceList,
 	SEARCH_DEBOUNCE_MS,
 	shownItem,
-	toggleKind,
-	toggleTag,
 } from "./query";
+import { artifactSections } from "./rail-sections";
 import { useLibraryRefresh } from "./use-library-refresh";
-import { type RowRange, wantsNextPage } from "./window";
 
 export interface LibraryPaneProps {
 	readonly app: App;
@@ -67,6 +63,7 @@ const CHECK_FRESH_MS = 60_000;
 const CHECK_BATCH = 200;
 const CHECK_THROTTLE_MS = 300;
 const PAGE_LOOKAHEAD_ROWS = 12;
+const GRID_KEYS = ["s", "Delete", "Escape"] as const;
 
 function filterFrom(request: LibraryTab): LibraryFilter {
 	return { ...DEFAULT_FILTER, q: request.query ?? "", workspace: request.workspace };
@@ -320,7 +317,7 @@ export function LibraryPane({ app, request, active, theme }: LibraryPaneProps) {
 		setRailOpen(false);
 	};
 
-	const onGridKey = (key: "s" | "Delete" | "Escape", index: number): void => {
+	const onGridKey = (key: string, index: number): void => {
 		const item = index >= 0 ? list.items[index] : undefined;
 		if (key === "Escape") {
 			setSelectedId(null);
@@ -363,19 +360,17 @@ export function LibraryPane({ app, request, active, theme }: LibraryPaneProps) {
 	const searching = filter.q.trim() !== "";
 	const filtered = searching || filter.kinds.length > 0 || filter.tags.length > 0 || filter.workspace !== undefined;
 	const rail = (
-		<FilterRail
-			filter={filter}
-			facets={facets}
-			workspaces={workspaces}
-			onScope={setScope}
-			onKind={(kind: PresentedKind) => setFilter(current => ({ ...current, kinds: toggleKind(current.kinds, kind) }))}
-			onClearKinds={() => setFilter(current => ({ ...current, kinds: [] }))}
-			onTag={onTag}
-			onClearTags={() => setFilter(current => ({ ...current, tags: [] }))}
-			onWorkspace={workspace => {
-				setFilter(current => ({ ...current, workspace }));
-				setRailOpen(false);
-			}}
+		<FacetRail
+			sections={artifactSections(filter, facets, workspaces, {
+				onScope: setScope,
+				onKinds: kinds => setFilter(current => ({ ...current, kinds })),
+				onTag,
+				onClearTags: () => setFilter(current => ({ ...current, tags: [] })),
+				onWorkspace: workspace => {
+					setFilter(current => ({ ...current, workspace }));
+					setRailOpen(false);
+				},
+			})}
 		/>
 	);
 	const empty = SCOPE_EMPTY[filter.scope];
@@ -507,6 +502,7 @@ export function LibraryPane({ app, request, active, theme }: LibraryPaneProps) {
 								const item = list.items[index];
 								if (item !== undefined) openPage(item);
 							}}
+							keys={GRID_KEYS}
 							onKey={onGridKey}
 							onRange={onRange}
 							footer={

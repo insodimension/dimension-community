@@ -1,5 +1,4 @@
 import type { PresentedKind } from "@dimension/sdk/presentation";
-import { foldAsciiCase } from "../../../../src/library/tags";
 import type { ArtifactState, LibraryItem, LibraryPage, LibraryQuery, LibrarySort } from "../../../../src/library/types";
 
 export type LibraryScope = "all" | "starred" | "shared" | "discarded";
@@ -46,20 +45,6 @@ export async function reloadLoaded(read: (args: LibraryQuery) => Promise<Library
 		items.push(...page.items);
 	}
 	return { items, ...(page.next === undefined ? {} : { next: page.next }), total: page.total };
-}
-
-export function toggleKind(kinds: readonly PresentedKind[], kind: PresentedKind): readonly PresentedKind[] {
-	return kinds.includes(kind) ? kinds.filter(each => each !== kind) : [...kinds, kind];
-}
-
-export function hasTag(tags: readonly string[], tag: string): boolean {
-	const key = foldAsciiCase(tag);
-	return tags.some(each => foldAsciiCase(each) === key);
-}
-
-export function toggleTag(tags: readonly string[], tag: string): readonly string[] {
-	const key = foldAsciiCase(tag);
-	return hasTag(tags, tag) ? tags.filter(each => foldAsciiCase(each) !== key) : [...tags, tag];
 }
 
 export interface CheckedRow {
@@ -173,18 +158,6 @@ export function liveShares(item: LibraryItem): number {
 	let live = 0;
 	for (const share of item.shares) if (share.revokedAt === undefined) live++;
 	return live;
-}
-
-export function parseTags(text: string): readonly string[] {
-	const seen: Record<string, true> = {};
-	const tags: string[] = [];
-	for (const raw of text.split(",")) {
-		const tag = raw.trim();
-		if (tag === "" || seen[tag.toLowerCase()]) continue;
-		seen[tag.toLowerCase()] = true;
-		tags.push(tag);
-	}
-	return tags;
 }
 
 export function checkBatches(ids: readonly string[], seenAt: Readonly<Record<string, number>>, now: number, freshMs: number, batch: number): readonly (readonly string[])[] {

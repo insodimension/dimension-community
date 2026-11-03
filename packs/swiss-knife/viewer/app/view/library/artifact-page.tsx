@@ -5,6 +5,7 @@ import { Button } from "@fraym/ui/elements/button";
 import { IconButton } from "@fraym/ui/elements/icon-button";
 import { Input } from "@fraym/ui/elements/input";
 import { Textarea } from "@fraym/ui/elements/textarea";
+import { parseTags } from "@fraym/ui/features/media-library";
 import { Icon, type IconName } from "@fraym/ui/icons";
 import { cn } from "@fraym/ui/lib/cn";
 import type { App } from "@modelcontextprotocol/ext-apps";
@@ -23,7 +24,6 @@ import { folderName, fullDate, KIND_LOOK } from "./kinds";
 import { ThumbOrIcon } from "./library-item";
 import { type ArtifactPatchInput, errorText, type LibraryTools } from "./library-tools";
 import { MenuSeparator, MoreMenu } from "./more-menu";
-import { parseTags } from "./query";
 import { SessionRow } from "./session-row";
 import { CommentsView, useArtifactComments, useSeenAfter } from "./share-comments";
 import { AccessList } from "./share-list";
@@ -491,7 +491,7 @@ export function ArtifactPage(props: ArtifactPageProps) {
 				{discarded ? (
 					<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
 						<div className="aspect-video w-full max-w-sm overflow-hidden rounded-lg border border-fr-border-soft opacity-60">
-							<ThumbOrIcon item={item} thumb={thumb} iconSize={40} className="object-contain" />
+							<ThumbOrIcon item={item} thumb={thumb} iconSize={40} fit="contain" />
 						</div>
 						<p className="max-w-[46ch] text-fr-sm text-fr-text-2">This artifact is discarded. Restore it to open it again.</p>
 						<Button type="button" size="sm" onClick={onRestore}>
