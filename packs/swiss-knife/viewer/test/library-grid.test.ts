@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { createElement } from "react";
-import type * as GridModule from "../app/view/library/library-grid";
-import type { RowRange } from "../app/view/library/window";
+import type * as GridModule from "@fraym/ui/features/media-library";
+import type { RowRange } from "@fraym/ui/features/media-library";
 import type { LibraryItem } from "../../src/library/types";
 import { installReact, type ReactEnv } from "./media-react";
 
@@ -46,7 +46,7 @@ beforeAll(async () => {
 			scrolls.set(this, value);
 		},
 	});
-	grid = await import("../app/view/library/library-grid");
+	grid = await import("@fraym/ui/features/media-library");
 });
 
 afterEach(() => env.cleanup());
@@ -57,13 +57,13 @@ afterAll(() => {
 });
 
 function gridOf(rows: readonly LibraryItem[], layout: GridModule.LibraryLayout, ranges: RowRange[], selectedIndex: number) {
-	return createElement(grid.LibraryGrid, {
+	return createElement(grid.LibraryGrid<LibraryItem>, {
 		items: rows,
 		layout,
 		selectedIndex,
 		label: "Artifacts",
 		footer: null,
-		renderItem: item => createElement("span", null, item.name),
+		renderItem: (item: LibraryItem) => createElement("span", null, item.name),
 		onSelect: () => undefined,
 		onOpen: () => undefined,
 		onKey: () => undefined,

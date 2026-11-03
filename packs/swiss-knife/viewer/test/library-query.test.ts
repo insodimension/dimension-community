@@ -1,20 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { hasTag, parseTags, toggleTag, toggleValue } from "@fraym/ui/features/media-library";
 import {
 	checkBatches,
 	DEFAULT_FILTER,
 	filterKey,
-	hasTag,
 	INITIAL_LIST,
 	type ListAction,
 	type ListState,
 	PAGE_SIZE,
-	parseTags,
 	queryArgs,
 	reduceList,
 	reloadLoaded,
 	shownItem,
-	toggleKind,
-	toggleTag,
 } from "../app/view/library/query";
 import type { LibraryItem, LibraryPage, LibraryQuery } from "../../src/library/types";
 
@@ -59,8 +56,8 @@ describe("library query arguments", () => {
 	});
 
 	test("toggling a kind adds it once and takes it out again", () => {
-		expect(toggleKind(toggleKind([], "pdf"), "video")).toEqual(["pdf", "video"]);
-		expect(toggleKind(["pdf", "video"], "pdf")).toEqual(["video"]);
+		expect(toggleValue(toggleValue<string>([], "pdf"), "video")).toEqual(["pdf", "video"]);
+		expect(toggleValue(["pdf", "video"], "pdf")).toEqual(["video"]);
 	});
 
 	test("a tag is selected whatever its case, and toggling it in another case takes it out instead of adding a twin", () => {

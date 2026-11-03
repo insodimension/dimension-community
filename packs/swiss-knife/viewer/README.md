@@ -202,7 +202,10 @@ Up to 24 notes. The request lists them in time order, and for video carries up t
 
 `open_library` (the dock's Library) opens a pinned **Library** tab in the View's own tab strip; an artifact opened
 from it (`library_open`, dispatched exactly like a `view_file` result) becomes an ordinary document tab beside it.
-The pane lives in `app/view/library/`:
+The pane lives in `app/view/library/`; the grid, filter rail, item shell and thumbnail it draws are the shared
+`@fraym/ui/features/media-library` module the Video space's media library uses too, and `app/view/library/` keeps only
+what is about artifacts (`rail-sections.ts` builds the rail's sections from `library_facets`, `library-item.tsx` fills
+the shared cell with an artifact's kind, badges and shares):
 
 - **Filters and search.** A left rail (kinds with counts, tags, workspaces, Starred, Shared, Recently discarded) from
   `library_facets`; the search field filters as you type (80 ms debounce). Tags are a multi-select: a file must carry
@@ -211,7 +214,7 @@ The pane lives in `app/view/library/`:
   does the same as the rail entry, and never opens the file. Every list is the server's SQLite answer:
   each request carries a key, and an answer for a key that is no longer current is dropped (`query.ts`), so a slow
   older search never overwrites a newer one. Below 760 px the rail folds behind a Filters button.
-- **Virtualized grid and list** (`library-grid.tsx`, math in `window.ts`). Fixed row heights; only the rows on
+- **Virtualized grid and list** (`LibraryGrid` and its math in `@fraym/ui/features/media-library`). Fixed row heights; only the rows on
   screen plus three rows of overscan are mounted, scroll work is coalesced to one animation frame, and the next
   `library_query` page (cursor paging, 200 a page) is asked for twelve rows before the loaded end. The window size is
   the same at row 30 000 of 50 000 as at row 0 (`test/library-window.test.ts`, `test/library-grid.test.ts`).
