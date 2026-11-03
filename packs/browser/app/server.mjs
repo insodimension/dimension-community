@@ -2844,7 +2844,7 @@ import { fileURLToPath as fileURLToPath2 } from "node:url";
 import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, uptime } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 // src/connection.ts
@@ -3159,7 +3159,7 @@ var ProfileStore = class {
       fd = openSync(path4, "wx", 384);
     } catch (err) {
       const existing = readLock(path4);
-      if (existing?.pid !== void 0 && existing.pid !== process.pid && !processAlive(existing.pid)) {
+      if (existing?.pid !== void 0 && existing.pid !== process.pid && !lockOwnerAlive(existing)) {
         unlinkSync(path4);
         return this.acquireLock(slug);
       }
@@ -3218,8 +3218,8 @@ var ProfileStore = class {
    * another runtime's on this root), and the profile is not free to open.
    */
   heldElsewhere(slug) {
-    const pid = readLock(join(this.profileDir(slug), "runtime.lock"))?.pid;
-    return pid !== void 0 && processAlive(pid);
+    const lock = readLock(join(this.profileDir(slug), "runtime.lock"));
+    return lock !== void 0 && lockOwnerAlive(lock);
   }
   /** This profile's persisted sign-in observations; none when it was never observed or the file is unreadable. */
   connections(slug) {
@@ -3323,6 +3323,14 @@ function readLock(path4) {
   } catch {
     return void 0;
   }
+}
+var BOOT_CLOCK_SLACK_MS = 6e4;
+function lockOwnerAlive(lock) {
+  if (lock.pid === void 0) return false;
+  const writtenAt = lock.at === void 0 ? Number.NaN : Date.parse(lock.at);
+  const bootedAt = Date.now() - uptime() * 1e3;
+  if (writtenAt < bootedAt - BOOT_CLOCK_SLACK_MS) return false;
+  return processAlive(lock.pid);
 }
 function processAlive(pid) {
   try {
@@ -16817,7 +16825,7 @@ var LiveChannel = class {
 var plugin_default = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   name: "browser",
-  version: "0.9.9",
+  version: "0.9.10",
   description: "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
   keywords: [
     "browser",
