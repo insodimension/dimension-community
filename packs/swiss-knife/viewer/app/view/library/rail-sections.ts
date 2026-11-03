@@ -25,6 +25,8 @@ export function artifactSections(filter: LibraryFilter, facets: LibraryFacets | 
 	let total = 0;
 	for (const kind of KIND_ORDER) total += kindCounts[kind] ?? 0;
 	const tagOptions = tagFacetOptions(facets?.tags ?? [], filter.tags, "hash");
+	const active = filter.workspace;
+	const unlisted = active !== undefined && !workspaces.some(workspace => workspace.path === active) ? [{ id: active, label: folderName(active), title: active, selected: true, pinned: true }] : [];
 	return [
 		{
 			id: "scope",
@@ -59,7 +61,10 @@ export function artifactSections(filter: LibraryFilter, facets: LibraryFacets | 
 			title: "Workspaces",
 			select: "single",
 			all: { label: "All workspaces", icon: "folder" },
-			options: workspaces.map(workspace => ({ id: workspace.path, label: folderName(workspace.path), title: workspace.path, count: workspace.count, selected: filter.workspace === workspace.path })),
+			options: [
+				...unlisted,
+				...workspaces.map(workspace => ({ id: workspace.path, label: folderName(workspace.path), title: workspace.path, count: workspace.count, selected: active === workspace.path })),
+			],
 			onChange: (_, changed) => actions.onWorkspace(changed),
 		},
 	];
