@@ -28,6 +28,13 @@ import {
 
 const VIEWPORT = { width: 640, height: 480 };
 
+const writeLock = async (rootDir: string, slug: string, pid: number, at: Date = new Date()) => {
+	await mkdir(join(rootDir, "profiles", slug), { recursive: true });
+	await writeFile(join(rootDir, "profiles", slug, "runtime.lock"), `${JSON.stringify({ pid, token: "foreign", at: at.toISOString() })}\n`);
+};
+
+const keepAliveChild = () => Bun.spawn([process.execPath, "-e", "process.stdin.resume()"], { stdin: "pipe" });
+
 // Closing a real Chrome and deleting its profile on Windows takes longer than
 // bun's default hook budget; a leaked browser poisons every later test.
 afterEach(teardown, BROWSER_TEST_TIMEOUT_MS);
@@ -105,35 +112,48 @@ describeWithChrome("profiles", () => {
 		"a lock left by a dead engine is reclaimed; a lock held by a live process is not",
 		async () => {
 			const { runtime, rootDir } = await createRuntime();
-			const writeLock = async (slug: string, pid: number) => {
-				await mkdir(join(rootDir, "profiles", slug), { recursive: true });
-				await writeFile(
-					join(rootDir, "profiles", slug, "runtime.lock"),
-					`${JSON.stringify({ pid, token: "foreign", at: new Date().toISOString() })}\n`,
-				);
-			};
 
 			// The engine was killed mid-session: its lock stays on disk, its pid is
 			// gone. Refusing forever would brick the profile until a human deletes
 			// the file.
 			const dead = Bun.spawn([process.execPath, "-e", ""]);
 			await dead.exited;
-			await writeLock("orphaned", dead.pid);
+			await writeLock(rootDir, "orphaned", dead.pid);
 			const reclaimed = await runtime.open({ profile: "orphaned", viewport: VIEWPORT }, { caller: "app" });
 			expect(reclaimed.profile).toBe("orphaned");
 			await runtime.close(reclaimed.browserId);
 
 			// Another process still owns it: never take it over. The child stays
 			// alive until we kill it, blocked on a stdin that never closes.
-			const live = Bun.spawn([process.execPath, "-e", "process.stdin.resume()"], { stdin: "pipe" });
+			const live = keepAliveChild();
 			try {
-				await writeLock("held", live.pid);
+				await writeLock(rootDir, "held", live.pid);
 				expect(await failureCode(() => runtime.open({ profile: "held", viewport: VIEWPORT }, { caller: "app" }))).toBe(
 					"profile_locked",
 				);
 			} finally {
 				live.kill();
 				await live.exited;
+			}
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a lock written before the machine booted is reclaimed even when its pid now belongs to a live, unrelated process",
+		async () => {
+			const { runtime, rootDir } = await createRuntime();
+			const reusedPid = keepAliveChild();
+			try {
+				await writeLock(rootDir, "rebooted", reusedPid.pid, new Date("2000-01-01T00:00:00.000Z"));
+				const listed = (await runtime.profileList()).find((profile) => profile.name === "rebooted");
+				expect(listed?.heldBy).toBeNull();
+				const reclaimed = await runtime.open({ profile: "rebooted", viewport: VIEWPORT }, { caller: "app" });
+				expect(reclaimed.profile).toBe("rebooted");
+				await runtime.close(reclaimed.browserId);
+			} finally {
+				reusedPid.kill();
+				await reusedPid.exited;
 			}
 		},
 		BROWSER_TEST_TIMEOUT_MS,
