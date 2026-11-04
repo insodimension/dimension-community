@@ -10,6 +10,7 @@ import { Icon } from "@fraym/ui/icons";
 import { type BrowserClient, failureText } from "./browser-client";
 
 const OUTCOME: Record<Exclude<PublishStatus, "awaiting-confirmation">, string> = {
+	preparing: "Preparing the post. Nothing is posted until you press Post.",
 	posted: "Posted",
 	unknown: "May have posted",
 	failed: "Not posted",
@@ -126,7 +127,7 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 			<div ref={barRef} className="bx-publish" data-status={record.status} role="status" tabIndex={-1}>
 				<div className="bx-publish-row">
 					<span className="bx-publish-mark" aria-hidden="true">
-						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" ? "minus" : "warnTri"} size={14} strokeWidth={2.25} />
+						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" || record.status === "preparing" ? "minus" : "warnTri"} size={14} strokeWidth={2.25} />
 					</span>
 					<span className="bx-publish-text">
 						<span className="bx-publish-title">{OUTCOME[record.status]}</span>

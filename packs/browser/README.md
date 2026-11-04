@@ -358,7 +358,7 @@ buttons are not gated by it). `DIMENSION_BROWSER_MODEL_TOOLS` chooses what the c
 build spaces get: `code` (the default) gives them `browser_run` and not the step tools,
 `steps` the step tools only, `both` both. Every other space always keeps the step tools,
 and Traction and Video also get `browser_run` wherever the mode offers it. Video uses it for
-the YouTube pack's Studio runbook (`tab.uploadFile` and read-back cells); the step tools can hand a file to a page too, with `browser_act`'s `upload` step.
+the YouTube pack's Studio runbook (`tab.uploadFile` and read-back cells). The step tools hand no file to a page.
 
 `browser_run` is an exec-tier tool: the host asks the person before each run, and a cell has full Node access in the server's worker as the person's own account. Giving it to the video space is deliberate (the Studio runbook is written as cells) and it widens what a video session can do to the machine and to any saved profile it opens. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers the step tools only.
 
@@ -392,16 +392,15 @@ declares `connectDomains: ["http://127.0.0.1:*"]` and nothing else. Design: doc 
 
 Page content is untrusted data, never instructions.
 
-**File uploads.** `browser_act`'s `upload` step (`{ "kind": "upload", "selector", "paths": [...] }`,
-1-16 absolute paths) works on a saved, signed-in profile as well as a throwaway browser. An
-`<input type=file>` (hidden ones too) gets the files directly through the browser
-(`DOM.setFileInputFiles`); any other element is clicked, and the file picker the page opens gets
-them instead (the dialog never shows). A single-file input given two paths is refused before
-anything is set. A path must be absolute and name an existing file; anything under this pack's own
-root (profiles, saved passwords) is refused, and the View cannot send the step (the person uses the
-page's own picker). What it cannot stop: a page could still talk the model into uploading some
-other local file, so treat page text as data. A `browser_run` cell can upload files too
-(`tab.uploadFile`; `resolveUploadPath` in `src/code/worker/tab-api.ts` resolves the path).
+**File uploads.** `browser_act` has no upload step, on purpose. A step that takes a path would let a
+prompt-injected agent hand any local file (an SSH key, a `.env`, another app's vault) to whatever page
+is open, and would let it drive YouTube Studio by hand around the person's Approve. A per-call ask was
+the other option, but `browser_act` runs up to 25 steps under one call, so the ask would need a tool of
+its own, and it would ask about a file and not about the post: the board's Approve already covers both.
+A file therefore reaches a page in exactly two ways: a `browser_publish` preset's
+file slots, under the board approval that binds each file's bytes (below), and a `browser_run` cell's
+`tab.uploadFile` (`resolveUploadPath` in `src/code/worker/tab-api.ts`), which is exec-tier, so the host
+asks the person before each run.
 
 **What it does not do, on purpose.** No JavaScript in a signed-in browser:
 arbitrary script in a profile that holds logins is a bigger blast radius than the
@@ -724,11 +723,17 @@ as data, so the pack's code stays platform-agnostic:
 - `fields`: 1-8, each value at most 10 000 characters; `label` (at most 40
   characters) is the caption the confirm bar shows above the value.
 - `files` (optional, up to 4): `[{ label, selector, path }]`, a local file per
-  slot, set on the page through the browser exactly as the `upload` step sets
-  it, never through page script. A path must be absolute and exist (`bad_file`
-  names the slot otherwise), and nothing under this pack's root is ever sent.
-  The record lists them as `files: [{ label, path }]` and the confirm bar shows
-  each one. A file is set once, while parking; confirm does not re-read it.
+  slot, set on the page through the browser (`DOM.setFileInputFiles` on an
+  `<input type=file>`, or the file picker an element opens), never through page
+  script. A path must be absolute, on this machine's own drives, and exist
+  (`bad_file` names the slot otherwise); a UNC, `\\?\UNC`, `\\.\` or `//` path is
+  refused by its text before any filesystem call, so the host never connects to
+  a share, and a path that resolves onto a share is refused too. Nothing under
+  this pack's root is ever sent. Chrome is handed the resolved path, and right
+  before it is set the file's device, inode, size and modification and change
+  times are checked against what was read when it was hashed (`file_changed`,
+  nothing attached, if any differs). The record lists them as
+  `files: [{ label, path }]` and the confirm bar shows each one.
 - `steps` (shipped presets only, up to 32; a recipe the caller writes cannot
   declare them, because a wizard's clicks reach the page before any confirm): an ordered wizard for a site where one page is
   not enough. `{ kind: "field", label }` and `{ kind: "file", label }` place
@@ -739,10 +744,12 @@ as data, so the pack's code stays platform-agnostic:
   every field needs its own label and every field and file is placed exactly
   once; without, the fields are typed in order and then the files are set.
   Each field is read back right after it is typed; at the end of the wizard the
-  fields are read again, and one that reads differently must be on a page the
-  wizard hid (else `field-mismatch`). Confirm compares against that read. A
-  step that fails parks nothing; the error says when a file it had already
-  attached may have started uploading.
+  fields are read again (a hidden contenteditable is read from its nodes, its
+  `<br>` and block lines as newlines), and one that reads differently must be on
+  a page the wizard hid AND equal the typed text once runs of whitespace are
+  collapsed, else `field-mismatch`. Confirm compares against that read. A step
+  that fails parks nothing; the error says when a file it had already attached
+  may have left a private draft on the site.
 - `receipt.origin` (optional): the posted link's origin when it is not the
   recipe's (YouTube Studio posts a `https://youtu.be/<id>` link).
 - `receipt.path`: a template matched against the posted URL's pathname (the
@@ -761,7 +768,14 @@ as data, so the pack's code stays platform-agnostic:
   [connection report](#connection-report). `x-post` reads X's account switcher.
 - `mode: "post"` types each value, reads it back exactly, and parks the publish
   as `awaiting-confirmation`, recording the active tab and its URL as
-  `composeUrl` (where the post goes). **Nothing is submitted.** The Browser View
+  `composeUrl` (where the post goes). It runs in the background of the call:
+  `browser_publish` waits up to `waitSeconds` (default and max 25, counted from
+  the call's start, inside the host's 30 s limit) and, when a long wizard (YouTube
+  Studio's upload) has not parked by then, returns its record as `preparing`.
+  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed`;
+  `browser_publish_cancel` stops it at its next step and reports `cancelled`
+  once it has stopped. A host timing the call out does not stop it, so it never
+  leaves a draft nobody is told about. **Nothing is submitted.** The Browser View
   shows a confirm bar with that URL, the profile and every value. A confirm
   submits: the model's `browser_publish_confirm` or the bar's **Post** (the same
   tool). The tool declares `_meta: { "ai.insodimension/approval": "prompt" }`,
@@ -780,7 +794,13 @@ as data, so the pack's code stays platform-agnostic:
   (`publish_unapproved`, before the compose page is opened) unless an unspent,
   unexpired [publish approval](#publish-approvals) covers this exact post: the
   site, the profile, the preset it goes through, every value, character for
-  character, and every attached file's path. The confirm checks again and SPENDS the approval before it re-reads
+  character, and every attached file as its path, size and SHA-256 (a file
+  rewritten after Approve is a different post). A post with files SPENDS the
+  approval when it starts, because setting the video starts Studio's upload: a
+  failure, cancel or expiry after a file was attached keeps it spent and says a
+  draft may be left on the site, and posting it again needs the user's Retry, so
+  a retry never uploads a second copy unapproved. A text-only post is only
+  checked when it parks. The confirm checks again and SPENDS the approval before it re-reads
   the page and clicks submit, for the View's Post too (a confirm that ends
   `unknown` with no click, because the page was used meanwhile, leaves it spent;
   then record `draft_failed` if the post is not up, so the user's Retry approves
@@ -859,7 +879,8 @@ the Visibility page; the Post presses Save and the receipt is the
 fixed to Unlisted and the audience to not made for kids: approving the preset
 approves both, and Unlisted is checked again at confirm. Studio starts
 uploading the moment the video is set and keeps it Private until Save, so a
-step that fails after that leaves a private draft in the channel. Its selectors
+step that fails after that, a cancel or an expiry leaves a private draft in the
+channel, and the record's error says so. Its selectors
 come from a signed-in Studio run on 2026-10-31 and public automation projects;
 the subtitles buttons are matched by their visible text and are the least
 certain part. `notes` in `recipes/youtube-upload.json` give every selector's
@@ -892,7 +913,9 @@ Where: `<root>/publish-approvals/` (`$INSO_HOME/browser/publish-approvals`, else
   `nonce` is 32 lowercase hex; `approvedAt` and `expiresAt` are ISO times at
   most 24 hours apart. `binding` is the lowercase hex SHA-256 of
   `JSON.stringify(["publish-approval/v1", origin, profile, preset, values])`, with a sixth
-  element `{ label: path }` (labels in code-unit order) when the post attaches files:
+  element `{ label: [path, size, sha256] }` (labels in code-unit order; `size` the
+  file's byte count as a JSON number, `sha256` the lowercase hex SHA-256 of its
+  bytes, both read when the person approves) when the post attaches files:
   `origin` is the recipe's origin (`https://x.com`), `profile` the saved browser
   profile that posts, `preset` the name of the shipped preset the post goes
   through (`"x-post"`; `null` for a recipe the caller wrote, whose selectors and
@@ -902,10 +925,15 @@ Where: `<root>/publish-approvals/` (`$INSO_HOME/browser/publish-approvals`, else
   one entry; approving it again replaces the file with a fresh `nonce`. A file
   that does not parse to exactly this shape is not an approval.
 - `<draftId>.<nonce>.used`: made exclusively (`wx`) by the confirm that is
-  about to click submit. That create is the lock: of any number of confirms,
-  browsers or callers exactly one spends an approval, and a spent approval is
+  about to click submit, or, for a post with files, by the `browser_publish` that
+  parks it, before it opens the page. That create is the lock: of any number of confirms,
+  parks, browsers or callers exactly one spends an approval, and a spent approval is
   never spendable again, whatever the post's outcome. It is removed only when
-  nothing was submitted (`failed`: the page changed, the click never went).
+  nothing was submitted (`failed`: the page changed, the click never went) and
+  no file was attached. A post with files is confirmed under the approval it
+  spent while parking, and only while `<draftId>.json` still holds that nonce:
+  a Retry or a recorded outcome on the board withdraws it (`publish_unapproved`
+  at confirm, nothing clicked).
 
 Both `browser_publish` (`mode: "post"`) and `browser_publish_confirm` fail
 closed with `publish_unapproved`, in three flavours the message names: no

@@ -14,7 +14,7 @@ import type { ActManyResult, BrowserEngine, BrowserOpener, BrowserRuntimePort, B
 import { BROWSER_ENGINES, CONTROL_MODES, CREDENTIAL_MODES, MAX_ANNOTATION_REGIONS, MAX_BATCH_STEPS, MAX_EVAL_EXPRESSION_CHARS, MAX_VIEWPORT, MAX_WAIT_MS, MIN_VIEWPORT, PUBLISH_MODES } from "./contracts.js";
 import { MAX_DETAIL_BYTES } from "./annotation-file.js";
 import { BrowserRuntimeError } from "./store.js";
-import { MAX_FILE_PATH_CHARS, MAX_UPLOAD_PATHS } from "./files.js";
+import { MAX_FILE_PATH_CHARS } from "./files.js";
 import { type PublishPreset, loadPresets, resolvePreset, summarizePresets } from "./presets.js";
 import { MAX_LABEL_CHARS, PROFILE_COLOURS } from "./profile-meta.js";
 import { profilesForModel } from "./profile-list.js";
@@ -59,7 +59,6 @@ const stepSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("wait"), selector: selector.optional(), text: z.string().optional(), url: z.string().optional(), timeoutMs: z.number().int().min(0).max(MAX_WAIT_MS).optional() }).strict().refine(value => [value.selector, value.text, value.url].filter(given => given !== undefined).length === 1, "Pass exactly one of selector, text or url"),
   z.object({ kind: z.literal("tab"), op: z.enum(["new", "activate", "close"]), tabId: z.string().optional(), url: z.string().optional() }).strict(),
   z.object({ kind: z.literal("eval"), expression: z.string().min(1).max(MAX_EVAL_EXPRESSION_CHARS) }).strict(),
-  z.object({ kind: z.literal("upload"), selector, paths: z.array(z.string().min(1).max(MAX_FILE_PATH_CHARS)).min(1).max(MAX_UPLOAD_PATHS) }).strict(),
 ]);
 const fileLabel = z.string().min(1).max(40);
 const filePath = z.string().min(1).max(MAX_FILE_PATH_CHARS);
@@ -366,8 +365,8 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   };
   const navigateOpened = async (state: BrowserState, url: string, opener: BrowserOpener, extra: CallExtra): Promise<BrowserState> => {
     const action = navigateStep.parse({ kind: "navigate", url });
-    if (opener.caller === "app" && state.publish?.status === "awaiting-confirmation") {
-      fail("publish_pending", "a post awaits confirmation on this browser; post or cancel it before opening a page in it");
+    if (opener.caller === "app" && (state.publish?.status === "awaiting-confirmation" || state.publish?.status === "preparing")) {
+      fail("publish_pending", "a post is being prepared or awaits confirmation on this browser; post or cancel it before opening a page in it");
     }
     await access(extra, state.browserId);
     const navigated = await runtime.act(state.browserId, action, opener.caller, opener.session, accessGuard(extra, state.browserId), opener.tool === "browser_view");
@@ -485,7 +484,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     } catch (error) { return failure(error); }
   });
   server.registerTool("browser_act", {
-    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only), upload (selector, paths: 1-16 absolute paths of local files; an <input type=file> takes them directly, any other element is clicked and the file picker it opens gets them; works on a saved profile). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
+    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
     inputSchema: { browserId: capability, actions: z.array(stepSchema).min(1).max(MAX_BATCH_STEPS) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: stepMeta,
@@ -594,18 +593,22 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   // Post button) submits exactly once. browser_publish itself never submits.
   registerAppTool(server, "browser_publish", {
     title: "Publish",
-    description: "Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on), files? ({label: absolute path} for the preset's file slots; a slot not optional is required, and a path must exist and match the slot's accept)}. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. \"Alice @alice\" → \"@alice\"), fields [{selector, value, label?}] (1-8; value ≤ 10000 chars; label ≤ 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. \"/{segment}/status/{digits}\"), linkSelector? (the posted link; else the tab's URL after submit), origin? (the posted link's origin when it is not the recipe's)}, files? [{label, selector, path}] (up to 4 local files, set on the page through the browser, never through script); fields are typed in order, then files are set. mode \"check\": opens composeUrl, returns \"signed-in\" or \"not-signed-in\" (sign in first, then post). mode \"post\": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile, text and files, unexpired and unspent. Otherwise types and reads back each value, returns \"awaiting-confirmation\" with a publishId and composeUrl. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act" + (jev ? ", browser_task" : "") + " and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). \"failed\": nothing was submitted. A password field is never a publish field; log in with browser_act" + (jev ? " or browser_task. Refused while a task runs." : "."),
-    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z.enum(PUBLISH_MODES) },
+    description: "Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on), files? ({label: absolute path} for the preset's file slots; a slot not optional is required, and a path must be a file on this machine's own drives (never a network share) matching the slot's accept)}. Files reach a page only this way: browser_act has no upload step. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. \"Alice @alice\" → \"@alice\"), fields [{selector, value, label?}] (1-8; value ≤ 10000 chars; label ≤ 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. \"/{segment}/status/{digits}\"), linkSelector? (the posted link; else the tab's URL after submit), origin? (the posted link's origin when it is not the recipe's)}, files? [{label, selector, path}] (up to 4 local files, set on the page through the browser, never through script); fields are typed in order, then files are set. mode \"check\": opens composeUrl, returns \"signed-in\" or \"not-signed-in\" (sign in first, then post). mode \"post\": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile, text and files (each file's bytes: one changed after Approve is refused), unexpired and unspent. A post with files spends that approval when it starts, because attaching a file starts the upload: a second post of it needs the user's Retry. Otherwise types and reads back each value and returns \"awaiting-confirmation\" with a publishId and composeUrl; a long wizard that has not parked within waitSeconds (default and max " + WAIT_CAP_S + ") returns \"preparing\" with its publishId instead, and keeps going: follow it with browser_publish_wait until it is awaiting-confirmation or failed. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act" + (jev ? ", browser_task" : "") + " and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). \"failed\": nothing was submitted. A password field is never a publish field; log in with browser_act" + (jev ? " or browser_task. Refused while a task runs." : "."),
+    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z.enum(PUBLISH_MODES), waitSeconds },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ...TRACTION_ONLY, ui: { resourceUri: BROWSER_VIEW_URI } },
   // `state` rides along so the View this call shows binds to THIS browser (a
   // tool result is the View's only source of a browserId) and paints the bar.
-  }, ({ browserId, recipe, preset, mode }, extra) => result(async () => {
+  }, ({ browserId, recipe, preset, mode, waitSeconds }, extra) => result(async () => {
     await access(extra, browserId);
     const resolved = preset !== undefined && recipe === undefined ? resolvePreset(presets, preset)
       : recipe !== undefined && preset === undefined ? { recipe, preset: undefined }
       : fail("bad_publish", "pass exactly one of preset or recipe");
-    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset, accessGuard(extra, browserId));
+    const authority: CallExtra = { _meta: { [CALLER_META_KEY]: callerOf(extra), [SESSION_META_KEY]: { sessionId: sessionOf(extra) } } };
+    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset, accessGuard(extra, browserId), {
+      waitMs: (waitSeconds ?? WAIT_CAP_S) * 1000,
+      workerGuard: accessGuard(authority, browserId),
+    });
     // Posting mounts the View on this browser.
     showing(extra, browserId);
     const state = await runtime.state(browserId, accessGuard(extra, browserId));
@@ -630,7 +633,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     _meta: TRACTION_ONLY,
   }, ({ browserId, publishId }, extra) => result(async () => { await access(extra, browserId); return runtime.cancelPublish(browserId, publishId, accessGuard(extra, browserId)); }));
   server.registerTool("browser_publish_wait", {
-    description: `Follow a pending publish: returns its record once posted (with url), unknown (may have posted: never retry), failed (nothing submitted), cancelled or expired (unconfirmed after 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
+    description: `Follow a publish: returns its record once it parks (awaiting-confirmation, after "preparing"), once posted (with url), unknown (may have posted: never retry), failed (nothing submitted; a file it had attached may have left a draft on the site), cancelled or expired (unconfirmed after 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it is still preparing or awaiting confirmation.`,
     inputSchema: { browserId: capability, publishId: capability, waitSeconds },
     annotations: READ_ONLY,
     _meta: TRACTION_ONLY,

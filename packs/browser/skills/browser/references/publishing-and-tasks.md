@@ -72,7 +72,14 @@ the listed order. A preset with `needsTarget` (e.g. `reddit-comment`) also takes
 required, and a file outside the slot's `accept` extensions is refused before
 any page opens. `youtube-upload` takes `values: [Title, Description]` and
 `files: { Video, Thumbnail?, Captions? }`, uploads Unlisted, and its receipt is
-the `https://youtu.be/<id>` link. Shipped presets: `x-post`, `bluesky-post`,
+the `https://youtu.be/<id>` link. Studio's wizard can outlast one call: when
+`browser_publish` returns `status: "preparing"`, follow it with
+`browser_publish_wait` (same `publishId`) until it is `awaiting-confirmation` or
+`failed`. Attaching the video spends the approval: if the publish then fails,
+is cancelled or expires, its error says a private draft may be left on the
+channel; tell the user, record `draft_failed`, and never post it again until the
+user presses Retry. A file changed after the user approved it is refused
+(`publish_unapproved`): approve the new render on the board. Shipped presets: `x-post`, `bluesky-post`,
 `linkedin-post`, `reddit-comment`, `youtube-upload`. They are
 `verified: false`: tested against copies of each site's page, not the live
 site, so if one fails on a selector, report the error; never improvise a

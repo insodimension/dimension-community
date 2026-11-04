@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { PublishRecord } from "../src/contracts";
+import type { EngineDriver } from "../src/engines/types";
+import { identifyLocalFile, requireLocalFile, requireUnchanged } from "../src/files";
 import { type PublishPreset, loadPresets, parsePreset, resolvePreset } from "../src/presets";
+import { prepare, validateRecipe } from "../src/publish";
 import { bindingOf } from "../src/publish-approval";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
@@ -132,20 +136,82 @@ describe("preset file slots and wizard steps", () => {
 		expect(resolve({ Video: "C:/films/master.mp4", Poster: "C:/films/poster.png" })).toThrow('youtube-upload has no file slot "Poster"; its file slots: Video, Thumbnail, Captions');
 	});
 
-	test("an optional file left out drops its slot, its file step and every step that only runs with it", () => {
+	test("an optional file left out drops its slot, its file step and every step that only runs with it, and nothing else", () => {
 		const { recipe } = resolvePreset(shipped, { name: "youtube-upload", values: [TITLE, DESCRIPTION], files: { Video: "C:/films/master.MP4" } });
 		expect(recipe.files).toEqual([{ label: "Video", selector: 'ytcp-uploads-file-picker input[type="file"]', path: "C:/films/master.MP4" }]);
-		expect(recipe.steps?.some((step) => step.kind === "file" && step.label !== "Video")).toBe(false);
-		expect(recipe.steps?.length).toBe((youtube.steps?.length ?? 0) - 6);
-		expect(JSON.stringify(recipe.steps)).not.toContain("onlyWith");
+		const runsWithVideoOnly = (youtube.steps ?? []).filter((step) => (step.onlyWith === undefined || step.onlyWith === "Video") && (step.kind !== "file" || step.label === "Video"));
+		expect(recipe.steps).toEqual(runsWithVideoOnly.map(({ onlyWith: _onlyWith, ...step }) => step));
+		expect(runsWithVideoOnly.length).toBeLessThan(youtube.steps?.length ?? 0);
 	});
 
-	test("the approval binding covers the files: Traction's golden vector, and no files hashes exactly as before", () => {
+	test("the approval binding covers each file's path, size and bytes: Traction's golden vector, and no files hashes exactly as before", () => {
 		const post = { origin: "https://studio.youtube.com", profile: "traction-youtube-brand", preset: "youtube-upload", values: ["Dry Run", "A film — about 🚀"] };
-		expect(bindingOf({ ...post, files: { Video: "C:/films/master.mp4", Captions: "C:/films/captions.srt" } })).toBe("7eff2d9d051ae7f3a743b7a8f66d1d1bfeb5ed1ec7a83e3d507f22f1787894d0");
-		expect(bindingOf({ ...post, files: { Captions: "C:/films/captions.srt", Video: "C:/films/master.mp4" } })).toBe("7eff2d9d051ae7f3a743b7a8f66d1d1bfeb5ed1ec7a83e3d507f22f1787894d0");
+		const video = { path: "C:/films/master.mp4", size: 1_073_741_824, sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" };
+		const captions = { path: "C:/films/captions.srt", size: 38, sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" };
+		const golden = "035e4d44c2c0346ccaf77710c064711336b14f64c37c3776a430277319eda72b";
+		expect(bindingOf({ ...post, files: { Video: video, Captions: captions } })).toBe(golden);
+		expect(bindingOf({ ...post, files: { Captions: captions, Video: video } })).toBe(golden);
+		expect(createHash("sha256").update(JSON.stringify(["publish-approval/v1", post.origin, post.profile, post.preset, post.values, { Captions: [captions.path, 38, captions.sha256], Video: [video.path, 1_073_741_824, video.sha256] }])).digest("hex")).toBe(golden);
+		expect(bindingOf({ ...post, files: { Video: { ...video, sha256: captions.sha256 }, Captions: captions } })).not.toBe(golden);
+		expect(bindingOf({ ...post, files: { Video: { ...video, size: video.size + 1 }, Captions: captions } })).not.toBe(golden);
 		expect(bindingOf({ ...post, files: {} })).toBe(bindingOf(post));
 		expect(bindingOf(post)).toBe(createHash("sha256").update(JSON.stringify(["publish-approval/v1", post.origin, post.profile, post.preset, post.values])).digest("hex"));
+	});
+
+	test("a network or device path is refused by what it is, before any filesystem call could reach out over SMB", () => {
+		const resolve = (path: string) => () => resolvePreset(shipped, { name: "youtube-upload", values: [TITLE, DESCRIPTION], files: { Video: path } });
+		const network = ["//unc-refusal.invalid/share/master.mp4", ...(process.platform === "win32" ? ["\\\\unc-refusal.invalid\\share\\master.mp4", "\\\\?\\UNC\\unc-refusal.invalid\\share\\master.mp4", "\\\\.\\pipe\\master.mp4", "\\??\\UNC\\unc-refusal.invalid\\share\\master.mp4"] : [])];
+		for (const path of network) {
+			expect(resolve(path)).toThrow("is a network or device path");
+			expect(() => requireLocalFile(path, 'file "Video"', "bad_file", "/")).toThrow("is a network or device path");
+		}
+	});
+
+	test("a file identified at Approve is refused right before it is attached once its bytes or metadata change", async () => {
+		const dir = await createRoot();
+		const path = join(dir, "master.mp4");
+		await writeFile(path, "approved bytes");
+		await mkdir(join(dir, "browser-root"));
+		const identified = await identifyLocalFile(path, 'file "Video"', "bad_file", join(dir, "browser-root"));
+		expect(identified).toMatchObject({ path, size: 14, sha256: createHash("sha256").update("approved bytes").digest("hex") });
+		expect(() => requireUnchanged(identified, 'file "Video"')).not.toThrow();
+		await sleep(20);
+		await writeFile(path, "swapped bytes!");
+		expect(() => requireUnchanged(identified, 'file "Video"')).toThrow("changed after it was approved; nothing was attached");
+	});
+
+	test("a hidden field must still read the typed text, give or take whitespace, or the wizard fails with field-mismatch", async () => {
+		const ORIGIN = "https://wizard.example";
+		const parkWith = async (hiddenRead: (typed: string) => string) => {
+			const values = new Map<string, string>();
+			let advanced = false;
+			const driver = {
+				state: async () => ({ url: `${ORIGIN}/compose`, activeTabId: "tab-1" }),
+				perform: async (action: { kind: string; selector?: string }) => {
+					if (action.kind === "click" && action.selector === "#next") advanced = true;
+				},
+				hasElement: async () => true,
+				waitFor: async () => true,
+				readField: async (selector: string) => ({ state: "value", value: advanced ? hiddenRead(values.get(selector) ?? "") : (values.get(selector) ?? "") }),
+				fill: async (selector: string, value: string) => {
+					values.set(selector, value);
+				},
+				inspect: async () => ({ found: true, rect: { x: 0, y: 0, width: 0, height: 0 } }),
+			} as unknown as EngineDriver;
+			const recipe = validateRecipe({
+				origin: ORIGIN,
+				composeUrl: `${ORIGIN}/compose`,
+				signedIn: "#me",
+				fields: [{ label: "Description", selector: "#description", value: "First line\nSecond  line" }],
+				steps: [{ kind: "field", label: "Description" }, { kind: "click", selector: "#next" }],
+				submit: "#save",
+				receipt: { path: "/{segment}" },
+			});
+			return await prepare(driver, "p", recipe, "post");
+		};
+		expect(await parkWith((typed) => typed.replace(/\s+/g, " "))).toMatchObject({ record: { status: "awaiting-confirmation" } });
+		expect(await parkWith(() => "master.mp4")).toMatchObject({ status: "failed", error: 'field-mismatch: "#description" no longer holds the value typed after the steps; nothing was submitted' });
+		expect(await parkWith((typed) => `${typed} (edited)`)).toMatchObject({ status: "failed" });
 	});
 });
 
@@ -228,7 +294,10 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 
 			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.structuredContent?.publishId }, "app");
 
-			expect(confirmed.structuredContent).toMatchObject({ status: "failed", error: 'changed since shown: "tp-yt-paper-radio-button[name=\\"UNLISTED\\"][aria-checked=\\"true\\"]" is no longer on the page; nothing was submitted' });
+			expect(confirmed.structuredContent).toMatchObject({
+				status: "failed",
+				error: 'changed since shown: "tp-yt-paper-radio-button[name=\\"UNLISTED\\"][aria-checked=\\"true\\"]" is no longer on the page; nothing was submitted; the files it attached had already started uploading, so the site may keep a private draft of this post: check the account and delete it there',
+			});
 			expect(s.fixture.submissions()).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
@@ -268,7 +337,7 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 	);
 
 	test(
-		"browser_act's upload step sets a file input and answers a page's own file picker on a saved profile; bad paths and the View are refused",
+		"browser_act has no upload step: an agent driving Studio by hand cannot hand it a file, from any caller",
 		async () => {
 			const s = await session("yt-act");
 			const m = await media();
@@ -278,27 +347,85 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 				{ kind: "navigate", url: s.fixture.url("/") },
 				{ kind: "click", selector: "ytcp-button#create-icon" },
 				{ kind: "click", selector: "aria/Upload videos" },
-				{ kind: "upload", selector: 'ytcp-uploads-file-picker input[type="file"]', paths: [m.video] },
-				{ kind: "wait", selector: "#title-textarea #textbox" },
-				{ kind: "click", selector: 'tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]' },
-				{ kind: "click", selector: "ytcp-uploads-dialog #next-button" },
-				{ kind: "click", selector: "ytcp-uploads-video-elements .row ytcp-button" },
-				{ kind: "click", selector: "#captions-choose ytcp-button" },
-				{ kind: "upload", selector: "#captions-continue", paths: [m.captions] },
-				{ kind: "wait", selector: "#captions-done" },
 			]);
 			expect(JSON.parse(opened.content[0]?.text ?? "{}").status, JSON.stringify(opened.content)).toBe("completed");
-			expect(s.fixture.uploads().map((upload) => [upload.field, upload.sha256])).toEqual([
-				["video", m.digest(m.video)],
-				["captions", m.digest(m.captions)],
-			]);
+			const upload = { kind: "upload", selector: 'ytcp-uploads-file-picker input[type="file"]', paths: [m.video] };
+			expect(errorText(await act([upload]))).toContain("kind");
+			expect(errorText(await act([upload], "app"))).toContain("kind");
+			await expect(perform(s.runtime, s.browserId, upload as never)).rejects.toThrow('unsupported action kind "upload"');
+			expect(s.fixture.uploads()).toEqual([]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
 
-			const upload = (paths: string[], caller?: string) => act([{ kind: "upload", selector: "ytcp-thumbnail-uploader input#file-loader", paths }], caller);
-			expect(errorText(await upload(["thumb.png"]))).toContain("upload.paths[0] must be an absolute path");
-			expect(errorText(await upload([join(s.rootDir, "..", "nowhere.png")]))).toContain("does not exist");
-			expect(errorText(await upload([m.thumbnail, m.thumbnail]))).toContain("takes one file, not 2");
-			expect(errorText(await upload([m.thumbnail], "app"))).toContain("upload is the agent's");
-			expect(s.fixture.uploads()).toHaveLength(2);
+	test(
+		"a file swapped after the person approved it is refused before Studio is opened: the approval binds its bytes, not its name",
+		async () => {
+			const s = await session("yt-swap");
+			const m = await media();
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files: { Video: m.video } });
+			await writeFile(m.video, "a different film under the approved name");
+
+			const swapped = await s.call("browser_publish", { browserId: s.browserId, preset: { name: "youtube-upload", values: [TITLE, DESCRIPTION], files: { Video: m.video } }, mode: "post" });
+
+			expect(errorText(swapped)).toStartWith("publish_unapproved:");
+			expect(s.fixture.hits(PLATFORM_ROUTES["youtube-upload"] ?? "/")).toBe(0);
+			expect(s.fixture.uploads()).toEqual([]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"attaching the video spends the approval: a cancel says a draft may be left, and parking it again needs a fresh Approve instead of uploading twice",
+		async () => {
+			const s = await session("yt-retry");
+			const m = await media();
+			const files = { Video: m.video };
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
+			const publish = () => s.call("browser_publish", { browserId: s.browserId, preset: { name: "youtube-upload", values: [TITLE, DESCRIPTION], files }, mode: "post" });
+
+			const parked = await publish();
+			expect(parked.structuredContent?.status, JSON.stringify(parked.content)).toBe("awaiting-confirmation");
+			const cancelled = await s.call("browser_publish_cancel", { browserId: s.browserId, publishId: parked.structuredContent?.publishId });
+			expect(cancelled.structuredContent).toMatchObject({ status: "cancelled" });
+			expect(String(cancelled.structuredContent?.error)).toContain("the site may keep a private draft of this post");
+
+			expect(errorText(await publish())).toContain("was already used");
+			expect(s.fixture.uploads().map((upload) => upload.field)).toEqual(["video"]);
+
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
+			const again = await publish();
+			expect(again.structuredContent?.status, JSON.stringify(again.content)).toBe("awaiting-confirmation");
+			expect(s.fixture.submissions()).toEqual([]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a wizard longer than the call returns preparing with its publishId; browser_publish_wait follows it to the parked post, and a cancel while preparing is reported once the run stops",
+		async () => {
+			const s = await session("yt-async");
+			const m = await media();
+			const files = { Video: m.video };
+			const request = { browserId: s.browserId, preset: { name: "youtube-upload", values: [TITLE, DESCRIPTION], files }, mode: "post", waitSeconds: 0 };
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
+
+			const started = await s.call("browser_publish", request);
+			expect(started.structuredContent, JSON.stringify(started.content)).toMatchObject({ status: "preparing" });
+			const publishId = started.structuredContent?.publishId;
+			expect(errorText(await s.call("browser_act", { browserId: s.browserId, actions: [{ kind: "reload" }] }))).toContain("a post is being prepared on this browser");
+			let followed = await s.call("browser_publish_wait", { browserId: s.browserId, publishId, waitSeconds: 25 });
+			while (followed.structuredContent?.status === "preparing") followed = await s.call("browser_publish_wait", { browserId: s.browserId, publishId, waitSeconds: 25 });
+			expect(followed.structuredContent).toMatchObject({ publishId, status: "awaiting-confirmation" });
+			await s.call("browser_publish_cancel", { browserId: s.browserId, publishId });
+
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
+			const second = await s.call("browser_publish", request);
+			expect(second.structuredContent).toMatchObject({ status: "preparing" });
+			const stopped = await s.call("browser_publish_cancel", { browserId: s.browserId, publishId: second.structuredContent?.publishId });
+			expect(stopped.structuredContent).toMatchObject({ status: "cancelled" });
+			expect(String(stopped.structuredContent?.error)).toStartWith("Cancelled while it was being prepared; nothing was submitted");
+			expect(s.fixture.submissions()).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

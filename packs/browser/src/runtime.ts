@@ -77,6 +77,7 @@ import type {
 	PresetRef,
 	PublishCheck,
 	PublishMode,
+	PublishOptions,
 	PublishRecipe,
 	PublishExpectation,
 	PublishRecord,
@@ -99,14 +100,14 @@ import { CredentialKey, credentialOrigin, resolveCredential, savedPassword, save
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
 import { launchReader } from "./engines/puppeteer.js";
-import { MAX_UPLOAD_PATHS, requireAbsolutePath, requireLocalFile } from "./files.js";
+import { identifyLocalFile, identityOf, type LocalFile, requireLocalFile } from "./files.js";
 import type { AttachTarget } from "./engines/attach.js";
 import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, PasswordSource, PerformOutcome, WaitCondition } from "./engines/types.js";
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
 import { PublishApprovals } from "./publish-approval.js";
-import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
+import { type Publication, type Recipe, cancel, confirm, failPreparation, isPending, prepare, publishRecord, requirePending, startPublication, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, releaseSpare, startWorker } from "./task.js";
@@ -163,6 +164,7 @@ const VIEW_GONE_MS = 30 * 60_000;
 const MAX_FRAMES_RETAINED = 8;
 /** A batch takes no new step after this long: a host times a tool call out (the desktop at 30 s). */
 const ACT_BUDGET_MS = 20_000;
+const CANCEL_PREPARING_WAIT_MS = 20_000;
 /** While a cell holds a browser the runtime reports an agent as acting on it, as of the last multiple of this: the View keeps its Take over for the whole run
  *  (a cell is one long call, not a series of timed actions), and a state read is not different every millisecond, so the stream does not push one every sample. */
 const CELL_ACTIVITY_BEAT_MS = 2_000;
@@ -2006,10 +2008,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (caller === "app") fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
 			this.savedProfile(entry, "typing a saved password");
 		}
-		if (action.kind === "upload") {
-			if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
-			for (const [index, path] of (action.paths ?? []).entries()) requireLocalFile(path, `upload.paths[${index}]`, "bad_action", this.store.rootDir);
-		}
 		return action;
 	}
 
@@ -2301,46 +2299,123 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// Publishing — fill, park for a confirm, submit once (publish.ts)
 	// -----------------------------------------------------------------------
 
-	async publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard): Promise<PublishCheck | PublishRecord> {
+	async publish(
+		browserId: string,
+		recipe: PublishRecipe,
+		mode: PublishMode,
+		caller?: ToolCaller,
+		preset?: PresetRef,
+		guard?: EffectGuard,
+		options: PublishOptions = {},
+	): Promise<PublishCheck | PublishRecord> {
+		const startedAt = Date.now();
 		const entry = this.require(browserId);
 		const profile = this.savedProfile(entry, "publishing");
 		const valid = validateRecipe(recipe);
-		for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
-		const files = Object.fromEntries((valid.files ?? []).map((file) => [file.label, file.path]));
 		const selected = validateMode(mode);
-		return await this.serialize(entry, async () => {
-			refuseWhileBusy(entry, caller);
-			// Even from the View: a check or a second post would navigate away from the page awaiting confirmation.
-			if (isPending(entry.publish)) {
-				fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
-			}
-			entry.starting = "post";
-			let outcome: PublishCheck | Publication;
-			try {
-				// A post the user did not approve is refused before the page is opened: the model cannot even show the human text nobody approved.
-				// Inside the `starting` window, so the wheel cannot be taken while the approval is looked up.
-				if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile, ...(preset === undefined ? {} : { preset: preset.name }), values: valid.fields.map((field) => field.value), files }, "park");
-				if (guard !== undefined) await guard();
+		if (selected === "check") {
+			for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+			return await this.serialize(entry, async () => {
+				this.admitPublish(entry, caller);
+				entry.starting = "post";
+				let outcome: PublishCheck | Publication;
+				try {
+					if (guard !== undefined) await guard();
+					guard?.assertCurrent();
+					outcome = await prepare(entry.driver, profile, valid, "check", guard);
+				} finally {
+					entry.starting = null;
+				}
 				guard?.assertCurrent();
-				outcome = await prepare(entry.driver, profile, valid, selected, guard);
+				refuseWhileTakenOver(entry, caller);
+				return this.reportCheck(profile, valid.origin, this.redact(entry, outcome as PublishCheck));
+			}, { guard });
+		}
+		const files: Record<string, LocalFile> = {};
+		for (const file of valid.files ?? []) files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+		const binding = {
+			origin: valid.origin,
+			profile,
+			...(preset === undefined ? {} : { preset: preset.name }),
+			values: valid.fields.map((field) => field.value),
+			files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)])),
+		};
+		const publication = await this.serialize(entry, async () => {
+			this.admitPublish(entry, caller);
+			entry.starting = "post";
+			try {
+				const held = valid.files === undefined ? undefined : await this.publishApprovals.consume(binding, "park");
+				if (held === undefined) await this.publishApprovals.require(binding, "park");
+				try {
+					if (guard !== undefined) await guard();
+					guard?.assertCurrent();
+				} catch (error) {
+					await held?.release();
+					throw error;
+				}
+				const started = startPublication(valid, profile);
+				started.sharedPage = entry.engine === "chrome-relay";
+				if (preset !== undefined) started.record.preset = { name: preset.name, verified: preset.verified };
+				if (held !== undefined) started.held = held;
+				entry.publish = started;
+				return started;
 			} finally {
 				entry.starting = null;
 			}
-			guard?.assertCurrent();
-			// `control` refuses the wheel while the fill runs, so this holds; it is the last look before a post is parked on the page.
-			refuseWhileTakenOver(entry, caller);
-			if (!("record" in outcome)) {
-				// The account is page text: scrubbed like every other page read before it is persisted or reported.
-				const shown = this.redact(entry, outcome);
-				if (shown.status !== "failed") this.observeConnection(profile, valid.origin, shown.status === "signed-in", shown.account);
-				return shown;
-			}
-			// The relay is the human's own Chrome: they can use this page without the runtime seeing it.
-			outcome.sharedPage = entry.engine === "chrome-relay";
-			if (preset !== undefined) outcome.record.preset = { name: preset.name, verified: preset.verified };
-			entry.publish = outcome;
-			return this.redact(entry, publishRecord(outcome));
 		}, { guard });
+		const preparing = guardedBy(options.workerGuard ?? guard, () => {
+			if (publication.record.status !== "preparing" || publication.cancelRequested !== undefined) fail("cancelled", "the publish was cancelled while it was being prepared");
+		});
+		const prepared = this.prepareInBackground(entry, profile, valid, files, publication, preparing);
+		if (options.waitMs !== undefined) {
+			const { promise: elapsed, resolve } = Promise.withResolvers<void>();
+			const timer = setTimeout(resolve, Math.max(0, startedAt + options.waitMs - Date.now()));
+			await Promise.race([prepared, elapsed]);
+			clearTimeout(timer);
+			if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
+		}
+		const outcome = await prepared;
+		if (publication.record.status === "failed" && outcome.error !== undefined) throw outcome.error;
+		if (publication.record.status === "failed" && outcome.check !== undefined) return outcome.check;
+		return this.redact(entry, publishRecord(publication));
+	}
+
+	private admitPublish(entry: Entry, caller: ToolCaller | undefined): void {
+		refuseWhileBusy(entry, caller);
+		if (isPending(entry.publish)) fail("publish_pending", "a publish is already being prepared or awaiting confirmation; it must be posted, cancelled or expire first");
+	}
+
+	private reportCheck(profile: string, origin: string, shown: PublishCheck): PublishCheck {
+		if (shown.status !== "failed") this.observeConnection(profile, origin, shown.status === "signed-in", shown.account);
+		return shown;
+	}
+
+	private async prepareInBackground(
+		entry: Entry,
+		profile: string,
+		valid: Recipe,
+		files: Readonly<Record<string, LocalFile>>,
+		publication: Publication,
+		guard: EffectGuard,
+	): Promise<{ check?: PublishCheck; error?: unknown }> {
+		entry.pending += 1;
+		try {
+			const outcome = await prepare(entry.driver, profile, valid, "post", guard, files, publication);
+			if ("record" in outcome) return {};
+			const shown = this.reportCheck(profile, valid.origin, this.redact(entry, outcome));
+			failPreparation(publication, shown);
+			return { check: shown };
+		} catch (error) {
+			failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
+			return { error };
+		} finally {
+			entry.pending -= 1;
+			entry.lastUsed = performance.now();
+			if (publication.held !== undefined && !publication.attached && publication.record.status !== "awaiting-confirmation") {
+				await publication.held.release();
+				delete publication.held;
+			}
+		}
 	}
 
 	async confirmPublish(browserId: string, publishId: string, caller?: ToolCaller, expect?: PublishExpectation, guard?: EffectGuard): Promise<PublishRecord> {
@@ -2353,16 +2428,19 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (entry.task?.status === "running") {
 				fail("task_running", "a browser_task owns this page; wait for it or cancel it");
 			}
-			// The approval covers what the record holds NOW (the values the page read back, the origin, the profile and the preset), and
-			// spending it is the lock: it happens before the click, for the View's Post too, so a post the human pressed cannot be posted again by the agent.
-			const { record } = publication;
-			const spent = await this.publishApprovals.consume(
+			const { record, held } = publication;
+			if (held !== undefined && !(await this.publishApprovals.held(held))) {
+				fail(
+					"publish_unapproved",
+					`publish_unapproved: the board approval for draft ${held.draftId}, under which these files were attached, was withdrawn or replaced, so this post is not saved. Nothing was clicked and the publish is still pending: cancel it with browser_publish_cancel, then follow the board.`,
+				);
+			}
+			const spent = held ?? await this.publishApprovals.consume(
 				{
 					origin: record.origin,
 					profile: record.profile,
 					...(record.preset === undefined ? {} : { preset: record.preset.name }),
 					values: record.fields.map((field) => field.value),
-					files: Object.fromEntries((record.files ?? []).map((file) => [file.label, file.path])),
 				},
 				"confirm",
 			);
@@ -2370,12 +2448,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
 			} catch (error) {
-				await spent.release();
+				if (held === undefined) await spent.release();
 				throw error;
 			}
 			await confirm(entry.driver, publication, guard);
-			// `failed` is provably nothing submitted: the approval is the user's still, for the confirm that follows. Anything else may have posted.
-			if (publication.record.status === "failed") await spent.release();
+			if (publication.record.status === "failed" && held === undefined) await spent.release();
 			if (publication.record.status === "posted") this.observeConnection(publication.record.profile, publication.recipe.origin, true, this.redact(entry, publication.account));
 			return this.redact(entry, publishRecord(publication));
 		}, { guard });
@@ -2384,7 +2461,16 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	async cancelPublish(browserId: string, publishId: string, guard?: EffectGuard): Promise<PublishRecord> {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
-			const publication = requirePending(entry.publish, publishId);
+			const current = entry.publish;
+			if (current?.record.publishId === publishId && current.record.status === "preparing") {
+				cancel(current);
+				const { promise: elapsed, resolve } = Promise.withResolvers<void>();
+				const timer = setTimeout(resolve, CANCEL_PREPARING_WAIT_MS);
+				await Promise.race([current.settled.promise, elapsed]);
+				clearTimeout(timer);
+				return this.redact(entry, publishRecord(current));
+			}
+			const publication = requirePending(current, publishId);
 			cancel(publication);
 			return this.redact(entry, publishRecord(publication));
 		}, { guard });
@@ -2782,10 +2868,6 @@ function normalizeAction(action: BrowserAction): BrowserAction {
 			if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
 			return { kind: "resize", ...normalizeViewport({ width: action.width, height: action.height }) };
 		}
-		case "upload": {
-			if (!Array.isArray(action.paths) || action.paths.length === 0 || action.paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `upload.paths must name 1-${MAX_UPLOAD_PATHS} files`);
-			return { kind: "upload", selector: requireSelector(action.selector), paths: action.paths.map((path, index) => requireAbsolutePath(path, `upload.paths[${index}]`, "bad_action")) };
-		}
 		case "scroll": {
 			const deltaX = requireDelta(action.deltaX ?? 0, "deltaX");
 			const deltaY = requireDelta(action.deltaY ?? 0, "deltaY");
@@ -2927,6 +3009,7 @@ function agentActionAt(entry: Entry): number | null {
  */
 function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): void {
 	if (caller !== "app" && isPending(entry.publish)) {
+		if (entry.publish?.record.status === "preparing") fail("publish_pending", "a post is being prepared on this browser; follow it with browser_publish_wait or cancel it with browser_publish_cancel");
 		fail("publish_pending", "a post awaits confirmation on this browser; confirm or cancel it (browser_publish_confirm / browser_publish_cancel) or wait with browser_publish_wait");
 	}
 }

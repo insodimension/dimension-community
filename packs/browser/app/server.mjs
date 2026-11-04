@@ -3713,9 +3713,9 @@ var READ_PAGE_SCRIPT = (limit, maxFrames) => {
 var ELEMENTS_IN_REGIONS_SCRIPT = (regions, limit, max) => {
   const found = regions.map(() => ({ elements: [], truncated: false }));
   const used = regions.map(() => 0);
-  const open3 = (entry) => !entry.truncated && entry.elements.length < max.count;
+  const open4 = (entry) => !entry.truncated && entry.elements.length < max.count;
   const nodes = document.querySelectorAll("body *");
-  for (let i = 0; i < nodes.length && found.some(open3); i += 1) {
+  for (let i = 0; i < nodes.length && found.some(open4); i += 1) {
     const el = nodes[i];
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
@@ -3723,7 +3723,7 @@ var ELEMENTS_IN_REGIONS_SCRIPT = (regions, limit, max) => {
     for (let k = 0; k < regions.length; k += 1) {
       const region = regions[k];
       const entry = found[k];
-      if (!open3(entry)) continue;
+      if (!open4(entry)) continue;
       const intersects = r.left < region.x + region.width && r.right > region.x && r.top < region.y + region.height && r.bottom > region.y;
       if (!intersects) continue;
       if (el.children.length > 0 && r.width * r.height > region.width * region.height * 4) continue;
@@ -3823,10 +3823,27 @@ var READ_FIELD_SCRIPT = (el) => {
   const html = el;
   if (!html.isContentEditable) return { state: "not-editable" };
   const trimmed = (text2) => text2.endsWith("\n") ? text2.slice(0, -1) : text2;
+  const textOf2 = (root) => {
+    if (root.getClientRects().length > 0) return root.innerText;
+    let text2 = "";
+    const walk = (node) => {
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === Node.TEXT_NODE) text2 += child.textContent ?? "";
+        else if (child.nodeName === "BR") text2 += "\n";
+        else {
+          const block = child.nodeName === "DIV" || child.nodeName === "P" || child.nodeName === "LI";
+          if (block && text2 !== "" && !text2.endsWith("\n")) text2 += "\n";
+          walk(child);
+        }
+      }
+    };
+    walk(root);
+    return text2;
+  };
   const children = Array.from(html.childNodes);
   const paragraphs = children.some((node) => node.nodeName === "P") && children.every((node) => node.nodeName === "P" || node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === "");
-  if (!paragraphs) return { state: "value", value: trimmed(html.innerText) };
-  const lines = children.filter((node) => node.nodeName === "P").map((p) => trimmed(p.innerText));
+  if (!paragraphs) return { state: "value", value: trimmed(textOf2(html)) };
+  const lines = children.filter((node) => node.nodeName === "P").map((p) => trimmed(textOf2(p)));
   return { state: "value", value: lines.join("\n") };
 };
 var ELEMENT_TEXT_SCRIPT = (el, limit) => {
@@ -4797,18 +4814,18 @@ async function guardPage(cdp, foreign = false) {
   return { cdp, dialogs };
 }
 function answerDialogs(cdp, log) {
-  let open3;
+  let open4;
   cdp.on("Page.javascriptDialogOpening", (event) => {
-    open3 = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
+    open4 = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
     if (log.observeOnly === true && log.policy === void 0) return;
     const accept = log.policy === void 0 ? event.type === "alert" || event.type === "beforeunload" : log.policy === "accept";
     void cdp.send("Page.handleJavaScriptDialog", { accept }).catch(() => void 0);
   });
   cdp.on("Page.javascriptDialogClosed", (event) => {
-    if (!open3) return;
-    log.entries.push({ seq: ++log.seq, type: open3.type, message: open3.message, handled: event.result ? "accepted" : "dismissed" });
+    if (!open4) return;
+    log.entries.push({ seq: ++log.seq, type: open4.type, message: open4.message, handled: event.result ? "accepted" : "dismissed" });
     if (log.entries.length > MAX_DIALOGS) log.entries.shift();
-    open3 = void 0;
+    open4 = void 0;
   });
 }
 var NONE = Object.freeze({});
@@ -5417,63 +5434,61 @@ var PuppeteerDriver = class {
           await page.mouse.wheel({ deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
           return NONE;
         }
-        case "upload": {
-          const selector3 = requireField(action.selector, "upload.selector");
-          const paths = action.paths ?? [];
-          if (paths.length === 0) throw new ActionNotDispatched("bad_action", "upload.paths must name at least one file");
-          const { handle, frame } = await this.#resolve(page, selector3);
-          let target;
-          try {
-            target = await handle.evaluate((el) => {
-              if (!(el instanceof HTMLInputElement)) return "opener";
-              if (el.type.toLowerCase() !== "file") return "other-input";
-              return el.multiple ? "multiple" : "single";
-            });
-            if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector3)} is an input that takes no files`);
-            if (target === "single" && paths.length > 1) throw new ActionNotDispatched("bad_action", `${JSON.stringify(selector3)} takes one file, not ${paths.length}`);
-            if (target !== "opener") {
-              const client = frame.client;
-              const backendNodeId = await handle.backendNodeId();
-              if (guard !== void 0) {
-                const admission = guard();
-                if (admission !== void 0) await admission;
-                guard.assertCurrent();
-              }
-              effectsStarted = true;
-              await client.send("DOM.setFileInputFiles", { backendNodeId, files: [...paths] });
-              return NONE;
-            }
-          } finally {
-            await handle.dispose().catch(() => void 0);
-          }
-          delegated = true;
-          const stopWaiting = new AbortController();
-          const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
-          void chooserOpened.catch(() => void 0);
-          try {
-            await this.#dispatch({ kind: "click", selector: selector3 }, void 0, guard);
-            const chooser = await chooserOpened;
-            if (!chooser.isMultiple() && paths.length > 1) {
-              await chooser.cancel();
-              throw new Error(`the file picker ${JSON.stringify(selector3)} opened takes one file, not ${paths.length}; it was cancelled`);
-            }
-            if (guard !== void 0) {
-              const admission = guard();
-              if (admission !== void 0) await admission;
-              guard.assertCurrent();
-            }
-            await chooser.accept([...paths]);
-          } finally {
-            stopWaiting.abort();
-            await page._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => void 0);
-          }
-          return NONE;
-        }
         default:
           throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify(action.kind)}`);
       }
     } catch (error) {
       if (guard !== void 0 && effectsStarted && error instanceof ActionNotDispatched) throw new Error(`action may have changed the page: ${describe(error)}`);
+      if (guard !== void 0 && !effectsStarted && !delegated && !(error instanceof ActionNotDispatched)) throw new ActionNotDispatched("input_not_admitted", describe(error));
+      throw error;
+    }
+  }
+  async attachFile(selector3, path4, guard) {
+    await withTimeout(this.#attach(selector3, path4, guard), NAVIGATE_TIMEOUT_MS + 5e3, "attachFile");
+  }
+  async #attach(selector3, path4, guard) {
+    const page = this.#activeTab().page;
+    let effectsStarted = false;
+    let delegated = false;
+    try {
+      const { handle, frame } = await this.#resolve(page, selector3);
+      try {
+        const target = await handle.evaluate((el) => !(el instanceof HTMLInputElement) ? "opener" : el.type.toLowerCase() === "file" ? "file-input" : "other-input");
+        if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector3)} is an input that takes no files`);
+        if (target === "file-input") {
+          const client = frame.client;
+          const backendNodeId = await handle.backendNodeId();
+          if (guard !== void 0) {
+            const admission = guard();
+            if (admission !== void 0) await admission;
+            guard.assertCurrent();
+          }
+          effectsStarted = true;
+          await client.send("DOM.setFileInputFiles", { backendNodeId, files: [path4] });
+          return;
+        }
+      } finally {
+        await handle.dispose().catch(() => void 0);
+      }
+      delegated = true;
+      const stopWaiting = new AbortController();
+      const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
+      void chooserOpened.catch(() => void 0);
+      try {
+        await this.#dispatch({ kind: "click", selector: selector3 }, void 0, guard);
+        const chooser = await chooserOpened;
+        if (guard !== void 0) {
+          const admission = guard();
+          if (admission !== void 0) await admission;
+          guard.assertCurrent();
+        }
+        await chooser.accept([path4]);
+      } finally {
+        stopWaiting.abort();
+        await page._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => void 0);
+      }
+    } catch (error) {
+      if (guard !== void 0 && effectsStarted && error instanceof ActionNotDispatched) throw new Error(`attaching the file may have changed the page: ${describe(error)}`);
       if (guard !== void 0 && !effectsStarted && !delegated && !(error instanceof ActionNotDispatched)) throw new ActionNotDispatched("input_not_admitted", describe(error));
       throw error;
     }
@@ -12470,11 +12485,14 @@ var AnnotationFiles = class {
 };
 
 // src/files.ts
+import { createHash as createHash5 } from "node:crypto";
 import { realpathSync, statSync as statSync4 } from "node:fs";
+import { open } from "node:fs/promises";
 import { isAbsolute as isAbsolute4, relative, sep } from "node:path";
 var MAX_FILE_PATH_CHARS = 4096;
-var MAX_UPLOAD_PATHS = 16;
 var EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
+var NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
+var HASH_CHUNK_BYTES = 1 << 20;
 function parseAccept(accept, where) {
   if (typeof accept !== "string" || accept.trim().length === 0) fail("bad_recipe", `${where}.accept must be a comma-separated list of extensions such as ".mp4,.mov"`);
   const extensions = accept.split(",").map((token) => token.trim().toLowerCase());
@@ -12486,21 +12504,65 @@ function requireAbsolutePath(path4, name, code) {
   if (typeof path4 !== "string" || path4.length === 0 || path4.length > MAX_FILE_PATH_CHARS || !isAbsolute4(path4)) {
     fail(code, `${name} must be an absolute path of at most ${MAX_FILE_PATH_CHARS} characters`);
   }
+  if (NETWORK_OR_DEVICE_PATH.test(path4)) fail(code, `${name}: ${path4} is a network or device path; only a file on this machine's own drives is uploaded`);
   return path4;
 }
+function stampOf(stats) {
+  return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
+}
+function sameStamp(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
 function requireLocalFile(path4, name, code, protectedRoot) {
+  requireAbsolutePath(path4, name, code);
   let real;
+  let stats;
   try {
-    if (!statSync4(path4).isFile()) fail(code, `${name}: ${path4} is not a file`);
     real = realpathSync.native(path4);
+    if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path4} lives on a network share; only a file on this machine's own drives is uploaded`);
+    stats = statSync4(real);
   } catch (error) {
     if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
     throw error;
   }
+  if (!stats.isFile()) fail(code, `${name}: ${path4} is not a file`);
   const fromRoot = relative(realpathSync.native(protectedRoot), real);
   if (fromRoot === "" || fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute4(fromRoot)) {
     fail(code, `${name}: ${path4} is the browser's own data (profiles, saved passwords), which is never uploaded`);
   }
+  return { real, stamp: stampOf(stats) };
+}
+async function identifyLocalFile(path4, name, code, protectedRoot) {
+  const { real, stamp } = requireLocalFile(path4, name, code, protectedRoot);
+  const handle = await open(real, "r");
+  try {
+    const hash = createHash5("sha256");
+    const chunk2 = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
+    for (; ; ) {
+      const { bytesRead } = await handle.read(chunk2, 0, HASH_CHUNK_BYTES, null);
+      if (bytesRead === 0) break;
+      hash.update(chunk2.subarray(0, bytesRead));
+    }
+    const after = stampOf(await handle.stat());
+    if (!sameStamp(stamp, after)) fail(code, `${name}: ${path4} changed while it was being read; let whatever writes it finish, then publish again`);
+    return { path: path4, real, size: after.size, sha256: hash.digest("hex"), stamp: after };
+  } finally {
+    await handle.close();
+  }
+}
+function requireUnchanged(file, name) {
+  let now;
+  try {
+    now = stampOf(statSync4(file.real));
+  } catch (error) {
+    throw new ActionNotDispatched("file_changed", `${name}: ${file.path} could not be read again before it was attached (${error.message}); nothing was attached`);
+  }
+  if (!sameStamp(file.stamp, now)) {
+    throw new ActionNotDispatched("file_changed", `${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
+  }
+}
+function identityOf(file) {
+  return { path: file.path, size: file.size, sha256: file.sha256 };
 }
 
 // src/presets.ts
@@ -12531,7 +12593,9 @@ var LOOPBACK_HOSTS2 = ["127.0.0.1", "localhost"];
 var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
 var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
-var ATTACHED_NOTE = "; a file it had already attached may have started uploading to the site";
+var ATTACHED_NOTE = "; the files it attached had already started uploading, so the site may keep a private draft of this post: check the account and delete it there";
+var WAIT_SLICE_MS = 1e3;
+var WHITESPACE_RUN = /\s+/g;
 function validateMode(mode) {
   const found = PUBLISH_MODES.find((candidate) => candidate === mode);
   if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
@@ -12705,7 +12769,7 @@ function selector(value, name) {
   }
   return value.trim();
 }
-async function prepare(driver, profile2, recipe, mode, guard) {
+async function prepare(driver, profile2, recipe, mode, guard, files = {}, publication = startPublication(recipe, profile2)) {
   if (guard !== void 0) await guard();
   guard?.assertCurrent();
   try {
@@ -12731,9 +12795,8 @@ async function prepare(driver, profile2, recipe, mode, guard) {
   const account2 = recipe.account === void 0 ? void 0 : accountFromText(await driver.readText(recipe.account, MAX_ACCOUNT_TEXT_CHARS).catch(() => null));
   guard?.assertCurrent();
   if (mode === "check") return { status: "signed-in", url, profile: profile2, ...account2 === void 0 ? {} : { account: account2 } };
-  let attached = false;
+  const failed2 = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` });
   for (const [index, step] of recipe.plan.entries()) {
-    const failed2 = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted${attached ? ATTACHED_NOTE : ""}` });
     if (guard !== void 0) await guard();
     guard?.assertCurrent();
     switch (step.kind) {
@@ -12742,15 +12805,23 @@ async function prepare(driver, profile2, recipe, mode, guard) {
         if (problem !== null) return failed2(problem);
         break;
       }
-      case "file":
+      case "file": {
+        const name = `file ${JSON.stringify(step.file.label)}`;
+        const local = Object.hasOwn(files, step.file.label) ? files[step.file.label] : void 0;
+        const attachGuard = local === void 0 ? guard : Object.assign(() => guard?.(), { assertCurrent: () => {
+          guard?.assertCurrent();
+          requireUnchanged(local, name);
+        } });
+        const before = publication.attached;
+        publication.attached = true;
         try {
-          await driver.perform({ kind: "upload", selector: step.file.selector, paths: [step.file.path] }, void 0, guard);
-          attached = true;
+          await driver.attachFile(step.file.selector, local?.real ?? step.file.path, attachGuard);
         } catch (error) {
-          attached ||= !(error instanceof ActionNotDispatched);
-          return failed2(`attaching file ${JSON.stringify(step.file.label)} to ${JSON.stringify(step.file.selector)} failed: ${describe2(error)}`);
+          if (error instanceof ActionNotDispatched) publication.attached = before;
+          return failed2(`attaching ${name} to ${JSON.stringify(step.file.selector)} failed: ${describe2(error)}`);
         }
         break;
+      }
       case "click":
         try {
           await driver.perform({ kind: "click", selector: step.selector }, void 0, guard);
@@ -12761,44 +12832,72 @@ async function prepare(driver, profile2, recipe, mode, guard) {
       case "wait":
       case "check": {
         const timeoutMs = step.kind === "wait" ? step.timeoutMs : DEFAULT_STEP_WAIT_MS;
-        const appeared = await driver.waitFor({ selector: step.selector }, timeoutMs, (value) => value).catch(() => false);
-        guard?.assertCurrent();
+        const until = Date.now() + timeoutMs;
+        let appeared = false;
+        while (!appeared) {
+          appeared = await driver.waitFor({ selector: step.selector }, Math.max(1, Math.min(WAIT_SLICE_MS, until - Date.now())), (value) => value).catch(() => false);
+          guard?.assertCurrent();
+          if (Date.now() >= until) break;
+        }
         if (!appeared) return failed2(`step ${index + 1}: ${JSON.stringify(step.selector)} did not appear within ${timeoutMs} ms`);
         break;
       }
     }
   }
   const shownReads = recipe.steps === void 0 ? void 0 : await readAfterSteps(driver, recipe, guard);
-  if (typeof shownReads === "string") return { status: "failed", url, profile: profile2, error: `${shownReads}; nothing was submitted${attached ? ATTACHED_NOTE : ""}` };
+  if (typeof shownReads === "string") return failed2(shownReads);
   if (guard !== void 0) await guard();
   guard?.assertCurrent();
   const shown2 = await driver.state().catch(() => null);
   guard?.assertCurrent();
   if (!shown2 || originOf2(shown2.url) !== recipe.origin) {
-    return { status: "failed", url: shown2?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
+    return { status: "failed", url: shown2?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` };
   }
-  const now = Date.now();
+  Object.assign(publication.record, {
+    status: "awaiting-confirmation",
+    composeUrl: shown2.url,
+    tabId: shown2.activeTabId,
+    expiresAt: new Date(Date.now() + PUBLISH_PENDING_MS).toISOString()
+  });
+  if (account2 !== void 0) publication.account = account2;
+  if (shownReads !== void 0) publication.shownReads = shownReads;
+  publication.parked.resolve();
+  return publication;
+}
+function startPublication(recipe, profile2) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
   return {
     record: {
       publishId: randomBytes6(16).toString("hex"),
-      status: "awaiting-confirmation",
+      status: "preparing",
       origin: recipe.origin,
-      composeUrl: shown2.url,
-      tabId: shown2.activeTabId,
+      composeUrl: recipe.composeUrl,
+      tabId: "",
       profile: profile2,
       fields: recipe.fields.map((field) => ({ ...field })),
       ...recipe.files === void 0 ? {} : { files: recipe.files.map(({ label, path: path4 }) => ({ label, path: path4 })) },
-      createdAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
+      createdAt: now,
+      expiresAt: now
     },
     recipe,
     confirming: false,
     touchedWhilePending: false,
     sharedPage: false,
-    settled: Promise.withResolvers(),
-    ...account2 === void 0 ? {} : { account: account2 },
-    ...shownReads === void 0 ? {} : { shownReads }
+    attached: false,
+    parked: Promise.withResolvers(),
+    settled: Promise.withResolvers()
   };
+}
+function failPreparation(publication, outcome) {
+  if (publication.record.status !== "preparing") return;
+  const note = publication.attached ? ATTACHED_NOTE : "";
+  if (publication.cancelRequested !== void 0) {
+    const unsure = unsureError(publication);
+    settle(publication, unsure === null ? "cancelled" : "unknown", { error: unsure ?? `${publication.cancelRequested}${note}` });
+    return;
+  }
+  const error = outcome instanceof Error ? `${describe2(outcome)}; nothing was submitted${note}` : outcome.error ?? `not signed in to ${publication.record.origin} on profile ${publication.record.profile}; nothing was typed`;
+  settle(publication, "failed", { error });
 }
 async function readAfterSteps(driver, recipe, guard) {
   const reads = [];
@@ -12811,7 +12910,9 @@ async function readAfterSteps(driver, recipe, guard) {
     if (read2.value !== field.value) {
       const box = await driver.inspect(field.selector).catch(() => null);
       guard?.assertCurrent();
-      if (box === null || box.rect.width > 0 || box.rect.height > 0) return `field-mismatch: ${JSON.stringify(field.selector)} no longer holds the value typed after the steps`;
+      const hidden = box !== null && box.rect.width === 0 && box.rect.height === 0;
+      const sameWords = read2.value.replace(WHITESPACE_RUN, " ").trim() === field.value.replace(WHITESPACE_RUN, " ").trim();
+      if (!hidden || !sameWords) return `field-mismatch: ${JSON.stringify(field.selector)} no longer holds the value typed after the steps`;
     }
     reads.push(read2.value);
   }
@@ -12843,7 +12944,7 @@ function requirePending(publication, publishId) {
   expireIfDue(publication);
   const { status } = publication.record;
   if (status !== "awaiting-confirmation" || publication.confirming) {
-    fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status}`);
+    fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status === "preparing" ? "still being prepared: follow it with browser_publish_wait" : status}`);
   }
   return publication;
 }
@@ -12857,7 +12958,7 @@ async function confirm(driver, publication, guard) {
     guard?.assertCurrent();
     if (changed) {
       if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
-      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
+      return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` });
     }
     const before = new Set(await receipts(driver, recipe, guard).catch(() => []));
     if (guard !== void 0) await guard();
@@ -12938,8 +13039,13 @@ function isReceipt(url, recipe) {
   return parsed.origin === (recipe.receipt.origin ?? recipe.origin) && recipe.matchesPath(parsed.pathname);
 }
 function cancel(publication, error) {
+  if (publication.record.status === "preparing") {
+    publication.cancelRequested ??= error ?? "Cancelled while it was being prepared; nothing was submitted";
+    return;
+  }
   const unsure = unsureError(publication);
   if (unsure) settle(publication, "unknown", { error: unsure });
+  else if (publication.attached) settle(publication, "cancelled", { error: `${error ?? "Cancelled; nothing was submitted"}${ATTACHED_NOTE}` });
   else settle(publication, "cancelled", error === void 0 ? {} : { error });
 }
 function expireIfDue(publication) {
@@ -12947,7 +13053,7 @@ function expireIfDue(publication) {
   if (Date.now() < Date.parse(publication.record.expiresAt)) return;
   const unsure = unsureError(publication);
   if (unsure) settle(publication, "unknown", { error: unsure });
-  else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
+  else settle(publication, "expired", { error: `not confirmed within 10 minutes${publication.attached ? ATTACHED_NOTE : ""}` });
 }
 function unsureError(publication) {
   if (publication.touchedWhilePending) return TOUCHED_ERROR;
@@ -12956,10 +13062,11 @@ function unsureError(publication) {
 async function waitSettled(publication, ms) {
   expireIfDue(publication);
   if (TERMINAL.includes(publication.record.status)) return;
+  const preparing = publication.record.status === "preparing";
   const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
   const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
-  const timer = setTimeout(resolve8, Math.max(0, publication.confirming ? ms : Math.min(ms, untilExpiry)));
-  await Promise.race([publication.settled.promise, elapsed]);
+  const timer = setTimeout(resolve8, Math.max(0, preparing || publication.confirming ? ms : Math.min(ms, untilExpiry)));
+  await Promise.race([publication.settled.promise, ...preparing ? [publication.parked.promise] : [], elapsed]);
   clearTimeout(timer);
   expireIfDue(publication);
 }
@@ -12976,12 +13083,13 @@ function publishRecord(publication) {
 function isPending(publication) {
   if (!publication) return false;
   expireIfDue(publication);
-  return publication.record.status === "awaiting-confirmation";
+  return publication.record.status === "awaiting-confirmation" || publication.record.status === "preparing";
 }
 function settle(publication, status, detail) {
   if (TERMINAL.includes(publication.record.status)) return;
   Object.assign(publication.record, { status }, detail);
   publication.confirming = false;
+  publication.parked.resolve();
   publication.settled.resolve();
 }
 async function currentUrl(driver, guard) {
@@ -13075,8 +13183,8 @@ function parsePreset(input, where) {
       signedIn: valid.signedIn,
       ...valid.account === void 0 ? {} : { account: valid.account },
       fields: valid.fields.map((field) => ({ label: field.label ?? "", selector: field.selector })),
-      files: (valid.files ?? []).map((file, index) => ({ ...slots[index], label: file.label, selector: file.selector })),
-      ...valid.steps === void 0 ? {} : { steps: valid.steps.map((step, index) => ({ ...step, ...parsedSteps?.[index]?.onlyWith === void 0 ? {} : { onlyWith: parsedSteps[index].onlyWith } })) },
+      files: (valid.files ?? []).map((file) => ({ ...slots.find((slot) => slot.label.trim() === file.label), label: file.label, selector: file.selector })),
+      ...parsedSteps === void 0 ? {} : { steps: parsedSteps },
       submit: valid.submit,
       receipt: valid.receipt
     };
@@ -13517,7 +13625,7 @@ function seal(password, origin, key) {
   const data = Buffer.concat([cipher.update(password, "utf8"), cipher.final()]);
   return `gcm1:${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${data.toString("base64")}`;
 }
-function open(sealed, origin, key) {
+function open2(sealed, origin, key) {
   const parts = SEALED.exec(sealed);
   if (parts === null) fail("credentials_unreadable", UNREADABLE);
   try {
@@ -13549,7 +13657,7 @@ function read(file, key) {
   const stored = origins;
   if (version !== 1 && version !== 2 && version !== void 0) fail("credentials_unreadable", UNREADABLE);
   const clear = {};
-  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open(value, origin, key.existing()) : value;
+  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open2(value, origin, key.existing()) : value;
   if (version !== 2 && Object.keys(clear).length > 0) migrate(file, clear, key);
   return clear;
 }
@@ -13618,8 +13726,8 @@ function createEngineDriver(engine, options) {
 }
 
 // src/publish-approval.ts
-import { createHash as createHash5 } from "node:crypto";
-import { open as open2, readdir as readdir3, readFile as readFile3, unlink } from "node:fs/promises";
+import { createHash as createHash6 } from "node:crypto";
+import { open as open3, readdir as readdir3, readFile as readFile3, unlink } from "node:fs/promises";
 import { join as join13 } from "node:path";
 var BINDING_DOMAIN = "publish-approval/v1";
 var MAX_APPROVAL_MS = 24 * 60 * 6e4;
@@ -13628,8 +13736,15 @@ var NONCE = /^[0-9a-f]{32}$/;
 var DIGEST = /^[0-9a-f]{64}$/;
 function bindingOf(binding) {
   const files = Object.entries(binding.files ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const hashed = [BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values], ...files.length === 0 ? [] : [Object.fromEntries(files)]];
-  return createHash5("sha256").update(JSON.stringify(hashed)).digest("hex");
+  const hashed = [
+    BINDING_DOMAIN,
+    binding.origin,
+    binding.profile,
+    binding.preset ?? null,
+    [...binding.values],
+    ...files.length === 0 ? [] : [Object.fromEntries(files.map(([label, file]) => [label, [file.path, file.size, file.sha256]]))]
+  ];
+  return createHash6("sha256").update(JSON.stringify(hashed)).digest("hex");
 }
 var UNTOUCHED = {
   park: "Nothing was typed or clicked.",
@@ -13657,7 +13772,7 @@ var PublishApprovals = class {
     for (const approval of found.live) {
       const marker = join13(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
       try {
-        await (await open2(marker, "wx")).close();
+        await (await open3(marker, "wx")).close();
       } catch (error) {
         if (error.code === "EEXIST") {
           found.used.push(approval);
@@ -13667,6 +13782,7 @@ var PublishApprovals = class {
       }
       return {
         draftId: approval.draftId,
+        nonce: approval.nonce,
         release: async () => {
           await unlink(marker).catch((error) => {
             if (error.code !== "ENOENT") throw error;
@@ -13675,6 +13791,10 @@ var PublishApprovals = class {
       };
     }
     return refuse(binding, found, stage);
+  }
+  async held(spend) {
+    const approval = await readApproval(join13(this.#dir, `${spend.draftId}.json`), `${spend.draftId}.json`);
+    return approval !== null && approval.nonce === spend.nonce;
   }
   /** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
   async #survey(binding) {
@@ -14273,6 +14393,7 @@ var MAX_RELEASED = 64;
 var VIEW_GONE_MS = 30 * 6e4;
 var MAX_FRAMES_RETAINED = 8;
 var ACT_BUDGET_MS = 2e4;
+var CANCEL_PREPARING_WAIT_MS = 2e4;
 var CELL_ACTIVITY_BEAT_MS = 2e3;
 var MAX_BATCH_DIALOGS = 5;
 var MAX_SNAPSHOT_CHARS = 2e4;
@@ -15784,10 +15905,6 @@ ${host}`;
       if (caller === "app") fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
       this.savedProfile(entry, "typing a saved password");
     }
-    if (action.kind === "upload") {
-      if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
-      for (const [index, path4] of (action.paths ?? []).entries()) requireLocalFile(path4, `upload.paths[${index}]`, "bad_action", this.store.rootDir);
-    }
     return action;
   }
   admitStep(entry, step, caller, session) {
@@ -16044,40 +16161,105 @@ ${host}`;
   // -----------------------------------------------------------------------
   // Publishing — fill, park for a confirm, submit once (publish.ts)
   // -----------------------------------------------------------------------
-  async publish(browserId, recipe, mode, caller, preset, guard) {
+  async publish(browserId, recipe, mode, caller, preset, guard, options = {}) {
+    const startedAt = Date.now();
     const entry = this.require(browserId);
     const profile2 = this.savedProfile(entry, "publishing");
     const valid = validateRecipe(recipe);
-    for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
-    const files = Object.fromEntries((valid.files ?? []).map((file) => [file.label, file.path]));
     const selected = validateMode(mode);
-    return await this.serialize(entry, async () => {
-      refuseWhileBusy(entry, caller);
-      if (isPending(entry.publish)) {
-        fail("publish_pending", "a publish is already awaiting confirmation; it must be posted, cancelled or expire first");
-      }
-      entry.starting = "post";
-      let outcome;
-      try {
-        if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile: profile2, ...preset === void 0 ? {} : { preset: preset.name }, values: valid.fields.map((field) => field.value), files }, "park");
-        if (guard !== void 0) await guard();
+    if (selected === "check") {
+      for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+      return await this.serialize(entry, async () => {
+        this.admitPublish(entry, caller);
+        entry.starting = "post";
+        let outcome2;
+        try {
+          if (guard !== void 0) await guard();
+          guard?.assertCurrent();
+          outcome2 = await prepare(entry.driver, profile2, valid, "check", guard);
+        } finally {
+          entry.starting = null;
+        }
         guard?.assertCurrent();
-        outcome = await prepare(entry.driver, profile2, valid, selected, guard);
+        refuseWhileTakenOver(entry, caller);
+        return this.reportCheck(profile2, valid.origin, this.redact(entry, outcome2));
+      }, { guard });
+    }
+    const files = {};
+    for (const file of valid.files ?? []) files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+    const binding = {
+      origin: valid.origin,
+      profile: profile2,
+      ...preset === void 0 ? {} : { preset: preset.name },
+      values: valid.fields.map((field) => field.value),
+      files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)]))
+    };
+    const publication = await this.serialize(entry, async () => {
+      this.admitPublish(entry, caller);
+      entry.starting = "post";
+      try {
+        const held = valid.files === void 0 ? void 0 : await this.publishApprovals.consume(binding, "park");
+        if (held === void 0) await this.publishApprovals.require(binding, "park");
+        try {
+          if (guard !== void 0) await guard();
+          guard?.assertCurrent();
+        } catch (error) {
+          await held?.release();
+          throw error;
+        }
+        const started2 = startPublication(valid, profile2);
+        started2.sharedPage = entry.engine === "chrome-relay";
+        if (preset !== void 0) started2.record.preset = { name: preset.name, verified: preset.verified };
+        if (held !== void 0) started2.held = held;
+        entry.publish = started2;
+        return started2;
       } finally {
         entry.starting = null;
       }
-      guard?.assertCurrent();
-      refuseWhileTakenOver(entry, caller);
-      if (!("record" in outcome)) {
-        const shown2 = this.redact(entry, outcome);
-        if (shown2.status !== "failed") this.observeConnection(profile2, valid.origin, shown2.status === "signed-in", shown2.account);
-        return shown2;
-      }
-      outcome.sharedPage = entry.engine === "chrome-relay";
-      if (preset !== void 0) outcome.record.preset = { name: preset.name, verified: preset.verified };
-      entry.publish = outcome;
-      return this.redact(entry, publishRecord(outcome));
     }, { guard });
+    const preparing = guardedBy(options.workerGuard ?? guard, () => {
+      if (publication.record.status !== "preparing" || publication.cancelRequested !== void 0) fail("cancelled", "the publish was cancelled while it was being prepared");
+    });
+    const prepared = this.prepareInBackground(entry, profile2, valid, files, publication, preparing);
+    if (options.waitMs !== void 0) {
+      const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
+      const timer = setTimeout(resolve8, Math.max(0, startedAt + options.waitMs - Date.now()));
+      await Promise.race([prepared, elapsed]);
+      clearTimeout(timer);
+      if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
+    }
+    const outcome = await prepared;
+    if (publication.record.status === "failed" && outcome.error !== void 0) throw outcome.error;
+    if (publication.record.status === "failed" && outcome.check !== void 0) return outcome.check;
+    return this.redact(entry, publishRecord(publication));
+  }
+  admitPublish(entry, caller) {
+    refuseWhileBusy(entry, caller);
+    if (isPending(entry.publish)) fail("publish_pending", "a publish is already being prepared or awaiting confirmation; it must be posted, cancelled or expire first");
+  }
+  reportCheck(profile2, origin, shown2) {
+    if (shown2.status !== "failed") this.observeConnection(profile2, origin, shown2.status === "signed-in", shown2.account);
+    return shown2;
+  }
+  async prepareInBackground(entry, profile2, valid, files, publication, guard) {
+    entry.pending += 1;
+    try {
+      const outcome = await prepare(entry.driver, profile2, valid, "post", guard, files, publication);
+      if ("record" in outcome) return {};
+      const shown2 = this.reportCheck(profile2, valid.origin, this.redact(entry, outcome));
+      failPreparation(publication, shown2);
+      return { check: shown2 };
+    } catch (error) {
+      failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
+      return { error };
+    } finally {
+      entry.pending -= 1;
+      entry.lastUsed = performance.now();
+      if (publication.held !== void 0 && !publication.attached && publication.record.status !== "awaiting-confirmation") {
+        await publication.held.release();
+        delete publication.held;
+      }
+    }
   }
   async confirmPublish(browserId, publishId, caller, expect, guard) {
     const entry = this.require(browserId);
@@ -16088,14 +16270,19 @@ ${host}`;
       if (entry.task?.status === "running") {
         fail("task_running", "a browser_task owns this page; wait for it or cancel it");
       }
-      const { record } = publication;
-      const spent = await this.publishApprovals.consume(
+      const { record, held } = publication;
+      if (held !== void 0 && !await this.publishApprovals.held(held)) {
+        fail(
+          "publish_unapproved",
+          `publish_unapproved: the board approval for draft ${held.draftId}, under which these files were attached, was withdrawn or replaced, so this post is not saved. Nothing was clicked and the publish is still pending: cancel it with browser_publish_cancel, then follow the board.`
+        );
+      }
+      const spent = held ?? await this.publishApprovals.consume(
         {
           origin: record.origin,
           profile: record.profile,
           ...record.preset === void 0 ? {} : { preset: record.preset.name },
-          values: record.fields.map((field) => field.value),
-          files: Object.fromEntries((record.files ?? []).map((file) => [file.label, file.path]))
+          values: record.fields.map((field) => field.value)
         },
         "confirm"
       );
@@ -16103,11 +16290,11 @@ ${host}`;
         if (guard !== void 0) await guard();
         guard?.assertCurrent();
       } catch (error) {
-        await spent.release();
+        if (held === void 0) await spent.release();
         throw error;
       }
       await confirm(entry.driver, publication, guard);
-      if (publication.record.status === "failed") await spent.release();
+      if (publication.record.status === "failed" && held === void 0) await spent.release();
       if (publication.record.status === "posted") this.observeConnection(publication.record.profile, publication.recipe.origin, true, this.redact(entry, publication.account));
       return this.redact(entry, publishRecord(publication));
     }, { guard });
@@ -16115,7 +16302,16 @@ ${host}`;
   async cancelPublish(browserId, publishId, guard) {
     const entry = this.require(browserId);
     return await this.serialize(entry, async () => {
-      const publication = requirePending(entry.publish, publishId);
+      const current = entry.publish;
+      if (current?.record.publishId === publishId && current.record.status === "preparing") {
+        cancel(current);
+        const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
+        const timer = setTimeout(resolve8, CANCEL_PREPARING_WAIT_MS);
+        await Promise.race([current.settled.promise, elapsed]);
+        clearTimeout(timer);
+        return this.redact(entry, publishRecord(current));
+      }
+      const publication = requirePending(current, publishId);
       cancel(publication);
       return this.redact(entry, publishRecord(publication));
     }, { guard });
@@ -16489,10 +16685,6 @@ function normalizeAction(action) {
       if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
       return { kind: "resize", ...normalizeViewport({ width: action.width, height: action.height }) };
     }
-    case "upload": {
-      if (!Array.isArray(action.paths) || action.paths.length === 0 || action.paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `upload.paths must name 1-${MAX_UPLOAD_PATHS} files`);
-      return { kind: "upload", selector: requireSelector(action.selector), paths: action.paths.map((path4, index) => requireAbsolutePath(path4, `upload.paths[${index}]`, "bad_action")) };
-    }
     case "scroll": {
       const deltaX = requireDelta(action.deltaX ?? 0, "deltaX");
       const deltaY = requireDelta(action.deltaY ?? 0, "deltaY");
@@ -16590,6 +16782,7 @@ function agentActionAt(entry) {
 }
 function refuseWhilePublishing(entry, caller) {
   if (caller !== "app" && isPending(entry.publish)) {
+    if (entry.publish?.record.status === "preparing") fail("publish_pending", "a post is being prepared on this browser; follow it with browser_publish_wait or cancel it with browser_publish_cancel");
     fail("publish_pending", "a post awaits confirmation on this browser; confirm or cancel it (browser_publish_confirm / browser_publish_cancel) or wait with browser_publish_wait");
   }
 }
@@ -17224,8 +17417,7 @@ var stepSchema = z3.discriminatedUnion("kind", [
   z3.object({ kind: z3.literal("resize"), width: z3.number().int().min(MIN_VIEWPORT.width).max(MAX_VIEWPORT.width), height: z3.number().int().min(MIN_VIEWPORT.height).max(MAX_VIEWPORT.height) }).strict(),
   z3.object({ kind: z3.literal("wait"), selector: selector2.optional(), text: z3.string().optional(), url: z3.string().optional(), timeoutMs: z3.number().int().min(0).max(MAX_WAIT_MS).optional() }).strict().refine((value) => [value.selector, value.text, value.url].filter((given) => given !== void 0).length === 1, "Pass exactly one of selector, text or url"),
   z3.object({ kind: z3.literal("tab"), op: z3.enum(["new", "activate", "close"]), tabId: z3.string().optional(), url: z3.string().optional() }).strict(),
-  z3.object({ kind: z3.literal("eval"), expression: z3.string().min(1).max(MAX_EVAL_EXPRESSION_CHARS) }).strict(),
-  z3.object({ kind: z3.literal("upload"), selector: selector2, paths: z3.array(z3.string().min(1).max(MAX_FILE_PATH_CHARS)).min(1).max(MAX_UPLOAD_PATHS) }).strict()
+  z3.object({ kind: z3.literal("eval"), expression: z3.string().min(1).max(MAX_EVAL_EXPRESSION_CHARS) }).strict()
 ]);
 var fileLabel = z3.string().min(1).max(40);
 var filePath = z3.string().min(1).max(MAX_FILE_PATH_CHARS);
@@ -17456,8 +17648,8 @@ async function createBrowserServer(options = {}) {
   };
   const navigateOpened = async (state, url, opener, extra) => {
     const action = navigateStep.parse({ kind: "navigate", url });
-    if (opener.caller === "app" && state.publish?.status === "awaiting-confirmation") {
-      fail("publish_pending", "a post awaits confirmation on this browser; post or cancel it before opening a page in it");
+    if (opener.caller === "app" && (state.publish?.status === "awaiting-confirmation" || state.publish?.status === "preparing")) {
+      fail("publish_pending", "a post is being prepared or awaits confirmation on this browser; post or cancel it before opening a page in it");
     }
     await access(extra, state.browserId);
     const navigated = await runtime.act(state.browserId, action, opener.caller, opener.session, accessGuard(extra, state.browserId), opener.tool === "browser_view");
@@ -17578,7 +17770,7 @@ async function createBrowserServer(options = {}) {
     }
   });
   server2.registerTool("browser_act", {
-    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only), upload (selector, paths: 1-16 absolute paths of local files; an <input type=file> takes them directly, any other element is clicked and the file picker it opens gets them; works on a saved profile). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
+    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
     inputSchema: { browserId: capability, actions: z3.array(stepSchema).min(1).max(MAX_BATCH_STEPS) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: stepMeta
@@ -17684,16 +17876,20 @@ async function createBrowserServer(options = {}) {
   }
   registerAppTool(server2, "browser_publish", {
     title: "Publish",
-    description: `Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on), files? ({label: absolute path} for the preset's file slots; a slot not optional is required, and a path must exist and match the slot's accept)}. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. "Alice @alice" \u2192 "@alice"), fields [{selector, value, label?}] (1-8; value \u2264 10000 chars; label \u2264 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. "/{segment}/status/{digits}"), linkSelector? (the posted link; else the tab's URL after submit), origin? (the posted link's origin when it is not the recipe's)}, files? [{label, selector, path}] (up to 4 local files, set on the page through the browser, never through script); fields are typed in order, then files are set. mode "check": opens composeUrl, returns "signed-in" or "not-signed-in" (sign in first, then post). mode "post": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile, text and files, unexpired and unspent. Otherwise types and reads back each value, returns "awaiting-confirmation" with a publishId and composeUrl. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act` + (jev ? ", browser_task" : "") + ' and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). "failed": nothing was submitted. A password field is never a publish field; log in with browser_act' + (jev ? " or browser_task. Refused while a task runs." : "."),
-    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z3.enum(PUBLISH_MODES) },
+    description: `Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on), files? ({label: absolute path} for the preset's file slots; a slot not optional is required, and a path must be a file on this machine's own drives (never a network share) matching the slot's accept)}. Files reach a page only this way: browser_act has no upload step. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. "Alice @alice" \u2192 "@alice"), fields [{selector, value, label?}] (1-8; value \u2264 10000 chars; label \u2264 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. "/{segment}/status/{digits}"), linkSelector? (the posted link; else the tab's URL after submit), origin? (the posted link's origin when it is not the recipe's)}, files? [{label, selector, path}] (up to 4 local files, set on the page through the browser, never through script); fields are typed in order, then files are set. mode "check": opens composeUrl, returns "signed-in" or "not-signed-in" (sign in first, then post). mode "post": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile, text and files (each file's bytes: one changed after Approve is refused), unexpired and unspent. A post with files spends that approval when it starts, because attaching a file starts the upload: a second post of it needs the user's Retry. Otherwise types and reads back each value and returns "awaiting-confirmation" with a publishId and composeUrl; a long wizard that has not parked within waitSeconds (default and max ` + WAIT_CAP_S + `) returns "preparing" with its publishId instead, and keeps going: follow it with browser_publish_wait until it is awaiting-confirmation or failed. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act` + (jev ? ", browser_task" : "") + ' and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). "failed": nothing was submitted. A password field is never a publish field; log in with browser_act' + (jev ? " or browser_task. Refused while a task runs." : "."),
+    inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z3.enum(PUBLISH_MODES), waitSeconds },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ...TRACTION_ONLY, ui: { resourceUri: BROWSER_VIEW_URI } }
     // `state` rides along so the View this call shows binds to THIS browser (a
     // tool result is the View's only source of a browserId) and paints the bar.
-  }, ({ browserId, recipe, preset, mode }, extra) => result(async () => {
+  }, ({ browserId, recipe, preset, mode, waitSeconds: waitSeconds2 }, extra) => result(async () => {
     await access(extra, browserId);
     const resolved = preset !== void 0 && recipe === void 0 ? resolvePreset(presets, preset) : recipe !== void 0 && preset === void 0 ? { recipe, preset: void 0 } : fail("bad_publish", "pass exactly one of preset or recipe");
-    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset, accessGuard(extra, browserId));
+    const authority = { _meta: { [CALLER_META_KEY]: callerOf(extra), [SESSION_META_KEY]: { sessionId: sessionOf(extra) } } };
+    const outcome = await runtime.publish(browserId, resolved.recipe, mode, callerOf(extra), resolved.preset, accessGuard(extra, browserId), {
+      waitMs: (waitSeconds2 ?? WAIT_CAP_S) * 1e3,
+      workerGuard: accessGuard(authority, browserId)
+    });
     showing(extra, browserId);
     const state = await runtime.state(browserId, accessGuard(extra, browserId));
     await access(extra, browserId);
@@ -17725,7 +17921,7 @@ async function createBrowserServer(options = {}) {
     return runtime.cancelPublish(browserId, publishId, accessGuard(extra, browserId));
   }));
   server2.registerTool("browser_publish_wait", {
-    description: `Follow a pending publish: returns its record once posted (with url), unknown (may have posted: never retry), failed (nothing submitted), cancelled or expired (unconfirmed after 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it still awaits confirmation.`,
+    description: `Follow a publish: returns its record once it parks (awaiting-confirmation, after "preparing"), once posted (with url), unknown (may have posted: never retry), failed (nothing submitted; a file it had attached may have left a draft on the site), cancelled or expired (unconfirmed after 10 minutes), or after waitSeconds (default and max ${WAIT_CAP_S}) while it is still preparing or awaiting confirmation.`,
     inputSchema: { browserId: capability, publishId: capability, waitSeconds },
     annotations: READ_ONLY,
     _meta: TRACTION_ONLY

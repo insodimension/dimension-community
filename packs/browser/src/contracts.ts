@@ -29,7 +29,7 @@ export const MIN_VIEWPORT: Viewport = { width: 320, height: 240 };
 export const MAX_VIEWPORT: Viewport = { width: 2_560, height: 2_000 };
 export type MouseButton = "left" | "right" | "middle";
 export interface BrowserAction {
-  kind: "navigate" | "click" | "type" | "select" | "press" | "scroll" | "back" | "forward" | "reload" | "stop" | "insert" | "hover" | "resize" | "upload";
+  kind: "navigate" | "click" | "type" | "select" | "press" | "scroll" | "back" | "forward" | "reload" | "stop" | "insert" | "hover" | "resize";
   url?: string;
   selector?: string;
   /** `type`: replaces the field's value. `insert`: typed into whatever is focused. */
@@ -63,7 +63,6 @@ export interface BrowserAction {
   button?: MouseButton;
   /** `click` only; 2 = double-click, 3 = triple-click. Default 1; the runtime refuses any other. */
   clickCount?: number;
-  paths?: string[];
 }
 export interface TabInfo {
   /** Stable opaque id for the tab's lifetime. */
@@ -256,7 +255,11 @@ export interface PresetRef {
 }
 export const PUBLISH_MODES = ["check", "post"] as const;
 export type PublishMode = (typeof PUBLISH_MODES)[number];
-export const PUBLISH_STATUSES = ["awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
+export interface PublishOptions {
+  waitMs?: number;
+  workerGuard?: EffectGuard;
+}
+export const PUBLISH_STATUSES = ["preparing", "awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
 /**
  * `unknown`: submit was dispatched and then errored, or no receipt appeared —
  * it may have posted; never retried. `failed`: provably nothing was submitted.
@@ -566,7 +569,7 @@ export interface BrowserRuntimePort {
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard, workerGuard?: EffectGuard): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
-  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard): Promise<PublishCheck | PublishRecord>;
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard, options?: PublishOptions): Promise<PublishCheck | PublishRecord>;
   /**
    * The Post (the model's confirm or the View's button): re-verify, click submit exactly once, read the receipt from the page.
    * `expect` binds the confirm to what the caller was shown: REQUIRED unless `caller` is "app", and when given (from any

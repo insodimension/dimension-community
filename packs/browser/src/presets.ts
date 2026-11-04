@@ -151,8 +151,8 @@ export function parsePreset(input: unknown, where: string): PublishPreset {
 			signedIn: valid.signedIn,
 			...(valid.account === undefined ? {} : { account: valid.account }),
 			fields: valid.fields.map((field) => ({ label: field.label ?? "", selector: field.selector })),
-			files: (valid.files ?? []).map((file, index) => ({ ...slots[index], label: file.label, selector: file.selector })),
-			...(valid.steps === undefined ? {} : { steps: valid.steps.map((step, index) => ({ ...step, ...(parsedSteps?.[index]?.onlyWith === undefined ? {} : { onlyWith: parsedSteps[index].onlyWith }) })) }),
+			files: (valid.files ?? []).map((file) => ({ ...slots.find((slot) => slot.label.trim() === file.label), label: file.label, selector: file.selector })),
+			...(parsedSteps === undefined ? {} : { steps: parsedSteps }),
 			submit: valid.submit,
 			receipt: valid.receipt,
 		};
