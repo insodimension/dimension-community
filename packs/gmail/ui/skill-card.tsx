@@ -12,7 +12,7 @@ const GOOGLE_BAR = "linear-gradient(90deg, #4285f4, #34a853 38%, #fbbc04 68%, #e
 export const gmailSkillCard: SkillCardRenderer = (input, ctx) => (
 	<SkillCard
 		name={input.name}
-		description={input.description ?? "Read, search, compose, reply to, and organize your Gmail."}
+		description={input.description ?? "Read, search and organize your Gmail, and send mail once you approve it."}
 		icon={input.icon}
 		eyebrow="Email skill"
 		accent="#ea4335"

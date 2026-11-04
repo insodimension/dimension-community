@@ -731,8 +731,8 @@
 			"pluginId": "gmail",
 			"title": "Gmail",
 			"icon": "packs/gmail/assets/icon.svg",
-			"description": "Let your agent read, search, write and reply to email in your mailbox.",
-			"version": "0.1.3",
+			"description": "Let your agent read and search your email, and send messages from your mailbox once you approve each one.",
+			"version": "0.3.0",
 			"author": {
 				"name": "Dimension"
 			},
