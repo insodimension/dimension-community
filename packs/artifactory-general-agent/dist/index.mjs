@@ -134,6 +134,7 @@ Object.freeze({
 	sort: "Activity",
 	metadata: [],
 	hiddenNotice: "Hide",
+	hiddenRecency: [],
 	collapseAfter: 5
 });
 Object.freeze({

@@ -7063,6 +7063,7 @@ var stringList = "string | string[]";
 var identitySchema = type({
   "personality?": "'default' | 'friendly' | 'pragmatic' | 'none'",
   "prompt?": "'replace' | 'append'",
+  "self?": "'agent' | 'harness'",
   "+": "reject"
 });
 var engineSchema = type({
