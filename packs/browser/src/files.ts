@@ -1,21 +1,22 @@
-import { createHash } from "node:crypto";
-import { realpathSync, statSync, type Stats } from "node:fs";
-import { open } from "node:fs/promises";
+import { existsSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
+import { type FileStamp, linkOffMachine, NETWORK_OR_DEVICE_PATH, sameStamp, stampOf } from "./local-path.js";
 import { ActionNotDispatched, fail } from "./store.js";
 
-export const MAX_FILE_PATH_CHARS = 4_096;
-const EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
-const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
-const HASH_CHUNK_BYTES = 1 << 20;
+export type { FileStamp } from "./local-path.js";
 
-export interface FileStamp {
-	readonly dev: number;
-	readonly ino: number;
-	readonly size: number;
-	readonly mtimeMs: number;
-	readonly ctimeMs: number;
+export const MAX_FILE_PATH_CHARS = 4_096;
+export const HASH_WORKER_BUNDLE = "file-hash-worker.mjs";
+const EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
+const CHECKPOINT_INTERVAL_MS = 50;
+
+export interface FileHashRequest {
+	readonly real: string;
 }
+
+export type FileHashReply = { readonly sha256: string; readonly stamp: FileStamp } | { readonly refused: string } | { readonly error: string };
 
 export interface LocalFile {
 	readonly path: string;
@@ -47,62 +48,95 @@ export function requireAbsolutePath(path: unknown, name: string, code: string): 
 	return path;
 }
 
-function stampOf(stats: Stats): FileStamp {
-	return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
-}
-
-function sameStamp(a: FileStamp, b: FileStamp): boolean {
-	return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+function refuseUnreadable(error: unknown, path: string, name: string, code: string): never {
+	if ((error as NodeJS.ErrnoException).code === "ENOENT") fail(code, `${name}: ${path} does not exist`);
+	fail(code, `${name}: ${path} could not be read (${(error as Error).message})`);
 }
 
 export function requireLocalFile(path: string, name: string, code: string, protectedRoot: string): { real: string; stamp: FileStamp } {
 	requireAbsolutePath(path, name, code);
+	const refusal = linkOffMachine(path);
+	if (refusal !== undefined) fail(code, `${name}: ${path} ${refusal}; only a file on this machine's own drives is uploaded`);
 	let real: string;
 	let stats: Stats;
+	let realRoot: string;
 	try {
 		real = realpathSync.native(path);
-		if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
+	} catch (error) {
+		refuseUnreadable(error, path, name, code);
+	}
+	if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
+	try {
 		stats = statSync(real);
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") fail(code, `${name}: ${path} does not exist`);
-		throw error;
+		refuseUnreadable(error, path, name, code);
 	}
 	if (!stats.isFile()) fail(code, `${name}: ${path} is not a file`);
-	const fromRoot = relative(realpathSync.native(protectedRoot), real);
+	try {
+		realRoot = realpathSync.native(protectedRoot);
+	} catch (error) {
+		fail(code, `${name}: ${path} could not be checked against the browser's own data (${(error as Error).message})`);
+	}
+	const fromRoot = relative(realRoot, real);
 	if (fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))) {
 		fail(code, `${name}: ${path} is the browser's own data (profiles, saved passwords), which is never uploaded`);
 	}
 	return { real, stamp: stampOf(stats) };
 }
 
-export async function identifyLocalFile(path: string, name: string, code: string, protectedRoot: string): Promise<LocalFile> {
+export async function identifyLocalFile(path: string, name: string, code: string, protectedRoot: string, checkpoint: () => void = () => undefined): Promise<LocalFile> {
 	const { real, stamp } = requireLocalFile(path, name, code, protectedRoot);
-	const handle = await open(real, "r");
-	try {
-		const hash = createHash("sha256");
-		const chunk = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
-		for (;;) {
-			const { bytesRead } = await handle.read(chunk, 0, HASH_CHUNK_BYTES, null);
-			if (bytesRead === 0) break;
-			hash.update(chunk.subarray(0, bytesRead));
+	checkpoint();
+	const hashed = await hashOffThread(real, checkpoint);
+	if ("refused" in hashed) fail(code, `${name}: ${path} ${hashed.refused} by the time it was read; only a file on this machine's own drives is uploaded`);
+	if ("error" in hashed) fail(code, `${name}: ${path} could not be read (${hashed.error})`);
+	if (!sameStamp(stamp, hashed.stamp)) fail(code, `${name}: ${path} changed while it was being read; let whatever writes it finish, then publish again`);
+	return { path, real, size: hashed.stamp.size, sha256: hashed.sha256, stamp: hashed.stamp };
+}
+
+function hashWorkerEntry(): URL {
+	const bundled = new URL(`./${HASH_WORKER_BUNDLE}`, import.meta.url);
+	return existsSync(fileURLToPath(bundled)) ? bundled : new URL("./file-hash-worker.ts", import.meta.url);
+}
+
+function hashOffThread(real: string, checkpoint: () => void): Promise<FileHashReply> {
+	const { promise, resolve, reject } = Promise.withResolvers<FileHashReply>();
+	const worker = new Worker(hashWorkerEntry(), { workerData: { real } satisfies FileHashRequest });
+	const poll = setInterval(() => {
+		try {
+			checkpoint();
+		} catch (error) {
+			clearInterval(poll);
+			reject(error);
+			void worker.terminate();
 		}
-		const after = stampOf(await handle.stat());
-		if (!sameStamp(stamp, after)) fail(code, `${name}: ${path} changed while it was being read; let whatever writes it finish, then publish again`);
-		return { path, real, size: after.size, sha256: hash.digest("hex"), stamp: after };
-	} finally {
-		await handle.close();
-	}
+	}, CHECKPOINT_INTERVAL_MS);
+	worker.once("message", (reply: FileHashReply) => {
+		clearInterval(poll);
+		resolve(reply);
+	});
+	worker.once("error", (error: Error) => {
+		clearInterval(poll);
+		resolve({ error: `the file-hash worker failed: ${error.message}` });
+	});
+	worker.once("exit", (exitCode) => {
+		clearInterval(poll);
+		resolve({ error: `the file-hash worker exited with code ${exitCode} before it answered` });
+	});
+	return promise;
 }
 
 export function requireUnchanged(file: LocalFile, name: string): void {
+	const refusal = linkOffMachine(file.real);
+	if (refusal !== undefined) throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} now ${refusal}; nothing was attached`);
 	let now: FileStamp;
 	try {
 		now = stampOf(statSync(file.real));
 	} catch (error) {
-		throw new ActionNotDispatched("file_changed", `${name}: ${file.path} could not be read again before it was attached (${(error as Error).message}); nothing was attached`);
+		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} could not be read again before it was attached (${(error as Error).message}); nothing was attached`);
 	}
 	if (!sameStamp(file.stamp, now)) {
-		throw new ActionNotDispatched("file_changed", `${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
+		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
 	}
 }
 

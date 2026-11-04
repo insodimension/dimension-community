@@ -3713,9 +3713,9 @@ var READ_PAGE_SCRIPT = (limit, maxFrames) => {
 var ELEMENTS_IN_REGIONS_SCRIPT = (regions, limit, max) => {
   const found = regions.map(() => ({ elements: [], truncated: false }));
   const used = regions.map(() => 0);
-  const open4 = (entry) => !entry.truncated && entry.elements.length < max.count;
+  const open3 = (entry) => !entry.truncated && entry.elements.length < max.count;
   const nodes = document.querySelectorAll("body *");
-  for (let i = 0; i < nodes.length && found.some(open4); i += 1) {
+  for (let i = 0; i < nodes.length && found.some(open3); i += 1) {
     const el = nodes[i];
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
@@ -3723,7 +3723,7 @@ var ELEMENTS_IN_REGIONS_SCRIPT = (regions, limit, max) => {
     for (let k = 0; k < regions.length; k += 1) {
       const region = regions[k];
       const entry = found[k];
-      if (!open4(entry)) continue;
+      if (!open3(entry)) continue;
       const intersects = r.left < region.x + region.width && r.right > region.x && r.top < region.y + region.height && r.bottom > region.y;
       if (!intersects) continue;
       if (el.children.length > 0 && r.width * r.height > region.width * region.height * 4) continue;
@@ -4814,18 +4814,18 @@ async function guardPage(cdp, foreign = false) {
   return { cdp, dialogs };
 }
 function answerDialogs(cdp, log) {
-  let open4;
+  let open3;
   cdp.on("Page.javascriptDialogOpening", (event) => {
-    open4 = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
+    open3 = { type: event.type, message: event.message.slice(0, MAX_DIALOG_CHARS) };
     if (log.observeOnly === true && log.policy === void 0) return;
     const accept = log.policy === void 0 ? event.type === "alert" || event.type === "beforeunload" : log.policy === "accept";
     void cdp.send("Page.handleJavaScriptDialog", { accept }).catch(() => void 0);
   });
   cdp.on("Page.javascriptDialogClosed", (event) => {
-    if (!open4) return;
-    log.entries.push({ seq: ++log.seq, type: open4.type, message: open4.message, handled: event.result ? "accepted" : "dismissed" });
+    if (!open3) return;
+    log.entries.push({ seq: ++log.seq, type: open3.type, message: open3.message, handled: event.result ? "accepted" : "dismissed" });
     if (log.entries.length > MAX_DIALOGS) log.entries.shift();
-    open4 = void 0;
+    open3 = void 0;
   });
 }
 var NONE = Object.freeze({});
@@ -6690,14 +6690,14 @@ function hasExited(browser) {
 }
 function waitForExit(proc, ms) {
   if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true);
-  const { promise, resolve: resolve8 } = Promise.withResolvers();
+  const { promise, resolve: resolve9 } = Promise.withResolvers();
   const onExit = () => {
     clearTimeout(timer);
-    resolve8(true);
+    resolve9(true);
   };
   const timer = setTimeout(() => {
     proc.off("exit", onExit);
-    resolve8(false);
+    resolve9(false);
   }, ms);
   proc.once("exit", onExit);
   return promise;
@@ -6791,14 +6791,14 @@ var KIND_TIMINGS = { connectedMs: 5e3, spawnedMs: 3e4, relayExtensionMs: 35e3 };
 var POLL_MS = 150;
 var PROBE_TIMEOUT_MS = 2e3;
 async function findFreeCdpPort() {
-  const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+  const { promise, resolve: resolve9, reject } = Promise.withResolvers();
   const server2 = createServer();
   server2.unref();
   server2.once("error", reject);
   server2.listen(0, "127.0.0.1", () => {
     const address = server2.address();
     if (address && typeof address === "object") {
-      server2.close((closeError) => closeError ? reject(closeError) : resolve8(address.port));
+      server2.close((closeError) => closeError ? reject(closeError) : resolve9(address.port));
     } else {
       server2.close();
       reject(new Error("Failed to allocate ephemeral CDP port"));
@@ -6816,7 +6816,7 @@ async function probeCdpStatus(url, opts) {
   if (opts.signal?.aborted) return null;
   const port = target.port ? Number(target.port) : 80;
   const requestPath = `${target.pathname}${target.search}` || "/";
-  const { promise, resolve: resolve8 } = Promise.withResolvers();
+  const { promise, resolve: resolve9 } = Promise.withResolvers();
   const socket = connect({ host: target.hostname.replace(/^\[|\]$/g, ""), port });
   let settled = false;
   let buffered = "";
@@ -6826,7 +6826,7 @@ async function probeCdpStatus(url, opts) {
     clearTimeout(timer);
     opts.signal?.removeEventListener("abort", onAbort);
     socket.destroy();
-    resolve8(status);
+    resolve9(status);
   };
   const onAbort = () => finish(null);
   const timer = setTimeout(() => finish(null), opts.timeoutMs);
@@ -7836,12 +7836,12 @@ var RelayBridge = class {
     const ext = this.#ext;
     if (!ext) return Promise.reject(new Error("relay extension is not connected"));
     const id = ++this.#rpcSeq;
-    const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+    const { promise, resolve: resolve9, reject } = Promise.withResolvers();
     const timer = setTimeout(() => {
       this.#pendingRpc.delete(id);
       reject(new Error(`extension rpc '${req.op}' timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    this.#pendingRpc.set(id, { resolve: resolve8, reject, timer });
+    this.#pendingRpc.set(id, { resolve: resolve9, reject, timer });
     ext.send(JSON.stringify({ t: "rpc", id, ...req }));
     return promise;
   }
@@ -7949,13 +7949,13 @@ async function startRelayServer(opts) {
     });
     ws.on("error", () => ws.terminate());
   }
-  await new Promise((resolve8, reject) => {
+  await new Promise((resolve9, reject) => {
     const onError = (error) => reject(error);
     server2.once("error", onError);
     server2.listen({ host: "127.0.0.1", port: opts.port }, () => {
       server2.off("error", onError);
       boundPort = server2.address().port;
-      resolve8();
+      resolve9();
     });
   });
   if (opts.unref) server2.unref();
@@ -7974,8 +7974,8 @@ async function startRelayServer(opts) {
         clearInterval(keepalive);
         for (const ws of sockets) ws.terminate();
         wss.close();
-        await new Promise((resolve8) => {
-          server2.close(() => resolve8());
+        await new Promise((resolve9) => {
+          server2.close(() => resolve9());
           server2.closeAllConnections();
         });
       })();
@@ -8358,7 +8358,7 @@ function threadWorkerSpawner(entry, limits, commit) {
 // src/server.ts
 import { readFile as readFile4, readdir as readdir4 } from "node:fs/promises";
 import { extname as extname3, join as join16 } from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath7 } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z as z3 } from "zod";
@@ -8561,12 +8561,12 @@ var CmuxSocketClient = class {
     if (this.#disposed) {
       throw new ToolError("cmux socket closed");
     }
-    const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+    const { promise, resolve: resolve9, reject } = Promise.withResolvers();
     this.#queue.push({
       method,
       params,
       timeoutMs: opts?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-      resolve: resolve8,
+      resolve: resolve9,
       reject
     });
     this.#pump();
@@ -8688,7 +8688,7 @@ version=${challenge.version}`;
     }
   }
   #waitForConnect(socket) {
-    const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+    const { promise, resolve: resolve9, reject } = Promise.withResolvers();
     const timer = setTimeout(() => {
       socket.destroy();
       reject(new ToolError(`Failed to connect to cmux socket at ${this.#socketPath}: timed out`));
@@ -8700,7 +8700,7 @@ version=${challenge.version}`;
     };
     const onConnect = () => {
       cleanup();
-      resolve8();
+      resolve9();
     };
     const onError = (err) => {
       cleanup();
@@ -8755,7 +8755,7 @@ version=${challenge.version}`;
     return read2;
   }
   #nextLine(timeoutMs) {
-    const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+    const { promise, resolve: resolve9, reject } = Promise.withResolvers();
     let waiter;
     const timer = setTimeout(() => {
       const index = this.#lineWaiters.indexOf(waiter);
@@ -8768,7 +8768,7 @@ version=${challenge.version}`;
     waiter = {
       resolve: (line) => {
         clearTimeout(timer);
-        resolve8(line);
+        resolve9(line);
       },
       reject: (err) => {
         clearTimeout(timer);
@@ -9290,12 +9290,12 @@ var AbortError = class extends Error {
 function untilAborted(signal, pr) {
   if (!signal) return typeof pr === "function" ? pr() : pr;
   if (signal.aborted) return Promise.reject(new AbortError(signal));
-  const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+  const { promise, resolve: resolve9, reject } = Promise.withResolvers();
   const onAbort = () => reject(new AbortError(signal));
   signal.addEventListener("abort", onAbort, { once: true });
   void (async () => {
     try {
-      resolve8(await (typeof pr === "function" ? pr() : pr));
+      resolve9(await (typeof pr === "function" ? pr() : pr));
     } catch (err) {
       reject(err);
     } finally {
@@ -9305,8 +9305,8 @@ function untilAborted(signal, pr) {
   return promise;
 }
 function sleep3(ms) {
-  const { promise, resolve: resolve8 } = Promise.withResolvers();
-  setTimeout(resolve8, ms);
+  const { promise, resolve: resolve9 } = Promise.withResolvers();
+  setTimeout(resolve9, ms);
   return promise;
 }
 
@@ -11011,10 +11011,10 @@ function codedMessage(error) {
 }
 function abortable(work, signal) {
   if (signal.aborted) return Promise.reject(signal.reason);
-  const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+  const { promise, resolve: resolve9, reject } = Promise.withResolvers();
   const onAbort = () => reject(signal.reason);
   signal.addEventListener("abort", onAbort, { once: true });
-  work.then(resolve8, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  work.then(resolve9, reject).finally(() => signal.removeEventListener("abort", onAbort));
   return promise;
 }
 var RuntimeCodeBrowsers = class {
@@ -12227,13 +12227,13 @@ var CodeHost = class {
     let session = this.#sessions.get(id);
     if (session === void 0) {
       const { env: source = process.env, headless = true, cwd = process.cwd(), artifactsRoot, screenshotDir } = this.#options;
-      const resolve8 = this.#options.resolveKind ?? ((request) => resolveKind(request, source, cwd, headless));
+      const resolve9 = this.#options.resolveKind ?? ((request) => resolveKind(request, source, cwd, headless));
       const created = new CodeSession({
         session: id,
         browsers: this.#options.browsers,
         spawn: this.#spawn,
         env: scrubbedEnv(source),
-        resolveKind: resolve8,
+        resolveKind: resolve9,
         ...screenshotDir === void 0 ? {} : { screenshotDir },
         ...artifactsRoot === void 0 ? {} : { outputDir: sessionFolder(artifactsRoot, id) },
         terminating: this.#terminating,
@@ -12485,14 +12485,75 @@ var AnnotationFiles = class {
 };
 
 // src/files.ts
-import { createHash as createHash5 } from "node:crypto";
-import { realpathSync, statSync as statSync4 } from "node:fs";
-import { open } from "node:fs/promises";
+import { existsSync as existsSync6, realpathSync, statSync as statSync4 } from "node:fs";
 import { isAbsolute as isAbsolute4, relative, sep } from "node:path";
-var MAX_FILE_PATH_CHARS = 4096;
-var EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
+import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { Worker as Worker2 } from "node:worker_threads";
+
+// src/local-path.ts
+import { lstatSync as lstatSync2, readlinkSync as readlinkSync3 } from "node:fs";
+import { parse as parse2, resolve as resolve8 } from "node:path";
 var NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
-var HASH_CHUNK_BYTES = 1 << 20;
+var ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE = /^[\\/]|^[A-Za-z]:(?![\\/])/;
+var PATH_SEPARATORS = /[\\/]+/;
+var MAX_LINK_HOPS = 32;
+function stampOf(stats) {
+  return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
+}
+function sameStamp(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
+function segmentsBelowRoot(path4) {
+  const { root } = parse2(path4);
+  return { root, segments: path4.slice(root.length).split(PATH_SEPARATORS).filter((segment) => segment.length > 0) };
+}
+function linkTargetRefusal(target) {
+  if (NETWORK_OR_DEVICE_PATH.test(target)) return `links to ${target}, a network or device path`;
+  if (process.platform === "win32" && ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE.test(target)) return `links to ${target}, a path on no drive letter (an NT or rooted path)`;
+  return void 0;
+}
+function linkOffMachine(path4) {
+  let { root: walked, segments } = segmentsBelowRoot(resolve8(path4));
+  let hops = 0;
+  while (segments.length > 0) {
+    const [segment, ...rest] = segments;
+    const next = resolve8(walked, segment);
+    let stats;
+    try {
+      stats = lstatSync2(next);
+    } catch (error) {
+      const missing = error.code === "ENOENT";
+      if (hops === 0) return missing ? void 0 : `could not be checked: ${next} cannot be read (${error.message})`;
+      if (missing) return `links to ${next}, which does not exist`;
+      return `goes through ${next}, reached through a link, which cannot be read (${error.message}), so it is not followed`;
+    }
+    segments = rest;
+    if (!stats.isSymbolicLink()) {
+      walked = next;
+      continue;
+    }
+    hops += 1;
+    if (hops > MAX_LINK_HOPS) return `goes through more than ${MAX_LINK_HOPS} links`;
+    let target;
+    try {
+      target = readlinkSync3(next);
+    } catch (error) {
+      return `goes through ${next}, a link whose target cannot be read (${error.message}), so it is not followed`;
+    }
+    const refusal = linkTargetRefusal(target);
+    if (refusal !== void 0) return refusal;
+    const landed = segmentsBelowRoot(resolve8(walked, target));
+    walked = landed.root;
+    segments = [...landed.segments, ...segments];
+  }
+  return void 0;
+}
+
+// src/files.ts
+var MAX_FILE_PATH_CHARS = 4096;
+var HASH_WORKER_BUNDLE = "file-hash-worker.mjs";
+var EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
+var CHECKPOINT_INTERVAL_MS = 50;
 function parseAccept(accept, where) {
   if (typeof accept !== "string" || accept.trim().length === 0) fail("bad_recipe", `${where}.accept must be a comma-separated list of extensions such as ".mp4,.mov"`);
   const extensions = accept.split(",").map((token) => token.trim().toLowerCase());
@@ -12507,58 +12568,90 @@ function requireAbsolutePath(path4, name, code) {
   if (NETWORK_OR_DEVICE_PATH.test(path4)) fail(code, `${name}: ${path4} is a network or device path; only a file on this machine's own drives is uploaded`);
   return path4;
 }
-function stampOf(stats) {
-  return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
-}
-function sameStamp(a, b) {
-  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+function refuseUnreadable(error, path4, name, code) {
+  if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
+  fail(code, `${name}: ${path4} could not be read (${error.message})`);
 }
 function requireLocalFile(path4, name, code, protectedRoot) {
   requireAbsolutePath(path4, name, code);
+  const refusal = linkOffMachine(path4);
+  if (refusal !== void 0) fail(code, `${name}: ${path4} ${refusal}; only a file on this machine's own drives is uploaded`);
   let real;
   let stats;
+  let realRoot;
   try {
     real = realpathSync.native(path4);
-    if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path4} lives on a network share; only a file on this machine's own drives is uploaded`);
+  } catch (error) {
+    refuseUnreadable(error, path4, name, code);
+  }
+  if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path4} lives on a network share; only a file on this machine's own drives is uploaded`);
+  try {
     stats = statSync4(real);
   } catch (error) {
-    if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
-    throw error;
+    refuseUnreadable(error, path4, name, code);
   }
   if (!stats.isFile()) fail(code, `${name}: ${path4} is not a file`);
-  const fromRoot = relative(realpathSync.native(protectedRoot), real);
+  try {
+    realRoot = realpathSync.native(protectedRoot);
+  } catch (error) {
+    fail(code, `${name}: ${path4} could not be checked against the browser's own data (${error.message})`);
+  }
+  const fromRoot = relative(realRoot, real);
   if (fromRoot === "" || fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute4(fromRoot)) {
     fail(code, `${name}: ${path4} is the browser's own data (profiles, saved passwords), which is never uploaded`);
   }
   return { real, stamp: stampOf(stats) };
 }
-async function identifyLocalFile(path4, name, code, protectedRoot) {
+async function identifyLocalFile(path4, name, code, protectedRoot, checkpoint = () => void 0) {
   const { real, stamp } = requireLocalFile(path4, name, code, protectedRoot);
-  const handle = await open(real, "r");
-  try {
-    const hash = createHash5("sha256");
-    const chunk2 = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
-    for (; ; ) {
-      const { bytesRead } = await handle.read(chunk2, 0, HASH_CHUNK_BYTES, null);
-      if (bytesRead === 0) break;
-      hash.update(chunk2.subarray(0, bytesRead));
+  checkpoint();
+  const hashed = await hashOffThread(real, checkpoint);
+  if ("refused" in hashed) fail(code, `${name}: ${path4} ${hashed.refused} by the time it was read; only a file on this machine's own drives is uploaded`);
+  if ("error" in hashed) fail(code, `${name}: ${path4} could not be read (${hashed.error})`);
+  if (!sameStamp(stamp, hashed.stamp)) fail(code, `${name}: ${path4} changed while it was being read; let whatever writes it finish, then publish again`);
+  return { path: path4, real, size: hashed.stamp.size, sha256: hashed.sha256, stamp: hashed.stamp };
+}
+function hashWorkerEntry() {
+  const bundled = new URL(`./${HASH_WORKER_BUNDLE}`, import.meta.url);
+  return existsSync6(fileURLToPath4(bundled)) ? bundled : new URL("./file-hash-worker.ts", import.meta.url);
+}
+function hashOffThread(real, checkpoint) {
+  const { promise, resolve: resolve9, reject } = Promise.withResolvers();
+  const worker = new Worker2(hashWorkerEntry(), { workerData: { real } });
+  const poll = setInterval(() => {
+    try {
+      checkpoint();
+    } catch (error) {
+      clearInterval(poll);
+      reject(error);
+      void worker.terminate();
     }
-    const after = stampOf(await handle.stat());
-    if (!sameStamp(stamp, after)) fail(code, `${name}: ${path4} changed while it was being read; let whatever writes it finish, then publish again`);
-    return { path: path4, real, size: after.size, sha256: hash.digest("hex"), stamp: after };
-  } finally {
-    await handle.close();
-  }
+  }, CHECKPOINT_INTERVAL_MS);
+  worker.once("message", (reply2) => {
+    clearInterval(poll);
+    resolve9(reply2);
+  });
+  worker.once("error", (error) => {
+    clearInterval(poll);
+    resolve9({ error: `the file-hash worker failed: ${error.message}` });
+  });
+  worker.once("exit", (exitCode) => {
+    clearInterval(poll);
+    resolve9({ error: `the file-hash worker exited with code ${exitCode} before it answered` });
+  });
+  return promise;
 }
 function requireUnchanged(file, name) {
+  const refusal = linkOffMachine(file.real);
+  if (refusal !== void 0) throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} now ${refusal}; nothing was attached`);
   let now;
   try {
     now = stampOf(statSync4(file.real));
   } catch (error) {
-    throw new ActionNotDispatched("file_changed", `${name}: ${file.path} could not be read again before it was attached (${error.message}); nothing was attached`);
+    throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} could not be read again before it was attached (${error.message}); nothing was attached`);
   }
   if (!sameStamp(file.stamp, now)) {
-    throw new ActionNotDispatched("file_changed", `${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
+    throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
   }
 }
 function identityOf(file) {
@@ -12568,7 +12661,7 @@ function identityOf(file) {
 // src/presets.ts
 import { readdir as readdir2, readFile as readFile2 } from "node:fs/promises";
 import { basename as basename3, extname as extname2, join as join11 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 
 // src/publish.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
@@ -13064,8 +13157,8 @@ async function waitSettled(publication, ms) {
   if (TERMINAL.includes(publication.record.status)) return;
   const preparing = publication.record.status === "preparing";
   const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
-  const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
-  const timer = setTimeout(resolve8, Math.max(0, preparing || publication.confirming ? ms : Math.min(ms, untilExpiry)));
+  const { promise: elapsed, resolve: resolve9 } = Promise.withResolvers();
+  const timer = setTimeout(resolve9, Math.max(0, preparing || publication.confirming ? ms : Math.min(ms, untilExpiry)));
   await Promise.race([publication.settled.promise, ...preparing ? [publication.parked.promise] : [], elapsed]);
   clearTimeout(timer);
   expireIfDue(publication);
@@ -13118,7 +13211,7 @@ var NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
 var MAX_PLATFORM_CHARS = 40;
 var MAX_NOTES_CHARS = 8e3;
 var PLACEHOLDER_PATH = "/";
-var PRESETS_DIR = fileURLToPath4(new URL("../recipes/", import.meta.url));
+var PRESETS_DIR = fileURLToPath5(new URL("../recipes/", import.meta.url));
 var PRESET_KEYS = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "files", "steps", "submit", "receipt"];
 var FILE_KEYS = ["label", "selector", "accept", "optional"];
 async function loadPresets(dir = PRESETS_DIR) {
@@ -13387,7 +13480,7 @@ async function reapChildren({ parentPid = process.pid, owned: owned2 = ownedPids
 
 // src/runtime.ts
 import { randomBytes as randomBytes9 } from "node:crypto";
-import { existsSync as existsSync7, watch } from "node:fs";
+import { existsSync as existsSync8, watch } from "node:fs";
 import { join as join15 } from "node:path";
 
 // src/probe-timing.ts
@@ -13625,7 +13718,7 @@ function seal(password, origin, key) {
   const data = Buffer.concat([cipher.update(password, "utf8"), cipher.final()]);
   return `gcm1:${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${data.toString("base64")}`;
 }
-function open2(sealed, origin, key) {
+function open(sealed, origin, key) {
   const parts = SEALED.exec(sealed);
   if (parts === null) fail("credentials_unreadable", UNREADABLE);
   try {
@@ -13657,7 +13750,7 @@ function read(file, key) {
   const stored = origins;
   if (version !== 1 && version !== 2 && version !== void 0) fail("credentials_unreadable", UNREADABLE);
   const clear = {};
-  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open2(value, origin, key.existing()) : value;
+  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open(value, origin, key.existing()) : value;
   if (version !== 2 && Object.keys(clear).length > 0) migrate(file, clear, key);
   return clear;
 }
@@ -13726,8 +13819,8 @@ function createEngineDriver(engine, options) {
 }
 
 // src/publish-approval.ts
-import { createHash as createHash6 } from "node:crypto";
-import { open as open3, readdir as readdir3, readFile as readFile3, unlink } from "node:fs/promises";
+import { createHash as createHash5 } from "node:crypto";
+import { open as open2, readdir as readdir3, readFile as readFile3, unlink } from "node:fs/promises";
 import { join as join13 } from "node:path";
 var BINDING_DOMAIN = "publish-approval/v1";
 var MAX_APPROVAL_MS = 24 * 60 * 6e4;
@@ -13744,7 +13837,7 @@ function bindingOf(binding) {
     [...binding.values],
     ...files.length === 0 ? [] : [Object.fromEntries(files.map(([label, file]) => [label, [file.path, file.size, file.sha256]]))]
   ];
-  return createHash6("sha256").update(JSON.stringify(hashed)).digest("hex");
+  return createHash5("sha256").update(JSON.stringify(hashed)).digest("hex");
 }
 var UNTOUCHED = {
   park: "Nothing was typed or clicked.",
@@ -13772,7 +13865,7 @@ var PublishApprovals = class {
     for (const approval of found.live) {
       const marker = join13(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
       try {
-        await (await open3(marker, "wx")).close();
+        await (await open2(marker, "wx")).close();
       } catch (error) {
         if (error.code === "EEXIST") {
           found.used.push(approval);
@@ -14006,7 +14099,7 @@ function privateReason(host) {
   return `private address: ${host} is loopback, private or link-local; browser_read reads the public web only`;
 }
 var systemResolve = async (host) => (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
-function readPolicy(allowPrivateHosts = [], resolve8 = systemResolve) {
+function readPolicy(allowPrivateHosts = [], resolve9 = systemResolve) {
   const allowed = new Set(allowPrivateHosts.map((host) => host.toLowerCase()));
   const resolved = /* @__PURE__ */ new Map();
   const privateHost = (url) => {
@@ -14019,7 +14112,7 @@ function readPolicy(allowPrivateHosts = [], resolve8 = systemResolve) {
     if (host === "" || allowed.has(host)) return Promise.resolve(null);
     let answer = resolved.get(host);
     if (!answer) {
-      answer = resolveReason(host, resolve8);
+      answer = resolveReason(host, resolve9);
       resolved.set(host, answer);
     }
     return answer;
@@ -14047,12 +14140,12 @@ function readPolicy(allowPrivateHosts = [], resolve8 = systemResolve) {
     }
   };
 }
-async function resolveReason(host, resolve8) {
+async function resolveReason(host, resolve9) {
   if (LOCAL_NAME.test(host)) return privateReason(host);
   const literal = host.replace(/^\[|\]$/g, "");
   if (isIPv4(literal) || isIPv6(literal)) return isPrivateAddress(literal) ? privateReason(host) : null;
   try {
-    return (await resolve8(host)).some(isPrivateAddress) ? privateReason(host) : null;
+    return (await resolve9(host)).some(isPrivateAddress) ? privateReason(host) : null;
   } catch {
     return null;
   }
@@ -14060,11 +14153,11 @@ async function resolveReason(host, resolve8) {
 
 // src/task.ts
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync6 } from "node:fs";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
+import { existsSync as existsSync7 } from "node:fs";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 import { createInterface as createInterface2 } from "node:readline";
 import { join as join14 } from "node:path";
-var PYTHON_DIR = fileURLToPath5(new URL("../python/", import.meta.url));
+var PYTHON_DIR = fileURLToPath6(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var EXIT_DRAIN_MS = 2e3;
 var STDERR_KEEP = 4096;
@@ -14076,7 +14169,7 @@ function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
   const venv = process.platform === "win32" ? join14(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join14(PYTHON_DIR, ".venv", "bin", "python");
-  if (!existsSync6(venv)) {
+  if (!existsSync7(venv)) {
     fail(
       "python_env_missing",
       `The jev task agent needs its pinned Python environment. Run: cd "${PYTHON_DIR}" && uv sync --python 3.12 (or set DIM_BROWSER_PYTHON to an interpreter that has it).`
@@ -14205,10 +14298,10 @@ function startWorker(job, onStep) {
   child.stdin.write(`${JSON.stringify(job)}
 `);
   let killTimer;
-  const done = new Promise((resolve8) => {
+  const done = new Promise((resolve9) => {
     const finish = (reason2) => {
       clearTimeout(killTimer);
-      resolve8(result2 ?? { status: "failed", summary: privateAddress(`${reason2}${stderr() ? `: ${stderr().trim().slice(-600)}` : ""}`), steps: 0, elapsedMs: 0, usage: usageOf({}) });
+      resolve9(result2 ?? { status: "failed", summary: privateAddress(`${reason2}${stderr() ? `: ${stderr().trim().slice(-600)}` : ""}`), steps: 0, elapsedMs: 0, usage: usageOf({}) });
       lines.close();
       child.stdout.destroy();
       child.stderr.destroy();
@@ -14357,12 +14450,12 @@ async function createGuardedTaskEndpoint(upstreamUrl, authorize) {
     }
   };
   try {
-    await new Promise((resolve8, reject) => {
+    await new Promise((resolve9, reject) => {
       const onError = () => reject(new Error("Cannot listen for guarded CDP task"));
       server2.once("error", onError);
       server2.listen(0, HOST, () => {
         server2.off("error", onError);
-        resolve8();
+        resolve9();
       });
     });
     const address = server2.address();
@@ -14688,6 +14781,7 @@ var BrowserRuntime = class {
         task: null,
         worker: null,
         publish: null,
+        refusedBeforePage: null,
         secrets: /* @__PURE__ */ new Set(),
         logRead: 0,
         logNoticed: 0,
@@ -15221,8 +15315,8 @@ var BrowserRuntime = class {
       const scroll = await entry.driver.scroll();
       if (scroll.x === from.x && scroll.y === from.y) return { shot, scroll };
       if (attempt === SCROLL_SETTLE_ATTEMPTS) fail("stale_frame", "The page kept scrolling while the picture was taken; request a new frame.");
-      const { promise: rested, resolve: resolve8 } = Promise.withResolvers();
-      setTimeout(resolve8, SCROLL_SETTLE_MS);
+      const { promise: rested, resolve: resolve9 } = Promise.withResolvers();
+      setTimeout(resolve9, SCROLL_SETTLE_MS);
       await rested;
     }
   }
@@ -15455,7 +15549,7 @@ var BrowserRuntime = class {
       for (const profile2 of Object.keys(this.store.allConnections())) this.observedProfiles.add(profile2);
       try {
         this.profileWatcher = watch(this.store.profilesRoot, { persistent: false }, () => {
-          const gone = [...this.observedProfiles].filter((profile2) => !existsSync7(this.store.profileDir(profile2)));
+          const gone = [...this.observedProfiles].filter((profile2) => !existsSync8(this.store.profileDir(profile2)));
           if (gone.length === 0) return;
           for (const profile2 of gone) {
             this.observedProfiles.delete(profile2);
@@ -15624,8 +15718,8 @@ var BrowserRuntime = class {
     clearTimeout(entry.probe.timer);
     clearTimeout(entry.probe.relook);
     let timer;
-    const giveUp = new Promise((resolve8) => {
-      timer = setTimeout(resolve8, PROBE_CLOSE_MS);
+    const giveUp = new Promise((resolve9) => {
+      timer = setTimeout(resolve9, PROBE_CLOSE_MS);
     });
     try {
       await Promise.race([(async () => {
@@ -16130,8 +16224,8 @@ ${host}`;
     if (!entry.task) fail("no_task", "no task has run on this browser");
     const worker = entry.worker;
     if (worker) {
-      const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
-      const timer = setTimeout(resolve8, Math.max(0, ms));
+      const { promise: elapsed, resolve: resolve9 } = Promise.withResolvers();
+      const timer = setTimeout(resolve9, Math.max(0, ms));
       await Promise.race([worker.finished, elapsed]);
       clearTimeout(timer);
     }
@@ -16185,32 +16279,25 @@ ${host}`;
         return this.reportCheck(profile2, valid.origin, this.redact(entry, outcome2));
       }, { guard });
     }
-    const files = {};
-    for (const file of valid.files ?? []) files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
-    const binding = {
+    for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+    const post = {
       origin: valid.origin,
       profile: profile2,
       ...preset === void 0 ? {} : { preset: preset.name },
-      values: valid.fields.map((field) => field.value),
-      files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)]))
+      values: valid.fields.map((field) => field.value)
     };
+    let previous = null;
     const publication = await this.serialize(entry, async () => {
       this.admitPublish(entry, caller);
       entry.starting = "post";
       try {
-        const held = valid.files === void 0 ? void 0 : await this.publishApprovals.consume(binding, "park");
-        if (held === void 0) await this.publishApprovals.require(binding, "park");
-        try {
-          if (guard !== void 0) await guard();
-          guard?.assertCurrent();
-        } catch (error) {
-          await held?.release();
-          throw error;
-        }
+        if (valid.files === void 0) await this.publishApprovals.require(post, "park");
+        if (guard !== void 0) await guard();
+        guard?.assertCurrent();
         const started2 = startPublication(valid, profile2);
         started2.sharedPage = entry.engine === "chrome-relay";
         if (preset !== void 0) started2.record.preset = { name: preset.name, verified: preset.verified };
-        if (held !== void 0) started2.held = held;
+        previous = entry.publish;
         entry.publish = started2;
         return started2;
       } finally {
@@ -16220,10 +16307,10 @@ ${host}`;
     const preparing = guardedBy(options.workerGuard ?? guard, () => {
       if (publication.record.status !== "preparing" || publication.cancelRequested !== void 0) fail("cancelled", "the publish was cancelled while it was being prepared");
     });
-    const prepared = this.prepareInBackground(entry, profile2, valid, files, publication, preparing);
+    const prepared = this.prepareInBackground(entry, profile2, valid, post, publication, previous, preparing);
     if (options.waitMs !== void 0) {
-      const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
-      const timer = setTimeout(resolve8, Math.max(0, startedAt + options.waitMs - Date.now()));
+      const { promise: elapsed, resolve: resolve9 } = Promise.withResolvers();
+      const timer = setTimeout(resolve9, Math.max(0, startedAt + options.waitMs - Date.now()));
       await Promise.race([prepared, elapsed]);
       clearTimeout(timer);
       if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
@@ -16241,8 +16328,21 @@ ${host}`;
     if (shown2.status !== "failed") this.observeConnection(profile2, origin, shown2.status === "signed-in", shown2.account);
     return shown2;
   }
-  async prepareInBackground(entry, profile2, valid, files, publication, guard) {
+  async prepareInBackground(entry, profile2, valid, post, publication, previous, guard) {
     entry.pending += 1;
+    let files;
+    try {
+      files = await this.approveFiles(valid, post, publication, guard);
+    } catch (error) {
+      const coded = error instanceof BrowserRuntimeError && !error.message.startsWith(`${error.code}:`) ? new Error(`${error.code}: ${error.message}`) : error;
+      failPreparation(publication, coded instanceof Error ? coded : new Error(String(coded)));
+      await this.endPreparation(entry, publication);
+      if (entry.publish === publication) {
+        entry.publish = previous;
+        entry.refusedBeforePage = publication;
+      }
+      return { error };
+    }
     try {
       const outcome = await prepare(entry.driver, profile2, valid, "post", guard, files, publication);
       if ("record" in outcome) return {};
@@ -16253,12 +16353,27 @@ ${host}`;
       failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
       return { error };
     } finally {
-      entry.pending -= 1;
-      entry.lastUsed = performance.now();
-      if (publication.held !== void 0 && !publication.attached && publication.record.status !== "awaiting-confirmation") {
-        await publication.held.release();
-        delete publication.held;
-      }
+      await this.endPreparation(entry, publication);
+    }
+  }
+  async approveFiles(valid, post, publication, guard) {
+    const files = {};
+    if (valid.files === void 0) return files;
+    for (const file of valid.files) {
+      files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir, guard.assertCurrent);
+    }
+    guard.assertCurrent();
+    publication.held = await this.publishApprovals.consume({ ...post, files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)])) }, "park");
+    await guard();
+    guard.assertCurrent();
+    return files;
+  }
+  async endPreparation(entry, publication) {
+    entry.pending -= 1;
+    entry.lastUsed = performance.now();
+    if (publication.held !== void 0 && !publication.attached && publication.record.status !== "awaiting-confirmation") {
+      await publication.held.release();
+      delete publication.held;
     }
   }
   async confirmPublish(browserId, publishId, caller, expect, guard) {
@@ -16305,8 +16420,8 @@ ${host}`;
       const current = entry.publish;
       if (current?.record.publishId === publishId && current.record.status === "preparing") {
         cancel(current);
-        const { promise: elapsed, resolve: resolve8 } = Promise.withResolvers();
-        const timer = setTimeout(resolve8, CANCEL_PREPARING_WAIT_MS);
+        const { promise: elapsed, resolve: resolve9 } = Promise.withResolvers();
+        const timer = setTimeout(resolve9, CANCEL_PREPARING_WAIT_MS);
         await Promise.race([current.settled.promise, elapsed]);
         clearTimeout(timer);
         return this.redact(entry, publishRecord(current));
@@ -16319,8 +16434,8 @@ ${host}`;
   /** Not queued: it only reads the record, and must not wait behind a confirm. */
   async waitPublish(browserId, publishId, ms) {
     const entry = this.require(browserId);
-    const publication = entry.publish;
-    if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+    const publication = entry.publish?.record.publishId === publishId ? entry.publish : entry.refusedBeforePage?.record.publishId === publishId ? entry.refusedBeforePage : null;
+    if (publication === null) fail("unknown_publish", "no such publish on this browser");
     await waitSettled(publication, ms);
     return this.redact(entry, publishRecord(publication));
   }
@@ -17154,9 +17269,9 @@ var LiveChannel = class {
       server2.requestTimeout = 0;
       server2.keepAliveTimeout = 5e3;
       server2.on("connection", (socket) => socket.setNoDelay(true));
-      const { promise, resolve: resolve8, reject } = Promise.withResolvers();
+      const { promise, resolve: resolve9, reject } = Promise.withResolvers();
       server2.once("error", reject);
-      server2.listen(0, "127.0.0.1", resolve8);
+      server2.listen(0, "127.0.0.1", resolve9);
       await promise;
       this.#server = server2;
       this.#port = server2.address().port;
@@ -17333,7 +17448,7 @@ var LiveChannel = class {
 var plugin_default = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   name: "browser",
-  version: "0.9.11",
+  version: "0.9.12",
   description: "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
   keywords: [
     "browser",
@@ -17604,7 +17719,7 @@ async function createBrowserServer(options = {}) {
   const modelTools = codeHostOff ? "steps" : requestedTools;
   const stepMeta = stepToolMeta(modelTools);
   const live = new LiveChannel(runtime);
-  const viewDir = options.viewDir ?? fileURLToPath6(new URL("./dist/", import.meta.url));
+  const viewDir = options.viewDir ?? fileURLToPath7(new URL("./dist/", import.meta.url));
   const html = await readFile4(join16(viewDir, "index.html"), "utf8");
   const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false, csp: VIEW_CSP } };

@@ -19,9 +19,6 @@ for (const declaration of declared) {
   if (issues.length) throw new Error(issues.map(issue => issue.message).join("\n"));
 }
 await mkdir(resolve(root, "app"), { recursive: true });
-// Two Node entries, one set of options: the MCP server, and the code worker (a `worker_threads` thread per session that runs the
-// model's `browser_run` cells, doc 77 §7.4.4). The server resolves the worker as `./code-worker.mjs` beside itself. The cell's
-// facade, the model-facing text and the ARIA snapshot bundle are text modules.
 const nodeBundle = {
   bundle: true,
   platform: "node",
@@ -34,6 +31,7 @@ const nodeBundle = {
 };
 await buildServer({ ...nodeBundle, entryPoints: [resolve(root, "src/stdio.ts")], outfile: resolve(root, "app/server.mjs") });
 await buildServer({ ...nodeBundle, entryPoints: [resolve(root, "src/code/worker/entry.ts")], outfile: resolve(root, "app/code-worker.mjs") });
+await buildServer({ ...nodeBundle, entryPoints: [resolve(root, "src/file-hash-worker.ts")], outfile: resolve(root, "app/file-hash-worker.mjs") });
 // The MCP entry: a launcher that checks the runtime before it loads anything (and, under Bun, relaunches under a real Node: src/launch-node.ts). It imports no server code, only the server bundle by URL at run time.
 await buildServer({ ...nodeBundle, entryPoints: [resolve(root, "src/launch.ts")], outfile: resolve(root, "app/launch.mjs") });
 await buildAgentPuppeteer({ outfile: resolve(root, "app/puppeteer-agent.mjs") });

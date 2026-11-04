@@ -728,12 +728,34 @@ as data, so the pack's code stays platform-agnostic:
   script. A path must be absolute, on this machine's own drives, and exist
   (`bad_file` names the slot otherwise); a UNC, `\\?\UNC`, `\\.\` or `//` path is
   refused by its text before any filesystem call, so the host never connects to
-  a share, and a path that resolves onto a share is refused too. Nothing under
-  this pack's root is ever sent. Chrome is handed the resolved path, and right
-  before it is set the file's device, inode, size and modification and change
-  times are checked against what was read when it was hashed (`file_changed`,
-  nothing attached, if any differs). The record lists them as
-  `files: [{ label, path }]` and the confirm bar shows each one.
+  a share. A path that goes through a symlink or junction is walked one link at
+  a time with `lstat`/`readlink`, and a link whose target is a network or device
+  path (`links to … a network or device path`), on Windows a target with no
+  drive letter (an NT path such as `\Device\Mup\…` or a rooted `\…`), a link
+  whose target cannot be read, a link to something that does not exist
+  (`links to …, which does not exist`), a component reached through a link that
+  cannot be read, or more than 32 links is refused before the operating system
+  follows anything; a component that cannot be read before any link
+  (`could not be checked: … cannot be read`) is refused too. The walk runs three
+  times, and each walk is followed by a call that follows the path by name: the
+  first by the `realpath` and `stat` when the call is made, the second (on the
+  worker thread) by the open that hashes the file, the third by Chrome opening
+  the path right before it is attached. Two gaps remain, stated so nobody reads
+  more into it: a link to a drive letter that is itself a mapped network drive
+  or a `subst` of a share is followed (the share is one the user mapped) and
+  refused only after it resolves onto the share; and in each of those three
+  windows between a walk and the call that follows it, a process that may
+  create symlinks as this user could swap a component (Chrome takes a path, not
+  a handle). Nothing under this pack's root is ever sent. Each file is hashed
+  (SHA-256) on a worker thread, one per file, after the publish record exists,
+  so a gigabyte file neither holds the server's event loop nor the call past
+  `waitSeconds`, and a cancel stops the hash; a file refused there, one that
+  cannot be read, and a hash worker that fails fail the record with the file's
+  code (`bad_file: …`). Chrome is handed
+  the resolved path, and right before it is set the file's device, inode, size
+  and modification and change times are checked against what was read when it
+  was hashed (`file_changed: …`, nothing attached, if any differs). The record
+  lists them as `files: [{ label, path }]` and the confirm bar shows each one.
 - `steps` (shipped presets only, up to 32; a recipe the caller writes cannot
   declare them, because a wizard's clicks reach the page before any confirm): an ordered wizard for a site where one page is
   not enough. `{ kind: "field", label }` and `{ kind: "file", label }` place
@@ -770,11 +792,19 @@ as data, so the pack's code stays platform-agnostic:
   as `awaiting-confirmation`, recording the active tab and its URL as
   `composeUrl` (where the post goes). It runs in the background of the call:
   `browser_publish` waits up to `waitSeconds` (default and max 25, counted from
-  the call's start, inside the host's 30 s limit) and, when a long wizard (YouTube
-  Studio's upload) has not parked by then, returns its record as `preparing`.
-  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed`;
-  `browser_publish_cancel` stops it at its next step and reports `cancelled`
-  once it has stopped. A host timing the call out does not stop it, so it never
+  the call's start, inside the host's 30 s limit) and, when the files are still
+  being hashed or a long wizard (YouTube Studio's upload) has not parked by then,
+  returns its record as `preparing`. A second publish on the same browser is
+  refused `publish_pending` at once, without hashing anything.
+  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed`. A
+  publish that ends before its page is opened, after `preparing` was returned
+  or not (a refused approval, whose error starts `publish_unapproved:`, a
+  refused file, or a cancel during the hash), ends that record, which
+  `browser_publish_wait` still answers by its `publishId`, and the browser's
+  current publish goes back to the one before it, so the earlier post's record
+  and url stay where they were;
+  `browser_publish_cancel` stops it at its next step (or its hash) and reports
+  `cancelled` once it has stopped. A host timing the call out does not stop it, so it never
   leaves a draft nobody is told about. **Nothing is submitted.** The Browser View
   shows a confirm bar with that URL, the profile and every value. A confirm
   submits: the model's `browser_publish_confirm` or the bar's **Post** (the same
@@ -1068,3 +1098,21 @@ password) lives in a directory it makes under `.scratch/browser-bench/`
 `~/.inso-dev`. It refuses to start when `DIMENSION_BROWSER_ROOT` or `INSO_HOME`
 points into them, unless `--root <dir>` names a directory to use instead (kept
 after the run).
+
+`node bench/stress-publish.mjs` (Windows only; it exits 2 elsewhere) stresses
+`browser_publish` with large files. Build first (`bun scripts/build.mjs`): it
+runs the built `app/server.mjs` under Node over stdio, `--servers` of them
+(default 6) with four headless Chromes each, every browser publishing one shared
+`--size-mb` file (default 1024) at once against a fake Studio page it serves on
+127.0.0.1, plus a duplicate publish per server; then, on one idle server, the
+hash rate (`--repeats`, default 3), `waitSeconds: 1` against a page held 3 s, a
+file swapped after park started, a cancel while preparing, and UNC, device,
+pipe and NT paths. The four symlink cases need the right to create symlinks
+(Developer Mode or an elevated shell); without it the run says so and fails
+that check. It probes each server's event loop in-process (delay histogram,
+utilization, RSS every 100 ms). It refuses to start with less than the file
+plus 1.5 GiB free on the volume of `.scratch/`, keeps everything (the file, the
+browser profiles) in a directory it makes under `.scratch/browser-publish-stress/`
+and deletes it at exit, then checks that no process of the run is still alive.
+Results: a table on stdout and `bench/results/<timestamp>-publish-stress.{md,json}`;
+it exits 1 if any check failed.
