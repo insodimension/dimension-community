@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { parentPort, workerData } from "node:worker_threads";
 import type { FileHashReply, FileHashRequest } from "./files.js";
+import { linkOffMachine, stampOf } from "./local-path.js";
 
 const HASH_CHUNK_BYTES = 1 << 20;
 
 async function hashFile({ real }: FileHashRequest): Promise<FileHashReply> {
+	const refused = linkOffMachine(real);
+	if (refused !== undefined) return { refused };
 	const handle = await open(real, "r");
 	try {
 		const hash = createHash("sha256");
@@ -15,8 +18,7 @@ async function hashFile({ real }: FileHashRequest): Promise<FileHashReply> {
 			if (bytesRead === 0) break;
 			hash.update(chunk.subarray(0, bytesRead));
 		}
-		const after = await handle.stat();
-		return { sha256: hash.digest("hex"), stamp: { dev: after.dev, ino: after.ino, size: after.size, mtimeMs: after.mtimeMs, ctimeMs: after.ctimeMs } };
+		return { sha256: hash.digest("hex"), stamp: stampOf(await handle.stat()) };
 	} finally {
 		await handle.close();
 	}

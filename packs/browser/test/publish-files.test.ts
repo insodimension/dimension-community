@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, realpath, symlink, truncate, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -20,6 +21,21 @@ const CALLER = "ai.insodimension/caller";
 const TITLE = "Dry Run, the film";
 const DESCRIPTION = "A film about a dry run.\nSecond line ünïcødé 🚀";
 const HASHED_BYTES = 256 * 1024 * 1024;
+
+async function canMakeSymlinks(): Promise<boolean> {
+	const dir = await mkdtemp(join(tmpdir(), "dimension-browser-symlink-probe-"));
+	try {
+		await symlink(join(dir, "target"), join(dir, "link"), "file");
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+		throw error;
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+const symlinksAllowed = await canMakeSymlinks();
 
 interface ToolResult {
 	isError?: boolean;
@@ -168,7 +184,7 @@ describe("preset file slots and wizard steps", () => {
 		}
 	});
 
-	test("a symlink whose target is a network share is refused at the link, before the operating system follows it; a link to a local file still resolves", async () => {
+	test.skipIf(!symlinksAllowed)("a symlink whose target is a network share, an NT or rooted path, or a dangling hop is refused at the link, before the operating system follows it; a link to a local file still resolves", async () => {
 		const dir = await createRoot();
 		const share = process.platform === "win32" ? "\\\\unc-refusal.invalid\\share\\master.mp4" : "//unc-refusal.invalid/share/master.mp4";
 		const real = join(dir, "master.mp4");
@@ -176,18 +192,20 @@ describe("preset file slots and wizard steps", () => {
 		await writeFile(real, "local bytes");
 		const direct = join(dir, "direct.mp4");
 		const chained = join(dir, "chained.mp4");
+		const dangling = join(dir, "dangling.mp4");
 		const local = join(dir, "local.mp4");
-		try {
-			await symlink(share, direct, "file");
-			await symlink(share, join(dir, "hop.mp4"), "file");
-			await symlink("hop.mp4", chained, "file");
-			await symlink(real, local, "file");
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EPERM") return;
-			throw error;
-		}
-		for (const path of [direct, chained]) {
-			expect(() => requireLocalFile(path, 'file "Video"', "bad_file", join(dir, "browser-root"))).toThrow(`links to ${share}, a network or device path`);
+		await symlink(share, direct, "file");
+		await symlink(share, join(dir, "hop.mp4"), "file");
+		await symlink("hop.mp4", chained, "file");
+		await symlink(join(dir, "gone", "master.mp4"), dangling, "file");
+		await symlink(real, local, "file");
+		const refusal = (path: string) => () => requireLocalFile(path, 'file "Video"', "bad_file", join(dir, "browser-root"));
+		for (const path of [direct, chained]) expect(refusal(path)).toThrow(`links to ${share}, a network or device path`);
+		expect(refusal(dangling)).toThrow("which cannot be checked without following a link");
+		if (process.platform === "win32") {
+			const rooted = join(dir, "rooted.mp4");
+			await symlink("\\Device\\Mup\\unc-refusal.invalid\\share\\master.mp4", rooted, "file");
+			expect(refusal(rooted)).toThrow(/a path on no drive letter \(an NT or rooted path\)|which cannot be checked without following a link/);
 		}
 		expect(requireLocalFile(local, 'file "Video"', "bad_file", join(dir, "browser-root")).real).toBe(await realpath(real));
 	});
@@ -417,6 +435,7 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 			expect(String(cancelled.structuredContent?.error)).toContain("the site may keep a private draft of this post");
 
 			expect(errorText(await publish())).toContain("was already used");
+			expect((await s.runtime.state(s.browserId)).publish).toMatchObject({ publishId: parked.structuredContent?.publishId, status: "cancelled" });
 			expect(s.fixture.uploads().map((upload) => upload.field)).toEqual(["video"]);
 
 			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
@@ -476,6 +495,30 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 			expect(String(stopped.structuredContent?.error)).toStartWith("Cancelled while it was being prepared; nothing was submitted");
 			expect(s.fixture.hits(PLATFORM_ROUTES["youtube-upload"] ?? "/")).toBe(0);
 			expect(s.fixture.uploads()).toEqual([]);
+			expect((await readdir(join(s.rootDir, "publish-approvals"))).filter((name) => name.endsWith(".used"))).toEqual([]);
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a file written to while it is hashed after the call returned preparing fails the record with its code, bad_file, and spends nothing",
+		async () => {
+			const s = await session("yt-hash-changed");
+			const video = join(await createRoot(), "master.mp4");
+			await writeFile(video, "");
+			await truncate(video, HASHED_BYTES);
+			const files = { Video: video };
+			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });
+
+			const started = await s.call("browser_publish", { browserId: s.browserId, preset: { name: "youtube-upload", values: [TITLE, DESCRIPTION], files }, mode: "post", waitSeconds: 0 });
+			expect(started.structuredContent, JSON.stringify(started.content)).toMatchObject({ status: "preparing" });
+			await truncate(video, HASHED_BYTES + 1);
+			let record = started.structuredContent;
+			while (record?.status === "preparing") record = (await s.call("browser_publish_wait", { browserId: s.browserId, publishId: started.structuredContent?.publishId, waitSeconds: 25 })).structuredContent;
+
+			expect(record).toMatchObject({ status: "failed" });
+			expect(String(record?.error)).toStartWith(`bad_file: file "Video": ${video} changed while it was being read`);
+			expect(s.fixture.hits(PLATFORM_ROUTES["youtube-upload"] ?? "/")).toBe(0);
 			expect((await readdir(join(s.rootDir, "publish-approvals"))).filter((name) => name.endsWith(".used"))).toEqual([]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,

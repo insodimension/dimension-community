@@ -19,9 +19,6 @@ for (const declaration of declared) {
   if (issues.length) throw new Error(issues.map(issue => issue.message).join("\n"));
 }
 await mkdir(resolve(root, "app"), { recursive: true });
-// Two Node entries, one set of options: the MCP server, and the code worker (a `worker_threads` thread per session that runs the
-// model's `browser_run` cells, doc 77 §7.4.4). The server resolves the worker as `./code-worker.mjs` beside itself. The cell's
-// facade, the model-facing text and the ARIA snapshot bundle are text modules.
 const nodeBundle = {
   bundle: true,
   platform: "node",

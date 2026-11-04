@@ -109,7 +109,7 @@ import { type AdmittedInput, admitInput } from "./input.js";
 import { type PublishBinding, PublishApprovals } from "./publish-approval.js";
 import { type Publication, type Recipe, cancel, confirm, failPreparation, isPending, prepare, publishRecord, requirePending, startPublication, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
-import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
+import { ActionNotDispatched, BrowserRuntimeError, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
 import { type RunningWorker, releaseSpare, startWorker } from "./task.js";
 import { createGuardedTaskEndpoint } from "./task-authority.js";
 import type { CodeLifetime, CodeSeam, EndListener, EndWhy } from "./code/host/runtime-port.js";
@@ -2338,6 +2338,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			...(preset === undefined ? {} : { preset: preset.name }),
 			values: valid.fields.map((field) => field.value),
 		};
+		let previous: Publication | null = null;
 		const publication = await this.serialize(entry, async () => {
 			this.admitPublish(entry, caller);
 			entry.starting = "post";
@@ -2348,6 +2349,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				const started = startPublication(valid, profile);
 				started.sharedPage = entry.engine === "chrome-relay";
 				if (preset !== undefined) started.record.preset = { name: preset.name, verified: preset.verified };
+				previous = entry.publish;
 				entry.publish = started;
 				return started;
 			} finally {
@@ -2367,7 +2369,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 		const outcome = await prepared;
 		if (publication.record.status === "failed" && outcome.error !== undefined) {
-			if (outcome.beforePage && entry.publish === publication) entry.publish = null;
+			if (outcome.beforePage && entry.publish === publication) entry.publish = previous;
 			throw outcome.error;
 		}
 		if (publication.record.status === "failed" && outcome.check !== undefined) return outcome.check;
@@ -2397,7 +2399,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		try {
 			files = await this.approveFiles(valid, post, publication, guard);
 		} catch (error) {
-			failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
+			const coded = error instanceof BrowserRuntimeError && !error.message.startsWith(`${error.code}:`) ? new Error(`${error.code}: ${error.message}`) : error;
+			failPreparation(publication, coded instanceof Error ? coded : new Error(String(coded)));
 			await this.endPreparation(entry, publication);
 			return { error, beforePage: true };
 		}

@@ -51,6 +51,10 @@ if (opts.help) {
   console.log(USAGE);
   process.exit(0);
 }
+if (process.platform !== "win32") {
+  console.error("The publish stress bench runs on Windows only: its device, UNC and symlink cases and its process census are Windows ones.");
+  process.exit(2);
+}
 const SERVERS = Number(opts.servers);
 const SIZE = Number(opts["size-mb"]) * 1024 * 1024;
 const REPEATS = Number(opts.repeats);
@@ -597,8 +601,8 @@ try {
 function survivors() {
   const listed = spawnSync(
     "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-Command", `@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*${runDir.replace(/'/g, "''")}*' } | ForEach-Object { $c = $_.CommandLine -replace '\\s+', ' '; '{0} {1} {2}' -f $_.ProcessId, $_.Name, $c.Substring(0, [Math]::Min(160, $c.Length)) }) -join [char]10`],
-    { encoding: "utf8", windowsHide: true },
+    ["-NoProfile", "-NonInteractive", "-Command", "@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains($env:STRESS_RUN_DIR) } | ForEach-Object { $c = $_.CommandLine -replace '\\s+', ' '; '{0} {1} {2}' -f $_.ProcessId, $_.Name, $c.Substring(0, [Math]::Min(160, $c.Length)) }) -join [char]10"],
+    { encoding: "utf8", windowsHide: true, env: { ...process.env, STRESS_RUN_DIR: runDir } },
   );
   return listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }

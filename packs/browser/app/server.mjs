@@ -12485,16 +12485,72 @@ var AnnotationFiles = class {
 };
 
 // src/files.ts
-import { existsSync as existsSync6, lstatSync as lstatSync2, readlinkSync as readlinkSync3, realpathSync, statSync as statSync4 } from "node:fs";
-import { isAbsolute as isAbsolute4, parse as parse2, relative, resolve as resolve8, sep } from "node:path";
+import { existsSync as existsSync6, realpathSync, statSync as statSync4 } from "node:fs";
+import { isAbsolute as isAbsolute4, relative, sep } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { Worker as Worker2 } from "node:worker_threads";
+
+// src/local-path.ts
+import { lstatSync as lstatSync2, readlinkSync as readlinkSync3 } from "node:fs";
+import { parse as parse2, resolve as resolve8 } from "node:path";
+var NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
+var ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE = /^[\\/]|^[A-Za-z]:(?![\\/])/;
+var PATH_SEPARATORS = /[\\/]+/;
+var MAX_LINK_HOPS = 32;
+function stampOf(stats) {
+  return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
+}
+function sameStamp(a, b) {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+}
+function segmentsBelowRoot(path4) {
+  const { root } = parse2(path4);
+  return { root, segments: path4.slice(root.length).split(PATH_SEPARATORS).filter((segment) => segment.length > 0) };
+}
+function linkTargetRefusal(target) {
+  if (NETWORK_OR_DEVICE_PATH.test(target)) return `links to ${target}, a network or device path`;
+  if (process.platform === "win32" && ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE.test(target)) return `links to ${target}, a path on no drive letter (an NT or rooted path)`;
+  return void 0;
+}
+function linkOffMachine(path4) {
+  let { root: walked, segments } = segmentsBelowRoot(resolve8(path4));
+  let hops = 0;
+  while (segments.length > 0) {
+    const [segment, ...rest] = segments;
+    const next = resolve8(walked, segment);
+    let stats;
+    try {
+      stats = lstatSync2(next);
+    } catch (error) {
+      if (hops === 0 && error.code === "ENOENT") return void 0;
+      return `goes through ${next}, which cannot be checked without following a link (${error.message})`;
+    }
+    segments = rest;
+    if (!stats.isSymbolicLink()) {
+      walked = next;
+      continue;
+    }
+    hops += 1;
+    if (hops > MAX_LINK_HOPS) return `goes through more than ${MAX_LINK_HOPS} links`;
+    let target;
+    try {
+      target = readlinkSync3(next);
+    } catch (error) {
+      return `goes through ${next}, a link whose target cannot be read (${error.message}), so it is not followed`;
+    }
+    const refusal = linkTargetRefusal(target);
+    if (refusal !== void 0) return refusal;
+    const landed = segmentsBelowRoot(resolve8(walked, target));
+    walked = landed.root;
+    segments = [...landed.segments, ...segments];
+  }
+  return void 0;
+}
+
+// src/files.ts
 var MAX_FILE_PATH_CHARS = 4096;
 var HASH_WORKER_BUNDLE = "file-hash-worker.mjs";
 var EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
-var NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
-var MAX_LINK_HOPS = 32;
-var PATH_SEPARATORS = /[\\/]+/;
 var CHECKPOINT_INTERVAL_MS = 50;
 function parseAccept(accept, where) {
   if (typeof accept !== "string" || accept.trim().length === 0) fail("bad_recipe", `${where}.accept must be a comma-separated list of extensions such as ".mp4,.mov"`);
@@ -12510,50 +12566,10 @@ function requireAbsolutePath(path4, name, code) {
   if (NETWORK_OR_DEVICE_PATH.test(path4)) fail(code, `${name}: ${path4} is a network or device path; only a file on this machine's own drives is uploaded`);
   return path4;
 }
-function stampOf(stats) {
-  return { dev: stats.dev, ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
-}
-function sameStamp(a, b) {
-  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
-}
-function segmentsBelowRoot(path4) {
-  const { root } = parse2(path4);
-  return { root, segments: path4.slice(root.length).split(PATH_SEPARATORS).filter((segment) => segment.length > 0) };
-}
-function refuseLinksOffMachine(path4, name, code) {
-  let { root: walked, segments } = segmentsBelowRoot(resolve8(path4));
-  let hops = 0;
-  while (segments.length > 0) {
-    const [segment, ...rest] = segments;
-    const next = resolve8(walked, segment);
-    let stats;
-    try {
-      stats = lstatSync2(next);
-    } catch {
-      return;
-    }
-    segments = rest;
-    if (!stats.isSymbolicLink()) {
-      walked = next;
-      continue;
-    }
-    hops += 1;
-    if (hops > MAX_LINK_HOPS) fail(code, `${name}: ${path4} goes through more than ${MAX_LINK_HOPS} links`);
-    let target;
-    try {
-      target = readlinkSync3(next);
-    } catch (error) {
-      fail(code, `${name}: ${path4} goes through ${next}, a link whose target cannot be read (${error.message}), so it is not followed`);
-    }
-    if (NETWORK_OR_DEVICE_PATH.test(target)) fail(code, `${name}: ${path4} links to ${target}, a network or device path; only a file on this machine's own drives is uploaded`);
-    const landed = segmentsBelowRoot(resolve8(walked, target));
-    walked = landed.root;
-    segments = [...landed.segments, ...segments];
-  }
-}
 function requireLocalFile(path4, name, code, protectedRoot) {
   requireAbsolutePath(path4, name, code);
-  refuseLinksOffMachine(path4, name, code);
+  const refusal = linkOffMachine(path4);
+  if (refusal !== void 0) fail(code, `${name}: ${path4} ${refusal}; only a file on this machine's own drives is uploaded`);
   let real;
   let stats;
   try {
@@ -12575,6 +12591,8 @@ async function identifyLocalFile(path4, name, code, protectedRoot, checkpoint = 
   const { real, stamp } = requireLocalFile(path4, name, code, protectedRoot);
   checkpoint();
   const hashed = await hashOffThread(real, checkpoint);
+  if ("refused" in hashed) fail(code, `${name}: ${path4} ${hashed.refused} by the time it was read; only a file on this machine's own drives is uploaded`);
+  if ("error" in hashed) fail(code, `${name}: ${path4} could not be read (${hashed.error})`);
   if (!sameStamp(stamp, hashed.stamp)) fail(code, `${name}: ${path4} changed while it was being read; let whatever writes it finish, then publish again`);
   return { path: path4, real, size: hashed.stamp.size, sha256: hashed.sha256, stamp: hashed.stamp };
 }
@@ -12596,8 +12614,7 @@ function hashOffThread(real, checkpoint) {
   }, CHECKPOINT_INTERVAL_MS);
   worker.once("message", (reply2) => {
     clearInterval(poll);
-    if ("error" in reply2) reject(new Error(reply2.error));
-    else resolve9(reply2);
+    resolve9(reply2);
   });
   worker.once("error", (error) => {
     clearInterval(poll);
@@ -12610,6 +12627,8 @@ function hashOffThread(real, checkpoint) {
   return promise;
 }
 function requireUnchanged(file, name) {
+  const refusal = linkOffMachine(file.real);
+  if (refusal !== void 0) throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} now ${refusal}; nothing was attached`);
   let now;
   try {
     now = stampOf(statSync4(file.real));
@@ -16251,6 +16270,7 @@ ${host}`;
       ...preset === void 0 ? {} : { preset: preset.name },
       values: valid.fields.map((field) => field.value)
     };
+    let previous = null;
     const publication = await this.serialize(entry, async () => {
       this.admitPublish(entry, caller);
       entry.starting = "post";
@@ -16261,6 +16281,7 @@ ${host}`;
         const started2 = startPublication(valid, profile2);
         started2.sharedPage = entry.engine === "chrome-relay";
         if (preset !== void 0) started2.record.preset = { name: preset.name, verified: preset.verified };
+        previous = entry.publish;
         entry.publish = started2;
         return started2;
       } finally {
@@ -16280,7 +16301,7 @@ ${host}`;
     }
     const outcome = await prepared;
     if (publication.record.status === "failed" && outcome.error !== void 0) {
-      if (outcome.beforePage && entry.publish === publication) entry.publish = null;
+      if (outcome.beforePage && entry.publish === publication) entry.publish = previous;
       throw outcome.error;
     }
     if (publication.record.status === "failed" && outcome.check !== void 0) return outcome.check;
@@ -16300,7 +16321,8 @@ ${host}`;
     try {
       files = await this.approveFiles(valid, post, publication, guard);
     } catch (error) {
-      failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
+      const coded = error instanceof BrowserRuntimeError && !error.message.startsWith(`${error.code}:`) ? new Error(`${error.code}: ${error.message}`) : error;
+      failPreparation(publication, coded instanceof Error ? coded : new Error(String(coded)));
       await this.endPreparation(entry, publication);
       return { error, beforePage: true };
     }
