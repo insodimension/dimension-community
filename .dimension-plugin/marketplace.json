@@ -210,7 +210,7 @@
 			"pluginId": "chat",
 			"title": "Chat",
 			"description": "A calm space for talking to Aether, with no code or branches in sight, your past sessions listed and a viewer for the documents, slides and images it makes.",
-			"version": "0.2.8",
+			"version": "0.2.9",
 			"author": {
 				"name": "Dimension"
 			},
@@ -225,7 +225,7 @@
 				"chat"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.23"
 			},
 			"spaces": [
 				{
@@ -242,12 +242,15 @@
 						"classic-switcher",
 						"chat-rail",
 						"classic-workspace",
+						"classic-dock",
 						"chat-thread",
 						"independent-composer",
 						"classic-start",
 						"swiss-knife",
 						"generative-ui",
-						"face-to-face"
+						"face-to-face",
+						"general-chat",
+						"calendar"
 					]
 				}
 			]
@@ -259,7 +262,7 @@
 			"title": "Chat Rail",
 			"icon": "panel",
 			"description": "The session list for the Chat space: only your conversations, newest first, with search, a New session button and collections you make yourself.",
-			"version": "0.1.8",
+			"version": "0.1.9",
 			"author": {
 				"name": "Dimension"
 			},
@@ -274,7 +277,7 @@
 				"chat"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.23"
 			}
 		},
 		{
