@@ -12,7 +12,7 @@
  * the page builds its receipt URL in the platform's own shape.
  */
 import { readFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { PublishPreset } from "../src/presets";
 
 /** Where each fixture is served: the path its preset composes on (Reddit: the thread a target names). */
@@ -21,7 +21,15 @@ export const PLATFORM_ROUTES: Readonly<Record<string, string>> = {
 	"bluesky-post": "/intent/compose",
 	"linkedin-post": "/feed/",
 	"reddit-comment": "/r/fixtures/comments/1fx0abc/fixture_thread/",
+	"youtube-upload": "/",
 };
+
+export interface FixtureUpload {
+	field: string;
+	name: string;
+	size: number;
+	sha256: string;
+}
 
 export interface PlatformFixture {
 	readonly origin: string;
@@ -30,6 +38,7 @@ export interface PlatformFixture {
 	hits(path: string): number;
 	/** The `text` of every create call that reached the server, in order. */
 	submissions(): readonly string[];
+	uploads(): readonly FixtureUpload[];
 	stop(): Promise<void>;
 }
 
@@ -43,11 +52,22 @@ export function startPlatformFixture(name: string): PlatformFixture {
 	const session = randomBytes(8).toString("hex");
 	const hits = new Map<string, number>();
 	const submissions: string[] = [];
+	const uploads: FixtureUpload[] = [];
 	const server = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
 		async fetch(request) {
 			const { pathname } = new URL(request.url);
+			if (request.method === "POST" && pathname === "/__upload") {
+				const form = await request.formData();
+				for (const [field, entry] of form.entries()) {
+					const file: unknown = entry;
+					if (!(file instanceof File)) continue;
+					const bytes = new Uint8Array(await file.arrayBuffer());
+					uploads.push({ field, name: file.name, size: bytes.byteLength, sha256: createHash("sha256").update(bytes).digest("hex") });
+				}
+				return Response.json({ id: `fxvid${String(uploads.length).padStart(6, "0")}` });
+			}
 			if (request.method === "POST") {
 				const body = (await request.json()) as { text?: unknown };
 				submissions.push(String(body.text));
@@ -69,6 +89,7 @@ export function startPlatformFixture(name: string): PlatformFixture {
 		url: (path) => `${origin}${path}`,
 		hits: (path) => hits.get(path) ?? 0,
 		submissions: () => submissions,
+		uploads: () => uploads,
 		stop: async () => {
 			await server.stop(true);
 		},
@@ -86,5 +107,10 @@ export function rebasePreset(preset: PublishPreset, fixtureOrigin: string): Publ
 		const url = new URL(href);
 		return `${fixtureOrigin}${url.pathname}${url.search}${url.hash}`;
 	};
-	return { ...preset, origin: fixtureOrigin, ...(preset.composeUrl === undefined ? {} : { composeUrl: onFixture(preset.composeUrl) }) };
+	return {
+		...preset,
+		origin: fixtureOrigin,
+		...(preset.composeUrl === undefined ? {} : { composeUrl: onFixture(preset.composeUrl) }),
+		receipt: { ...preset.receipt, ...(preset.receipt.origin === undefined ? {} : { origin: fixtureOrigin }) },
+	};
 }

@@ -1408,6 +1408,58 @@ class PuppeteerDriver implements EngineDriver {
 		}
 	}
 
+	async attachFile(selector: string, path: string, guard?: EffectGuard): Promise<void> {
+		await withTimeout(this.#attach(selector, path, guard), NAVIGATE_TIMEOUT_MS + 5_000, "attachFile");
+	}
+
+	async #attach(selector: string, path: string, guard?: EffectGuard): Promise<void> {
+		const page = this.#activeTab().page;
+		let effectsStarted = false;
+		let delegated = false;
+		try {
+			const { handle, frame } = await this.#resolve(page, selector);
+			try {
+				const target = await handle.evaluate((el) => (!(el instanceof HTMLInputElement) ? "opener" : el.type.toLowerCase() === "file" ? "file-input" : "other-input"));
+				if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector)} is an input that takes no files`);
+				if (target === "file-input") {
+					const client = (frame as Frame & { readonly client: CDPSession }).client;
+					const backendNodeId = await handle.backendNodeId();
+					if (guard !== undefined) {
+						const admission = guard();
+						if (admission !== undefined) await admission;
+						guard.assertCurrent();
+					}
+					effectsStarted = true;
+					await client.send("DOM.setFileInputFiles", { backendNodeId, files: [path] });
+					return;
+				}
+			} finally {
+				await handle.dispose().catch(() => undefined);
+			}
+			delegated = true;
+			const stopWaiting = new AbortController();
+			const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
+			void chooserOpened.catch(() => undefined);
+			try {
+				await this.#dispatch({ kind: "click", selector }, undefined, guard);
+				const chooser = await chooserOpened;
+				if (guard !== undefined) {
+					const admission = guard();
+					if (admission !== undefined) await admission;
+					guard.assertCurrent();
+				}
+				await chooser.accept([path]);
+			} finally {
+				stopWaiting.abort();
+				await (page as Page & { _client(): CDPSession })._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => undefined);
+			}
+		} catch (error) {
+			if (guard !== undefined && effectsStarted && error instanceof ActionNotDispatched) throw new Error(`attaching the file may have changed the page: ${describe(error)}`);
+			if (guard !== undefined && !effectsStarted && !delegated && !(error instanceof ActionNotDispatched)) throw new ActionNotDispatched("input_not_admitted", describe(error));
+			throw error;
+		}
+	}
+
 	/** Refresh normal key-up authority; revocation still releases only our held key as compensation. */
 	async #releaseKey(page: Page, key: KeyInput, guard: EffectGuard): Promise<void> {
 		let denied = false;

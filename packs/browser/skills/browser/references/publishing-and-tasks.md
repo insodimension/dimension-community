@@ -64,11 +64,23 @@ remaining steps yourself with `browser_act`.
 
 To post something public (a social post, a reply) use `browser_publish`, not
 `browser_act`. Prefer a **preset** over a hand-written recipe: list them with
-`browser_publish_presets` (`name`, `platform`, `verified`, `fields`,
+`browser_publish_presets` (`name`, `platform`, `verified`, `fields`, `files`,
 `needsTarget`), then pass `preset: { name, values }`, one value per field, in
 the listed order. A preset with `needsTarget` (e.g. `reddit-comment`) also takes
-`target`, the page on that site to post on (the thread's URL). Shipped presets:
-`x-post`, `bluesky-post`, `linkedin-post`, `reddit-comment`. They are
+`target`, the page on that site to post on (the thread's URL). A preset with
+`files` takes `files: { label: absolute path }`: every slot not `optional` is
+required, and a file outside the slot's `accept` extensions is refused before
+any page opens. `youtube-upload` takes `values: [Title, Description]` and
+`files: { Video, Thumbnail?, Captions? }`, uploads Unlisted, and its receipt is
+the `https://youtu.be/<id>` link. Studio's wizard can outlast one call: when
+`browser_publish` returns `status: "preparing"`, follow it with
+`browser_publish_wait` (same `publishId`) until it is `awaiting-confirmation` or
+`failed`. Attaching the video spends the approval: if the publish then fails,
+is cancelled or expires, its error says a private draft may be left on the
+channel; tell the user, record `draft_failed`, and never post it again until the
+user presses Retry. A file changed after the user approved it is refused
+(`publish_unapproved`): approve the new render on the board. Shipped presets: `x-post`, `bluesky-post`,
+`linkedin-post`, `reddit-comment`, `youtube-upload`. They are
 `verified: false`: tested against copies of each site's page, not the live
 site, so if one fails on a selector, report the error; never improvise a
 different button.
@@ -86,7 +98,7 @@ the posted URL's path on the origin (`{segment}` = one path segment,
   or the user in the View), then post. A password field is never a publish
   field.
 - A post goes out only if the user APPROVED it on the campaign board:
-  the text, the site and the profile must be exactly the approved draft's,
+  the text, the files, the site and the profile must be exactly the approved draft's,
   character for character, and the approval must be unexpired and unspent.
   Otherwise it fails `publish_unapproved` before anything is typed, and so does
   the confirm. Do not reword, trim or "fix" approved text, and do not try
@@ -99,9 +111,10 @@ the posted URL's path on the origin (`{segment}` = one path segment,
   `awaiting-confirmation` with a `publishId` and `composeUrl` (where it will
   post). **Nothing is sent yet.** The View shows the exact text with **Post**
   and **Cancel**. Post it yourself with
-  `browser_publish_confirm({ browserId, publishId, expect: { origin, profile, values } })`,
+  `browser_publish_confirm({ browserId, publishId, expect: { origin, profile, values, files? } })`,
   copying `origin`, `profile` and every field's `value` (in field order)
-  exactly from the `awaiting-confirmation` record you were shown. The user is
+  exactly from the `awaiting-confirmation` record you were shown, and, when the
+  record lists `files`, `files` as `{ label: path }` for each of them. The user is
   ALWAYS asked first, whatever the permission mode: their Allow card shows
   those args, so it names exactly where, as whom and what goes out. (Where the
   harness can't guarantee that ask, Dimension refuses your confirm: hand the

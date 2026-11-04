@@ -93,6 +93,8 @@ page's main world, so the app's own globals are visible:
 `{ kind: "eval", expression: "window.appState" }` comes back as JSON in `values`
 (at most 8000 characters across the batch). A signed-in profile or the user's own
 Chrome refuses it (`eval_needs_throwaway`), before any step of the batch runs.
+There is no upload step: a file reaches a page only through a `browser_publish`
+preset's `files`, under the user's approval of that exact file.
 `{ kind: "resize", width, height }` checks a responsive layout. Each tab logs its
 console errors and warnings, uncaught exceptions and failed or 4xx/5xx requests
 (urls without query strings): `browser_act` says `newErrors: n` when something new
