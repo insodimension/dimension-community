@@ -116,7 +116,8 @@
 							"startPlaceholder": "Ask anything, or tell me what you need…",
 							"placeholder": "Reply, or ask for something else…",
 							"tips": []
-						}
+						},
+						"dockTabs": []
 					},
 					"generalAgents": {
 						"list": [
