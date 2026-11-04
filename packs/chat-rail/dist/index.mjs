@@ -1489,7 +1489,8 @@ var ChatRailSection = memo(function ChatRailSection({ rail, actions, capabilitie
 	const flat = useMemo(() => compact ? foldRail(items, NO_COLLECTED).sections[0]?.items ?? [] : [], [compact, items]);
 	const sessionPresence = useRailSessionPresence(facts.presence);
 	const spaceActions = useRailActionSet(facts.spaces, facts.mode.app);
-	const extraActions = useMemo(() => spaceActions.filter((action) => action.target !== "new-session"), [spaceActions]);
+	const contributed = facts.contributedActions;
+	const extraActions = useMemo(() => [...spaceActions.filter((action) => action.target !== "new-session"), ...contributed ?? []], [spaceActions, contributed]);
 	const [menu, setMenu] = useState(null);
 	const closeMenu = useCallback(() => setMenu(null), []);
 	const [renamingId, setRenamingId] = useState(null);
@@ -1693,6 +1694,7 @@ var ChatRailSection = memo(function ChatRailSection({ rail, actions, capabilitie
 					onIntent: actions.intent,
 					onOpenRailSession: actions.openRailSession,
 					activeSurface: facts.mode.activeSurface ?? "session",
+					pageEntry: facts.mode.pageEntry,
 					space: facts.mode.app
 				}) : null,
 				/* @__PURE__ */ jsxs("div", {

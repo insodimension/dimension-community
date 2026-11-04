@@ -755,13 +755,18 @@ export const ChatRailSection = memo(function ChatRailSection({ rail, actions, ca
 	// rail draws as `+`): what a space declares in `rail.actions` reaches its rail
 	// through the kit's granted `useRailActionSet`/`FraymRailActions`, the same
 	// pair `independent-rail` uses, so no entry needs a special case here. Plugin
-	// entries (`facts.contributedActions`) are deliberately NOT drawn: this is a
-	// personal assistant, not the Code rail.
+	// entries (`facts.contributedActions`) follow them: the kit has already cut
+	// that list to what the space admits (`rail.admits`; Chat admits Calendar
+	// alone), so this is a personal assistant's rail, not the Code rail.
 	const spaceActions = useRailActionSet(
 		facts.spaces as Parameters<typeof useRailActionSet>[0],
 		facts.mode.app as Parameters<typeof useRailActionSet>[1],
 	);
-	const extraActions = useMemo(() => spaceActions.filter(action => action.target !== "new-session"), [spaceActions]);
+	const contributed = facts.contributedActions;
+	const extraActions = useMemo(
+		() => [...spaceActions.filter(action => action.target !== "new-session"), ...(contributed ?? [])],
+		[spaceActions, contributed],
+	);
 
 	// ── Interaction state ──
 	const [menu, setMenu] = useState<MenuState | null>(null);
@@ -960,6 +965,7 @@ export const ChatRailSection = memo(function ChatRailSection({ rail, actions, ca
 						onIntent={actions.intent as ComponentProps<typeof FraymRailActions>["onIntent"]}
 						onOpenRailSession={actions.openRailSession}
 						activeSurface={(facts.mode.activeSurface ?? "session") as ComponentProps<typeof FraymRailActions>["activeSurface"]}
+						pageEntry={facts.mode.pageEntry}
 						space={facts.mode.app}
 					/>
 				) : null}
