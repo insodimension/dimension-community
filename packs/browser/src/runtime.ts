@@ -309,6 +309,7 @@ interface Entry {
 	taskEndpoint?: { close(): void };
 	/** The current or most recent publish (publish.ts). */
 	publish: Publication | null;
+	refusedBeforePage: Publication | null;
 	/**
 	 * Saved passwords this browser typed or handed a task worker. With every
 	 * password the profile holds on disk, they are replaced in every page read
@@ -658,7 +659,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				profile, engine, viewport: initial.viewport, documentId: initial.documentId,
 				url: initial.url, title: initial.title,
 				driver, release, revision: 1, frames: [], queue: Promise.resolve(), inputQueue: Promise.resolve(), closed: false,
-				task: null, worker: null, publish: null, secrets: new Set(), logRead: 0, logNoticed: 0, annotations,
+				task: null, worker: null, publish: null, refusedBeforePage: null, secrets: new Set(), logRead: 0, logNoticed: 0, annotations,
 				openers, tabOwners: new Map(), tabActive: new Map(), takenOver: false, starting: null, agentAt: null, look: profile === null || profile === RELAY_PROFILE ? null : resolveProfileMeta(profile, this.store.meta(profile)),
 				probe: { timer: undefined, relook: undefined, running: undefined, again: false },
 				lastUsed: performance.now(), viewers: 0, pending: 0, cells: 0, idle: undefined, retiring: undefined, closeFailed: false, wheelTimer: undefined,
@@ -2359,7 +2360,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const preparing = guardedBy(options.workerGuard ?? guard, () => {
 			if (publication.record.status !== "preparing" || publication.cancelRequested !== undefined) fail("cancelled", "the publish was cancelled while it was being prepared");
 		});
-		const prepared = this.prepareInBackground(entry, profile, valid, post, publication, preparing);
+		const prepared = this.prepareInBackground(entry, profile, valid, post, publication, previous, preparing);
 		if (options.waitMs !== undefined) {
 			const { promise: elapsed, resolve } = Promise.withResolvers<void>();
 			const timer = setTimeout(resolve, Math.max(0, startedAt + options.waitMs - Date.now()));
@@ -2368,10 +2369,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
 		}
 		const outcome = await prepared;
-		if (publication.record.status === "failed" && outcome.error !== undefined) {
-			if (outcome.beforePage && entry.publish === publication) entry.publish = previous;
-			throw outcome.error;
-		}
+		if (publication.record.status === "failed" && outcome.error !== undefined) throw outcome.error;
 		if (publication.record.status === "failed" && outcome.check !== undefined) return outcome.check;
 		return this.redact(entry, publishRecord(publication));
 	}
@@ -2392,8 +2390,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		valid: Recipe,
 		post: PublishBinding,
 		publication: Publication,
+		previous: Publication | null,
 		guard: EffectGuard,
-	): Promise<{ check?: PublishCheck; error?: unknown; beforePage?: true }> {
+	): Promise<{ check?: PublishCheck; error?: unknown }> {
 		entry.pending += 1;
 		let files: Readonly<Record<string, LocalFile>>;
 		try {
@@ -2402,7 +2401,11 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			const coded = error instanceof BrowserRuntimeError && !error.message.startsWith(`${error.code}:`) ? new Error(`${error.code}: ${error.message}`) : error;
 			failPreparation(publication, coded instanceof Error ? coded : new Error(String(coded)));
 			await this.endPreparation(entry, publication);
-			return { error, beforePage: true };
+			if (entry.publish === publication) {
+				entry.publish = previous;
+				entry.refusedBeforePage = publication;
+			}
+			return { error };
 		}
 		try {
 			const outcome = await prepare(entry.driver, profile, valid, "post", guard, files, publication);
@@ -2501,8 +2504,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** Not queued: it only reads the record, and must not wait behind a confirm. */
 	async waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord> {
 		const entry = this.require(browserId);
-		const publication = entry.publish;
-		if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+		const publication = entry.publish?.record.publishId === publishId ? entry.publish : entry.refusedBeforePage?.record.publishId === publishId ? entry.refusedBeforePage : null;
+		if (publication === null) fail("unknown_publish", "no such publish on this browser");
 		await waitSettled(publication, ms);
 		return this.redact(entry, publishRecord(publication));
 	}

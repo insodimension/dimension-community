@@ -43,8 +43,10 @@ export function linkOffMachine(path: string): string | undefined {
 		try {
 			stats = lstatSync(next);
 		} catch (error) {
-			if (hops === 0 && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-			return `goes through ${next}, which cannot be checked without following a link (${(error as Error).message})`;
+			const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+			if (hops === 0) return missing ? undefined : `could not be checked: ${next} cannot be read (${(error as Error).message})`;
+			if (missing) return `links to ${next}, which does not exist`;
+			return `goes through ${next}, reached through a link, which cannot be read (${(error as Error).message}), so it is not followed`;
 		}
 		segments = rest;
 		if (!stats.isSymbolicLink()) {

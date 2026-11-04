@@ -32,8 +32,10 @@ function linkOffMachine(path) {
     try {
       stats = lstatSync(next);
     } catch (error) {
-      if (hops === 0 && error.code === "ENOENT") return void 0;
-      return `goes through ${next}, which cannot be checked without following a link (${error.message})`;
+      const missing = error.code === "ENOENT";
+      if (hops === 0) return missing ? void 0 : `could not be checked: ${next} cannot be read (${error.message})`;
+      if (missing) return `links to ${next}, which does not exist`;
+      return `goes through ${next}, reached through a link, which cannot be read (${error.message}), so it is not followed`;
     }
     segments = rest;
     if (!stats.isSymbolicLink()) {

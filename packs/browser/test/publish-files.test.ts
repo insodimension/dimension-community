@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { lstatSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { PublishRecord } from "../src/contracts";
 import type { EngineDriver } from "../src/engines/types";
 import { identifyLocalFile, requireLocalFile, requireUnchanged } from "../src/files";
+import { BrowserRuntimeError } from "../src/store";
 import { type PublishPreset, loadPresets, parsePreset, resolvePreset } from "../src/presets";
 import { prepare, validateRecipe } from "../src/publish";
 import { bindingOf } from "../src/publish-approval";
@@ -36,6 +38,28 @@ async function canMakeSymlinks(): Promise<boolean> {
 }
 
 const symlinksAllowed = await canMakeSymlinks();
+
+function lstatFailsWith(path: string): string | undefined {
+	try {
+		lstatSync(path);
+		return undefined;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code;
+	}
+}
+
+const LOCKED_SYSTEM_FILE = "C:\\pagefile.sys";
+const lockedFileUnreadable = process.platform === "win32" && lstatFailsWith(LOCKED_SYSTEM_FILE) === "EPERM";
+
+function refusalOf(work: () => unknown): BrowserRuntimeError {
+	try {
+		work();
+	} catch (error) {
+		if (error instanceof BrowserRuntimeError) return error;
+		throw error;
+	}
+	throw new Error("expected a refusal, but the call returned");
+}
 
 interface ToolResult {
 	isError?: boolean;
@@ -184,6 +208,22 @@ describe("preset file slots and wizard steps", () => {
 		}
 	});
 
+	test.skipIf(!lockedFileUnreadable)("a path that cannot be read for a reason other than its absence is refused bad_file, named as unreadable rather than as a link", () => {
+		const refused = refusalOf(() => requireLocalFile(LOCKED_SYSTEM_FILE, 'file "Video"', "bad_file", tmpdir()));
+		expect(refused.code).toBe("bad_file");
+		expect(refused.message).toStartWith(`file "Video": ${LOCKED_SYSTEM_FILE} could not be checked: ${LOCKED_SYSTEM_FILE} cannot be read (`);
+		expect(refused.message).not.toContain("link");
+	});
+
+	test("a browser root that cannot be resolved refuses the file bad_file instead of escaping uncoded", async () => {
+		const dir = await createRoot();
+		const path = join(dir, "master.mp4");
+		await writeFile(path, "local bytes");
+		const refused = refusalOf(() => requireLocalFile(path, 'file "Video"', "bad_file", join(dir, "no-such-browser-root")));
+		expect(refused.code).toBe("bad_file");
+		expect(refused.message).toStartWith(`file "Video": ${path} could not be checked against the browser's own data (`);
+	});
+
 	test.skipIf(!symlinksAllowed)("a symlink whose target is a network share, an NT or rooted path, or a dangling hop is refused at the link, before the operating system follows it; a link to a local file still resolves", async () => {
 		const dir = await createRoot();
 		const share = process.platform === "win32" ? "\\\\unc-refusal.invalid\\share\\master.mp4" : "//unc-refusal.invalid/share/master.mp4";
@@ -201,11 +241,11 @@ describe("preset file slots and wizard steps", () => {
 		await symlink(real, local, "file");
 		const refusal = (path: string) => () => requireLocalFile(path, 'file "Video"', "bad_file", join(dir, "browser-root"));
 		for (const path of [direct, chained]) expect(refusal(path)).toThrow(`links to ${share}, a network or device path`);
-		expect(refusal(dangling)).toThrow("which cannot be checked without following a link");
+		expect(refusal(dangling)).toThrow(`links to ${join(dir, "gone")}, which does not exist`);
 		if (process.platform === "win32") {
 			const rooted = join(dir, "rooted.mp4");
 			await symlink("\\Device\\Mup\\unc-refusal.invalid\\share\\master.mp4", rooted, "file");
-			expect(refusal(rooted)).toThrow(/a path on no drive letter \(an NT or rooted path\)|which cannot be checked without following a link/);
+			expect(refusal(rooted)).toThrow(/a path on no drive letter \(an NT or rooted path\)|links to [A-Za-z]:\\Device, which does not exist/);
 		}
 		expect(requireLocalFile(local, 'file "Video"', "bad_file", join(dir, "browser-root")).real).toBe(await realpath(real));
 	});
@@ -420,7 +460,7 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 	);
 
 	test(
-		"attaching the video spends the approval: a cancel says a draft may be left, and parking it again needs a fresh Approve instead of uploading twice",
+		"attaching the video spends the approval: a cancel says a draft may be left, and parking it again needs a fresh Approve instead of uploading twice; a refusal found after preparing was returned keeps the earlier record current and its own record waitable",
 		async () => {
 			const s = await session("yt-retry");
 			const m = await media();
@@ -436,6 +476,17 @@ describeWithChrome("youtube-upload against its fixture copy", () => {
 
 			expect(errorText(await publish())).toContain("was already used");
 			expect((await s.runtime.state(s.browserId)).publish).toMatchObject({ publishId: parked.structuredContent?.publishId, status: "cancelled" });
+			const late = await s.call("browser_publish", { browserId: s.browserId, preset: { name: "youtube-upload", values: [TITLE, DESCRIPTION], files }, mode: "post", waitSeconds: 0 });
+			expect(late.structuredContent, JSON.stringify(late.content)).toMatchObject({ status: "preparing" });
+			const latePublishId = late.structuredContent?.publishId;
+			let lateRecord = late.structuredContent;
+			while (lateRecord?.status === "preparing") lateRecord = (await s.call("browser_publish_wait", { browserId: s.browserId, publishId: latePublishId, waitSeconds: 25 })).structuredContent;
+			expect(lateRecord).toMatchObject({ publishId: latePublishId, status: "failed" });
+			expect(String(lateRecord?.error)).toStartWith("publish_unapproved:");
+			expect(String(lateRecord?.error)).toContain("was already used");
+			expect((await s.runtime.state(s.browserId)).publish).toMatchObject({ publishId: parked.structuredContent?.publishId, status: "cancelled" });
+			expect((await s.call("browser_publish_wait", { browserId: s.browserId, publishId: parked.structuredContent?.publishId, waitSeconds: 0 })).structuredContent).toMatchObject({ status: "cancelled" });
+			expect((await s.call("browser_publish_wait", { browserId: s.browserId, publishId: latePublishId, waitSeconds: 0 })).structuredContent).toMatchObject({ status: "failed" });
 			expect(s.fixture.uploads().map((upload) => upload.field)).toEqual(["video"]);
 
 			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "youtube-upload", values: [TITLE, DESCRIPTION], files });

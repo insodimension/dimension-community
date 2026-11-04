@@ -12522,8 +12522,10 @@ function linkOffMachine(path4) {
     try {
       stats = lstatSync2(next);
     } catch (error) {
-      if (hops === 0 && error.code === "ENOENT") return void 0;
-      return `goes through ${next}, which cannot be checked without following a link (${error.message})`;
+      const missing = error.code === "ENOENT";
+      if (hops === 0) return missing ? void 0 : `could not be checked: ${next} cannot be read (${error.message})`;
+      if (missing) return `links to ${next}, which does not exist`;
+      return `goes through ${next}, reached through a link, which cannot be read (${error.message}), so it is not followed`;
     }
     segments = rest;
     if (!stats.isSymbolicLink()) {
@@ -12566,22 +12568,35 @@ function requireAbsolutePath(path4, name, code) {
   if (NETWORK_OR_DEVICE_PATH.test(path4)) fail(code, `${name}: ${path4} is a network or device path; only a file on this machine's own drives is uploaded`);
   return path4;
 }
+function refuseUnreadable(error, path4, name, code) {
+  if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
+  fail(code, `${name}: ${path4} could not be read (${error.message})`);
+}
 function requireLocalFile(path4, name, code, protectedRoot) {
   requireAbsolutePath(path4, name, code);
   const refusal = linkOffMachine(path4);
   if (refusal !== void 0) fail(code, `${name}: ${path4} ${refusal}; only a file on this machine's own drives is uploaded`);
   let real;
   let stats;
+  let realRoot;
   try {
     real = realpathSync.native(path4);
-    if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path4} lives on a network share; only a file on this machine's own drives is uploaded`);
+  } catch (error) {
+    refuseUnreadable(error, path4, name, code);
+  }
+  if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path4} lives on a network share; only a file on this machine's own drives is uploaded`);
+  try {
     stats = statSync4(real);
   } catch (error) {
-    if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
-    throw error;
+    refuseUnreadable(error, path4, name, code);
   }
   if (!stats.isFile()) fail(code, `${name}: ${path4} is not a file`);
-  const fromRoot = relative(realpathSync.native(protectedRoot), real);
+  try {
+    realRoot = realpathSync.native(protectedRoot);
+  } catch (error) {
+    fail(code, `${name}: ${path4} could not be checked against the browser's own data (${error.message})`);
+  }
+  const fromRoot = relative(realRoot, real);
   if (fromRoot === "" || fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute4(fromRoot)) {
     fail(code, `${name}: ${path4} is the browser's own data (profiles, saved passwords), which is never uploaded`);
   }
@@ -12618,11 +12633,11 @@ function hashOffThread(real, checkpoint) {
   });
   worker.once("error", (error) => {
     clearInterval(poll);
-    reject(error);
+    resolve9({ error: `the file-hash worker failed: ${error.message}` });
   });
   worker.once("exit", (exitCode) => {
     clearInterval(poll);
-    reject(new Error(`the file-hash worker exited with code ${exitCode} before it answered`));
+    resolve9({ error: `the file-hash worker exited with code ${exitCode} before it answered` });
   });
   return promise;
 }
@@ -14766,6 +14781,7 @@ var BrowserRuntime = class {
         task: null,
         worker: null,
         publish: null,
+        refusedBeforePage: null,
         secrets: /* @__PURE__ */ new Set(),
         logRead: 0,
         logNoticed: 0,
@@ -16291,7 +16307,7 @@ ${host}`;
     const preparing = guardedBy(options.workerGuard ?? guard, () => {
       if (publication.record.status !== "preparing" || publication.cancelRequested !== void 0) fail("cancelled", "the publish was cancelled while it was being prepared");
     });
-    const prepared = this.prepareInBackground(entry, profile2, valid, post, publication, preparing);
+    const prepared = this.prepareInBackground(entry, profile2, valid, post, publication, previous, preparing);
     if (options.waitMs !== void 0) {
       const { promise: elapsed, resolve: resolve9 } = Promise.withResolvers();
       const timer = setTimeout(resolve9, Math.max(0, startedAt + options.waitMs - Date.now()));
@@ -16300,10 +16316,7 @@ ${host}`;
       if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
     }
     const outcome = await prepared;
-    if (publication.record.status === "failed" && outcome.error !== void 0) {
-      if (outcome.beforePage && entry.publish === publication) entry.publish = previous;
-      throw outcome.error;
-    }
+    if (publication.record.status === "failed" && outcome.error !== void 0) throw outcome.error;
     if (publication.record.status === "failed" && outcome.check !== void 0) return outcome.check;
     return this.redact(entry, publishRecord(publication));
   }
@@ -16315,7 +16328,7 @@ ${host}`;
     if (shown2.status !== "failed") this.observeConnection(profile2, origin, shown2.status === "signed-in", shown2.account);
     return shown2;
   }
-  async prepareInBackground(entry, profile2, valid, post, publication, guard) {
+  async prepareInBackground(entry, profile2, valid, post, publication, previous, guard) {
     entry.pending += 1;
     let files;
     try {
@@ -16324,7 +16337,11 @@ ${host}`;
       const coded = error instanceof BrowserRuntimeError && !error.message.startsWith(`${error.code}:`) ? new Error(`${error.code}: ${error.message}`) : error;
       failPreparation(publication, coded instanceof Error ? coded : new Error(String(coded)));
       await this.endPreparation(entry, publication);
-      return { error, beforePage: true };
+      if (entry.publish === publication) {
+        entry.publish = previous;
+        entry.refusedBeforePage = publication;
+      }
+      return { error };
     }
     try {
       const outcome = await prepare(entry.driver, profile2, valid, "post", guard, files, publication);
@@ -16417,8 +16434,8 @@ ${host}`;
   /** Not queued: it only reads the record, and must not wait behind a confirm. */
   async waitPublish(browserId, publishId, ms) {
     const entry = this.require(browserId);
-    const publication = entry.publish;
-    if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
+    const publication = entry.publish?.record.publishId === publishId ? entry.publish : entry.refusedBeforePage?.record.publishId === publishId ? entry.refusedBeforePage : null;
+    if (publication === null) fail("unknown_publish", "no such publish on this browser");
     await waitSettled(publication, ms);
     return this.redact(entry, publishRecord(publication));
   }

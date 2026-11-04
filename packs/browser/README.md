@@ -732,20 +732,26 @@ as data, so the pack's code stays platform-agnostic:
   a time with `lstat`/`readlink`, and a link whose target is a network or device
   path (`links to … a network or device path`), on Windows a target with no
   drive letter (an NT path such as `\Device\Mup\…` or a rooted `\…`), a link
-  whose target cannot be read, a component that cannot be checked once a link
-  was followed (a dangling hop), or more than 32 links is refused before the
-  operating system follows anything. The walk runs again on the worker thread
-  right before the file is opened for hashing and again right before Chrome is
-  handed the file. Two gaps remain, stated so nobody reads more into it: a link
-  to a drive letter that is itself a mapped network drive or a `subst` of a
-  share is followed (the share is one the user mapped) and refused only after it
-  resolves onto the share; and between the last walk and Chrome opening the
-  path, a process that may create symlinks as this user could swap a component
-  (Chrome takes a path, not a handle). Nothing under this pack's root is ever
-  sent. Each file is hashed (SHA-256) on a worker thread, one per file, after the
-  publish record exists, so a gigabyte file neither holds the server's event loop
-  nor the call past `waitSeconds`, and a cancel stops the hash; a file refused
-  there fails the record with its code (`bad_file: …`). Chrome is handed
+  whose target cannot be read, a link to something that does not exist
+  (`links to …, which does not exist`), a component reached through a link that
+  cannot be read, or more than 32 links is refused before the operating system
+  follows anything; a component that cannot be read before any link
+  (`could not be checked: … cannot be read`) is refused too. The walk runs three
+  times, and each walk is followed by a call that follows the path by name: the
+  first by the `realpath` and `stat` when the call is made, the second (on the
+  worker thread) by the open that hashes the file, the third by Chrome opening
+  the path right before it is attached. Two gaps remain, stated so nobody reads
+  more into it: a link to a drive letter that is itself a mapped network drive
+  or a `subst` of a share is followed (the share is one the user mapped) and
+  refused only after it resolves onto the share; and in each of those three
+  windows between a walk and the call that follows it, a process that may
+  create symlinks as this user could swap a component (Chrome takes a path, not
+  a handle). Nothing under this pack's root is ever sent. Each file is hashed
+  (SHA-256) on a worker thread, one per file, after the publish record exists,
+  so a gigabyte file neither holds the server's event loop nor the call past
+  `waitSeconds`, and a cancel stops the hash; a file refused there, one that
+  cannot be read, and a hash worker that fails fail the record with the file's
+  code (`bad_file: …`). Chrome is handed
   the resolved path, and right before it is set the file's device, inode, size
   and modification and change times are checked against what was read when it
   was hashed (`file_changed: …`, nothing attached, if any differs). The record
@@ -790,9 +796,13 @@ as data, so the pack's code stays platform-agnostic:
   being hashed or a long wizard (YouTube Studio's upload) has not parked by then,
   returns its record as `preparing`. A second publish on the same browser is
   refused `publish_pending` at once, without hashing anything.
-  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed` (a
-  refused approval found after `preparing` was returned is a `failed` record
-  whose error starts `publish_unapproved:`);
+  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed`. A
+  publish that ends before its page is opened, after `preparing` was returned
+  or not (a refused approval, whose error starts `publish_unapproved:`, a
+  refused file, or a cancel during the hash), ends that record, which
+  `browser_publish_wait` still answers by its `publishId`, and the browser's
+  current publish goes back to the one before it, so the earlier post's record
+  and url stay where they were;
   `browser_publish_cancel` stops it at its next step (or its hash) and reports
   `cancelled` once it has stopped. A host timing the call out does not stop it, so it never
   leaves a draft nobody is told about. **Nothing is submitted.** The Browser View

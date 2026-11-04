@@ -48,22 +48,36 @@ export function requireAbsolutePath(path: unknown, name: string, code: string): 
 	return path;
 }
 
+function refuseUnreadable(error: unknown, path: string, name: string, code: string): never {
+	if ((error as NodeJS.ErrnoException).code === "ENOENT") fail(code, `${name}: ${path} does not exist`);
+	fail(code, `${name}: ${path} could not be read (${(error as Error).message})`);
+}
+
 export function requireLocalFile(path: string, name: string, code: string, protectedRoot: string): { real: string; stamp: FileStamp } {
 	requireAbsolutePath(path, name, code);
 	const refusal = linkOffMachine(path);
 	if (refusal !== undefined) fail(code, `${name}: ${path} ${refusal}; only a file on this machine's own drives is uploaded`);
 	let real: string;
 	let stats: Stats;
+	let realRoot: string;
 	try {
 		real = realpathSync.native(path);
-		if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
+	} catch (error) {
+		refuseUnreadable(error, path, name, code);
+	}
+	if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
+	try {
 		stats = statSync(real);
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") fail(code, `${name}: ${path} does not exist`);
-		throw error;
+		refuseUnreadable(error, path, name, code);
 	}
 	if (!stats.isFile()) fail(code, `${name}: ${path} is not a file`);
-	const fromRoot = relative(realpathSync.native(protectedRoot), real);
+	try {
+		realRoot = realpathSync.native(protectedRoot);
+	} catch (error) {
+		fail(code, `${name}: ${path} could not be checked against the browser's own data (${(error as Error).message})`);
+	}
+	const fromRoot = relative(realRoot, real);
 	if (fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))) {
 		fail(code, `${name}: ${path} is the browser's own data (profiles, saved passwords), which is never uploaded`);
 	}
@@ -101,13 +115,13 @@ function hashOffThread(real: string, checkpoint: () => void): Promise<FileHashRe
 		clearInterval(poll);
 		resolve(reply);
 	});
-	worker.once("error", (error) => {
+	worker.once("error", (error: Error) => {
 		clearInterval(poll);
-		reject(error);
+		resolve({ error: `the file-hash worker failed: ${error.message}` });
 	});
 	worker.once("exit", (exitCode) => {
 		clearInterval(poll);
-		reject(new Error(`the file-hash worker exited with code ${exitCode} before it answered`));
+		resolve({ error: `the file-hash worker exited with code ${exitCode} before it answered` });
 	});
 	return promise;
 }
