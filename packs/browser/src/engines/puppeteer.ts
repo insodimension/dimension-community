@@ -1398,6 +1398,58 @@ class PuppeteerDriver implements EngineDriver {
 					await page.mouse.wheel({ deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
 					return NONE;
 				}
+				case "upload": {
+					const selector = requireField(action.selector, "upload.selector");
+					const paths = action.paths ?? [];
+					if (paths.length === 0) throw new ActionNotDispatched("bad_action", "upload.paths must name at least one file");
+					const { handle, frame } = await this.#resolve(page, selector);
+					let target: "single" | "multiple" | "other-input" | "opener";
+					try {
+						target = await handle.evaluate((el) => {
+							if (!(el instanceof HTMLInputElement)) return "opener";
+							if (el.type.toLowerCase() !== "file") return "other-input";
+							return el.multiple ? "multiple" : "single";
+						});
+						if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector)} is an input that takes no files`);
+						if (target === "single" && paths.length > 1) throw new ActionNotDispatched("bad_action", `${JSON.stringify(selector)} takes one file, not ${paths.length}`);
+						if (target !== "opener") {
+							const client = (frame as Frame & { readonly client: CDPSession }).client;
+							const backendNodeId = await handle.backendNodeId();
+							if (guard !== undefined) {
+								const admission = guard();
+								if (admission !== undefined) await admission;
+								guard.assertCurrent();
+							}
+							effectsStarted = true;
+							await client.send("DOM.setFileInputFiles", { backendNodeId, files: [...paths] });
+							return NONE;
+						}
+					} finally {
+						await handle.dispose().catch(() => undefined);
+					}
+					delegated = true;
+					const stopWaiting = new AbortController();
+					const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
+					void chooserOpened.catch(() => undefined);
+					try {
+						await this.#dispatch({ kind: "click", selector }, undefined, guard);
+						const chooser = await chooserOpened;
+						if (!chooser.isMultiple() && paths.length > 1) {
+							await chooser.cancel();
+							throw new Error(`the file picker ${JSON.stringify(selector)} opened takes one file, not ${paths.length}; it was cancelled`);
+						}
+						if (guard !== undefined) {
+							const admission = guard();
+							if (admission !== undefined) await admission;
+							guard.assertCurrent();
+						}
+						await chooser.accept([...paths]);
+					} finally {
+						stopWaiting.abort();
+						await (page as Page & { _client(): CDPSession })._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => undefined);
+					}
+					return NONE;
+				}
 				default:
 					throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify((action as BrowserAction).kind)}`);
 			}

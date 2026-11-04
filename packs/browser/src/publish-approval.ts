@@ -60,11 +60,14 @@ export interface PublishBinding {
 	/** The shipped preset's name; absent for a recipe the caller wrote (its selectors and submit button are the caller's, so no surface approves one). */
 	readonly preset?: string;
 	readonly values: readonly string[];
+	readonly files?: Readonly<Record<string, string>>;
 }
 
 /** The hex SHA-256 an approval stores for a post. Another writer must compute the identical string (golden vectors in both packs' tests). */
 export function bindingOf(binding: PublishBinding): string {
-	return createHash("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
+	const files = Object.entries(binding.files ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+	const hashed = [BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values], ...(files.length === 0 ? [] : [Object.fromEntries(files)])];
+	return createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
 }
 
 interface Approval {

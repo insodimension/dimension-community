@@ -142,6 +142,8 @@ function readPublish(tool: string, value: unknown): PublishRecord {
 		const label = readString(field, "label");
 		if (selector !== undefined && text !== undefined) fields.push({ selector, value: text, ...(label === undefined ? {} : { label }) });
 	}
+	const files = readPublishFiles(value.files);
+	const presetName = isRecord(value.preset) ? readString(value.preset, "name") : undefined;
 	const url = readString(value, "url");
 	const error = readString(value, "error");
 	return {
@@ -152,11 +154,24 @@ function readPublish(tool: string, value: unknown): PublishRecord {
 		tabId: readString(value, "tabId") ?? "",
 		profile: readString(value, "profile") ?? "",
 		fields,
+		...(files.length === 0 ? {} : { files }),
+		...(presetName === undefined || !isRecord(value.preset) ? {} : { preset: { name: presetName, verified: value.preset.verified === true } }),
 		createdAt: readString(value, "createdAt") ?? "",
 		expiresAt: readString(value, "expiresAt") ?? "",
 		...(url === undefined ? {} : { url }),
 		...(error === undefined ? {} : { error }),
 	};
+}
+
+function readPublishFiles(value: unknown): Array<{ label: string; path: string }> {
+	const files: Array<{ label: string; path: string }> = [];
+	for (const file of Array.isArray(value) ? value : []) {
+		if (!isRecord(file)) continue;
+		const label = readString(file, "label");
+		const path = readString(file, "path");
+		if (label !== undefined && path !== undefined) files.push({ label, path });
+	}
+	return files;
 }
 
 function readTabs(value: unknown): TabInfo[] {

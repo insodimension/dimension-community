@@ -99,6 +99,7 @@ import { CredentialKey, credentialOrigin, resolveCredential, savedPassword, save
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
 import { launchReader } from "./engines/puppeteer.js";
+import { MAX_UPLOAD_PATHS, requireAbsolutePath, requireLocalFile } from "./files.js";
 import type { AttachTarget } from "./engines/attach.js";
 import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, PasswordSource, PerformOutcome, WaitCondition } from "./engines/types.js";
 import { AnnotationFiles } from "./annotation-file.js";
@@ -2005,6 +2006,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (caller === "app") fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
 			this.savedProfile(entry, "typing a saved password");
 		}
+		if (action.kind === "upload") {
+			if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
+			for (const [index, path] of (action.paths ?? []).entries()) requireLocalFile(path, `upload.paths[${index}]`, "bad_action", this.store.rootDir);
+		}
 		return action;
 	}
 
@@ -2300,6 +2305,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const entry = this.require(browserId);
 		const profile = this.savedProfile(entry, "publishing");
 		const valid = validateRecipe(recipe);
+		for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+		const files = Object.fromEntries((valid.files ?? []).map((file) => [file.label, file.path]));
 		const selected = validateMode(mode);
 		return await this.serialize(entry, async () => {
 			refuseWhileBusy(entry, caller);
@@ -2312,7 +2319,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			try {
 				// A post the user did not approve is refused before the page is opened: the model cannot even show the human text nobody approved.
 				// Inside the `starting` window, so the wheel cannot be taken while the approval is looked up.
-				if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile, ...(preset === undefined ? {} : { preset: preset.name }), values: valid.fields.map((field) => field.value) }, "park");
+				if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile, ...(preset === undefined ? {} : { preset: preset.name }), values: valid.fields.map((field) => field.value), files }, "park");
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
 				outcome = await prepare(entry.driver, profile, valid, selected, guard);
@@ -2349,7 +2356,16 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			// The approval covers what the record holds NOW (the values the page read back, the origin, the profile and the preset), and
 			// spending it is the lock: it happens before the click, for the View's Post too, so a post the human pressed cannot be posted again by the agent.
 			const { record } = publication;
-			const spent = await this.publishApprovals.consume({ origin: record.origin, profile: record.profile, ...(record.preset === undefined ? {} : { preset: record.preset.name }), values: record.fields.map((field) => field.value) }, "confirm");
+			const spent = await this.publishApprovals.consume(
+				{
+					origin: record.origin,
+					profile: record.profile,
+					...(record.preset === undefined ? {} : { preset: record.preset.name }),
+					values: record.fields.map((field) => field.value),
+					files: Object.fromEntries((record.files ?? []).map((file) => [file.label, file.path])),
+				},
+				"confirm",
+			);
 			try {
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
@@ -2766,6 +2782,10 @@ function normalizeAction(action: BrowserAction): BrowserAction {
 			if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
 			return { kind: "resize", ...normalizeViewport({ width: action.width, height: action.height }) };
 		}
+		case "upload": {
+			if (!Array.isArray(action.paths) || action.paths.length === 0 || action.paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `upload.paths must name 1-${MAX_UPLOAD_PATHS} files`);
+			return { kind: "upload", selector: requireSelector(action.selector), paths: action.paths.map((path, index) => requireAbsolutePath(path, `upload.paths[${index}]`, "bad_action")) };
+		}
 		case "scroll": {
 			const deltaX = requireDelta(action.deltaX ?? 0, "deltaX");
 			const deltaY = requireDelta(action.deltaY ?? 0, "deltaY");
@@ -2927,15 +2947,18 @@ function refuseWhileSubmitting(entry: Entry): void {
  */
 function requireExpected(shown: PublishRecord, caller: ToolCaller | undefined, expect: PublishExpectation | undefined): void {
 	if (expect === undefined) {
-		if (caller !== "app") fail("expect_required", "expect_required: pass expect: { origin, profile, values } copied exactly from the pending publish record (values: every field's value, in field order); nothing was clicked");
+		if (caller !== "app") fail("expect_required", "expect_required: pass expect: { origin, profile, values, files? } copied exactly from the pending publish record (values: every field's value, in field order; files: { label: path } for every attached file); nothing was clicked");
 		return;
 	}
 	const values = shown.fields.map((field) => field.value);
+	const files = shown.files ?? [];
+	const expectedFiles = expect.files ?? {};
 	const differs = [
 		...(expect.origin === shown.origin ? [] : ["origin"]),
 		...(expect.profile === shown.profile ? [] : ["profile"]),
 		...(expect.values.length === values.length ? [] : [`values (expected ${values.length}, got ${expect.values.length})`]),
 		...values.flatMap((value, index) => (index < expect.values.length && expect.values[index] !== value ? [`values[${index}]`] : [])),
+		...(files.length === Object.keys(expectedFiles).length && files.every((file) => Object.hasOwn(expectedFiles, file.label) && expectedFiles[file.label] === file.path) ? [] : ["files"]),
 	];
 	if (differs.length > 0) {
 		fail("publish_mismatch", `publish_mismatch: expect does not match the pending publish (mismatched: ${differs.join(", ")}); nothing was clicked and the publish is still pending. Read it with browser_publish_wait and confirm what it actually holds, or cancel it`);

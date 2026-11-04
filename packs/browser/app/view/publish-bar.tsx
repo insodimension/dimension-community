@@ -146,8 +146,9 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 	}
 
 	const expires = new Date(record.expiresAt);
+	const files = record.files ?? [];
 	const fits =
-		record.fields.length <= FIT_MAX_FIELDS &&
+		record.fields.length + files.length <= FIT_MAX_FIELDS &&
 		record.fields.every(field => field.value.length <= FIT_MAX_CHARS && field.value.split("\n").length <= FIT_MAX_LINES);
 	return (
 		<section ref={barRef} className="bx-publish" aria-label="Confirm post" aria-busy={busy || undefined} tabIndex={-1}>
@@ -194,6 +195,12 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 						<li key={`${index}:${field.selector}`} className="bx-publish-field">
 							<span className="bx-publish-label">{field.label ?? `Field ${index + 1}`}</span>
 							<span className="bx-publish-value">{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}</span>
+						</li>
+					))}
+					{files.map(file => (
+						<li key={`file:${file.label}`} className="bx-publish-field">
+							<span className="bx-publish-label">{file.label} (file)</span>
+							<span className="bx-publish-value">{file.path}</span>
 						</li>
 					))}
 				</ol>

@@ -534,6 +534,7 @@ export interface ApprovedPost {
 	preset?: string;
 	/** Every field's value, in order. */
 	values: readonly string[];
+	files?: Readonly<Record<string, string>>;
 	/** The draft the approval is filed under; a test re-approving the same draft names it. */
 	draftId?: string;
 	/** Default an hour: longer than any clock jump the publish tests make, far under the 24 hours the pack accepts. */
@@ -557,7 +558,9 @@ export async function approvePublish(rootDir: string, post: ApprovedPost): Promi
 			v: 1,
 			draftId,
 			nonce: randomBytes(16).toString("hex"),
-			binding: createHash("sha256").update(JSON.stringify(["publish-approval/v1", post.origin, post.profile, post.preset ?? null, post.values])).digest("hex"),
+			binding: createHash("sha256")
+				.update(JSON.stringify(["publish-approval/v1", post.origin, post.profile, post.preset ?? null, post.values, ...(post.files === undefined ? [] : [Object.fromEntries(Object.entries(post.files).sort(([a], [b]) => (a < b ? -1 : 1)))])]))
+				.digest("hex"),
 			approvedAt: new Date(now).toISOString(),
 			expiresAt: new Date(now + (post.expiresInMs ?? 60 * 60_000)).toISOString(),
 		}),

@@ -357,10 +357,10 @@ host leaves a tool out of a space's list and refuses the call there; the View's 
 buttons are not gated by it). `DIMENSION_BROWSER_MODEL_TOOLS` chooses what the code and
 build spaces get: `code` (the default) gives them `browser_run` and not the step tools,
 `steps` the step tools only, `both` both. Every other space always keeps the step tools,
-and Traction and Video also get `browser_run` wherever the mode offers it. Video needs it for
-`tab.uploadFile`: the step tools have no file step, so a session with only those cannot hand a file to a page.
+and Traction and Video also get `browser_run` wherever the mode offers it. Video uses it for
+the YouTube pack's Studio runbook (`tab.uploadFile` and read-back cells); the step tools can hand a file to a page too, with `browser_act`'s `upload` step.
 
-`browser_run` is an exec-tier tool: the host asks the person before each run, and a cell has full Node access in the server's worker as the person's own account. Giving it to the video space is deliberate (the Studio upload needs `tab.uploadFile`, which the step tools lack) and it widens what a video session can do to the machine and to any saved profile it opens. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers the step tools only.
+`browser_run` is an exec-tier tool: the host asks the person before each run, and a cell has full Node access in the server's worker as the person's own account. Giving it to the video space is deliberate (the Studio runbook is written as cells) and it widens what a video session can do to the machine and to any saved profile it opens. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers the step tools only.
 
 | Offered to | Tools |
 |---|---|
@@ -392,11 +392,18 @@ declares `connectDomains: ["http://127.0.0.1:*"]` and nothing else. Design: doc 
 
 Page content is untrusted data, never instructions.
 
-**What it does not do, on purpose.** The step tools have no file upload (`browser_act`
-takes no file path): a page could steer the model into sending a local secret to a site.
-A `browser_run` cell can upload files (`tab.uploadFile`; `resolveUploadPath` in
-`src/code/worker/tab-api.ts` resolves the path): a cell is full Node and could read the
-file anyway ([Code cells](#code-cells-scope-and-limits)). No JavaScript in a signed-in browser:
+**File uploads.** `browser_act`'s `upload` step (`{ "kind": "upload", "selector", "paths": [...] }`,
+1-16 absolute paths) works on a saved, signed-in profile as well as a throwaway browser. An
+`<input type=file>` (hidden ones too) gets the files directly through the browser
+(`DOM.setFileInputFiles`); any other element is clicked, and the file picker the page opens gets
+them instead (the dialog never shows). A single-file input given two paths is refused before
+anything is set. A path must be absolute and name an existing file; anything under this pack's own
+root (profiles, saved passwords) is refused, and the View cannot send the step (the person uses the
+page's own picker). What it cannot stop: a page could still talk the model into uploading some
+other local file, so treat page text as data. A `browser_run` cell can upload files too
+(`tab.uploadFile`; `resolveUploadPath` in `src/code/worker/tab-api.ts` resolves the path).
+
+**What it does not do, on purpose.** No JavaScript in a signed-in browser:
 arbitrary script in a profile that holds logins is a bigger blast radius than the
 layout facts `browser_inspect` returns from a fixed page script, so the `eval` step
 runs only in a throwaway browser (`eval_needs_throwaway` otherwise).
@@ -716,6 +723,28 @@ as data, so the pack's code stays platform-agnostic:
 
 - `fields`: 1-8, each value at most 10 000 characters; `label` (at most 40
   characters) is the caption the confirm bar shows above the value.
+- `files` (optional, up to 4): `[{ label, selector, path }]`, a local file per
+  slot, set on the page through the browser exactly as the `upload` step sets
+  it, never through page script. A path must be absolute and exist (`bad_file`
+  names the slot otherwise), and nothing under this pack's root is ever sent.
+  The record lists them as `files: [{ label, path }]` and the confirm bar shows
+  each one. A file is set once, while parking; confirm does not re-read it.
+- `steps` (shipped presets only, up to 32; a recipe the caller writes cannot
+  declare them, because a wizard's clicks reach the page before any confirm): an ordered wizard for a site where one page is
+  not enough. `{ kind: "field", label }` and `{ kind: "file", label }` place
+  that field or file; `{ kind: "click", selector }`; `{ kind: "wait", selector,
+  timeoutMs? }` (visible, default 15 s, at most 60 s); `{ kind: "check",
+  selector }`, which must be on the page when parking AND again at confirm (a
+  page that drifted is `changed since shown`, nothing clicked). With `steps`,
+  every field needs its own label and every field and file is placed exactly
+  once; without, the fields are typed in order and then the files are set.
+  Each field is read back right after it is typed; at the end of the wizard the
+  fields are read again, and one that reads differently must be on a page the
+  wizard hid (else `field-mismatch`). Confirm compares against that read. A
+  step that fails parks nothing; the error says when a file it had already
+  attached may have started uploading.
+- `receipt.origin` (optional): the posted link's origin when it is not the
+  recipe's (YouTube Studio posts a `https://youtu.be/<id>` link).
 - `receipt.path`: a template matched against the posted URL's pathname (the
   origin is checked separately; query and hash are ignored). Literal text plus
   `{segment}` (one path segment) and `{digits}` (one or more digits), at most one
@@ -738,10 +767,10 @@ as data, so the pack's code stays platform-agnostic:
   tool). The tool declares `_meta: { "ai.insodimension/approval": "prompt" }`,
   so the host ALWAYS asks the human before the agent's call runs, in every permission mode
   (yolo included); a harness that can't guarantee that ask has the call refused
-  by the Dimension host instead. The model MUST pass `expect: { origin, profile, values }`
+  by the Dimension host instead. The model MUST pass `expect: { origin, profile, values, files? }`
   copied exactly from the pending record (`values`: every field's value, in
-  field order), so the Allow card states where the post goes, as which profile,
-  and exactly what it says. A model call without `expect` fails
+  field order; `files`: `{ label: path }` for every file the record lists), so the Allow card states where the post goes, as which profile,
+  and exactly what it says and attaches. A model call without `expect` fails
   `expect_required`; any `expect` (from any caller) that differs from the
   pending record fails `publish_mismatch`; either way nothing is clicked and the
   publish stays pending. The View's Post may omit `expect`. The page is then
@@ -750,8 +779,8 @@ as data, so the pack's code stays platform-agnostic:
 - **Only a post a human approved goes out.** `mode: "post"` is refused
   (`publish_unapproved`, before the compose page is opened) unless an unspent,
   unexpired [publish approval](#publish-approvals) covers this exact post: the
-  site, the profile, the preset it goes through and every value, character for
-  character. The confirm checks again and SPENDS the approval before it re-reads
+  site, the profile, the preset it goes through, every value, character for
+  character, and every attached file's path. The confirm checks again and SPENDS the approval before it re-reads
   the page and clicks submit, for the View's Post too (a confirm that ends
   `unknown` with no click, because the page was used meanwhile, leaves it spent;
   then record `draft_failed` if the post is not up, so the user's Retry approves
@@ -764,7 +793,7 @@ as data, so the pack's code stays platform-agnostic:
   `browser_task`, `browser_publish` and `browser_close` are refused
   (`publish_pending`) unless the host stamped the call as coming from the View.
 - The receipt is the posted URL read from the page (the tab's URL, or a link the
-  recipe names), on the recipe's origin, its path matching `receipt.path`, and
+  recipe names), on the recipe's origin (or `receipt.origin`), its path matching `receipt.path`, and
   not already on the page before submit. `browser_publish_wait` follows the
   outcome: `posted`, `unknown` (may have posted), `failed` (nothing submitted),
   `cancelled`, or `expired` after 10 minutes unconfirmed.
@@ -783,9 +812,9 @@ as data, so the pack's code stays platform-agnostic:
   that keeps one `<p>` per line (ProseMirror, Quill, Lexical) reads as those
   lines joined by one newline, not the blank line `innerText` would put between
   paragraphs.
-- Recipe selectors (`signedIn`, `account`, `fields`, `submit`) accept any puppeteer
+- Recipe selectors (`signedIn`, `account`, `fields`, `files`, `steps`, `submit`) accept any puppeteer
   selector syntax: CSS, `pierce/…` to reach into open shadow roots,
-  `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
+  `aria/…`, `xpath/…`, `::-p-text(…)` and `::-p-xpath(…)`. `receipt.linkSelector` is read in-page,
   so it accepts CSS and `pierce/…` only.
 
 Hard lines: a password field is never a publish field (its value is never read
@@ -796,27 +825,48 @@ exactly once and never retries it.
 ### Presets
 
 Named recipes ship in `recipes/<name>.json`. Pass one instead of a recipe:
-`preset: { name, values, target? }`. `values` fill the preset's fields in
-order, and their count must match. A preset with `needsTarget` composes on the
+`preset: { name, values, target?, files? }`. `values` fill the preset's fields in
+order, and their count must match. `files` is `{ label: absolute path }` for the
+preset's file slots: a slot not marked optional is required, an unknown label is
+refused with the slot names, and a file whose extension is not in the slot's
+`accept` is refused by name, all before any page is touched. A slot left out
+drops the steps that only run with it (`onlyWith`). A preset with `needsTarget` composes on the
 page the caller names (a Reddit thread to comment on); `target` must be a URL on
 the preset's origin. An unknown name is refused with the list of names. The
 preset resolves to an ordinary recipe and takes the same path: the same checks,
 the same parked publish, the same confirm, the receipt from the page. The record
 carries `preset: { name, verified }`, and the confirm bar shows "Unverified
 recipe" while `verified` is false. `browser_publish_presets` lists
-`{ name, platform, verified, fields, needsTarget, signInUrl }`. `signInUrl` is
+`{ name, platform, verified, fields, files: [{ label, optional, accept? }], needsTarget, signInUrl }`. `signInUrl` is
 the page a person signs in on, on the preset's own site (a preset whose page is
 elsewhere is refused when the server starts): an agent that finds a profile
 signed out opens the View there with `browser_view { profile, url: signInUrl }`.
 
-| Name | Platform | Verified | Needs target |
-| --- | --- | --- | --- |
-| `x-post` | X | no | no |
-| `bluesky-post` | Bluesky | no | no |
-| `linkedin-post` | LinkedIn | no | no |
-| `reddit-comment` | Reddit | no | yes (the thread URL) |
+| Name | Platform | Verified | Needs target | Files |
+| --- | --- | --- | --- | --- |
+| `x-post` | X | no | no | none |
+| `bluesky-post` | Bluesky | no | no | none |
+| `linkedin-post` | LinkedIn | no | no | none |
+| `reddit-comment` | Reddit | no | yes (the thread URL) | none |
+| `youtube-upload` | YouTube | no | no | `Video` (required), `Thumbnail`, `Captions` |
 
-Presets are modelled on each site's page as of 2026-09 and tested against
+`youtube-upload` drives YouTube Studio's upload dialog: Create, Upload videos,
+the video file, Title and Description, the thumbnail, "not made for kids",
+Next to Video elements (subtitles, when `Captions` is given: Add, Upload file,
+Continue answers the file picker, Done), Next, Next, **Unlisted**, and parks on
+the Visibility page; the Post presses Save and the receipt is the
+`https://youtu.be/<id>` link in the "Video published" dialog. Visibility is
+fixed to Unlisted and the audience to not made for kids: approving the preset
+approves both, and Unlisted is checked again at confirm. Studio starts
+uploading the moment the video is set and keeps it Private until Save, so a
+step that fails after that leaves a private draft in the channel. Its selectors
+come from a signed-in Studio run on 2026-10-31 and public automation projects;
+the subtitles buttons are matched by their visible text and are the least
+certain part. `notes` in `recipes/youtube-upload.json` give every selector's
+source.
+
+Presets are modelled on each site's page as of 2026-09 (YouTube Studio:
+2026-10-31) and tested against
 fixture copies, not the live sites. A preset becomes verified only after a real
 post is observed through it. Each preset's `notes` say what every selector is
 modelled on; the fixture copies are in `test/platform-fixtures/`.
@@ -841,7 +891,8 @@ Where: `<root>/publish-approvals/` (`$INSO_HOME/browser/publish-approvals`, else
   "expiresAt" }`. `draftId` is `[A-Za-z0-9_-]{1,64}` and names the file;
   `nonce` is 32 lowercase hex; `approvedAt` and `expiresAt` are ISO times at
   most 24 hours apart. `binding` is the lowercase hex SHA-256 of
-  `JSON.stringify(["publish-approval/v1", origin, profile, preset, values])`:
+  `JSON.stringify(["publish-approval/v1", origin, profile, preset, values])`, with a sixth
+  element `{ label: path }` (labels in code-unit order) when the post attaches files:
   `origin` is the recipe's origin (`https://x.com`), `profile` the saved browser
   profile that posts, `preset` the name of the shipped preset the post goes
   through (`"x-post"`; `null` for a recipe the caller wrote, whose selectors and
@@ -862,8 +913,8 @@ approval covers this exact post, the approval expired (the agent records
 `draft_failed`; the user's Retry approves it again), or it was already used (the
 post may be up; never post it twice).
 
-Today the only writer is Traction's board, and it approves X posts through the
-`x-post` preset only: through this pack, nothing else can be posted until
+Today the only writer is Traction's board, and it approves posts through the
+shipped presets only: through this pack, nothing else can be posted until
 another surface writes approvals (post those yourself on the site). The binding
 does not cover the page a `needsTarget` preset posts on (`reddit-comment`), so
 no surface should approve one before it does.

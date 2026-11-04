@@ -5417,6 +5417,58 @@ var PuppeteerDriver = class {
           await page.mouse.wheel({ deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
           return NONE;
         }
+        case "upload": {
+          const selector3 = requireField(action.selector, "upload.selector");
+          const paths = action.paths ?? [];
+          if (paths.length === 0) throw new ActionNotDispatched("bad_action", "upload.paths must name at least one file");
+          const { handle, frame } = await this.#resolve(page, selector3);
+          let target;
+          try {
+            target = await handle.evaluate((el) => {
+              if (!(el instanceof HTMLInputElement)) return "opener";
+              if (el.type.toLowerCase() !== "file") return "other-input";
+              return el.multiple ? "multiple" : "single";
+            });
+            if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector3)} is an input that takes no files`);
+            if (target === "single" && paths.length > 1) throw new ActionNotDispatched("bad_action", `${JSON.stringify(selector3)} takes one file, not ${paths.length}`);
+            if (target !== "opener") {
+              const client = frame.client;
+              const backendNodeId = await handle.backendNodeId();
+              if (guard !== void 0) {
+                const admission = guard();
+                if (admission !== void 0) await admission;
+                guard.assertCurrent();
+              }
+              effectsStarted = true;
+              await client.send("DOM.setFileInputFiles", { backendNodeId, files: [...paths] });
+              return NONE;
+            }
+          } finally {
+            await handle.dispose().catch(() => void 0);
+          }
+          delegated = true;
+          const stopWaiting = new AbortController();
+          const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
+          void chooserOpened.catch(() => void 0);
+          try {
+            await this.#dispatch({ kind: "click", selector: selector3 }, void 0, guard);
+            const chooser = await chooserOpened;
+            if (!chooser.isMultiple() && paths.length > 1) {
+              await chooser.cancel();
+              throw new Error(`the file picker ${JSON.stringify(selector3)} opened takes one file, not ${paths.length}; it was cancelled`);
+            }
+            if (guard !== void 0) {
+              const admission = guard();
+              if (admission !== void 0) await admission;
+              guard.assertCurrent();
+            }
+            await chooser.accept([...paths]);
+          } finally {
+            stopWaiting.abort();
+            await page._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => void 0);
+          }
+          return NONE;
+        }
         default:
           throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify(action.kind)}`);
       }
@@ -9481,16 +9533,16 @@ var promiseCombinatorTracking = new AsyncLocalStorage();
 import * as os2 from "node:os";
 import * as path2 from "node:path";
 var MODEL_SHOT_MAX_BYTES = 150 * 1024;
-function shortenPath(filePath, homeDir = os2.homedir()) {
+function shortenPath(filePath2, homeDir = os2.homedir()) {
   const windowsStyle = /^[A-Za-z]:[\\/]/.test(homeDir) || homeDir.startsWith("\\\\");
-  const hasHomePrefix = windowsStyle ? filePath.toLowerCase().startsWith(homeDir.toLowerCase()) : filePath.startsWith(homeDir);
+  const hasHomePrefix = windowsStyle ? filePath2.toLowerCase().startsWith(homeDir.toLowerCase()) : filePath2.startsWith(homeDir);
   if (homeDir && hasHomePrefix) {
-    const suffix = filePath.slice(homeDir.length);
+    const suffix = filePath2.slice(homeDir.length);
     if (suffix === "" || suffix.startsWith(path2.posix.sep) || suffix.startsWith(path2.win32.sep)) {
       return `~${suffix.replaceAll(path2.win32.sep, path2.posix.sep)}`;
     }
   }
-  return filePath;
+  return filePath2;
 }
 function formatDimensionNote(info) {
   if (!info.originalWidth || !info.originalHeight || !info.width || !info.height) return void 0;
@@ -10175,10 +10227,10 @@ var CmuxTab = class {
   async uploadFile(selector3, ...filePaths) {
     if (!filePaths.length) throw new ToolError("tab.uploadFile() requires at least one file path");
     const files = [];
-    for (const filePath of filePaths) {
+    for (const filePath2 of filePaths) {
       const cwd = this.#requireRunContext("tab.uploadFile()").session.cwd;
-      if (!path3.isAbsolute(filePath) && cwd === void 0) throw new ToolError(`tab.uploadFile() needs an absolute path (got ${JSON.stringify(filePath)})`);
-      const absolute = path3.resolve(cwd ?? "", filePath);
+      if (!path3.isAbsolute(filePath2) && cwd === void 0) throw new ToolError(`tab.uploadFile() needs an absolute path (got ${JSON.stringify(filePath2)})`);
+      const absolute = path3.resolve(cwd ?? "", filePath2);
       const data = (await fs.promises.readFile(absolute)).toString("base64");
       files.push({ name: path3.basename(absolute), type: mimeTypeOf(absolute), data });
     }
@@ -12417,6 +12469,40 @@ var AnnotationFiles = class {
   }
 };
 
+// src/files.ts
+import { realpathSync, statSync as statSync4 } from "node:fs";
+import { isAbsolute as isAbsolute4, relative, sep } from "node:path";
+var MAX_FILE_PATH_CHARS = 4096;
+var MAX_UPLOAD_PATHS = 16;
+var EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
+function parseAccept(accept, where) {
+  if (typeof accept !== "string" || accept.trim().length === 0) fail("bad_recipe", `${where}.accept must be a comma-separated list of extensions such as ".mp4,.mov"`);
+  const extensions = accept.split(",").map((token) => token.trim().toLowerCase());
+  const invalid = extensions.find((token) => !EXTENSION_TOKEN.test(token));
+  if (invalid !== void 0) fail("bad_recipe", `${where}.accept takes file extensions only (".mp4"), not ${JSON.stringify(invalid)}`);
+  return extensions;
+}
+function requireAbsolutePath(path4, name, code) {
+  if (typeof path4 !== "string" || path4.length === 0 || path4.length > MAX_FILE_PATH_CHARS || !isAbsolute4(path4)) {
+    fail(code, `${name} must be an absolute path of at most ${MAX_FILE_PATH_CHARS} characters`);
+  }
+  return path4;
+}
+function requireLocalFile(path4, name, code, protectedRoot) {
+  let real;
+  try {
+    if (!statSync4(path4).isFile()) fail(code, `${name}: ${path4} is not a file`);
+    real = realpathSync.native(path4);
+  } catch (error) {
+    if (error.code === "ENOENT") fail(code, `${name}: ${path4} does not exist`);
+    throw error;
+  }
+  const fromRoot = relative(realpathSync.native(protectedRoot), real);
+  if (fromRoot === "" || fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute4(fromRoot)) {
+    fail(code, `${name}: ${path4} is the browser's own data (profiles, saved passwords), which is never uploaded`);
+  }
+}
+
 // src/presets.ts
 import { readdir as readdir2, readFile as readFile2 } from "node:fs/promises";
 import { basename as basename3, extname as extname2, join as join11 } from "node:path";
@@ -12426,6 +12512,10 @@ import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { randomBytes as randomBytes6 } from "node:crypto";
 import { setTimeout as sleep4 } from "node:timers/promises";
 var MAX_FIELDS = 8;
+var MAX_FILES = 4;
+var MAX_STEPS = 32;
+var DEFAULT_STEP_WAIT_MS = 15e3;
+var MAX_STEP_WAIT_MS = 6e4;
 var MAX_VALUE_CHARS = 1e4;
 var MAX_LABEL_CHARS2 = 40;
 var MAX_SELECTOR_CHARS = 512;
@@ -12441,6 +12531,7 @@ var LOOPBACK_HOSTS2 = ["127.0.0.1", "localhost"];
 var TERMINAL = ["posted", "unknown", "failed", "cancelled", "expired"];
 var TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 var SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
+var ATTACHED_NOTE = "; a file it had already attached may have started uploading to the site";
 function validateMode(mode) {
   const found = PUBLISH_MODES.find((candidate) => candidate === mode);
   if (!found) fail("bad_mode", `mode must be one of: ${PUBLISH_MODES.join(", ")}`);
@@ -12468,6 +12559,8 @@ function validateRecipe(input) {
       ...field.label === void 0 ? {} : { label: field.label.trim() }
     };
   });
+  const files = validateFiles(input.files);
+  const steps = input.steps === void 0 ? void 0 : validateSteps(input.steps, fields, files);
   const receipt = input.receipt;
   if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
   const path4 = receiptPath(receipt.path);
@@ -12477,13 +12570,86 @@ function validateRecipe(input) {
     signedIn: selector(input.signedIn, "signedIn"),
     ...input.account === void 0 ? {} : { account: selector(input.account, "account") },
     fields,
+    ...files.length === 0 ? {} : { files },
+    ...steps === void 0 ? {} : { steps: steps.declared },
     submit: selector(input.submit, "submit"),
     receipt: {
       path: path4,
-      ...receipt.linkSelector === void 0 ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }
+      ...receipt.linkSelector === void 0 ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") },
+      ...receipt.origin === void 0 ? {} : { origin: parseOrigin(receipt.origin, "receipt.origin") }
     },
-    matchesPath: compilePath(path4)
+    matchesPath: compilePath(path4),
+    plan: steps?.plan ?? [...fields.map((field) => ({ kind: "field", field })), ...files.map((file) => ({ kind: "file", file }))]
   };
+}
+function validateFiles(input) {
+  if (input === void 0) return [];
+  if (!Array.isArray(input) || input.length > MAX_FILES) fail("bad_recipe", `files must hold at most ${MAX_FILES} entries`);
+  const labels = /* @__PURE__ */ new Set();
+  return input.map((file, index) => {
+    if (!isObject(file)) fail("bad_recipe", `files[${index}] must be { label, selector, path }`);
+    if (typeof file.label !== "string" || file.label.trim().length === 0 || file.label.length > MAX_LABEL_CHARS2) {
+      fail("bad_recipe", `files[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS2} characters`);
+    }
+    const label = file.label.trim();
+    if (labels.has(label)) fail("bad_recipe", `files[${index}].label ${JSON.stringify(label)} is used twice`);
+    labels.add(label);
+    return { label, selector: selector(file.selector, `files[${index}].selector`), path: requireAbsolutePath(file.path, `files[${index}].path`, "bad_recipe") };
+  });
+}
+function validateSteps(input, fields, files) {
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_STEPS) fail("bad_recipe", `steps must hold 1-${MAX_STEPS} entries`);
+  const targets = new Map([
+    ...fields.map((field) => [`field:${field.label}`, { kind: "field", field }]),
+    ...files.map((file) => [`file:${file.label}`, { kind: "file", file }])
+  ]);
+  if (fields.some((field) => field.label === void 0) || targets.size !== fields.length + files.length) fail("bad_recipe", "with steps, every field needs a label of its own");
+  const placed = /* @__PURE__ */ new Set();
+  const declared = [];
+  const plan = input.map((step, index) => {
+    const where = `steps[${index}]`;
+    if (!isObject(step)) fail("bad_recipe", `${where} must be an object`);
+    const keys = Object.keys(step);
+    const only = (allowed) => {
+      const extra = keys.find((key) => !allowed.includes(key));
+      if (extra !== void 0) fail("bad_recipe", `${where}.${extra} is not a ${String(step.kind)} step key`);
+    };
+    switch (step.kind) {
+      case "field":
+      case "file": {
+        only(["kind", "label"]);
+        const label = typeof step.label === "string" ? step.label.trim() : "";
+        const key = `${step.kind}:${label}`;
+        const target = targets.get(key);
+        if (target === void 0) fail("bad_recipe", `${where} names no ${step.kind} labelled ${JSON.stringify(label)}`);
+        if (placed.has(key)) fail("bad_recipe", `${where} places ${step.kind} ${JSON.stringify(label)} a second time`);
+        placed.add(key);
+        declared.push({ kind: step.kind, label });
+        return target;
+      }
+      case "click":
+      case "check": {
+        only(["kind", "selector"]);
+        const target = selector(step.selector, `${where}.selector`);
+        declared.push({ kind: step.kind, selector: target });
+        return { kind: step.kind, selector: target };
+      }
+      case "wait": {
+        only(["kind", "selector", "timeoutMs"]);
+        const timeoutMs = step.timeoutMs ?? DEFAULT_STEP_WAIT_MS;
+        if (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_STEP_WAIT_MS) {
+          fail("bad_recipe", `${where}.timeoutMs must be an integer from 1 to ${MAX_STEP_WAIT_MS}`);
+        }
+        const target = selector(step.selector, `${where}.selector`);
+        declared.push({ kind: "wait", selector: target, ...step.timeoutMs === void 0 ? {} : { timeoutMs } });
+        return { kind: "wait", selector: target, timeoutMs };
+      }
+      default:
+        return fail("bad_recipe", `${where}.kind must be field, file, click, wait or check`);
+    }
+  });
+  if (placed.size !== fields.length + files.length) fail("bad_recipe", "steps must place every field and every file exactly once");
+  return { declared, plan };
 }
 var PLACEHOLDERS = { segment: "[^/]+", digits: "[0-9]+" };
 var TEMPLATE_TOKEN = /\{([^{}]*)\}|[{}]|[.*+?^$()|[\]\\]/g;
@@ -12512,9 +12678,9 @@ function compilePath(path4) {
   const pattern = new RegExp(`^${segments.join("/")}$`);
   return (pathname) => pattern.test(pathname);
 }
-function parseOrigin(value) {
-  const url = parseUrl(value, "origin");
-  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `origin must be a bare origin such as https://example.com`);
+function parseOrigin(value, name = "origin") {
+  const url = parseUrl(value, name);
+  if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `${name} must be a bare origin such as https://example.com`);
   return url.origin;
 }
 function parseUrl(value, name) {
@@ -12565,31 +12731,45 @@ async function prepare(driver, profile2, recipe, mode, guard) {
   const account2 = recipe.account === void 0 ? void 0 : accountFromText(await driver.readText(recipe.account, MAX_ACCOUNT_TEXT_CHARS).catch(() => null));
   guard?.assertCurrent();
   if (mode === "check") return { status: "signed-in", url, profile: profile2, ...account2 === void 0 ? {} : { account: account2 } };
-  for (const field of recipe.fields) {
-    const failed2 = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted` });
+  let attached = false;
+  for (const [index, step] of recipe.plan.entries()) {
+    const failed2 = (error) => ({ status: "failed", url, profile: profile2, error: `${error}; nothing was submitted${attached ? ATTACHED_NOTE : ""}` });
     if (guard !== void 0) await guard();
     guard?.assertCurrent();
-    const before = await driver.readField(field.selector).catch((error) => ({ state: "error", error }));
-    guard?.assertCurrent();
-    if (before.state === "error") return failed2(`could not read ${JSON.stringify(field.selector)}: ${describe2(before.error)}`);
-    if (before.state === "absent") return failed2(`${JSON.stringify(field.selector)} is not on the page`);
-    if (before.state === "password") return failed2(`${JSON.stringify(field.selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`);
-    if (before.state === "not-editable") return failed2(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
-    if (guard !== void 0) await guard();
-    guard?.assertCurrent();
-    try {
-      await driver.fill(field.selector, field.value, guard);
-    } catch (error) {
-      return failed2(`typing into ${JSON.stringify(field.selector)} failed: ${describe2(error)}`);
-    }
-    if (guard !== void 0) await guard();
-    guard?.assertCurrent();
-    const after = await driver.readField(field.selector).catch(() => null);
-    guard?.assertCurrent();
-    if (after?.state !== "value" || after.value !== field.value) {
-      return failed2(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
+    switch (step.kind) {
+      case "field": {
+        const problem = await fillField(driver, step.field, guard);
+        if (problem !== null) return failed2(problem);
+        break;
+      }
+      case "file":
+        try {
+          await driver.perform({ kind: "upload", selector: step.file.selector, paths: [step.file.path] }, void 0, guard);
+          attached = true;
+        } catch (error) {
+          attached ||= !(error instanceof ActionNotDispatched);
+          return failed2(`attaching file ${JSON.stringify(step.file.label)} to ${JSON.stringify(step.file.selector)} failed: ${describe2(error)}`);
+        }
+        break;
+      case "click":
+        try {
+          await driver.perform({ kind: "click", selector: step.selector }, void 0, guard);
+        } catch (error) {
+          return failed2(`step ${index + 1}, clicking ${JSON.stringify(step.selector)}, failed: ${describe2(error)}`);
+        }
+        break;
+      case "wait":
+      case "check": {
+        const timeoutMs = step.kind === "wait" ? step.timeoutMs : DEFAULT_STEP_WAIT_MS;
+        const appeared = await driver.waitFor({ selector: step.selector }, timeoutMs, (value) => value).catch(() => false);
+        guard?.assertCurrent();
+        if (!appeared) return failed2(`step ${index + 1}: ${JSON.stringify(step.selector)} did not appear within ${timeoutMs} ms`);
+        break;
+      }
     }
   }
+  const shownReads = recipe.steps === void 0 ? void 0 : await readAfterSteps(driver, recipe, guard);
+  if (typeof shownReads === "string") return { status: "failed", url, profile: profile2, error: `${shownReads}; nothing was submitted${attached ? ATTACHED_NOTE : ""}` };
   if (guard !== void 0) await guard();
   guard?.assertCurrent();
   const shown2 = await driver.state().catch(() => null);
@@ -12607,6 +12787,7 @@ async function prepare(driver, profile2, recipe, mode, guard) {
       tabId: shown2.activeTabId,
       profile: profile2,
       fields: recipe.fields.map((field) => ({ ...field })),
+      ...recipe.files === void 0 ? {} : { files: recipe.files.map(({ label, path: path4 }) => ({ label, path: path4 })) },
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString()
     },
@@ -12615,8 +12796,47 @@ async function prepare(driver, profile2, recipe, mode, guard) {
     touchedWhilePending: false,
     sharedPage: false,
     settled: Promise.withResolvers(),
-    ...account2 === void 0 ? {} : { account: account2 }
+    ...account2 === void 0 ? {} : { account: account2 },
+    ...shownReads === void 0 ? {} : { shownReads }
   };
+}
+async function readAfterSteps(driver, recipe, guard) {
+  const reads = [];
+  for (const field of recipe.fields) {
+    if (guard !== void 0) await guard();
+    guard?.assertCurrent();
+    const read2 = await driver.readField(field.selector).catch(() => null);
+    guard?.assertCurrent();
+    if (read2?.state !== "value") return `${JSON.stringify(field.selector)} left the page during the steps`;
+    if (read2.value !== field.value) {
+      const box = await driver.inspect(field.selector).catch(() => null);
+      guard?.assertCurrent();
+      if (box === null || box.rect.width > 0 || box.rect.height > 0) return `field-mismatch: ${JSON.stringify(field.selector)} no longer holds the value typed after the steps`;
+    }
+    reads.push(read2.value);
+  }
+  return reads;
+}
+async function fillField(driver, field, guard) {
+  const before = await driver.readField(field.selector).catch((error) => ({ state: "error", error }));
+  guard?.assertCurrent();
+  if (before.state === "error") return `could not read ${JSON.stringify(field.selector)}: ${describe2(before.error)}`;
+  if (before.state === "absent") return `${JSON.stringify(field.selector)} is not on the page`;
+  if (before.state === "password") return `${JSON.stringify(field.selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`;
+  if (before.state === "not-editable") return `${JSON.stringify(field.selector)} is not an input, textarea or editable element`;
+  if (guard !== void 0) await guard();
+  guard?.assertCurrent();
+  try {
+    await driver.fill(field.selector, field.value, guard);
+  } catch (error) {
+    return `typing into ${JSON.stringify(field.selector)} failed: ${describe2(error)}`;
+  }
+  if (guard !== void 0) await guard();
+  guard?.assertCurrent();
+  const after = await driver.readField(field.selector).catch(() => null);
+  guard?.assertCurrent();
+  if (after?.state !== "value" || after.value !== field.value) return `field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`;
+  return null;
 }
 function requirePending(publication, publishId) {
   if (!publication || publication.record.publishId !== publishId) fail("unknown_publish", "no such publish on this browser");
@@ -12678,17 +12898,28 @@ async function changedSinceShown(driver, publication, guard) {
     guard?.assertCurrent();
     if (state.activeTabId !== publication.record.tabId) return "another tab is active";
     if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
-    for (const field of publication.record.fields) {
+    for (const [index, field] of publication.record.fields.entries()) {
       if (guard !== void 0) await guard();
       guard?.assertCurrent();
       const read2 = await driver.readField(field.selector);
       guard?.assertCurrent();
-      if (read2.state !== "value" || read2.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
+      if (read2.state !== "value" || read2.value !== (publication.shownReads?.[index] ?? field.value)) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
     }
-    return null;
+    return await missingCheck(driver, publication.recipe, guard);
   } catch (error) {
     return `the page could not be re-read (${describe2(error)})`;
   }
+}
+async function missingCheck(driver, recipe, guard) {
+  for (const step of recipe.plan) {
+    if (step.kind !== "check") continue;
+    if (guard !== void 0) await guard();
+    guard?.assertCurrent();
+    const holds = await driver.hasElement(step.selector);
+    guard?.assertCurrent();
+    if (!holds) return `${JSON.stringify(step.selector)} is no longer on the page`;
+  }
+  return null;
 }
 async function receipts(driver, recipe, guard) {
   if (guard !== void 0) await guard();
@@ -12704,7 +12935,7 @@ function isReceipt(url, recipe) {
   } catch {
     return false;
   }
-  return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
+  return parsed.origin === (recipe.receipt.origin ?? recipe.origin) && recipe.matchesPath(parsed.pathname);
 }
 function cancel(publication, error) {
   const unsure = unsureError(publication);
@@ -12735,7 +12966,12 @@ async function waitSettled(publication, ms) {
 function publishRecord(publication) {
   expireIfDue(publication);
   const { record } = publication;
-  return { ...record, fields: record.fields.map((field) => ({ ...field })), ...record.preset === void 0 ? {} : { preset: { ...record.preset } } };
+  return {
+    ...record,
+    fields: record.fields.map((field) => ({ ...field })),
+    ...record.files === void 0 ? {} : { files: record.files.map((file) => ({ ...file })) },
+    ...record.preset === void 0 ? {} : { preset: { ...record.preset } }
+  };
 }
 function isPending(publication) {
   if (!publication) return false;
@@ -12772,9 +13008,11 @@ function describe2(error) {
 // src/presets.ts
 var NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
 var MAX_PLATFORM_CHARS = 40;
-var MAX_NOTES_CHARS = 2e3;
+var MAX_NOTES_CHARS = 8e3;
+var PLACEHOLDER_PATH = "/";
 var PRESETS_DIR = fileURLToPath4(new URL("../recipes/", import.meta.url));
-var PRESET_KEYS = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "submit", "receipt"];
+var PRESET_KEYS = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "files", "steps", "submit", "receipt"];
+var FILE_KEYS = ["label", "selector", "accept", "optional"];
 async function loadPresets(dir = PRESETS_DIR) {
   const files = (await readdir2(dir)).filter((file) => extname2(file) === ".json").sort();
   const presets = [];
@@ -12798,7 +13036,7 @@ function parsePreset(input, where) {
   };
   if (!isObject2(input)) return bad("must be an object");
   for (const key of Object.keys(input)) if (!PRESET_KEYS.includes(key)) bad(`unknown key ${JSON.stringify(key)}`);
-  const { name, platform, verified, verifiedAt, notes, composeUrl, composeFrom, fields, receipt } = input;
+  const { name, platform, verified, verifiedAt, notes, composeUrl, composeFrom, fields, files, steps, receipt } = input;
   if (typeof name !== "string" || !NAME.test(name)) bad("name must be lowercase letters, digits and dashes");
   if (typeof platform !== "string" || platform.length === 0 || platform.length > MAX_PLATFORM_CHARS) bad(`platform must be 1-${MAX_PLATFORM_CHARS} characters`);
   if (typeof verified !== "boolean") bad("verified must be a boolean");
@@ -12815,11 +13053,14 @@ function parsePreset(input, where) {
     if (typeof label !== "string" || typeof selector3 !== "string") return bad(`fields[${index}] needs a label and a selector`);
     return { label, selector: selector3 };
   });
-  if (!isObject2(receipt) || Object.keys(receipt).some((key) => key !== "path" && key !== "linkSelector")) bad("receipt must be { path, linkSelector? }");
-  const preset = input;
+  if (files !== void 0 && !Array.isArray(files)) bad("files must be an array");
+  if (steps !== void 0 && !Array.isArray(steps)) bad("steps must be an array");
+  if (!isObject2(receipt) || Object.keys(receipt).some((key) => key !== "path" && key !== "linkSelector" && key !== "origin")) bad("receipt must be { path, linkSelector?, origin? }");
   try {
-    const recipe = toRecipe(preset, labelled.map(() => ""), preset.composeUrl ?? `${String(preset.origin)}/`);
-    const valid = validateRecipe(recipe);
+    const slots = parseFileSlots(files ?? []);
+    const parsedSteps = steps === void 0 ? void 0 : parsePresetSteps(steps, slots);
+    const preset = { ...input, files: slots, ...parsedSteps === void 0 ? {} : { steps: parsedSteps } };
+    const valid = validateRecipe(toRecipe(preset, labelled.map(() => ""), Object.fromEntries(slots.map((slot) => [slot.label, PLACEHOLDER_PATH])), preset.composeUrl ?? `${String(preset.origin)}/`));
     const signInUrl = pageOnOrigin(preset.signInUrl, valid.origin);
     if (signInUrl === void 0) throw new Error(`signInUrl must be a page on ${valid.origin}`);
     return {
@@ -12834,6 +13075,8 @@ function parsePreset(input, where) {
       signedIn: valid.signedIn,
       ...valid.account === void 0 ? {} : { account: valid.account },
       fields: valid.fields.map((field) => ({ label: field.label ?? "", selector: field.selector })),
+      files: (valid.files ?? []).map((file, index) => ({ ...slots[index], label: file.label, selector: file.selector })),
+      ...valid.steps === void 0 ? {} : { steps: valid.steps.map((step, index) => ({ ...step, ...parsedSteps?.[index]?.onlyWith === void 0 ? {} : { onlyWith: parsedSteps[index].onlyWith } })) },
       submit: valid.submit,
       receipt: valid.receipt
     };
@@ -12841,12 +13084,33 @@ function parsePreset(input, where) {
     return bad(error instanceof Error ? error.message : String(error));
   }
 }
+function parseFileSlots(files) {
+  return files.map((file, index) => {
+    if (!isObject2(file) || Object.keys(file).some((key) => !FILE_KEYS.includes(key))) throw new Error(`files[${index}] must be { label, selector, accept?, optional? }`);
+    const { label, selector: selector3, accept, optional } = file;
+    if (typeof label !== "string" || typeof selector3 !== "string") throw new Error(`files[${index}] needs a label and a selector`);
+    if (optional !== void 0 && optional !== true) throw new Error(`files[${index}].optional must be true or absent`);
+    return { label, selector: selector3, ...accept === void 0 ? {} : { accept: parseAccept(accept, `files[${index}]`).join(",") }, ...optional === true ? { optional } : {} };
+  });
+}
+function parsePresetSteps(steps, slots) {
+  const optionalLabels = new Set(slots.filter((slot) => slot.optional === true).map((slot) => slot.label.trim()));
+  return steps.map((step, index) => {
+    if (!isObject2(step)) throw new Error(`steps[${index}] must be an object`);
+    const { onlyWith, ...rest } = step;
+    if (onlyWith === void 0) return rest;
+    if (rest.kind === "field" || rest.kind === "file") throw new Error(`steps[${index}].onlyWith is for click, wait and check steps`);
+    if (typeof onlyWith !== "string" || !optionalLabels.has(onlyWith)) throw new Error(`steps[${index}].onlyWith must name an optional file`);
+    return { ...rest, onlyWith };
+  });
+}
 function summarizePresets(presets) {
   return presets.map((preset) => ({
     name: preset.name,
     platform: preset.platform,
     verified: preset.verified,
     fields: preset.fields.map((field) => field.label),
+    files: preset.files.map((file) => ({ label: file.label, optional: file.optional === true, ...file.accept === void 0 ? {} : { accept: file.accept } })),
     needsTarget: preset.composeFrom === "target",
     signInUrl: preset.signInUrl
   }));
@@ -12869,7 +13133,30 @@ function resolvePreset(presets, request) {
     if (request.target !== void 0) fail("bad_preset", `${preset.name} takes no target; it always composes at ${preset.composeUrl}`);
     composeUrl = preset.composeUrl ?? fail("bad_preset", `${preset.name} has no composeUrl`);
   }
-  return { recipe: toRecipe(preset, request.values, composeUrl), preset: { name: preset.name, verified: preset.verified } };
+  const files = requestedFiles(preset, request.files);
+  return { recipe: toRecipe(preset, request.values, files, composeUrl), preset: { name: preset.name, verified: preset.verified } };
+}
+function requestedFiles(preset, requested) {
+  if (requested !== void 0 && !isObject2(requested)) fail("bad_preset", `${preset.name} takes files as { label: absolute path }`);
+  const files = requested ?? {};
+  const slots = preset.files.map((slot) => slot.label);
+  const unknown = Object.keys(files).find((label) => !slots.includes(label));
+  if (unknown !== void 0) fail("bad_preset", `${preset.name} has no file slot ${JSON.stringify(unknown)}; its file slots: ${slots.join(", ") || "none"}`);
+  const chosen = {};
+  for (const slot of preset.files) {
+    const path4 = files[slot.label];
+    const accepted = slot.accept === void 0 ? "" : ` (${slot.accept})`;
+    if (path4 === void 0) {
+      if (slot.optional !== true) fail("bad_preset", `${preset.name} needs file ${JSON.stringify(slot.label)}${accepted}`);
+      continue;
+    }
+    const absolute = requireAbsolutePath(path4, `file ${JSON.stringify(slot.label)}`, "bad_preset");
+    if (slot.accept !== void 0 && !slot.accept.split(",").includes(extname2(absolute).toLowerCase())) {
+      fail("bad_preset", `file ${JSON.stringify(slot.label)}: ${absolute} is not one of${accepted}`);
+    }
+    chosen[slot.label] = absolute;
+  }
+  return chosen;
 }
 function onOrigin(target, preset) {
   let url;
@@ -12886,13 +13173,17 @@ function pageOnOrigin(href, origin) {
   const url = new URL(href);
   return url.origin === origin ? url.href : void 0;
 }
-function toRecipe(preset, values, composeUrl) {
+function toRecipe(preset, values, files, composeUrl) {
+  const given = (label) => Object.hasOwn(files, label);
+  const steps = preset.steps?.filter((step) => (step.onlyWith === void 0 || given(step.onlyWith)) && (step.kind !== "file" || given(step.label))).map(({ onlyWith: _onlyWith, ...step }) => step);
   return {
     origin: preset.origin,
     composeUrl,
     signedIn: preset.signedIn,
     ...preset.account === void 0 ? {} : { account: preset.account },
     fields: preset.fields.map((field, index) => ({ label: field.label, selector: field.selector, value: values[index] ?? "" })),
+    ...preset.files.length === 0 ? {} : { files: preset.files.filter((slot) => given(slot.label)).map((slot) => ({ label: slot.label, selector: slot.selector, path: files[slot.label] })) },
+    ...steps === void 0 ? {} : { steps },
     submit: preset.submit,
     receipt: { ...preset.receipt }
   };
@@ -13336,7 +13627,9 @@ var DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 var NONCE = /^[0-9a-f]{32}$/;
 var DIGEST = /^[0-9a-f]{64}$/;
 function bindingOf(binding) {
-  return createHash5("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
+  const files = Object.entries(binding.files ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const hashed = [BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values], ...files.length === 0 ? [] : [Object.fromEntries(files)]];
+  return createHash5("sha256").update(JSON.stringify(hashed)).digest("hex");
 }
 var UNTOUCHED = {
   park: "Nothing was typed or clicked.",
@@ -15491,6 +15784,10 @@ ${host}`;
       if (caller === "app") fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
       this.savedProfile(entry, "typing a saved password");
     }
+    if (action.kind === "upload") {
+      if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
+      for (const [index, path4] of (action.paths ?? []).entries()) requireLocalFile(path4, `upload.paths[${index}]`, "bad_action", this.store.rootDir);
+    }
     return action;
   }
   admitStep(entry, step, caller, session) {
@@ -15751,6 +16048,8 @@ ${host}`;
     const entry = this.require(browserId);
     const profile2 = this.savedProfile(entry, "publishing");
     const valid = validateRecipe(recipe);
+    for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+    const files = Object.fromEntries((valid.files ?? []).map((file) => [file.label, file.path]));
     const selected = validateMode(mode);
     return await this.serialize(entry, async () => {
       refuseWhileBusy(entry, caller);
@@ -15760,7 +16059,7 @@ ${host}`;
       entry.starting = "post";
       let outcome;
       try {
-        if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile: profile2, ...preset === void 0 ? {} : { preset: preset.name }, values: valid.fields.map((field) => field.value) }, "park");
+        if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile: profile2, ...preset === void 0 ? {} : { preset: preset.name }, values: valid.fields.map((field) => field.value), files }, "park");
         if (guard !== void 0) await guard();
         guard?.assertCurrent();
         outcome = await prepare(entry.driver, profile2, valid, selected, guard);
@@ -15790,7 +16089,16 @@ ${host}`;
         fail("task_running", "a browser_task owns this page; wait for it or cancel it");
       }
       const { record } = publication;
-      const spent = await this.publishApprovals.consume({ origin: record.origin, profile: record.profile, ...record.preset === void 0 ? {} : { preset: record.preset.name }, values: record.fields.map((field) => field.value) }, "confirm");
+      const spent = await this.publishApprovals.consume(
+        {
+          origin: record.origin,
+          profile: record.profile,
+          ...record.preset === void 0 ? {} : { preset: record.preset.name },
+          values: record.fields.map((field) => field.value),
+          files: Object.fromEntries((record.files ?? []).map((file) => [file.label, file.path]))
+        },
+        "confirm"
+      );
       try {
         if (guard !== void 0) await guard();
         guard?.assertCurrent();
@@ -16181,6 +16489,10 @@ function normalizeAction(action) {
       if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
       return { kind: "resize", ...normalizeViewport({ width: action.width, height: action.height }) };
     }
+    case "upload": {
+      if (!Array.isArray(action.paths) || action.paths.length === 0 || action.paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `upload.paths must name 1-${MAX_UPLOAD_PATHS} files`);
+      return { kind: "upload", selector: requireSelector(action.selector), paths: action.paths.map((path4, index) => requireAbsolutePath(path4, `upload.paths[${index}]`, "bad_action")) };
+    }
     case "scroll": {
       const deltaX = requireDelta(action.deltaX ?? 0, "deltaX");
       const deltaY = requireDelta(action.deltaY ?? 0, "deltaY");
@@ -16288,15 +16600,18 @@ function refuseWhileSubmitting(entry) {
 }
 function requireExpected(shown2, caller, expect) {
   if (expect === void 0) {
-    if (caller !== "app") fail("expect_required", "expect_required: pass expect: { origin, profile, values } copied exactly from the pending publish record (values: every field's value, in field order); nothing was clicked");
+    if (caller !== "app") fail("expect_required", "expect_required: pass expect: { origin, profile, values, files? } copied exactly from the pending publish record (values: every field's value, in field order; files: { label: path } for every attached file); nothing was clicked");
     return;
   }
   const values = shown2.fields.map((field) => field.value);
+  const files = shown2.files ?? [];
+  const expectedFiles = expect.files ?? {};
   const differs = [
     ...expect.origin === shown2.origin ? [] : ["origin"],
     ...expect.profile === shown2.profile ? [] : ["profile"],
     ...expect.values.length === values.length ? [] : [`values (expected ${values.length}, got ${expect.values.length})`],
-    ...values.flatMap((value, index) => index < expect.values.length && expect.values[index] !== value ? [`values[${index}]`] : [])
+    ...values.flatMap((value, index) => index < expect.values.length && expect.values[index] !== value ? [`values[${index}]`] : []),
+    ...files.length === Object.keys(expectedFiles).length && files.every((file) => Object.hasOwn(expectedFiles, file.label) && expectedFiles[file.label] === file.path) ? [] : ["files"]
   ];
   if (differs.length > 0) {
     fail("publish_mismatch", `publish_mismatch: expect does not match the pending publish (mismatched: ${differs.join(", ")}); nothing was clicked and the publish is still pending. Read it with browser_publish_wait and confirm what it actually holds, or cancel it`);
@@ -16825,7 +17140,7 @@ var LiveChannel = class {
 var plugin_default = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   name: "browser",
-  version: "0.9.10",
+  version: "0.9.11",
   description: "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
   keywords: [
     "browser",
@@ -16909,26 +17224,32 @@ var stepSchema = z3.discriminatedUnion("kind", [
   z3.object({ kind: z3.literal("resize"), width: z3.number().int().min(MIN_VIEWPORT.width).max(MAX_VIEWPORT.width), height: z3.number().int().min(MIN_VIEWPORT.height).max(MAX_VIEWPORT.height) }).strict(),
   z3.object({ kind: z3.literal("wait"), selector: selector2.optional(), text: z3.string().optional(), url: z3.string().optional(), timeoutMs: z3.number().int().min(0).max(MAX_WAIT_MS).optional() }).strict().refine((value) => [value.selector, value.text, value.url].filter((given) => given !== void 0).length === 1, "Pass exactly one of selector, text or url"),
   z3.object({ kind: z3.literal("tab"), op: z3.enum(["new", "activate", "close"]), tabId: z3.string().optional(), url: z3.string().optional() }).strict(),
-  z3.object({ kind: z3.literal("eval"), expression: z3.string().min(1).max(MAX_EVAL_EXPRESSION_CHARS) }).strict()
+  z3.object({ kind: z3.literal("eval"), expression: z3.string().min(1).max(MAX_EVAL_EXPRESSION_CHARS) }).strict(),
+  z3.object({ kind: z3.literal("upload"), selector: selector2, paths: z3.array(z3.string().min(1).max(MAX_FILE_PATH_CHARS)).min(1).max(MAX_UPLOAD_PATHS) }).strict()
 ]);
+var fileLabel = z3.string().min(1).max(40);
+var filePath = z3.string().min(1).max(MAX_FILE_PATH_CHARS);
 var recipeSchema = z3.object({
   origin: z3.string().min(1).max(2048),
   composeUrl: z3.string().min(1).max(2048),
   signedIn: selector2,
   account: selector2.optional(),
   fields: z3.array(z3.object({ selector: selector2, value: z3.string().max(1e4), label: z3.string().trim().min(1).max(40).optional() }).strict()).min(1).max(8),
+  files: z3.array(z3.object({ label: fileLabel, selector: selector2, path: filePath }).strict()).max(4).optional(),
   submit: selector2,
-  receipt: z3.object({ path: z3.string().min(1).max(256).startsWith("/"), linkSelector: selector2.optional() }).strict()
+  receipt: z3.object({ path: z3.string().min(1).max(256).startsWith("/"), linkSelector: selector2.optional(), origin: z3.string().min(1).max(2048).optional() }).strict()
 }).strict();
 var presetSchema = z3.object({
   name: z3.string().min(1).max(48),
   values: z3.array(z3.string().max(1e4)).min(1).max(8),
-  target: z3.string().min(1).max(2048).optional()
+  target: z3.string().min(1).max(2048).optional(),
+  files: z3.record(fileLabel, filePath).optional()
 }).strict();
 var expectSchema = z3.object({
   origin: z3.string().min(1).max(2048),
   profile: z3.string().min(1).max(48),
-  values: z3.array(z3.string().max(1e4)).min(1).max(8)
+  values: z3.array(z3.string().max(1e4)).min(1).max(8),
+  files: z3.record(fileLabel, filePath).optional()
 }).strict();
 var MIME = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff": "font/woff", ".woff2": "font/woff2", ".json": "application/json" };
 var APP_ONLY = { ui: { visibility: ["app"] } };
@@ -17104,9 +17425,9 @@ async function createBrowserServer(options = {}) {
     const mimeType = MIME[extension];
     if (!mimeType) throw new Error(`Unsupported browser View asset: ${entry.name}`);
     const path4 = join16(entry.parentPath, entry.name);
-    const relative = path4.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
-    const uri = `ui://browser/${relative}`;
-    server2.registerResource(relative, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile4(path4)).toString("base64") }] }));
+    const relative2 = path4.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
+    const uri = `ui://browser/${relative2}`;
+    server2.registerResource(relative2, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile4(path4)).toString("base64") }] }));
   }
   const showing = (extra, browserId) => {
     const session = sessionOf(extra);
@@ -17257,7 +17578,7 @@ async function createBrowserServer(options = {}) {
     }
   });
   server2.registerTool("browser_act", {
-    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
+    description: "Run 1-25 steps in order in your chat's own active tab (a shared profile's tabs belong to the chat that opened them; tab steps drive only your own), stopping at the first that does not complete; returns the page's url and title. Steps: navigate (http/https), back, forward, reload, stop, click (selector, or x,y in the viewport; button, clickCount 1-3), hover (x,y), type (replaces the value), insert (into the focused element), select (option value or text), press (key), scroll, resize (width, height), wait (selector visible | text on the page | url substring; timeoutMs default 5000, max 15000), tab (op new | activate | close; tabId from browser_state; url for new), eval (JS in the page's main world; value returned as JSON, at most 8000 chars; throwaway browsers only), upload (selector, paths: 1-16 absolute paths of local files; an <input type=file> takes them directly, any other element is clicked and the file picker it opens gets them; works on a saved profile). A click or Enter that navigates waits up to 1.5 s. JS dialogs are answered (alert/beforeunload accepted, else dismissed) and listed. Status failed: that step did nothing. unknown: sent, then errored, so it may have taken effect: look before retrying a submit. timeout: a wait ran out, or the batch's time budget (send the rest again). newErrors: new page errors (read them in browser_state). A selector may start `@<ref> ` (from browser_snapshot) to reach an iframe. " + (jev ? "Refused while a task runs on the browser. " : "") + "Passwords: type or insert with generatePassword: true (sign-up: mints, saves per profile and origin, types) or useSavedPassword: true (login) instead of text; needs a profile.",
     inputSchema: { browserId: capability, actions: z3.array(stepSchema).min(1).max(MAX_BATCH_STEPS) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: stepMeta
@@ -17363,7 +17684,7 @@ async function createBrowserServer(options = {}) {
   }
   registerAppTool(server2, "browser_publish", {
     title: "Publish",
-    description: `Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on)}. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. "Alice @alice" \u2192 "@alice"), fields [{selector, value, label?}] (1-8; value \u2264 10000 chars; label \u2264 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. "/{segment}/status/{digits}"), linkSelector? (the posted link; else the tab's URL after submit)}. mode "check": opens composeUrl, returns "signed-in" or "not-signed-in" (sign in first, then post). mode "post": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile and text, unexpired and unspent. Otherwise types and reads back each value, returns "awaiting-confirmation" with a publishId and composeUrl. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act` + (jev ? ", browser_task" : "") + ' and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). "failed": nothing was submitted. A password field is never a publish field; log in with browser_act' + (jev ? " or browser_task. Refused while a task runs." : "."),
+    description: `Post through a signed-in profile (a throwaway browser is refused). Pass EXACTLY ONE of preset or recipe. preset (preferred; see browser_publish_presets): {name, values (one per preset field, in order), target? (needsTarget presets: the page to post on), files? ({label: absolute path} for the preset's file slots; a slot not optional is required, and a path must exist and match the slot's accept)}. recipe (a site with no preset): origin (https; http only for 127.0.0.1/localhost), composeUrl on origin, signedIn (CSS selector present only when logged in), account? (CSS selector whose text names the account, e.g. "Alice @alice" \u2192 "@alice"), fields [{selector, value, label?}] (1-8; value \u2264 10000 chars; label \u2264 40 chars, the caption in the View), submit (selector), receipt {path (the posted URL's pathname template: literal text plus {segment} and {digits}, at most one per segment, e.g. "/{segment}/status/{digits}"), linkSelector? (the posted link; else the tab's URL after submit), origin? (the posted link's origin when it is not the recipe's)}, files? [{label, selector, path}] (up to 4 local files, set on the page through the browser, never through script); fields are typed in order, then files are set. mode "check": opens composeUrl, returns "signed-in" or "not-signed-in" (sign in first, then post). mode "post": refused (publish_unapproved, nothing opened or typed) unless the user approved this exact post on the campaign board: the same site, profile, text and files, unexpired and unspent. Otherwise types and reads back each value, returns "awaiting-confirmation" with a publishId and composeUrl. NOTHING is submitted yet: confirm with browser_publish_confirm (or the View's Post button), drop with browser_publish_cancel, follow with browser_publish_wait. While pending the page is pinned: browser_act` + (jev ? ", browser_task" : "") + ' and browser_publish are refused (publish_pending) until posted, cancelled or expired (10 minutes). "failed": nothing was submitted. A password field is never a publish field; log in with browser_act' + (jev ? " or browser_task. Refused while a task runs." : "."),
     inputSchema: { browserId: capability, recipe: recipeSchema.optional(), preset: presetSchema.optional(), mode: z3.enum(PUBLISH_MODES) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ...TRACTION_ONLY, ui: { resourceUri: BROWSER_VIEW_URI } }
@@ -17380,13 +17701,13 @@ async function createBrowserServer(options = {}) {
     return { ...outcome, state: stateFor(callerOf(extra), state) };
   }));
   server2.registerTool("browser_publish_presets", {
-    description: "The presets browser_publish accepts as preset: {name, platform, verified, fields (labels of the values, in order), needsTarget (pass target), signInUrl (the page the person signs in on: browser_view with the account's profile and this url)}. verified false: modelled on the site's page and tested against a copy of it, not yet seen posting on the live site.",
+    description: "The presets browser_publish accepts as preset: {name, platform, verified, fields (labels of the values, in order), files ([{label, optional, accept?}]: pass them as files {label: absolute path}), needsTarget (pass target), signInUrl (the page the person signs in on: browser_view with the account's profile and this url)}. verified false: modelled on the site's page and tested against a copy of it, not yet seen posting on the live site.",
     inputSchema: {},
     annotations: READ_ONLY,
     _meta: TRACTION_ONLY
   }, () => result(async () => ({ presets: summarizePresets(presets) })));
   server2.registerTool("browser_publish_confirm", {
-    description: "Post a pending publish (the View's Post button calls it too). The host ALWAYS asks the human first, in every permission mode; a harness that cannot guarantee that ask gets the call refused, and the user presses Post. The model MUST pass expect: {origin, profile, values} copied exactly from the pending record (values: every field's value, in order): without it the call fails expect_required, any difference fails publish_mismatch; either way nothing is clicked and the publish stays pending. Then it re-verifies the tab, URL and field values and spends the board approval for this exact post (publish_unapproved if none is left: nothing clicked, the publish stays pending), clicks submit exactly once (never retried) and reads the posted URL. Status: posted (url), failed (nothing submitted) or unknown (may have posted).",
+    description: "Post a pending publish (the View's Post button calls it too). The host ALWAYS asks the human first, in every permission mode; a harness that cannot guarantee that ask gets the call refused, and the user presses Post. The model MUST pass expect: {origin, profile, values, files?} copied exactly from the pending record (values: every field's value, in order; files: {label: path} of every file the record lists): without it the call fails expect_required, any difference fails publish_mismatch; either way nothing is clicked and the publish stays pending. Then it re-verifies the tab, URL and field values and spends the board approval for this exact post (publish_unapproved if none is left: nothing clicked, the publish stays pending), clicks submit exactly once (never retried) and reads the posted URL. Status: posted (url), failed (nothing submitted) or unknown (may have posted).",
     inputSchema: { browserId: capability, publishId: capability, expect: expectSchema.optional() },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     _meta: { ...TRACTION_ONLY, [APPROVAL_META_KEY]: "prompt" }

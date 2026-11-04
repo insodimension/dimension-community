@@ -16,13 +16,15 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PresetRef, PublishRecipe } from "./contracts.js";
+import type { PresetRef, PublishFileMap, PublishRecipe, PublishStep } from "./contracts.js";
+import { parseAccept, requireAbsolutePath } from "./files.js";
 import { validateRecipe } from "./publish.js";
 import { fail } from "./store.js";
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const MAX_PLATFORM_CHARS = 40;
-const MAX_NOTES_CHARS = 2_000;
+const MAX_NOTES_CHARS = 8_000;
+const PLACEHOLDER_PATH = "/";
 /** Where the shipped presets live, beside both `src/` and the bundled `app/server.mjs`. */
 const PRESETS_DIR = fileURLToPath(new URL("../recipes/", import.meta.url));
 
@@ -44,15 +46,27 @@ export interface PublishPreset {
 	account?: string;
 	/** The caller's values fill these in order. */
 	fields: { label: string; selector: string }[];
+	files: PresetFile[];
+	steps?: PresetStep[];
 	submit: string;
-	receipt: { path: string; linkSelector?: string };
+	receipt: { path: string; linkSelector?: string; origin?: string };
 }
+
+export interface PresetFile {
+	label: string;
+	selector: string;
+	accept?: string;
+	optional?: true;
+}
+
+export type PresetStep = PublishStep & { onlyWith?: string };
 
 /** What a caller passes as `browser_publish`'s `preset`. */
 export interface PresetRequest {
 	name: string;
 	values: string[];
 	target?: string;
+	files?: PublishFileMap;
 }
 
 /** One row of `browser_publish_presets`. */
@@ -61,11 +75,13 @@ export interface PresetSummary {
 	platform: string;
 	verified: boolean;
 	fields: string[];
+	files: Array<{ label: string; optional: boolean; accept?: string }>;
 	needsTarget: boolean;
 	signInUrl: string;
 }
 
-const PRESET_KEYS: readonly string[] = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "submit", "receipt"];
+const PRESET_KEYS: readonly string[] = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "files", "steps", "submit", "receipt"];
+const FILE_KEYS: readonly string[] = ["label", "selector", "accept", "optional"];
 
 /**
  * Read and check every `*.json` in `dir`. A malformed preset is a startup
@@ -96,7 +112,7 @@ export function parsePreset(input: unknown, where: string): PublishPreset {
 	};
 	if (!isObject(input)) return bad("must be an object");
 	for (const key of Object.keys(input)) if (!PRESET_KEYS.includes(key)) bad(`unknown key ${JSON.stringify(key)}`);
-	const { name, platform, verified, verifiedAt, notes, composeUrl, composeFrom, fields, receipt } = input;
+	const { name, platform, verified, verifiedAt, notes, composeUrl, composeFrom, fields, files, steps, receipt } = input;
 	if (typeof name !== "string" || !NAME.test(name)) bad("name must be lowercase letters, digits and dashes");
 	if (typeof platform !== "string" || platform.length === 0 || platform.length > MAX_PLATFORM_CHARS) bad(`platform must be 1-${MAX_PLATFORM_CHARS} characters`);
 	if (typeof verified !== "boolean") bad("verified must be a boolean");
@@ -113,12 +129,14 @@ export function parsePreset(input: unknown, where: string): PublishPreset {
 		if (typeof label !== "string" || typeof selector !== "string") return bad(`fields[${index}] needs a label and a selector`);
 		return { label, selector };
 	});
-	if (!isObject(receipt) || Object.keys(receipt).some((key) => key !== "path" && key !== "linkSelector")) bad("receipt must be { path, linkSelector? }");
-	const preset = input as unknown as PublishPreset;
-	// The recipe checks (origin, composeUrl on origin, selectors, labels, path) are the one source of truth.
+	if (files !== undefined && !Array.isArray(files)) bad("files must be an array");
+	if (steps !== undefined && !Array.isArray(steps)) bad("steps must be an array");
+	if (!isObject(receipt) || Object.keys(receipt).some((key) => key !== "path" && key !== "linkSelector" && key !== "origin")) bad("receipt must be { path, linkSelector?, origin? }");
 	try {
-		const recipe = toRecipe(preset, labelled.map(() => ""), preset.composeUrl ?? `${String(preset.origin)}/`);
-		const valid = validateRecipe(recipe);
+		const slots = parseFileSlots((files ?? []) as unknown[]);
+		const parsedSteps = steps === undefined ? undefined : parsePresetSteps(steps as unknown[], slots);
+		const preset = { ...(input as unknown as PublishPreset), files: slots, ...(parsedSteps === undefined ? {} : { steps: parsedSteps }) };
+		const valid = validateRecipe(toRecipe(preset, labelled.map(() => ""), Object.fromEntries(slots.map((slot) => [slot.label, PLACEHOLDER_PATH])), preset.composeUrl ?? `${String(preset.origin)}/`));
 		const signInUrl = pageOnOrigin(preset.signInUrl, valid.origin);
 		if (signInUrl === undefined) throw new Error(`signInUrl must be a page on ${valid.origin}`);
 		return {
@@ -133,12 +151,36 @@ export function parsePreset(input: unknown, where: string): PublishPreset {
 			signedIn: valid.signedIn,
 			...(valid.account === undefined ? {} : { account: valid.account }),
 			fields: valid.fields.map((field) => ({ label: field.label ?? "", selector: field.selector })),
+			files: (valid.files ?? []).map((file, index) => ({ ...slots[index], label: file.label, selector: file.selector })),
+			...(valid.steps === undefined ? {} : { steps: valid.steps.map((step, index) => ({ ...step, ...(parsedSteps?.[index]?.onlyWith === undefined ? {} : { onlyWith: parsedSteps[index].onlyWith }) })) }),
 			submit: valid.submit,
 			receipt: valid.receipt,
 		};
 	} catch (error) {
 		return bad(error instanceof Error ? error.message : String(error));
 	}
+}
+
+function parseFileSlots(files: readonly unknown[]): PresetFile[] {
+	return files.map((file, index): PresetFile => {
+		if (!isObject(file) || Object.keys(file).some((key) => !FILE_KEYS.includes(key))) throw new Error(`files[${index}] must be { label, selector, accept?, optional? }`);
+		const { label, selector, accept, optional } = file;
+		if (typeof label !== "string" || typeof selector !== "string") throw new Error(`files[${index}] needs a label and a selector`);
+		if (optional !== undefined && optional !== true) throw new Error(`files[${index}].optional must be true or absent`);
+		return { label, selector, ...(accept === undefined ? {} : { accept: parseAccept(accept, `files[${index}]`).join(",") }), ...(optional === true ? { optional } : {}) };
+	});
+}
+
+function parsePresetSteps(steps: readonly unknown[], slots: readonly PresetFile[]): PresetStep[] {
+	const optionalLabels = new Set(slots.filter((slot) => slot.optional === true).map((slot) => slot.label.trim()));
+	return steps.map((step, index): PresetStep => {
+		if (!isObject(step)) throw new Error(`steps[${index}] must be an object`);
+		const { onlyWith, ...rest } = step;
+		if (onlyWith === undefined) return rest as PresetStep;
+		if (rest.kind === "field" || rest.kind === "file") throw new Error(`steps[${index}].onlyWith is for click, wait and check steps`);
+		if (typeof onlyWith !== "string" || !optionalLabels.has(onlyWith)) throw new Error(`steps[${index}].onlyWith must name an optional file`);
+		return { ...rest, onlyWith } as PresetStep;
+	});
 }
 
 /** What `browser_publish_presets` lists: enough to choose one and call it, no selectors. */
@@ -148,6 +190,7 @@ export function summarizePresets(presets: readonly PublishPreset[]): PresetSumma
 		platform: preset.platform,
 		verified: preset.verified,
 		fields: preset.fields.map((field) => field.label),
+		files: preset.files.map((file) => ({ label: file.label, optional: file.optional === true, ...(file.accept === undefined ? {} : { accept: file.accept }) })),
 		needsTarget: preset.composeFrom === "target",
 		signInUrl: preset.signInUrl,
 	}));
@@ -178,7 +221,31 @@ export function resolvePreset(presets: readonly PublishPreset[], request: Preset
 		if (request.target !== undefined) fail("bad_preset", `${preset.name} takes no target; it always composes at ${preset.composeUrl}`);
 		composeUrl = preset.composeUrl ?? fail("bad_preset", `${preset.name} has no composeUrl`);
 	}
-	return { recipe: toRecipe(preset, request.values, composeUrl), preset: { name: preset.name, verified: preset.verified } };
+	const files = requestedFiles(preset, request.files);
+	return { recipe: toRecipe(preset, request.values, files, composeUrl), preset: { name: preset.name, verified: preset.verified } };
+}
+
+function requestedFiles(preset: PublishPreset, requested: unknown): PublishFileMap {
+	if (requested !== undefined && !isObject(requested)) fail("bad_preset", `${preset.name} takes files as { label: absolute path }`);
+	const files = requested ?? {};
+	const slots = preset.files.map((slot) => slot.label);
+	const unknown = Object.keys(files).find((label) => !slots.includes(label));
+	if (unknown !== undefined) fail("bad_preset", `${preset.name} has no file slot ${JSON.stringify(unknown)}; its file slots: ${slots.join(", ") || "none"}`);
+	const chosen: PublishFileMap = {};
+	for (const slot of preset.files) {
+		const path = files[slot.label];
+		const accepted = slot.accept === undefined ? "" : ` (${slot.accept})`;
+		if (path === undefined) {
+			if (slot.optional !== true) fail("bad_preset", `${preset.name} needs file ${JSON.stringify(slot.label)}${accepted}`);
+			continue;
+		}
+		const absolute = requireAbsolutePath(path, `file ${JSON.stringify(slot.label)}`, "bad_preset");
+		if (slot.accept !== undefined && !slot.accept.split(",").includes(extname(absolute).toLowerCase())) {
+			fail("bad_preset", `file ${JSON.stringify(slot.label)}: ${absolute} is not one of${accepted}`);
+		}
+		chosen[slot.label] = absolute;
+	}
+	return chosen;
 }
 
 function onOrigin(target: string, preset: PublishPreset): string {
@@ -198,13 +265,19 @@ function pageOnOrigin(href: unknown, origin: string): string | undefined {
 	return url.origin === origin ? url.href : undefined;
 }
 
-function toRecipe(preset: PublishPreset, values: readonly string[], composeUrl: string): PublishRecipe {
+function toRecipe(preset: PublishPreset, values: readonly string[], files: PublishFileMap, composeUrl: string): PublishRecipe {
+	const given = (label: string): boolean => Object.hasOwn(files, label);
+	const steps = preset.steps
+		?.filter((step) => (step.onlyWith === undefined || given(step.onlyWith)) && (step.kind !== "file" || given(step.label)))
+		.map(({ onlyWith: _onlyWith, ...step }): PublishStep => step);
 	return {
 		origin: preset.origin,
 		composeUrl,
 		signedIn: preset.signedIn,
 		...(preset.account === undefined ? {} : { account: preset.account }),
 		fields: preset.fields.map((field, index) => ({ label: field.label, selector: field.selector, value: values[index] ?? "" })),
+		...(preset.files.length === 0 ? {} : { files: preset.files.filter((slot) => given(slot.label)).map((slot) => ({ label: slot.label, selector: slot.selector, path: files[slot.label] })) }),
+		...(steps === undefined ? {} : { steps }),
 		submit: preset.submit,
 		receipt: { ...preset.receipt },
 	};
