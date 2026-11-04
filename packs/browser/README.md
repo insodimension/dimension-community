@@ -728,12 +728,19 @@ as data, so the pack's code stays platform-agnostic:
   script. A path must be absolute, on this machine's own drives, and exist
   (`bad_file` names the slot otherwise); a UNC, `\\?\UNC`, `\\.\` or `//` path is
   refused by its text before any filesystem call, so the host never connects to
-  a share, and a path that resolves onto a share is refused too. Nothing under
-  this pack's root is ever sent. Chrome is handed the resolved path, and right
-  before it is set the file's device, inode, size and modification and change
-  times are checked against what was read when it was hashed (`file_changed`,
-  nothing attached, if any differs). The record lists them as
-  `files: [{ label, path }]` and the confirm bar shows each one.
+  a share. A path that goes through a symlink or junction is walked one link at
+  a time with `lstat`/`readlink`, and a link whose target is a network or device
+  path is refused (`links to … a network or device path`) before the operating
+  system follows it, so a link on the user's own drive cannot make the host open
+  a share either; a path that still resolves onto a share (a mapped network
+  drive) is refused after it resolves. Nothing under this pack's root is ever
+  sent. Each file is hashed (SHA-256) on a worker thread, one per file, after the
+  publish record exists, so a gigabyte file neither holds the server's event loop
+  nor the call past `waitSeconds`, and a cancel stops the hash. Chrome is handed
+  the resolved path, and right before it is set the file's device, inode, size
+  and modification and change times are checked against what was read when it
+  was hashed (`file_changed: …`, nothing attached, if any differs). The record
+  lists them as `files: [{ label, path }]` and the confirm bar shows each one.
 - `steps` (shipped presets only, up to 32; a recipe the caller writes cannot
   declare them, because a wizard's clicks reach the page before any confirm): an ordered wizard for a site where one page is
   not enough. `{ kind: "field", label }` and `{ kind: "file", label }` place
@@ -770,11 +777,15 @@ as data, so the pack's code stays platform-agnostic:
   as `awaiting-confirmation`, recording the active tab and its URL as
   `composeUrl` (where the post goes). It runs in the background of the call:
   `browser_publish` waits up to `waitSeconds` (default and max 25, counted from
-  the call's start, inside the host's 30 s limit) and, when a long wizard (YouTube
-  Studio's upload) has not parked by then, returns its record as `preparing`.
-  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed`;
-  `browser_publish_cancel` stops it at its next step and reports `cancelled`
-  once it has stopped. A host timing the call out does not stop it, so it never
+  the call's start, inside the host's 30 s limit) and, when the files are still
+  being hashed or a long wizard (YouTube Studio's upload) has not parked by then,
+  returns its record as `preparing`. A second publish on the same browser is
+  refused `publish_pending` at once, without hashing anything.
+  `browser_publish_wait` follows it to `awaiting-confirmation` or `failed` (a
+  refused approval found after `preparing` was returned is a `failed` record
+  whose error starts `publish_unapproved:`);
+  `browser_publish_cancel` stops it at its next step (or its hash) and reports
+  `cancelled` once it has stopped. A host timing the call out does not stop it, so it never
   leaves a draft nobody is told about. **Nothing is submitted.** The Browser View
   shows a confirm bar with that URL, the profile and every value. A confirm
   submits: the model's `browser_publish_confirm` or the bar's **Post** (the same

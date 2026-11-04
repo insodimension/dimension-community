@@ -1,13 +1,22 @@
-import { createHash } from "node:crypto";
-import { realpathSync, statSync, type Stats } from "node:fs";
-import { open } from "node:fs/promises";
-import { isAbsolute, relative, sep } from "node:path";
+import { existsSync, lstatSync, readlinkSync, realpathSync, statSync, type Stats } from "node:fs";
+import { isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import { ActionNotDispatched, fail } from "./store.js";
 
 export const MAX_FILE_PATH_CHARS = 4_096;
+export const HASH_WORKER_BUNDLE = "file-hash-worker.mjs";
 const EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
 const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
-const HASH_CHUNK_BYTES = 1 << 20;
+const MAX_LINK_HOPS = 32;
+const PATH_SEPARATORS = /[\\/]+/;
+const CHECKPOINT_INTERVAL_MS = 50;
+
+export interface FileHashRequest {
+	readonly real: string;
+}
+
+export type FileHashReply = { readonly sha256: string; readonly stamp: FileStamp } | { readonly error: string };
 
 export interface FileStamp {
 	readonly dev: number;
@@ -55,8 +64,46 @@ function sameStamp(a: FileStamp, b: FileStamp): boolean {
 	return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 }
 
+function segmentsBelowRoot(path: string): { root: string; segments: string[] } {
+	const { root } = parse(path);
+	return { root, segments: path.slice(root.length).split(PATH_SEPARATORS).filter((segment) => segment.length > 0) };
+}
+
+function refuseLinksOffMachine(path: string, name: string, code: string): void {
+	let { root: walked, segments } = segmentsBelowRoot(resolve(path));
+	let hops = 0;
+	while (segments.length > 0) {
+		const [segment, ...rest] = segments;
+		const next = resolve(walked, segment);
+		let stats: Stats;
+		try {
+			stats = lstatSync(next);
+		} catch {
+			return;
+		}
+		segments = rest;
+		if (!stats.isSymbolicLink()) {
+			walked = next;
+			continue;
+		}
+		hops += 1;
+		if (hops > MAX_LINK_HOPS) fail(code, `${name}: ${path} goes through more than ${MAX_LINK_HOPS} links`);
+		let target: string;
+		try {
+			target = readlinkSync(next);
+		} catch (error) {
+			fail(code, `${name}: ${path} goes through ${next}, a link whose target cannot be read (${(error as Error).message}), so it is not followed`);
+		}
+		if (NETWORK_OR_DEVICE_PATH.test(target)) fail(code, `${name}: ${path} links to ${target}, a network or device path; only a file on this machine's own drives is uploaded`);
+		const landed = segmentsBelowRoot(resolve(walked, target));
+		walked = landed.root;
+		segments = [...landed.segments, ...segments];
+	}
+}
+
 export function requireLocalFile(path: string, name: string, code: string, protectedRoot: string): { real: string; stamp: FileStamp } {
 	requireAbsolutePath(path, name, code);
+	refuseLinksOffMachine(path, name, code);
 	let real: string;
 	let stats: Stats;
 	try {
@@ -75,23 +122,45 @@ export function requireLocalFile(path: string, name: string, code: string, prote
 	return { real, stamp: stampOf(stats) };
 }
 
-export async function identifyLocalFile(path: string, name: string, code: string, protectedRoot: string): Promise<LocalFile> {
+export async function identifyLocalFile(path: string, name: string, code: string, protectedRoot: string, checkpoint: () => void = () => undefined): Promise<LocalFile> {
 	const { real, stamp } = requireLocalFile(path, name, code, protectedRoot);
-	const handle = await open(real, "r");
-	try {
-		const hash = createHash("sha256");
-		const chunk = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
-		for (;;) {
-			const { bytesRead } = await handle.read(chunk, 0, HASH_CHUNK_BYTES, null);
-			if (bytesRead === 0) break;
-			hash.update(chunk.subarray(0, bytesRead));
+	checkpoint();
+	const hashed = await hashOffThread(real, checkpoint);
+	if (!sameStamp(stamp, hashed.stamp)) fail(code, `${name}: ${path} changed while it was being read; let whatever writes it finish, then publish again`);
+	return { path, real, size: hashed.stamp.size, sha256: hashed.sha256, stamp: hashed.stamp };
+}
+
+function hashWorkerEntry(): URL {
+	const bundled = new URL(`./${HASH_WORKER_BUNDLE}`, import.meta.url);
+	return existsSync(fileURLToPath(bundled)) ? bundled : new URL("./file-hash-worker.ts", import.meta.url);
+}
+
+function hashOffThread(real: string, checkpoint: () => void): Promise<{ sha256: string; stamp: FileStamp }> {
+	const { promise, resolve, reject } = Promise.withResolvers<{ sha256: string; stamp: FileStamp }>();
+	const worker = new Worker(hashWorkerEntry(), { workerData: { real } satisfies FileHashRequest });
+	const poll = setInterval(() => {
+		try {
+			checkpoint();
+		} catch (error) {
+			clearInterval(poll);
+			reject(error);
+			void worker.terminate();
 		}
-		const after = stampOf(await handle.stat());
-		if (!sameStamp(stamp, after)) fail(code, `${name}: ${path} changed while it was being read; let whatever writes it finish, then publish again`);
-		return { path, real, size: after.size, sha256: hash.digest("hex"), stamp: after };
-	} finally {
-		await handle.close();
-	}
+	}, CHECKPOINT_INTERVAL_MS);
+	worker.once("message", (reply: FileHashReply) => {
+		clearInterval(poll);
+		if ("error" in reply) reject(new Error(reply.error));
+		else resolve(reply);
+	});
+	worker.once("error", (error) => {
+		clearInterval(poll);
+		reject(error);
+	});
+	worker.once("exit", (exitCode) => {
+		clearInterval(poll);
+		reject(new Error(`the file-hash worker exited with code ${exitCode} before it answered`));
+	});
+	return promise;
 }
 
 export function requireUnchanged(file: LocalFile, name: string): void {
@@ -99,10 +168,10 @@ export function requireUnchanged(file: LocalFile, name: string): void {
 	try {
 		now = stampOf(statSync(file.real));
 	} catch (error) {
-		throw new ActionNotDispatched("file_changed", `${name}: ${file.path} could not be read again before it was attached (${(error as Error).message}); nothing was attached`);
+		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} could not be read again before it was attached (${(error as Error).message}); nothing was attached`);
 	}
 	if (!sameStamp(file.stamp, now)) {
-		throw new ActionNotDispatched("file_changed", `${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
+		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
 	}
 }
 

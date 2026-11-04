@@ -106,7 +106,7 @@ import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, Pas
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
-import { PublishApprovals } from "./publish-approval.js";
+import { type PublishBinding, PublishApprovals } from "./publish-approval.js";
 import { type Publication, type Recipe, cancel, confirm, failPreparation, isPending, prepare, publishRecord, requirePending, startPublication, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
@@ -2331,32 +2331,23 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				return this.reportCheck(profile, valid.origin, this.redact(entry, outcome as PublishCheck));
 			}, { guard });
 		}
-		const files: Record<string, LocalFile> = {};
-		for (const file of valid.files ?? []) files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
-		const binding = {
+		for (const file of valid.files ?? []) requireLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir);
+		const post: PublishBinding = {
 			origin: valid.origin,
 			profile,
 			...(preset === undefined ? {} : { preset: preset.name }),
 			values: valid.fields.map((field) => field.value),
-			files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)])),
 		};
 		const publication = await this.serialize(entry, async () => {
 			this.admitPublish(entry, caller);
 			entry.starting = "post";
 			try {
-				const held = valid.files === undefined ? undefined : await this.publishApprovals.consume(binding, "park");
-				if (held === undefined) await this.publishApprovals.require(binding, "park");
-				try {
-					if (guard !== undefined) await guard();
-					guard?.assertCurrent();
-				} catch (error) {
-					await held?.release();
-					throw error;
-				}
+				if (valid.files === undefined) await this.publishApprovals.require(post, "park");
+				if (guard !== undefined) await guard();
+				guard?.assertCurrent();
 				const started = startPublication(valid, profile);
 				started.sharedPage = entry.engine === "chrome-relay";
 				if (preset !== undefined) started.record.preset = { name: preset.name, verified: preset.verified };
-				if (held !== undefined) started.held = held;
 				entry.publish = started;
 				return started;
 			} finally {
@@ -2366,7 +2357,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		const preparing = guardedBy(options.workerGuard ?? guard, () => {
 			if (publication.record.status !== "preparing" || publication.cancelRequested !== undefined) fail("cancelled", "the publish was cancelled while it was being prepared");
 		});
-		const prepared = this.prepareInBackground(entry, profile, valid, files, publication, preparing);
+		const prepared = this.prepareInBackground(entry, profile, valid, post, publication, preparing);
 		if (options.waitMs !== undefined) {
 			const { promise: elapsed, resolve } = Promise.withResolvers<void>();
 			const timer = setTimeout(resolve, Math.max(0, startedAt + options.waitMs - Date.now()));
@@ -2375,7 +2366,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (publication.record.status === "preparing") return this.redact(entry, publishRecord(publication));
 		}
 		const outcome = await prepared;
-		if (publication.record.status === "failed" && outcome.error !== undefined) throw outcome.error;
+		if (publication.record.status === "failed" && outcome.error !== undefined) {
+			if (outcome.beforePage && entry.publish === publication) entry.publish = null;
+			throw outcome.error;
+		}
 		if (publication.record.status === "failed" && outcome.check !== undefined) return outcome.check;
 		return this.redact(entry, publishRecord(publication));
 	}
@@ -2394,11 +2388,19 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		entry: Entry,
 		profile: string,
 		valid: Recipe,
-		files: Readonly<Record<string, LocalFile>>,
+		post: PublishBinding,
 		publication: Publication,
 		guard: EffectGuard,
-	): Promise<{ check?: PublishCheck; error?: unknown }> {
+	): Promise<{ check?: PublishCheck; error?: unknown; beforePage?: true }> {
 		entry.pending += 1;
+		let files: Readonly<Record<string, LocalFile>>;
+		try {
+			files = await this.approveFiles(valid, post, publication, guard);
+		} catch (error) {
+			failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
+			await this.endPreparation(entry, publication);
+			return { error, beforePage: true };
+		}
 		try {
 			const outcome = await prepare(entry.driver, profile, valid, "post", guard, files, publication);
 			if ("record" in outcome) return {};
@@ -2409,12 +2411,29 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			failPreparation(publication, error instanceof Error ? error : new Error(String(error)));
 			return { error };
 		} finally {
-			entry.pending -= 1;
-			entry.lastUsed = performance.now();
-			if (publication.held !== undefined && !publication.attached && publication.record.status !== "awaiting-confirmation") {
-				await publication.held.release();
-				delete publication.held;
-			}
+			await this.endPreparation(entry, publication);
+		}
+	}
+
+	private async approveFiles(valid: Recipe, post: PublishBinding, publication: Publication, guard: EffectGuard): Promise<Record<string, LocalFile>> {
+		const files: Record<string, LocalFile> = {};
+		if (valid.files === undefined) return files;
+		for (const file of valid.files) {
+			files[file.label] = await identifyLocalFile(file.path, `file ${JSON.stringify(file.label)}`, "bad_file", this.store.rootDir, guard.assertCurrent);
+		}
+		guard.assertCurrent();
+		publication.held = await this.publishApprovals.consume({ ...post, files: Object.fromEntries(Object.entries(files).map(([label, file]) => [label, identityOf(file)])) }, "park");
+		await guard();
+		guard.assertCurrent();
+		return files;
+	}
+
+	private async endPreparation(entry: Entry, publication: Publication): Promise<void> {
+		entry.pending -= 1;
+		entry.lastUsed = performance.now();
+		if (publication.held !== undefined && !publication.attached && publication.record.status !== "awaiting-confirmation") {
+			await publication.held.release();
+			delete publication.held;
 		}
 	}
 
