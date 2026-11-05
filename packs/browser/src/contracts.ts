@@ -64,6 +64,7 @@ export interface BrowserAction {
   /** `click` only; 2 = double-click, 3 = triple-click. Default 1; the runtime refuses any other. */
   clickCount?: number;
 }
+export interface UploadRequest { selector: string; paths: string[]; origin: string; frameOrigin?: string }
 export interface TabInfo {
   /** Stable opaque id for the tab's lifetime. */
   id: string;
@@ -188,18 +189,6 @@ export interface PublishField {
   /** Shown above the value in the confirm bar (≤ 40 characters); the View falls back to "Field N". */
   label?: string;
 }
-export interface PublishFile {
-  label: string;
-  selector: string;
-  path: string;
-}
-export type PublishStep =
-  | { kind: "field"; label: string }
-  | { kind: "file"; label: string }
-  | { kind: "click"; selector: string }
-  | { kind: "wait"; selector: string; timeoutMs?: number }
-  | { kind: "check"; selector: string };
-export type PublishFileMap = Record<string, string>;
 /**
  * Who made a tool call, as the host stamped it in request `_meta`: "model"
  * (an agent turn) or "app" (the Browser View, i.e. the human). A call with no
@@ -229,8 +218,6 @@ export interface PublishRecipe {
   account?: string;
   /** 1-8 fields, each value at most 10 000 characters. */
   fields: PublishField[];
-  files?: PublishFile[];
-  steps?: PublishStep[];
   /** CSS selector clicked exactly once, only on confirm. */
   submit: string;
   receipt: {
@@ -244,7 +231,6 @@ export interface PublishRecipe {
     path: string;
     /** Receipt is the href of the first matching element whose href matches; else the active tab's URL. */
     linkSelector?: string;
-    origin?: string;
   };
 }
 /** Which shipped preset a publish was resolved from, as the record shows it. */
@@ -255,11 +241,7 @@ export interface PresetRef {
 }
 export const PUBLISH_MODES = ["check", "post"] as const;
 export type PublishMode = (typeof PUBLISH_MODES)[number];
-export interface PublishOptions {
-  waitMs?: number;
-  workerGuard?: EffectGuard;
-}
-export const PUBLISH_STATUSES = ["preparing", "awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
+export const PUBLISH_STATUSES = ["awaiting-confirmation", "posted", "unknown", "failed", "cancelled", "expired"] as const;
 /**
  * `unknown`: submit was dispatched and then errored, or no receipt appeared —
  * it may have posted; never retried. `failed`: provably nothing was submitted.
@@ -276,7 +258,6 @@ export interface PublishRecord {
   tabId: string;
   profile: string;
   fields: PublishField[];
-  files?: Array<{ label: string; path: string }>;
   createdAt: string;
   expiresAt: string;
   /** The posted URL, read from the page after submit. */
@@ -294,7 +275,6 @@ export interface PublishExpectation {
   origin: string;
   profile: string;
   values: string[];
-  files?: PublishFileMap;
 }
 /** A `browser_publish` that stopped before anything was parked for confirmation. */
 export interface PublishCheck {
@@ -502,6 +482,7 @@ export interface BrowserRuntimePort {
    * validated before the first runs (`bad_action`/`bad_wait`), then run in order until one is not `completed`.
    */
   actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActManyResult>;
+  upload(browserId: string, request: UploadRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
   /** A picture for a model: webp, at most 1024 CSS px on its longest edge, never retained (so never annotatable). Read like `snapshot`. */
   shot(browserId: string, request?: ShotRequest, guard?: EffectGuard): Promise<ModelShot>;
   /** The active tab's log entries since the last call (which marks them read); `[]` when nothing is new. For a model's reads, never the View's. */
@@ -569,7 +550,7 @@ export interface BrowserRuntimePort {
   waitTask(browserId: string, ms: number): Promise<TaskRun>;
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard, workerGuard?: EffectGuard): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
-  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard, options?: PublishOptions): Promise<PublishCheck | PublishRecord>;
+  publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard): Promise<PublishCheck | PublishRecord>;
   /**
    * The Post (the model's confirm or the View's button): re-verify, click submit exactly once, read the receipt from the page.
    * `expect` binds the confirm to what the caller was shown: REQUIRED unless `caller` is "app", and when given (from any

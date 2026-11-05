@@ -504,6 +504,21 @@ describe("which tools the model is shown", () => {
     }
   });
 
+  test("browser_upload asks the person before every call in every mode, names the site and every path on the card, and is offered wherever browser_act is", async () => {
+    for (const mode of ["code", "steps", "both"] as const) {
+      const { client } = await connect(fakeHost(() => shown()), mode);
+      const tools = (await client.listTools()).tools;
+      const upload = tools.find(tool => tool.name === "browser_upload");
+      const act = tools.find(tool => tool.name === "browser_act");
+      expect(upload?._meta?.["ai.insodimension/approval"], `${mode}: upload approval`).toBe("prompt");
+      expect(upload?._meta?.[SPACES], `${mode}: upload audience`).toEqual(act?._meta?.[SPACES]);
+      expect(upload?._meta?.["ai.insodimension/approvalSummary"]).toEqual(["Send {paths, plural, one {# file} other {# files}} to {origin}", "Into a frame from {frameOrigin}", "{paths}"]);
+      const paths = (upload?.inputSchema.properties as Record<string, { maxItems?: number }>).paths;
+      expect(paths?.maxItems, "the host's card shows a list of at most three in full, so every path is on it").toBe(3);
+      expect(upload?.inputSchema.required).toEqual(expect.arrayContaining(["browserId", "selector", "paths", "origin"]));
+    }
+  });
+
   test("the default mode, with a code host and DIMENSION_BROWSER_MODEL_TOOLS unset, gives Traction its tools and browser_run, and a code space browser_run in place of the step tools", async () => {
     const previous = process.env.DIMENSION_BROWSER_MODEL_TOOLS;
     delete process.env.DIMENSION_BROWSER_MODEL_TOOLS;

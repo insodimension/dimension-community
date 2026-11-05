@@ -7,7 +7,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { WORKER_BUNDLE } from "../src/code/host/transport";
-import { HASH_WORKER_BUNDLE } from "../src/files";
 
 const packUrl = (path: string): URL => new URL(`../${path}`, import.meta.url);
 const read = (path: string): unknown => JSON.parse(readFileSync(packUrl(path), "utf8"));
@@ -21,10 +20,10 @@ describe("what the pack ships", () => {
   const { files } = read("package.json") as { files: string[] };
   const { mcpServers } = read("ai.insodimension.dimension/mcp.json") as { mcpServers: Record<string, { args: string[] }> };
 
-  test("every bundle the entry loads is in the shipped file list: the launcher, the server it hands over to, the code worker and the file-hash worker", () => {
+  test("every bundle the entry loads is in the shipped file list: the launcher, the server it hands over to, and the code worker", () => {
     const entry = mcpServers.browser?.args[0];
     expect(entry).toBe("app/launch.mjs");
-    const loaded = [entry as string, "app/server.mjs", `app/${WORKER_BUNDLE}`, `app/${HASH_WORKER_BUNDLE}`];
+    const loaded = [entry as string, "app/server.mjs", `app/${WORKER_BUNDLE}`];
     expect(loaded.filter(bundle => !ships(files, bundle))).toEqual([]);
   });
 

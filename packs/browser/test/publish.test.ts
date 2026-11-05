@@ -231,7 +231,7 @@ describeWithChrome("browser_publish", () => {
 
 			expect(result.structuredContent).toMatchObject({ status: "not-signed-in", url: s.fixture.url("/compose?v=nav"), profile: "pub-signed-out" });
 			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
-			expect((await s.runtime.state(s.browserId)).publish?.status).toBe("failed");
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -281,7 +281,7 @@ describeWithChrome("browser_publish", () => {
 			expect(result.structuredContent?.status).toBe("failed");
 			expect(result.structuredContent?.error).toContain("password");
 			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
-			expect((await s.runtime.state(s.browserId)).publish?.status).toBe("failed");
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -296,7 +296,7 @@ describeWithChrome("browser_publish", () => {
 			expect(result.structuredContent?.error).toContain("field-mismatch");
 			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
 			expect(s.fixture.hits("/submit")).toBe(0);
-			expect((await s.runtime.state(s.browserId)).publish?.status).toBe("failed");
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -715,7 +715,7 @@ describeWithChrome("browser_publish", () => {
 			expect(result.structuredContent?.status).toBe("failed");
 			// `#other`'s input events count as writes on this variant.
 			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
-			expect((await s.runtime.state(s.browserId)).publish?.status).toBe("failed");
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 			expect(s.fixture.hits("/submit")).toBe(0);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
@@ -1023,7 +1023,7 @@ describeWithChrome("browser_publish", () => {
 			expect(result.structuredContent?.status).toBe("failed");
 			// `#decoy`'s input events count as writes: the document's own activeElement is the host either way.
 			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
-			expect((await s.runtime.state(s.browserId)).publish?.status).toBe("failed");
+			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
 			expect(s.fixture.hits("/submit")).toBe(0);
 		},
 		BROWSER_TEST_TIMEOUT_MS,

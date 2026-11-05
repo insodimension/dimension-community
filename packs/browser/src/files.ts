@@ -1,145 +1,99 @@
-import { existsSync, realpathSync, statSync, type Stats } from "node:fs";
-import { isAbsolute, relative, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
-import { type FileStamp, linkOffMachine, NETWORK_OR_DEVICE_PATH, sameStamp, stampOf } from "./local-path.js";
-import { ActionNotDispatched, fail } from "./store.js";
-
-export type { FileStamp } from "./local-path.js";
+import { lstatSync, readlinkSync, realpathSync, type Stats, statSync } from "node:fs";
+import { isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { fail } from "./store.js";
 
 export const MAX_FILE_PATH_CHARS = 4_096;
-export const HASH_WORKER_BUNDLE = "file-hash-worker.mjs";
-const EXTENSION_TOKEN = /^\.[a-z0-9]{1,16}$/;
-const CHECKPOINT_INTERVAL_MS = 50;
+export const MAX_UPLOAD_PATHS = 3;
+const MAX_LINK_HOPS = 32;
+const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
+const ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE = /^[\\/]|^[A-Za-z]:(?![\\/])/;
+const PATH_SEPARATORS = /[\\/]+/;
 
-export interface FileHashRequest {
-	readonly real: string;
-}
-
-export type FileHashReply = { readonly sha256: string; readonly stamp: FileStamp } | { readonly refused: string } | { readonly error: string };
-
-export interface LocalFile {
-	readonly path: string;
-	readonly real: string;
-	readonly size: number;
-	readonly sha256: string;
-	readonly stamp: FileStamp;
-}
-
-export interface FileIdentity {
-	readonly path: string;
-	readonly size: number;
-	readonly sha256: string;
-}
-
-export function parseAccept(accept: unknown, where: string): string[] {
-	if (typeof accept !== "string" || accept.trim().length === 0) fail("bad_recipe", `${where}.accept must be a comma-separated list of extensions such as ".mp4,.mov"`);
-	const extensions = accept.split(",").map((token) => token.trim().toLowerCase());
-	const invalid = extensions.find((token) => !EXTENSION_TOKEN.test(token));
-	if (invalid !== undefined) fail("bad_recipe", `${where}.accept takes file extensions only (".mp4"), not ${JSON.stringify(invalid)}`);
-	return extensions;
-}
-
-export function requireAbsolutePath(path: unknown, name: string, code: string): string {
-	if (typeof path !== "string" || path.length === 0 || path.length > MAX_FILE_PATH_CHARS || !isAbsolute(path)) {
-		fail(code, `${name} must be an absolute path of at most ${MAX_FILE_PATH_CHARS} characters`);
-	}
-	if (NETWORK_OR_DEVICE_PATH.test(path)) fail(code, `${name}: ${path} is a network or device path; only a file on this machine's own drives is uploaded`);
-	return path;
-}
-
-function refuseUnreadable(error: unknown, path: string, name: string, code: string): never {
-	if ((error as NodeJS.ErrnoException).code === "ENOENT") fail(code, `${name}: ${path} does not exist`);
-	fail(code, `${name}: ${path} could not be read (${(error as Error).message})`);
-}
-
-export function requireLocalFile(path: string, name: string, code: string, protectedRoot: string): { real: string; stamp: FileStamp } {
-	requireAbsolutePath(path, name, code);
-	const refusal = linkOffMachine(path);
-	if (refusal !== undefined) fail(code, `${name}: ${path} ${refusal}; only a file on this machine's own drives is uploaded`);
-	let real: string;
-	let stats: Stats;
+export function requireLocalFiles(paths: unknown, name: string, protectedRoot: string): string[] {
+	if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `${name} must name 1-${MAX_UPLOAD_PATHS} files`);
 	let realRoot: string;
-	try {
-		real = realpathSync.native(path);
-	} catch (error) {
-		refuseUnreadable(error, path, name, code);
-	}
-	if (NETWORK_OR_DEVICE_PATH.test(real)) fail(code, `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
-	try {
-		stats = statSync(real);
-	} catch (error) {
-		refuseUnreadable(error, path, name, code);
-	}
-	if (!stats.isFile()) fail(code, `${name}: ${path} is not a file`);
 	try {
 		realRoot = realpathSync.native(protectedRoot);
 	} catch (error) {
-		fail(code, `${name}: ${path} could not be checked against the browser's own data (${(error as Error).message})`);
+		fail("bad_action", `${name} could not be checked against the browser's own data (${(error as Error).message})`);
 	}
+	return paths.map((path, index) => requireLocalFile(path, `${name}[${index}]`, realRoot));
+}
+
+function requireLocalFile(path: unknown, name: string, realRoot: string): string {
+	if (typeof path !== "string" || path.length === 0 || path.length > MAX_FILE_PATH_CHARS || !isAbsolute(path)) {
+		fail("bad_action", `${name} must be an absolute path of at most ${MAX_FILE_PATH_CHARS} characters`);
+	}
+	if (NETWORK_OR_DEVICE_PATH.test(path)) fail("bad_action", `${name}: ${path} is a network or device path; only a file on this machine's own drives is uploaded`);
+	const refusal = linkOffMachine(path);
+	if (refusal !== undefined) fail("bad_action", `${name}: ${path} ${refusal}; only a file on this machine's own drives is uploaded`);
+	let real: string;
+	let stats: Stats;
+	try {
+		real = realpathSync.native(path);
+		stats = statSync(real);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") fail("bad_action", `${name}: ${path} does not exist`);
+		fail("bad_action", `${name}: ${path} could not be read (${(error as Error).message})`);
+	}
+	if (NETWORK_OR_DEVICE_PATH.test(real)) fail("bad_action", `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
+	if (!stats.isFile()) fail("bad_action", `${name}: ${path} is not a file`);
 	const fromRoot = relative(realRoot, real);
 	if (fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))) {
-		fail(code, `${name}: ${path} is the browser's own data (profiles, saved passwords), which is never uploaded`);
+		fail("bad_action", `${name}: ${path} is the browser's own data (profiles, saved passwords), which is never uploaded`);
 	}
-	return { real, stamp: stampOf(stats) };
+	if (!samePath(resolve(path), real)) fail("bad_action", `${name}: ${path} is ${real} on disk; pass that path, so the person is asked about the file that is sent`);
+	return real;
 }
 
-export async function identifyLocalFile(path: string, name: string, code: string, protectedRoot: string, checkpoint: () => void = () => undefined): Promise<LocalFile> {
-	const { real, stamp } = requireLocalFile(path, name, code, protectedRoot);
-	checkpoint();
-	const hashed = await hashOffThread(real, checkpoint);
-	if ("refused" in hashed) fail(code, `${name}: ${path} ${hashed.refused} by the time it was read; only a file on this machine's own drives is uploaded`);
-	if ("error" in hashed) fail(code, `${name}: ${path} could not be read (${hashed.error})`);
-	if (!sameStamp(stamp, hashed.stamp)) fail(code, `${name}: ${path} changed while it was being read; let whatever writes it finish, then publish again`);
-	return { path, real, size: hashed.stamp.size, sha256: hashed.sha256, stamp: hashed.stamp };
+function samePath(given: string, real: string): boolean {
+	return process.platform === "win32" ? given.toLowerCase() === real.toLowerCase() : given === real;
 }
 
-function hashWorkerEntry(): URL {
-	const bundled = new URL(`./${HASH_WORKER_BUNDLE}`, import.meta.url);
-	return existsSync(fileURLToPath(bundled)) ? bundled : new URL("./file-hash-worker.ts", import.meta.url);
+function segmentsBelowRoot(path: string): { root: string; segments: string[] } {
+	const { root } = parse(path);
+	return { root, segments: path.slice(root.length).split(PATH_SEPARATORS).filter((segment) => segment.length > 0) };
 }
 
-function hashOffThread(real: string, checkpoint: () => void): Promise<FileHashReply> {
-	const { promise, resolve, reject } = Promise.withResolvers<FileHashReply>();
-	const worker = new Worker(hashWorkerEntry(), { workerData: { real } satisfies FileHashRequest });
-	const poll = setInterval(() => {
+function linkTargetRefusal(target: string): string | undefined {
+	if (NETWORK_OR_DEVICE_PATH.test(target)) return `links to ${target}, a network or device path`;
+	if (process.platform === "win32" && ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE.test(target)) return `links to ${target}, a path on no drive letter (an NT or rooted path)`;
+	return undefined;
+}
+
+function linkOffMachine(path: string): string | undefined {
+	let { root: walked, segments } = segmentsBelowRoot(resolve(path));
+	let hops = 0;
+	while (segments.length > 0) {
+		const [segment, ...rest] = segments;
+		const next = resolve(walked, segment);
+		let stats: Stats;
 		try {
-			checkpoint();
+			stats = lstatSync(next);
 		} catch (error) {
-			clearInterval(poll);
-			reject(error);
-			void worker.terminate();
+			const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+			if (hops === 0) return missing ? undefined : `could not be checked: ${next} cannot be read (${(error as Error).message})`;
+			if (missing) return `links to ${next}, which does not exist`;
+			return `goes through ${next}, reached through a link, which cannot be read (${(error as Error).message}), so it is not followed`;
 		}
-	}, CHECKPOINT_INTERVAL_MS);
-	worker.once("message", (reply: FileHashReply) => {
-		clearInterval(poll);
-		resolve(reply);
-	});
-	worker.once("error", (error: Error) => {
-		clearInterval(poll);
-		resolve({ error: `the file-hash worker failed: ${error.message}` });
-	});
-	worker.once("exit", (exitCode) => {
-		clearInterval(poll);
-		resolve({ error: `the file-hash worker exited with code ${exitCode} before it answered` });
-	});
-	return promise;
-}
-
-export function requireUnchanged(file: LocalFile, name: string): void {
-	const refusal = linkOffMachine(file.real);
-	if (refusal !== undefined) throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} now ${refusal}; nothing was attached`);
-	let now: FileStamp;
-	try {
-		now = stampOf(statSync(file.real));
-	} catch (error) {
-		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} could not be read again before it was attached (${(error as Error).message}); nothing was attached`);
+		segments = rest;
+		if (!stats.isSymbolicLink()) {
+			walked = next;
+			continue;
+		}
+		hops += 1;
+		if (hops > MAX_LINK_HOPS) return `goes through more than ${MAX_LINK_HOPS} links`;
+		let target: string;
+		try {
+			target = readlinkSync(next);
+		} catch (error) {
+			return `goes through ${next}, a link whose target cannot be read (${(error as Error).message}), so it is not followed`;
+		}
+		const refused = linkTargetRefusal(target);
+		if (refused !== undefined) return refused;
+		const landed = segmentsBelowRoot(resolve(walked, target));
+		walked = landed.root;
+		segments = [...landed.segments, ...segments];
 	}
-	if (!sameStamp(file.stamp, now)) {
-		throw new ActionNotDispatched("file_changed", `file_changed: ${name}: ${file.path} changed after it was approved; nothing was attached. Approve the new file on the board, then publish again`);
-	}
-}
-
-export function identityOf(file: LocalFile): FileIdentity {
-	return { path: file.path, size: file.size, sha256: file.sha256 };
+	return undefined;
 }

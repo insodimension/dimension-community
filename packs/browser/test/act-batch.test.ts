@@ -287,3 +287,11 @@ test("browser_act takes actions (1 to 25 steps) and nothing else: the single-act
 	}
 	expect(seen).toHaveLength(2);
 });
+
+test("browser_act has no upload step: files reach a page only through browser_upload", async () => {
+	const seen: BatchStep[][] = [];
+	const client = await connectStub(seen);
+	const refused = await client.callTool({ name: "browser_act", arguments: { browserId: "b".repeat(32), actions: [{ kind: "upload", selector: "#file", paths: ["C:\\secret.txt"] }] } });
+	expect(refused.isError).toBe(true);
+	expect(seen).toEqual([]);
+});

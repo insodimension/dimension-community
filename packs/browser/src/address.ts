@@ -79,3 +79,11 @@ export function tabLabel(title: string, url: string): string {
 	const parts = addressParts(url);
 	return parts.blank ? "New Tab" : parts.host;
 }
+
+export function originOf(url: string): string | null {
+	try {
+		return new URL(url).origin;
+	} catch {
+		return null;
+	}
+}

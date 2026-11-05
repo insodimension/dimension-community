@@ -23,19 +23,14 @@
  */
 import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { originOf } from "./address.js";
 import { accountFromText } from "./connection.js";
-import type { EffectGuard, PublishCheck, PublishField, PublishFile, PublishMode, PublishRecipe, PublishRecord, PublishStatus, PublishStep } from "./contracts.js";
+import type { EffectGuard, PublishCheck, PublishField, PublishMode, PublishRecipe, PublishRecord, PublishStatus } from "./contracts.js";
 import { PUBLISH_MODES } from "./contracts.js";
 import type { EngineDriver } from "./engines/types.js";
-import { type LocalFile, requireAbsolutePath, requireUnchanged } from "./files.js";
-import type { Spend } from "./publish-approval.js";
 import { ActionNotDispatched, fail } from "./store.js";
 
 const MAX_FIELDS = 8;
-const MAX_FILES = 4;
-const MAX_STEPS = 32;
-const DEFAULT_STEP_WAIT_MS = 15_000;
-const MAX_STEP_WAIT_MS = 60_000;
 const MAX_VALUE_CHARS = 10_000;
 const MAX_LABEL_CHARS = 40;
 const MAX_SELECTOR_CHARS = 512;
@@ -57,22 +52,11 @@ const TERMINAL: readonly PublishStatus[] = ["posted", "unknown", "failed", "canc
 const TOUCHED_ERROR = "The page was used in the Browser View while waiting, so it may have posted there. Check the account.";
 /** The same, on an engine whose page the human can use outside the runtime (chrome-relay). */
 const SHARED_ERROR = "This page is in your own Chrome, where it can be used outside the Browser View, so it may have posted there. Check the account.";
-const ATTACHED_NOTE = "; the files it attached had already started uploading, so the site may keep a private draft of this post: check the account and delete it there";
-const WAIT_SLICE_MS = 1_000;
-const WHITESPACE_RUN = /\s+/g;
-
-export type PlanStep =
-	| { kind: "field"; field: PublishField }
-	| { kind: "file"; file: PublishFile }
-	| { kind: "click"; selector: string }
-	| { kind: "wait"; selector: string; timeoutMs: number }
-	| { kind: "check"; selector: string };
 
 /** A validated recipe, with its receipt path template compiled once. */
 export interface Recipe extends PublishRecipe {
 	/** Matches a receipt URL's pathname against `receipt.path`, in linear time. */
 	matchesPath: (pathname: string) => boolean;
-	plan: PlanStep[];
 }
 
 /** A parked publish: the record the View shows, and the recipe confirm needs (never shown). */
@@ -97,11 +81,6 @@ export interface Publication {
 	sharedPage: boolean;
 	/** The signed-in account the recipe's `account` selector read before filling, if any. */
 	account?: string;
-	shownReads?: string[];
-	attached: boolean;
-	cancelRequested?: string;
-	held?: Spend;
-	parked: PromiseWithResolvers<void>;
 	/** Resolves when the record reaches a terminal status. */
 	settled: PromiseWithResolvers<void>;
 }
@@ -138,8 +117,6 @@ export function validateRecipe(input: PublishRecipe): Recipe {
 			...(field.label === undefined ? {} : { label: field.label.trim() }),
 		};
 	});
-	const files = validateFiles(input.files);
-	const steps = input.steps === undefined ? undefined : validateSteps(input.steps, fields, files);
 	const receipt = input.receipt;
 	if (!isObject(receipt)) fail("bad_recipe", "receipt must be an object");
 	const path = receiptPath(receipt.path);
@@ -149,88 +126,13 @@ export function validateRecipe(input: PublishRecipe): Recipe {
 		signedIn: selector(input.signedIn, "signedIn"),
 		...(input.account === undefined ? {} : { account: selector(input.account, "account") }),
 		fields,
-		...(files.length === 0 ? {} : { files }),
-		...(steps === undefined ? {} : { steps: steps.declared }),
 		submit: selector(input.submit, "submit"),
 		receipt: {
 			path,
 			...(receipt.linkSelector === undefined ? {} : { linkSelector: selector(receipt.linkSelector, "receipt.linkSelector") }),
-			...(receipt.origin === undefined ? {} : { origin: parseOrigin(receipt.origin, "receipt.origin") }),
 		},
 		matchesPath: compilePath(path),
-		plan: steps?.plan ?? [...fields.map((field): PlanStep => ({ kind: "field", field })), ...files.map((file): PlanStep => ({ kind: "file", file }))],
 	};
-}
-
-function validateFiles(input: unknown): PublishFile[] {
-	if (input === undefined) return [];
-	if (!Array.isArray(input) || input.length > MAX_FILES) fail("bad_recipe", `files must hold at most ${MAX_FILES} entries`);
-	const labels = new Set<string>();
-	return input.map((file: unknown, index): PublishFile => {
-		if (!isObject(file)) fail("bad_recipe", `files[${index}] must be { label, selector, path }`);
-		if (typeof file.label !== "string" || file.label.trim().length === 0 || file.label.length > MAX_LABEL_CHARS) {
-			fail("bad_recipe", `files[${index}].label must be a non-empty string of at most ${MAX_LABEL_CHARS} characters`);
-		}
-		const label = file.label.trim();
-		if (labels.has(label)) fail("bad_recipe", `files[${index}].label ${JSON.stringify(label)} is used twice`);
-		labels.add(label);
-		return { label, selector: selector(file.selector, `files[${index}].selector`), path: requireAbsolutePath(file.path, `files[${index}].path`, "bad_recipe") };
-	});
-}
-
-function validateSteps(input: unknown, fields: readonly PublishField[], files: readonly PublishFile[]): { declared: PublishStep[]; plan: PlanStep[] } {
-	if (!Array.isArray(input) || input.length === 0 || input.length > MAX_STEPS) fail("bad_recipe", `steps must hold 1-${MAX_STEPS} entries`);
-	const targets = new Map<string, PlanStep>([
-		...fields.map((field): [string, PlanStep] => [`field:${field.label}`, { kind: "field", field }]),
-		...files.map((file): [string, PlanStep] => [`file:${file.label}`, { kind: "file", file }]),
-	]);
-	if (fields.some((field) => field.label === undefined) || targets.size !== fields.length + files.length) fail("bad_recipe", "with steps, every field needs a label of its own");
-	const placed = new Set<string>();
-	const declared: PublishStep[] = [];
-	const plan = input.map((step: unknown, index): PlanStep => {
-		const where = `steps[${index}]`;
-		if (!isObject(step)) fail("bad_recipe", `${where} must be an object`);
-		const keys = Object.keys(step);
-		const only = (allowed: readonly string[]): void => {
-			const extra = keys.find((key) => !allowed.includes(key));
-			if (extra !== undefined) fail("bad_recipe", `${where}.${extra} is not a ${String(step.kind)} step key`);
-		};
-		switch (step.kind) {
-			case "field":
-			case "file": {
-				only(["kind", "label"]);
-				const label = typeof step.label === "string" ? step.label.trim() : "";
-				const key = `${step.kind}:${label}`;
-				const target = targets.get(key);
-				if (target === undefined) fail("bad_recipe", `${where} names no ${step.kind} labelled ${JSON.stringify(label)}`);
-				if (placed.has(key)) fail("bad_recipe", `${where} places ${step.kind} ${JSON.stringify(label)} a second time`);
-				placed.add(key);
-				declared.push({ kind: step.kind, label });
-				return target;
-			}
-			case "click":
-			case "check": {
-				only(["kind", "selector"]);
-				const target = selector(step.selector, `${where}.selector`);
-				declared.push({ kind: step.kind, selector: target });
-				return { kind: step.kind, selector: target };
-			}
-			case "wait": {
-				only(["kind", "selector", "timeoutMs"]);
-				const timeoutMs = step.timeoutMs ?? DEFAULT_STEP_WAIT_MS;
-				if (typeof timeoutMs !== "number" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_STEP_WAIT_MS) {
-					fail("bad_recipe", `${where}.timeoutMs must be an integer from 1 to ${MAX_STEP_WAIT_MS}`);
-				}
-				const target = selector(step.selector, `${where}.selector`);
-				declared.push({ kind: "wait", selector: target, ...(step.timeoutMs === undefined ? {} : { timeoutMs }) });
-				return { kind: "wait", selector: target, timeoutMs };
-			}
-			default:
-				return fail("bad_recipe", `${where}.kind must be field, file, click, wait or check`);
-		}
-	});
-	if (placed.size !== fields.length + files.length) fail("bad_recipe", "steps must place every field and every file exactly once");
-	return { declared, plan };
 }
 
 const PLACEHOLDERS: Readonly<Record<string, string>> = { segment: "[^/]+", digits: "[0-9]+" };
@@ -272,9 +174,9 @@ export function compilePath(path: string): (pathname: string) => boolean {
 	return (pathname) => pattern.test(pathname);
 }
 
-function parseOrigin(value: unknown, name = "origin"): string {
-	const url = parseUrl(value, name);
-	if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `${name} must be a bare origin such as https://example.com`);
+function parseOrigin(value: unknown): string {
+	const url = parseUrl(value, "origin");
+	if (url.pathname !== "/" || url.search !== "" || url.hash !== "") fail("bad_recipe", `origin must be a bare origin such as https://example.com`);
 	return url.origin;
 }
 
@@ -311,15 +213,7 @@ function selector(value: unknown, name: string): string {
  * recipe's origin. `check` stops there; `post` fills and verifies every field
  * and returns the parked publication. A signed-out profile types nothing.
  */
-export async function prepare(
-	driver: EngineDriver,
-	profile: string,
-	recipe: Recipe,
-	mode: PublishMode,
-	guard?: EffectGuard,
-	files: Readonly<Record<string, LocalFile>> = {},
-	publication: Publication = startPublication(recipe, profile),
-): Promise<PublishCheck | Publication> {
+export async function prepare(driver: EngineDriver, profile: string, recipe: Recipe, mode: PublishMode, guard?: EffectGuard): Promise<PublishCheck | Publication> {
 	if (guard !== undefined) await guard();
 	guard?.assertCurrent();
 	try {
@@ -340,159 +234,66 @@ export async function prepare(
 	const url = await currentUrl(driver, guard);
 	guard?.assertCurrent();
 	if (!signedIn) return { status: "not-signed-in", url, profile };
+	// Page text, read only once signed in, only for the connection report; never a reason to fail.
 	if (guard !== undefined) await guard();
 	guard?.assertCurrent();
 	const account = recipe.account === undefined ? undefined : accountFromText(await driver.readText(recipe.account, MAX_ACCOUNT_TEXT_CHARS).catch(() => null));
 	guard?.assertCurrent();
 	if (mode === "check") return { status: "signed-in", url, profile, ...(account === undefined ? {} : { account }) };
 
-	const failed = (error: string): PublishCheck => ({ status: "failed", url, profile, error: `${error}; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` });
-	for (const [index, step] of recipe.plan.entries()) {
+	for (const field of recipe.fields) {
+		const failed = (error: string): PublishCheck => ({ status: "failed", url, profile, error: `${error}; nothing was submitted` });
 		if (guard !== undefined) await guard();
 		guard?.assertCurrent();
-		switch (step.kind) {
-			case "field": {
-				const problem = await fillField(driver, step.field, guard);
-				if (problem !== null) return failed(problem);
-				break;
-			}
-			case "file": {
-				const name = `file ${JSON.stringify(step.file.label)}`;
-				const local = Object.hasOwn(files, step.file.label) ? files[step.file.label] : undefined;
-				const attachGuard: EffectGuard | undefined =
-					local === undefined ? guard : Object.assign(() => guard?.(), { assertCurrent: () => { guard?.assertCurrent(); requireUnchanged(local, name); } });
-				const before = publication.attached;
-				publication.attached = true;
-				try {
-					await driver.attachFile(step.file.selector, local?.real ?? step.file.path, attachGuard);
-				} catch (error) {
-					if (error instanceof ActionNotDispatched) publication.attached = before;
-					return failed(`attaching ${name} to ${JSON.stringify(step.file.selector)} failed: ${describe(error)}`);
-				}
-				break;
-			}
-			case "click":
-				try {
-					await driver.perform({ kind: "click", selector: step.selector }, undefined, guard);
-				} catch (error) {
-					return failed(`step ${index + 1}, clicking ${JSON.stringify(step.selector)}, failed: ${describe(error)}`);
-				}
-				break;
-			case "wait":
-			case "check": {
-				const timeoutMs = step.kind === "wait" ? step.timeoutMs : DEFAULT_STEP_WAIT_MS;
-				const until = Date.now() + timeoutMs;
-				let appeared = false;
-				while (!appeared) {
-					appeared = await driver.waitFor({ selector: step.selector }, Math.max(1, Math.min(WAIT_SLICE_MS, until - Date.now())), (value) => value).catch(() => false);
-					guard?.assertCurrent();
-					if (Date.now() >= until) break;
-				}
-				if (!appeared) return failed(`step ${index + 1}: ${JSON.stringify(step.selector)} did not appear within ${timeoutMs} ms`);
-				break;
-			}
+		const before = await driver.readField(field.selector).catch((error) => ({ state: "error" as const, error }));
+		guard?.assertCurrent();
+		if (before.state === "error") return failed(`could not read ${JSON.stringify(field.selector)}: ${describe(before.error)}`);
+		if (before.state === "absent") return failed(`${JSON.stringify(field.selector)} is not on the page`);
+		if (before.state === "password") return failed(`${JSON.stringify(field.selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`);
+		if (before.state === "not-editable") return failed(`${JSON.stringify(field.selector)} is not an input, textarea or editable element`);
+		if (guard !== undefined) await guard();
+		guard?.assertCurrent();
+		try {
+			await driver.fill(field.selector, field.value, guard);
+		} catch (error) {
+			return failed(`typing into ${JSON.stringify(field.selector)} failed: ${describe(error)}`);
+		}
+		if (guard !== undefined) await guard();
+		guard?.assertCurrent();
+		const after = await driver.readField(field.selector).catch(() => null);
+		guard?.assertCurrent();
+		if (after?.state !== "value" || after.value !== field.value) {
+			return failed(`field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`);
 		}
 	}
-	const shownReads = recipe.steps === undefined ? undefined : await readAfterSteps(driver, recipe, guard);
-	if (typeof shownReads === "string") return failed(shownReads);
+	// Where the human is about to be shown the values: this tab, this URL. Confirm submits only there.
 	if (guard !== undefined) await guard();
 	guard?.assertCurrent();
 	const shown = await driver.state().catch(() => null);
 	guard?.assertCurrent();
 	if (!shown || originOf(shown.url) !== recipe.origin) {
-		return { status: "failed", url: shown?.url ?? url, profile, error: `the tab left ${recipe.origin} while typing; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` };
+		return { status: "failed", url: shown?.url ?? url, profile, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
 	}
-	Object.assign(publication.record, {
-		status: "awaiting-confirmation",
-		composeUrl: shown.url,
-		tabId: shown.activeTabId,
-		expiresAt: new Date(Date.now() + PUBLISH_PENDING_MS).toISOString(),
-	});
-	if (account !== undefined) publication.account = account;
-	if (shownReads !== undefined) publication.shownReads = shownReads;
-	publication.parked.resolve();
-	return publication;
-}
-
-export function startPublication(recipe: Recipe, profile: string): Publication {
-	const now = new Date().toISOString();
+	const now = Date.now();
 	return {
 		record: {
 			publishId: randomBytes(16).toString("hex"),
-			status: "preparing",
+			status: "awaiting-confirmation",
 			origin: recipe.origin,
-			composeUrl: recipe.composeUrl,
-			tabId: "",
+			composeUrl: shown.url,
+			tabId: shown.activeTabId,
 			profile,
 			fields: recipe.fields.map((field) => ({ ...field })),
-			...(recipe.files === undefined ? {} : { files: recipe.files.map(({ label, path }) => ({ label, path })) }),
-			createdAt: now,
-			expiresAt: now,
+			createdAt: new Date(now).toISOString(),
+			expiresAt: new Date(now + PUBLISH_PENDING_MS).toISOString(),
 		},
 		recipe,
 		confirming: false,
 		touchedWhilePending: false,
 		sharedPage: false,
-		attached: false,
-		parked: Promise.withResolvers<void>(),
 		settled: Promise.withResolvers<void>(),
+		...(account === undefined ? {} : { account }),
 	};
-}
-
-export function failPreparation(publication: Publication, outcome: PublishCheck | Error): void {
-	if (publication.record.status !== "preparing") return;
-	const note = publication.attached ? ATTACHED_NOTE : "";
-	if (publication.cancelRequested !== undefined) {
-		const unsure = unsureError(publication);
-		settle(publication, unsure === null ? "cancelled" : "unknown", { error: unsure ?? `${publication.cancelRequested}${note}` });
-		return;
-	}
-	const error = outcome instanceof Error
-		? `${describe(outcome)}; nothing was submitted${note}`
-		: (outcome.error ?? `not signed in to ${publication.record.origin} on profile ${publication.record.profile}; nothing was typed`);
-	settle(publication, "failed", { error });
-}
-
-async function readAfterSteps(driver: EngineDriver, recipe: Recipe, guard?: EffectGuard): Promise<string[] | string> {
-	const reads: string[] = [];
-	for (const field of recipe.fields) {
-		if (guard !== undefined) await guard();
-		guard?.assertCurrent();
-		const read = await driver.readField(field.selector).catch(() => null);
-		guard?.assertCurrent();
-		if (read?.state !== "value") return `${JSON.stringify(field.selector)} left the page during the steps`;
-		if (read.value !== field.value) {
-			const box = await driver.inspect(field.selector).catch(() => null);
-			guard?.assertCurrent();
-			const hidden = box !== null && box.rect.width === 0 && box.rect.height === 0;
-			const sameWords = read.value.replace(WHITESPACE_RUN, " ").trim() === field.value.replace(WHITESPACE_RUN, " ").trim();
-			if (!hidden || !sameWords) return `field-mismatch: ${JSON.stringify(field.selector)} no longer holds the value typed after the steps`;
-		}
-		reads.push(read.value);
-	}
-	return reads;
-}
-
-async function fillField(driver: EngineDriver, field: PublishField, guard?: EffectGuard): Promise<string | null> {
-	const before = await driver.readField(field.selector).catch((error) => ({ state: "error" as const, error }));
-	guard?.assertCurrent();
-	if (before.state === "error") return `could not read ${JSON.stringify(field.selector)}: ${describe(before.error)}`;
-	if (before.state === "absent") return `${JSON.stringify(field.selector)} is not on the page`;
-	if (before.state === "password") return `${JSON.stringify(field.selector)} is a password field, which a publish never reads back; log in with browser_act or browser_task`;
-	if (before.state === "not-editable") return `${JSON.stringify(field.selector)} is not an input, textarea or editable element`;
-	if (guard !== undefined) await guard();
-	guard?.assertCurrent();
-	try {
-		await driver.fill(field.selector, field.value, guard);
-	} catch (error) {
-		return `typing into ${JSON.stringify(field.selector)} failed: ${describe(error)}`;
-	}
-	if (guard !== undefined) await guard();
-	guard?.assertCurrent();
-	const after = await driver.readField(field.selector).catch(() => null);
-	guard?.assertCurrent();
-	if (after?.state !== "value" || after.value !== field.value) return `field-mismatch: ${JSON.stringify(field.selector)} does not read back the exact value typed`;
-	return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +306,7 @@ export function requirePending(publication: Publication | null, publishId: strin
 	expireIfDue(publication);
 	const { status } = publication.record;
 	if (status !== "awaiting-confirmation" || publication.confirming) {
-		fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status === "preparing" ? "still being prepared: follow it with browser_publish_wait" : status}`);
+		fail("publish_not_pending", `this publish is ${publication.confirming ? "already being confirmed" : status}`);
 	}
 	return publication;
 }
@@ -527,7 +328,7 @@ export async function confirm(driver: EngineDriver, publication: Publication, gu
 		guard?.assertCurrent();
 		if (changed) {
 			if (publication.sharedPage) return settle(publication, "unknown", { error: SHARED_ERROR });
-			return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted${publication.attached ? ATTACHED_NOTE : ""}` });
+			return settle(publication, "failed", { error: `changed since shown: ${changed}; nothing was submitted` });
 		}
 		// What already looks like a receipt is not one: it predates this submit.
 		const before = new Set(await receipts(driver, recipe, guard).catch(() => []));
@@ -571,29 +372,17 @@ async function changedSinceShown(driver: EngineDriver, publication: Publication,
 		guard?.assertCurrent();
 		if (state.activeTabId !== publication.record.tabId) return "another tab is active";
 		if (state.url !== publication.record.composeUrl) return `the tab is no longer on ${publication.record.composeUrl}`;
-		for (const [index, field] of publication.record.fields.entries()) {
+		for (const field of publication.record.fields) {
 			if (guard !== undefined) await guard();
 			guard?.assertCurrent();
 			const read = await driver.readField(field.selector);
 			guard?.assertCurrent();
-			if (read.state !== "value" || read.value !== (publication.shownReads?.[index] ?? field.value)) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
+			if (read.state !== "value" || read.value !== field.value) return `${JSON.stringify(field.selector)} no longer holds the value shown`;
 		}
-		return await missingCheck(driver, publication.recipe, guard);
+		return null;
 	} catch (error) {
 		return `the page could not be re-read (${describe(error)})`;
 	}
-}
-
-async function missingCheck(driver: EngineDriver, recipe: Recipe, guard?: EffectGuard): Promise<string | null> {
-	for (const step of recipe.plan) {
-		if (step.kind !== "check") continue;
-		if (guard !== undefined) await guard();
-		guard?.assertCurrent();
-		const holds = await driver.hasElement(step.selector);
-		guard?.assertCurrent();
-		if (!holds) return `${JSON.stringify(step.selector)} is no longer on the page`;
-	}
-	return null;
 }
 
 /**
@@ -618,7 +407,7 @@ function isReceipt(url: string, recipe: Recipe): boolean {
 	} catch {
 		return false;
 	}
-	return parsed.origin === (recipe.receipt.origin ?? recipe.origin) && recipe.matchesPath(parsed.pathname);
+	return parsed.origin === recipe.origin && recipe.matchesPath(parsed.pathname);
 }
 
 // ---------------------------------------------------------------------------
@@ -627,22 +416,18 @@ function isReceipt(url: string, recipe: Recipe): boolean {
 
 /** A Cancel (the model's or the View's), or the browser closing under a pending publish. */
 export function cancel(publication: Publication, error?: string): void {
-	if (publication.record.status === "preparing") {
-		publication.cancelRequested ??= error ?? "Cancelled while it was being prepared; nothing was submitted";
-		return;
-	}
 	const unsure = unsureError(publication);
 	if (unsure) settle(publication, "unknown", { error: unsure });
-	else if (publication.attached) settle(publication, "cancelled", { error: `${error ?? "Cancelled; nothing was submitted"}${ATTACHED_NOTE}` });
 	else settle(publication, "cancelled", error === undefined ? {} : { error });
 }
 
+/** An unconfirmed publish past its deadline is `expired` — terminal; confirm is refused after it. */
 export function expireIfDue(publication: Publication): void {
 	if (publication.record.status !== "awaiting-confirmation" || publication.confirming) return;
 	if (Date.now() < Date.parse(publication.record.expiresAt)) return;
 	const unsure = unsureError(publication);
 	if (unsure) settle(publication, "unknown", { error: unsure });
-	else settle(publication, "expired", { error: `not confirmed within 10 minutes${publication.attached ? ATTACHED_NOTE : ""}` });
+	else settle(publication, "expired", { error: "not confirmed within 10 minutes" });
 }
 
 /** Why an outcome that would say "nothing was posted" cannot, or null when it can. */
@@ -655,11 +440,10 @@ function unsureError(publication: Publication): string | null {
 export async function waitSettled(publication: Publication, ms: number): Promise<void> {
 	expireIfDue(publication);
 	if (TERMINAL.includes(publication.record.status)) return;
-	const preparing = publication.record.status === "preparing";
 	const untilExpiry = Date.parse(publication.record.expiresAt) - Date.now();
 	const { promise: elapsed, resolve } = Promise.withResolvers<void>();
-	const timer = setTimeout(resolve, Math.max(0, preparing || publication.confirming ? ms : Math.min(ms, untilExpiry)));
-	await Promise.race([publication.settled.promise, ...(preparing ? [publication.parked.promise] : []), elapsed]);
+	const timer = setTimeout(resolve, Math.max(0, publication.confirming ? ms : Math.min(ms, untilExpiry)));
+	await Promise.race([publication.settled.promise, elapsed]);
 	clearTimeout(timer);
 	expireIfDue(publication);
 }
@@ -668,25 +452,19 @@ export async function waitSettled(publication: Publication, ms: number): Promise
 export function publishRecord(publication: Publication): PublishRecord {
 	expireIfDue(publication);
 	const { record } = publication;
-	return {
-		...record,
-		fields: record.fields.map((field) => ({ ...field })),
-		...(record.files === undefined ? {} : { files: record.files.map((file) => ({ ...file })) }),
-		...(record.preset === undefined ? {} : { preset: { ...record.preset } }),
-	};
+	return { ...record, fields: record.fields.map((field) => ({ ...field })), ...(record.preset === undefined ? {} : { preset: { ...record.preset } }) };
 }
 
 export function isPending(publication: Publication | null): boolean {
 	if (!publication) return false;
 	expireIfDue(publication);
-	return publication.record.status === "awaiting-confirmation" || publication.record.status === "preparing";
+	return publication.record.status === "awaiting-confirmation";
 }
 
-function settle(publication: Publication, status: Exclude<PublishStatus, "awaiting-confirmation" | "preparing">, detail: { url?: string; error?: string }): void {
+function settle(publication: Publication, status: Exclude<PublishStatus, "awaiting-confirmation">, detail: { url?: string; error?: string }): void {
 	if (TERMINAL.includes(publication.record.status)) return;
 	Object.assign(publication.record, { status }, detail);
 	publication.confirming = false;
-	publication.parked.resolve();
 	publication.settled.resolve();
 }
 
@@ -700,14 +478,6 @@ async function currentUrl(driver: EngineDriver, guard?: EffectGuard): Promise<st
 	const state = await driver.state().catch(() => null);
 	guard?.assertCurrent();
 	return state?.url ?? "";
-}
-
-function originOf(url: string): string | null {
-	try {
-		return new URL(url).origin;
-	} catch {
-		return null;
-	}
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

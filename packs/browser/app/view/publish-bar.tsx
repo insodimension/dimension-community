@@ -10,7 +10,6 @@ import { Icon } from "@fraym/ui/icons";
 import { type BrowserClient, failureText } from "./browser-client";
 
 const OUTCOME: Record<Exclude<PublishStatus, "awaiting-confirmation">, string> = {
-	preparing: "Preparing the post. Nothing is posted until you press Post.",
 	posted: "Posted",
 	unknown: "May have posted",
 	failed: "Not posted",
@@ -127,7 +126,7 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 			<div ref={barRef} className="bx-publish" data-status={record.status} role="status" tabIndex={-1}>
 				<div className="bx-publish-row">
 					<span className="bx-publish-mark" aria-hidden="true">
-						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" || record.status === "preparing" ? "minus" : "warnTri"} size={14} strokeWidth={2.25} />
+						<Icon name={record.status === "posted" ? "check" : record.status === "cancelled" || record.status === "expired" ? "minus" : "warnTri"} size={14} strokeWidth={2.25} />
 					</span>
 					<span className="bx-publish-text">
 						<span className="bx-publish-title">{OUTCOME[record.status]}</span>
@@ -147,9 +146,8 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 	}
 
 	const expires = new Date(record.expiresAt);
-	const files = record.files ?? [];
 	const fits =
-		record.fields.length + files.length <= FIT_MAX_FIELDS &&
+		record.fields.length <= FIT_MAX_FIELDS &&
 		record.fields.every(field => field.value.length <= FIT_MAX_CHARS && field.value.split("\n").length <= FIT_MAX_LINES);
 	return (
 		<section ref={barRef} className="bx-publish" aria-label="Confirm post" aria-busy={busy || undefined} tabIndex={-1}>
@@ -196,12 +194,6 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 						<li key={`${index}:${field.selector}`} className="bx-publish-field">
 							<span className="bx-publish-label">{field.label ?? `Field ${index + 1}`}</span>
 							<span className="bx-publish-value">{field.value.length > 0 ? field.value : <span className="bx-publish-empty">(empty)</span>}</span>
-						</li>
-					))}
-					{files.map(file => (
-						<li key={`file:${file.label}`} className="bx-publish-field">
-							<span className="bx-publish-label">{file.label} (file)</span>
-							<span className="bx-publish-value">{file.path}</span>
 						</li>
 					))}
 				</ol>

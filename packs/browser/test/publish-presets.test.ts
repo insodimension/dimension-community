@@ -94,7 +94,7 @@ function errorText(result: ToolResult): string {
 // Discovery
 // ---------------------------------------------------------------------------
 
-test("browser_publish_presets lists the five shipped presets, every one unverified, each with the page a person signs in on", async () => {
+test("browser_publish_presets lists the four shipped presets, every one unverified, each with the page a person signs in on", async () => {
 	const rootDir = await createRoot();
 	const viewDir = join(rootDir, "view");
 	await mkdir(viewDir, { recursive: true });
@@ -109,23 +109,10 @@ test("browser_publish_presets lists the five shipped presets, every one unverifi
 
 	expect(listed.isError).toBeFalsy();
 	expect(listed.structuredContent?.presets).toEqual([
-		{ name: "bluesky-post", platform: "Bluesky", verified: false, fields: ["Post text"], files: [], needsTarget: false, signInUrl: "https://bsky.app/" },
-		{ name: "linkedin-post", platform: "LinkedIn", verified: false, fields: ["Post text"], files: [], needsTarget: false, signInUrl: "https://www.linkedin.com/login" },
-		{ name: "reddit-comment", platform: "Reddit", verified: false, fields: ["Comment"], files: [], needsTarget: true, signInUrl: "https://www.reddit.com/login/" },
-		{ name: "x-post", platform: "X", verified: false, fields: ["Post text"], files: [], needsTarget: false, signInUrl: "https://x.com/i/flow/login" },
-		{
-			name: "youtube-upload",
-			platform: "YouTube",
-			verified: false,
-			fields: ["Title", "Description"],
-			files: [
-				{ label: "Video", optional: false, accept: ".mp4,.mov,.m4v,.webm,.mkv,.avi,.wmv,.flv,.mpg,.mpeg,.3gp" },
-				{ label: "Thumbnail", optional: true, accept: ".jpg,.jpeg,.png,.gif" },
-				{ label: "Captions", optional: true, accept: ".srt,.vtt,.sbv,.sub,.scc,.ttml" },
-			],
-			needsTarget: false,
-			signInUrl: "https://studio.youtube.com/",
-		},
+		{ name: "bluesky-post", platform: "Bluesky", verified: false, fields: ["Post text"], needsTarget: false, signInUrl: "https://bsky.app/" },
+		{ name: "linkedin-post", platform: "LinkedIn", verified: false, fields: ["Post text"], needsTarget: false, signInUrl: "https://www.linkedin.com/login" },
+		{ name: "reddit-comment", platform: "Reddit", verified: false, fields: ["Comment"], needsTarget: true, signInUrl: "https://www.reddit.com/login/" },
+		{ name: "x-post", platform: "X", verified: false, fields: ["Post text"], needsTarget: false, signInUrl: "https://x.com/i/flow/login" },
 	]);
 });
 

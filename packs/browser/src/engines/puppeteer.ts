@@ -37,7 +37,8 @@ import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
-import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type EffectGuard, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, type ModelShot, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type Viewport } from "../contracts.js";
+import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type EffectGuard, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, type ModelShot, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type UploadRequest, type Viewport } from "../contracts.js";
+import { originOf } from "../address.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, BrowserRuntimeError, fail } from "../store.js";
@@ -1184,6 +1185,14 @@ class PuppeteerDriver implements EngineDriver {
 	 * are effects too: later rejection cannot become ActionNotDispatched.
 	 */
 	async perform(action: BrowserAction, password?: PasswordSource, guard?: EffectGuard): Promise<PerformOutcome> {
+		return await this.#performOnce(action, password, guard);
+	}
+
+	async upload(request: UploadRequest, guard?: EffectGuard): Promise<PerformOutcome> {
+		return await this.#performOnce({ kind: "upload", ...request }, undefined, guard);
+	}
+
+	async #performOnce(action: DriverAction, password: PasswordSource | undefined, guard: EffectGuard | undefined): Promise<PerformOutcome> {
 		const tab = this.#activeTab();
 		const seen = tab.dialogs.seq;
 		const outcome = await withTimeout(this.#dispatch(action, password, guard), NAVIGATE_TIMEOUT_MS + 5_000, `${action.kind}`);
@@ -1191,7 +1200,7 @@ class PuppeteerDriver implements EngineDriver {
 		return dialogs.length === 0 ? outcome : { ...outcome, dialogs };
 	}
 
-	async #dispatch(action: BrowserAction, password: PasswordSource | undefined, guard?: EffectGuard): Promise<PerformOutcome> {
+	async #dispatch(action: DriverAction, password: PasswordSource | undefined, guard?: EffectGuard): Promise<PerformOutcome> {
 		const tab = this.#activeTab();
 		const page = tab.page;
 		const started = tab.navSeq;
@@ -1398,63 +1407,69 @@ class PuppeteerDriver implements EngineDriver {
 					await page.mouse.wheel({ deltaX: action.deltaX ?? 0, deltaY: action.deltaY ?? 0 });
 					return NONE;
 				}
+				case "upload": {
+					const { selector, paths } = action;
+					const { handle, frame } = await this.#resolve(page, selector);
+					try {
+						const target = await handle.evaluate((el) => {
+							if (!(el instanceof HTMLInputElement)) return "opener";
+							if (el.type.toLowerCase() !== "file") return "other-input";
+							return el.multiple ? "multiple" : "single";
+						});
+						if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector)} is an input that takes no files`);
+						if (target === "single" && paths.length > 1) throw new ActionNotDispatched("bad_action", `${JSON.stringify(selector)} takes one file, not ${paths.length}`);
+						if (target !== "opener") {
+							const client = (frame as Frame & { readonly client: CDPSession }).client;
+							const backendNodeId = await handle.backendNodeId();
+							if (guard !== undefined) {
+								const admission = guard();
+								if (admission !== undefined) await admission;
+								guard.assertCurrent();
+							}
+							const moved = uploadMismatch(page, frame, action);
+							if (moved !== undefined) throw new ActionNotDispatched("upload_mismatch", `${moved}; nothing was uploaded`);
+							effectsStarted = true;
+							await client.send("DOM.setFileInputFiles", { backendNodeId, files: [...paths] });
+							return NONE;
+						}
+					} finally {
+						await handle.dispose().catch(() => undefined);
+					}
+					const before = uploadMismatch(page, frame, action);
+					if (before !== undefined) throw new ActionNotDispatched("upload_mismatch", `${before}; nothing was clicked or uploaded`);
+					delegated = true;
+					const stopWaiting = new AbortController();
+					const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
+					void chooserOpened.catch(() => undefined);
+					try {
+						await this.#dispatch({ kind: "click", selector }, undefined, guard);
+						const chooser = await chooserOpened;
+						if (!chooser.isMultiple() && paths.length > 1) {
+							await chooser.cancel();
+							throw new Error(`the file picker ${JSON.stringify(selector)} opened takes one file, not ${paths.length}; it was cancelled`);
+						}
+						if (guard !== undefined) {
+							const admission = guard();
+							if (admission !== undefined) await admission;
+							guard.assertCurrent();
+						}
+						const after = uploadMismatch(page, frame, action);
+						if (after !== undefined) {
+							await chooser.cancel();
+							throw new Error(`upload_mismatch: ${after} once the picker opened; it was cancelled and no file was sent`);
+						}
+						await chooser.accept([...paths]);
+					} finally {
+						stopWaiting.abort();
+						await (page as Page & { _client(): CDPSession })._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => undefined);
+					}
+					return NONE;
+				}
 				default:
-					throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify((action as BrowserAction).kind)}`);
+					throw new ActionNotDispatched("bad_action", `unsupported action kind ${JSON.stringify((action as DriverAction).kind)}`);
 			}
 		} catch (error) {
 			if (guard !== undefined && effectsStarted && error instanceof ActionNotDispatched) throw new Error(`action may have changed the page: ${describe(error)}`);
-			if (guard !== undefined && !effectsStarted && !delegated && !(error instanceof ActionNotDispatched)) throw new ActionNotDispatched("input_not_admitted", describe(error));
-			throw error;
-		}
-	}
-
-	async attachFile(selector: string, path: string, guard?: EffectGuard): Promise<void> {
-		await withTimeout(this.#attach(selector, path, guard), NAVIGATE_TIMEOUT_MS + 5_000, "attachFile");
-	}
-
-	async #attach(selector: string, path: string, guard?: EffectGuard): Promise<void> {
-		const page = this.#activeTab().page;
-		let effectsStarted = false;
-		let delegated = false;
-		try {
-			const { handle, frame } = await this.#resolve(page, selector);
-			try {
-				const target = await handle.evaluate((el) => (!(el instanceof HTMLInputElement) ? "opener" : el.type.toLowerCase() === "file" ? "file-input" : "other-input"));
-				if (target === "other-input") throw new ActionNotDispatched("not_file_input", `${JSON.stringify(selector)} is an input that takes no files`);
-				if (target === "file-input") {
-					const client = (frame as Frame & { readonly client: CDPSession }).client;
-					const backendNodeId = await handle.backendNodeId();
-					if (guard !== undefined) {
-						const admission = guard();
-						if (admission !== undefined) await admission;
-						guard.assertCurrent();
-					}
-					effectsStarted = true;
-					await client.send("DOM.setFileInputFiles", { backendNodeId, files: [path] });
-					return;
-				}
-			} finally {
-				await handle.dispose().catch(() => undefined);
-			}
-			delegated = true;
-			const stopWaiting = new AbortController();
-			const chooserOpened = page.waitForFileChooser({ timeout: ACTION_TIMEOUT_MS, signal: stopWaiting.signal });
-			void chooserOpened.catch(() => undefined);
-			try {
-				await this.#dispatch({ kind: "click", selector }, undefined, guard);
-				const chooser = await chooserOpened;
-				if (guard !== undefined) {
-					const admission = guard();
-					if (admission !== undefined) await admission;
-					guard.assertCurrent();
-				}
-				await chooser.accept([path]);
-			} finally {
-				stopWaiting.abort();
-				await (page as Page & { _client(): CDPSession })._client().send("Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => undefined);
-			}
-		} catch (error) {
-			if (guard !== undefined && effectsStarted && error instanceof ActionNotDispatched) throw new Error(`attaching the file may have changed the page: ${describe(error)}`);
 			if (guard !== undefined && !effectsStarted && !delegated && !(error instanceof ActionNotDispatched)) throw new ActionNotDispatched("input_not_admitted", describe(error));
 			throw error;
 		}
@@ -2762,6 +2777,16 @@ async function navigating<T>(tab: Tab, navigation: Promise<T>): Promise<T> {
 		tab.loading = false;
 		throw err;
 	}
+}
+
+type DriverAction = BrowserAction | ({ kind: "upload" } & UploadRequest);
+
+function uploadMismatch(page: Page, frame: Frame, request: UploadRequest): string | undefined {
+	const tab = originOf(page.url()) ?? page.url();
+	if (tab !== request.origin) return `upload_mismatch: the tab is on ${tab}, not ${request.origin}`;
+	const expected = request.frameOrigin ?? request.origin;
+	const holder = frame.detached ? "a frame that is gone" : (originOf(frame.url()) ?? frame.url());
+	return holder === expected ? undefined : `upload_mismatch: the element is in ${holder}, not ${expected}`;
 }
 
 function requireField(value: unknown, name: string, allowEmpty = false): string {

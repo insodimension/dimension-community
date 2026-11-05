@@ -316,29 +316,12 @@ const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	const html = el as HTMLElement;
 	if (!html.isContentEditable) return { state: "not-editable" };
 	const trimmed = (text: string): string => (text.endsWith("\n") ? text.slice(0, -1) : text);
-	const textOf = (root: HTMLElement): string => {
-		if (root.getClientRects().length > 0) return root.innerText;
-		let text = "";
-		const walk = (node: Node): void => {
-			for (const child of Array.from(node.childNodes)) {
-				if (child.nodeType === Node.TEXT_NODE) text += child.textContent ?? "";
-				else if (child.nodeName === "BR") text += "\n";
-				else {
-					const block = child.nodeName === "DIV" || child.nodeName === "P" || child.nodeName === "LI";
-					if (block && text !== "" && !text.endsWith("\n")) text += "\n";
-					walk(child);
-				}
-			}
-		};
-		walk(root);
-		return text;
-	};
 	const children = Array.from(html.childNodes);
 	const paragraphs =
 		children.some((node) => node.nodeName === "P") &&
 		children.every((node) => node.nodeName === "P" || (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === ""));
-	if (!paragraphs) return { state: "value", value: trimmed(textOf(html)) };
-	const lines = children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(textOf(p)));
+	if (!paragraphs) return { state: "value", value: trimmed(html.innerText) };
+	const lines = children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText));
 	return { state: "value", value: lines.join("\n") };
 };
 /**
