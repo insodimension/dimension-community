@@ -132,7 +132,12 @@ Object.freeze({
 	activity: "3d",
 	group: "Project",
 	sort: "Activity",
-	metadata: [],
+	metadata: [
+		"recap",
+		"branch",
+		"reviews",
+		"children"
+	],
 	hiddenNotice: "Hide",
 	hiddenRecency: [],
 	collapseAfter: 5
