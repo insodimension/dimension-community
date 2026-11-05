@@ -140,7 +140,7 @@ npm run build
 
 ### Runtime
 
-The server needs Node 22.12 or newer on the host's PATH; the pack does not bundle or install Node, and it never downloads a browser (a missing Chrome is reported when a browser is opened). It starts through `app/launch.mjs`, which stops with one line on an older Node and, when started under Bun, relaunches itself under a real Node: a Bun process that reads stdin from a pipe cannot start the code worker, and `bun run` puts a Bun copy named `node` first on PATH (a dev launch). With no Node 22.12+ to relaunch under, it exits with a line saying so.
+Dimension 0.11.26 and later provides Node: the host runs the pack's `node` on a pinned Node 26.13.0 that it downloads once, checks by SHA-256 and keeps, so a system Node is optional. The host uses the `node` on PATH only when it cannot get that Node (offline, a musl Linux), and an older host needs Node 22.12 or newer on PATH. The pack does not bundle or install Node itself, and it never downloads a browser (a missing Chrome is reported when a browser is opened). It starts through `app/launch.mjs`, which stops with one line on a Node older than 22.12 and, when started under Bun, relaunches itself under a real Node: on Bun 1.3.14 a process that reads stdin from a pipe cannot start the code worker, and `bun run` puts a Bun copy named `node` first on PATH (a dev launch). With no Node 22.12+ to relaunch under, it exits with a line saying so.
 
 ### Task agent (`jev`, optional)
 
