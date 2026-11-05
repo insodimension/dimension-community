@@ -1,6 +1,6 @@
 import type { AdmittedInput } from "../input.js";
 import type { AttachTarget } from "./attach.js";
-import type { BrowserAction, BrowserApp, BrowserRegion, EffectGuard, ElementInspection, HandledDialog, LogEntry, ModelShot, PageElements, PageScroll, ShotRequest, TabInfo, Viewport } from "../contracts.js";
+import type { BrowserAction, BrowserApp, BrowserRegion, EffectGuard, ElementInspection, HandledDialog, LogEntry, ModelShot, PageElements, PageScroll, ShotRequest, TabInfo, UploadRequest, Viewport } from "../contracts.js";
 import type { TabRef, WaitUntil } from "../code/contracts.js";
 
 /** Everything below describes the ACTIVE tab unless it says otherwise. */
@@ -159,6 +159,7 @@ export interface EngineDriver {
    * the actual native dispatch continuation. Any error after an effect is spent.
    */
   perform(action: BrowserAction, password?: PasswordSource, guard?: EffectGuard): Promise<PerformOutcome>;
+  upload(request: UploadRequest, guard?: EffectGuard): Promise<PerformOutcome>;
   /**
    * Replace a field's content exactly as `perform({ kind: "type" })` does. A
    * password input is refused with `ActionNotDispatched` before any input event.

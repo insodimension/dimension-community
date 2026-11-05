@@ -3,22 +3,28 @@ import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 import { fail } from "./store.js";
 
 export const MAX_FILE_PATH_CHARS = 4_096;
-export const MAX_UPLOAD_PATHS = 16;
+export const MAX_UPLOAD_PATHS = 3;
 const MAX_LINK_HOPS = 32;
 const NETWORK_OR_DEVICE_PATH = /^[\\/]{2}|^[\\/][?.]{1,2}[\\/]/;
 const ROOTED_WITHOUT_DRIVE_OR_DRIVE_RELATIVE = /^[\\/]|^[A-Za-z]:(?![\\/])/;
 const PATH_SEPARATORS = /[\\/]+/;
 
-export function requireAbsolutePath(path: unknown, name: string): string {
+export function requireLocalFiles(paths: unknown, name: string, protectedRoot: string): string[] {
+	if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `${name} must name 1-${MAX_UPLOAD_PATHS} files`);
+	let realRoot: string;
+	try {
+		realRoot = realpathSync.native(protectedRoot);
+	} catch (error) {
+		fail("bad_action", `${name} could not be checked against the browser's own data (${(error as Error).message})`);
+	}
+	return paths.map((path, index) => requireLocalFile(path, `${name}[${index}]`, realRoot));
+}
+
+function requireLocalFile(path: unknown, name: string, realRoot: string): string {
 	if (typeof path !== "string" || path.length === 0 || path.length > MAX_FILE_PATH_CHARS || !isAbsolute(path)) {
 		fail("bad_action", `${name} must be an absolute path of at most ${MAX_FILE_PATH_CHARS} characters`);
 	}
 	if (NETWORK_OR_DEVICE_PATH.test(path)) fail("bad_action", `${name}: ${path} is a network or device path; only a file on this machine's own drives is uploaded`);
-	return path;
-}
-
-export function requireLocalFile(path: string, name: string, protectedRoot: string): string {
-	requireAbsolutePath(path, name);
 	const refusal = linkOffMachine(path);
 	if (refusal !== undefined) fail("bad_action", `${name}: ${path} ${refusal}; only a file on this machine's own drives is uploaded`);
 	let real: string;
@@ -32,11 +38,16 @@ export function requireLocalFile(path: string, name: string, protectedRoot: stri
 	}
 	if (NETWORK_OR_DEVICE_PATH.test(real)) fail("bad_action", `${name}: ${path} lives on a network share; only a file on this machine's own drives is uploaded`);
 	if (!stats.isFile()) fail("bad_action", `${name}: ${path} is not a file`);
-	const fromRoot = relative(realpathSync.native(protectedRoot), real);
+	const fromRoot = relative(realRoot, real);
 	if (fromRoot === "" || (fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot))) {
 		fail("bad_action", `${name}: ${path} is the browser's own data (profiles, saved passwords), which is never uploaded`);
 	}
+	if (!samePath(resolve(path), real)) fail("bad_action", `${name}: ${path} is ${real} on disk; pass that path, so the person is asked about the file that is sent`);
 	return real;
+}
+
+function samePath(given: string, real: string): boolean {
+	return process.platform === "win32" ? given.toLowerCase() === real.toLowerCase() : given === real;
 }
 
 function segmentsBelowRoot(path: string): { root: string; segments: string[] } {

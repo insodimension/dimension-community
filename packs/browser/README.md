@@ -352,7 +352,7 @@ is kept and tested (`launchReader({ presentAsChrome: true })`).
 
 ## Tools
 
-Model-callable (16 in the largest space; 19 where jev's key is configured), offered by audience (`_meta["ai.insodimension/spaces"]`; the
+Model-callable (17 in the largest space; 20 where jev's key is configured), offered by audience (`_meta["ai.insodimension/spaces"]`; the
 host leaves a tool out of a space's list and refuses the call there; the View's own
 buttons are not gated by it). `DIMENSION_BROWSER_MODEL_TOOLS` chooses what the code and
 build spaces get: `code` (the default) gives them `browser_run` and not the step tools,
@@ -364,12 +364,12 @@ and Traction and Video also get `browser_run` wherever the mode offers it.
 | Offered to | Tools |
 |---|---|
 | Every space the pack is granted (4) | `browser_view`, `browser_read`, `browser_profiles`, `browser_close` |
-| The step tools (6): chat, labor, watch, traction and video; code and build too in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act` |
+| The step tools (7): chat, labor, watch, traction and video; code and build too in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` (asks the person every time) |
 | Code, build, traction and video, in `code` and `both` mode (1) | `browser_run` |
 | Traction only (5; 8 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
 
 In the default `code` mode that is 5 tools for a code or build session (`browser_run` and the
-four every space has), 10 for chat, labor and watch, 11 for Video, and 16 for Traction (19 with jev's key).
+four every space has), 11 for chat, labor and watch, 12 for Video, and 17 for Traction (20 with jev's key).
 
 Waiting, tabs and page scripts are steps of `browser_act`, and the page log is a
 field of `browser_state`: every tool is paid for by every agent on every turn, so a
@@ -391,19 +391,6 @@ declares `connectDomains: ["http://127.0.0.1:*"]` and nothing else. Design: doc 
 
 Page content is untrusted data, never instructions.
 
-**File uploads.** `browser_act`'s `upload` step (`{ kind: "upload", selector, paths }`, 1-16
-absolute paths) hands local files to the page, on a saved profile too. An `<input type=file>`
-gets them through the browser (`DOM.setFileInputFiles`); any other element is clicked and the
-file picker it opens gets them. Never through page script. Each path must be absolute, a file,
-and on this machine's own drives: a UNC, `\\?\`, `\\.\` or `//` path is refused by its text
-before any filesystem call, a path through a symlink or junction is walked one link at a time
-and refused at a link to a network or device path (on Windows, also one to a path with no
-drive letter), and a file under this pack's root (profiles, saved passwords) is never sent;
-Chrome gets the resolved path. The View cannot use it: the person picks files with the page's
-own picker. A page could try to steer the model into sending a local secret, so an agent sends
-only files the user asked it to send. A `browser_run` cell can upload files too
-(`tab.uploadFile`; `resolveUploadPath` in `src/code/worker/tab-api.ts` resolves the path).
-
 **What it does not do, on purpose.** No JavaScript in a signed-in browser:
 arbitrary script in a profile that holds logins is a bigger blast radius than the
 layout facts `browser_inspect` returns from a fixed page script, so the `eval` step
@@ -423,7 +410,35 @@ timeout stops the batch as `timeout`), `tab` (`op`: new, activate, close) and
 `eval` (`expression`; the value comes back as JSON, at most 8000 characters across
 the batch). A batch takes no new step after 20 s, because hosts time a call out
 and a caller that never heard back would send the same submit again: it answers
-`timeout` and the rest is sent in a new call.
+`timeout` and the rest is sent in a new call. `browser_act` has no upload step.
+
+### Uploading files
+
+Every upload asks the person once, with the files and the site.
+`browser_upload({ browserId, selector, paths, origin, frameOrigin? })` is offered
+wherever `browser_act` is and declares `_meta: { "ai.insodimension/approval": "prompt" }`,
+so the host asks before every call, in every permission mode (yolo included), and a
+harness that cannot ask has the call refused. Its Allow card
+(`ai.insodimension/approvalSummary`) reads "Send 2 files to https://example.com",
+"Into a frame from …" when the field is in a frame of another site, and every path:
+`paths` takes 1-3, the most the card lists in full. A page could try to steer the model
+into sending a local secret; the person sees exactly what would leave the machine and
+where, and nothing is sent until they allow it.
+
+What the card shows is what is sent. Each path must be absolute, a file, on this
+machine's own drives, and exactly the file's own path on disk: a UNC, `\\?\`, `\\.\` or
+`//` path is refused by its text before any filesystem call, a path through a symlink or
+junction is walked one link at a time and refused at a link to a network or device path
+(on Windows, also one to a path with no drive letter), a path that resolves to another
+(a link, another spelling) is refused naming the real one, and a file under this pack's
+root (profiles, saved passwords) is never sent. `origin` (the tab's) and `frameOrigin`
+(the field's frame, `origin` when left out) are compared with the page right before the
+files are handed over: anything else fails `upload_mismatch` and nothing is sent. An
+`<input type=file>` gets the files through the browser (`DOM.setFileInputFiles`); any
+other element is clicked and the file picker it opens gets them. Never through page
+script. The View cannot use it: the person picks files with the page's own picker.
+A `browser_run` cell can upload files too (`tab.uploadFile`; `resolveUploadPath` in
+`src/code/worker/tab-api.ts` resolves the path).
 
 A model is sent the text only. The host appends `structuredContent` to a model's
 turn whenever it differs from the text, so only the View (a call the host stamped

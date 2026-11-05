@@ -83,6 +83,7 @@ import type {
 	ReadRequest,
 	ReadResult,
 	TabRequest,
+	UploadRequest,
 	TaskRequest,
 	TaskRun,
 	TaskStep,
@@ -99,7 +100,7 @@ import { CredentialKey, credentialOrigin, resolveCredential, savedPassword, save
 import { assertEngineAvailable, createEngineDriver } from "./engines/index.js";
 import { withTimeout } from "./engines/launch.js";
 import { launchReader } from "./engines/puppeteer.js";
-import { MAX_UPLOAD_PATHS, requireAbsolutePath, requireLocalFile } from "./files.js";
+import { requireLocalFiles } from "./files.js";
 import type { AttachTarget } from "./engines/attach.js";
 import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, PasswordSource, PerformOutcome, WaitCondition } from "./engines/types.js";
 import { AnnotationFiles } from "./annotation-file.js";
@@ -1888,20 +1889,48 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			} catch (error) {
 				done = { status: "failed", error: describe(error) };
 			}
-			if (done.status !== "completed") {
-				const failedState = await this.buildState(entry).catch(() => this.staleState(entry));
-				this.ownTab(entry, session, failedState.activeTabId);
-				return this.redact(entry, { status: done.status, error: done.error, state: failedState });
-			}
-			const state = await this.buildState(entry);
-			this.ownTab(entry, session, state.activeTabId);
-			return this.redact(entry, {
-				status: "completed" as const,
-				state,
-				...(done.credential ? { credential: done.credential } : {}),
-				...(done.dialogs ? { dialogs: done.dialogs } : {}),
-			});
+			return await this.actionResult(entry, session, done);
 		}, { guard });
+	}
+
+	async upload(browserId: string, request: UploadRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult> {
+		const entry = this.require(browserId);
+		return await this.serialize(entry, async () => {
+			admitCaller(entry, caller);
+			if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
+			await this.adoptActiveTab(entry, session);
+			const admitted: UploadRequest = {
+				selector: requireSelector(request.selector),
+				paths: requireLocalFiles(request.paths, "paths", this.store.rootDir),
+				origin: requireOrigin(request.origin, "origin"),
+				...(request.frameOrigin === undefined ? {} : { frameOrigin: requireOrigin(request.frameOrigin, "frameOrigin") }),
+			};
+			let done: Dispatched;
+			try {
+				await this.pinTab(entry, caller, session, false, guard);
+				const outcome = await entry.driver.upload(admitted, guard);
+				done = { status: "completed", ...(outcome.dialogs ? { dialogs: outcome.dialogs } : {}) };
+			} catch (error) {
+				done = notCompleted(entry, error);
+			}
+			return await this.actionResult(entry, session, done);
+		}, { guard });
+	}
+
+	private async actionResult(entry: Entry, session: string | undefined, done: Dispatched): Promise<ActionResult> {
+		if (done.status !== "completed") {
+			const failedState = await this.buildState(entry).catch(() => this.staleState(entry));
+			this.ownTab(entry, session, failedState.activeTabId);
+			return this.redact(entry, { status: done.status, error: done.error, state: failedState });
+		}
+		const state = await this.buildState(entry);
+		this.ownTab(entry, session, state.activeTabId);
+		return this.redact(entry, {
+			status: "completed" as const,
+			state,
+			...(done.credential ? { credential: done.credential } : {}),
+			...(done.dialogs ? { dialogs: done.dialogs } : {}),
+		});
 	}
 
 	/**
@@ -2006,10 +2035,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (caller === "app") fail("bad_action", "useSavedPassword and generatePassword are for the agent; the Browser View types exactly what the human typed");
 			this.savedProfile(entry, "typing a saved password");
 		}
-		if (action.kind === "upload") {
-			if (caller === "app") fail("bad_action", "upload is the agent's: the person picks files with the page's own picker");
-			return { ...action, paths: (action.paths ?? []).map((path, index) => requireLocalFile(path, `upload.paths[${index}]`, this.store.rootDir)) };
-		}
 		return action;
 	}
 
@@ -2067,15 +2092,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			outcome = await entry.driver.perform(action, password, guard);
 			if (touching) touching.touchedWhilePending = true;
 		} catch (error) {
-			const dispatched = !(error instanceof ActionNotDispatched);
-			if (dispatched && touching) touching.touchedWhilePending = true;
-			if (dispatched) entry.revision += 1;
-			return {
-				status: dispatched ? "unknown" : "failed",
-				error: dispatched
-					? `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe(error)})`
-					: describe(error),
-			};
+			if (touching && !(error instanceof ActionNotDispatched)) touching.touchedWhilePending = true;
+			return notCompleted(entry, error);
 		}
 		return {
 			status: "completed",
@@ -2771,10 +2789,6 @@ function normalizeAction(action: BrowserAction): BrowserAction {
 			if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
 			return { kind: "resize", ...normalizeViewport({ width: action.width, height: action.height }) };
 		}
-		case "upload": {
-			if (!Array.isArray(action.paths) || action.paths.length === 0 || action.paths.length > MAX_UPLOAD_PATHS) fail("bad_action", `upload.paths must name 1-${MAX_UPLOAD_PATHS} files`);
-			return { kind: "upload", selector: requireSelector(action.selector), paths: action.paths.map((path, index) => requireAbsolutePath(path, `upload.paths[${index}]`)) };
-		}
 		case "scroll": {
 			const deltaX = requireDelta(action.deltaX ?? 0, "deltaX");
 			const deltaY = requireDelta(action.deltaY ?? 0, "deltaY");
@@ -2784,6 +2798,23 @@ function normalizeAction(action: BrowserAction): BrowserAction {
 		default:
 			fail("bad_action", `unsupported action kind ${JSON.stringify((action as BrowserAction).kind)}`);
 	}
+}
+
+function notCompleted(entry: Entry, error: unknown): Dispatched {
+	if (error instanceof ActionNotDispatched) return { status: "failed", error: describe(error) };
+	entry.revision += 1;
+	return { status: "unknown", error: `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe(error)})` };
+}
+
+function requireOrigin(value: unknown, name: string): string {
+	let origin: string | undefined;
+	try {
+		origin = typeof value === "string" ? new URL(value).origin : undefined;
+	} catch {
+		origin = undefined;
+	}
+	if (origin === undefined || origin === "null" || origin !== value) fail("bad_action", `${name} must be an origin exactly as the tab's url gives it, scheme and host only (https://example.com), got ${JSON.stringify(value)}`);
+	return origin;
 }
 
 function requireSelector(selector: unknown): string {

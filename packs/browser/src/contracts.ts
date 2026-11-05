@@ -29,7 +29,7 @@ export const MIN_VIEWPORT: Viewport = { width: 320, height: 240 };
 export const MAX_VIEWPORT: Viewport = { width: 2_560, height: 2_000 };
 export type MouseButton = "left" | "right" | "middle";
 export interface BrowserAction {
-  kind: "navigate" | "click" | "type" | "select" | "press" | "scroll" | "back" | "forward" | "reload" | "stop" | "insert" | "hover" | "resize" | "upload";
+  kind: "navigate" | "click" | "type" | "select" | "press" | "scroll" | "back" | "forward" | "reload" | "stop" | "insert" | "hover" | "resize";
   url?: string;
   selector?: string;
   /** `type`: replaces the field's value. `insert`: typed into whatever is focused. */
@@ -63,8 +63,8 @@ export interface BrowserAction {
   button?: MouseButton;
   /** `click` only; 2 = double-click, 3 = triple-click. Default 1; the runtime refuses any other. */
   clickCount?: number;
-  paths?: string[];
 }
+export interface UploadRequest { selector: string; paths: string[]; origin: string; frameOrigin?: string }
 export interface TabInfo {
   /** Stable opaque id for the tab's lifetime. */
   id: string;
@@ -482,6 +482,7 @@ export interface BrowserRuntimePort {
    * validated before the first runs (`bad_action`/`bad_wait`), then run in order until one is not `completed`.
    */
   actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActManyResult>;
+  upload(browserId: string, request: UploadRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
   /** A picture for a model: webp, at most 1024 CSS px on its longest edge, never retained (so never annotatable). Read like `snapshot`. */
   shot(browserId: string, request?: ShotRequest, guard?: EffectGuard): Promise<ModelShot>;
   /** The active tab's log entries since the last call (which marks them read); `[]` when nothing is new. For a model's reads, never the View's. */
