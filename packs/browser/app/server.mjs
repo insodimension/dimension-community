@@ -3503,6 +3503,15 @@ var MAX_ELEMENT_ID_CHARS = 240;
 var MAX_ELEMENT_LABEL_CHARS = 100;
 var MAX_ELEMENTS_PER_REGION = 60;
 
+// src/address.ts
+function originOf(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 // src/favicon.ts
 var MAX_FAVICON_DATA_URL = 32 * 1024;
 var MAX_ORIGINS = 256;
@@ -3514,7 +3523,7 @@ var FaviconCache = class {
   #pending = /* @__PURE__ */ new Map();
   /** The cached icon for `pageUrl`'s origin, or null (unknown yet, none, or not http/https). */
   get(pageUrl) {
-    const origin = originOf(pageUrl);
+    const origin = originOf2(pageUrl);
     return origin === null ? null : this.#icons.get(origin) ?? null;
   }
   /**
@@ -3524,7 +3533,7 @@ var FaviconCache = class {
    * so the next load retries.
    */
   async load(pageUrl, declared) {
-    const origin = originOf(pageUrl);
+    const origin = originOf2(pageUrl);
     if (origin === null || this.#icons.has(origin)) return;
     const inFlight = this.#pending.get(origin);
     if (inFlight) return await inFlight;
@@ -3538,7 +3547,7 @@ var FaviconCache = class {
     await work;
   }
 };
-function originOf(url) {
+function originOf2(url) {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
@@ -6669,18 +6678,11 @@ async function navigating(tab, navigation) {
     throw err;
   }
 }
-function originOf2(url) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return "null";
-  }
-}
 function uploadMismatch(page, frame, request) {
-  const tab = originOf2(page.url());
+  const tab = originOf(page.url()) ?? page.url();
   if (tab !== request.origin) return `upload_mismatch: the tab is on ${tab}, not ${request.origin}`;
   const expected = request.frameOrigin ?? request.origin;
-  const holder = frame.detached ? "a frame that is gone" : originOf2(frame.url());
+  const holder = frame.detached ? "a frame that is gone" : originOf(frame.url()) ?? frame.url();
   return holder === expected ? void 0 : `upload_mismatch: the element is in ${holder}, not ${expected}`;
 }
 function requireField(value, name, allowEmpty = false) {
@@ -12721,7 +12723,7 @@ async function prepare(driver, profile2, recipe, mode, guard) {
   const deadline = Date.now() + SIGNED_IN_WAIT_MS;
   let signedIn5 = false;
   while (!signedIn5) {
-    const origin = originOf3(await currentUrl(driver, guard));
+    const origin = originOf(await currentUrl(driver, guard));
     if (guard !== void 0) await guard();
     guard?.assertCurrent();
     signedIn5 = origin === recipe.origin && await driver.hasElement(recipe.signedIn).catch(() => false);
@@ -12765,7 +12767,7 @@ async function prepare(driver, profile2, recipe, mode, guard) {
   guard?.assertCurrent();
   const shown2 = await driver.state().catch(() => null);
   guard?.assertCurrent();
-  if (!shown2 || originOf3(shown2.url) !== recipe.origin) {
+  if (!shown2 || originOf(shown2.url) !== recipe.origin) {
     return { status: "failed", url: shown2?.url ?? url, profile: profile2, error: `the tab left ${recipe.origin} while typing; nothing was submitted` };
   }
   const now = Date.now();
@@ -12925,13 +12927,6 @@ async function currentUrl(driver, guard) {
   const state = await driver.state().catch(() => null);
   guard?.assertCurrent();
   return state?.url ?? "";
-}
-function originOf3(url) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
 }
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);

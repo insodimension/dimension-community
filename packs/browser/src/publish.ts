@@ -23,6 +23,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { originOf } from "./address.js";
 import { accountFromText } from "./connection.js";
 import type { EffectGuard, PublishCheck, PublishField, PublishMode, PublishRecipe, PublishRecord, PublishStatus } from "./contracts.js";
 import { PUBLISH_MODES } from "./contracts.js";
@@ -477,14 +478,6 @@ async function currentUrl(driver: EngineDriver, guard?: EffectGuard): Promise<st
 	const state = await driver.state().catch(() => null);
 	guard?.assertCurrent();
 	return state?.url ?? "";
-}
-
-function originOf(url: string): string | null {
-	try {
-		return new URL(url).origin;
-	} catch {
-		return null;
-	}
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

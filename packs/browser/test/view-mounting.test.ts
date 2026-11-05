@@ -120,10 +120,10 @@ test("publishing and task agents are offered to Traction alone; every browsing t
 	const modelTools = (await client.listTools()).tools.filter((tool) => uiOf(tool).visibility === undefined);
 	const audienceOf = (tool: { _meta?: Record<string, unknown> }) => tool._meta?.["ai.insodimension/spaces"];
 
-	// A dev session is listed these ten and nothing else; a new tool must choose a side to get past this list.
+	// A dev session is listed these eleven and nothing else; a new tool must choose a side to get past this list.
 	expect(modelTools.filter((tool) => audienceOf(tool) === undefined).map((tool) => tool.name).sort()).toEqual([
 		"browser_act", "browser_close", "browser_inspect", "browser_open", "browser_profiles", "browser_read",
-		"browser_screenshot", "browser_snapshot", "browser_state", "browser_view",
+		"browser_screenshot", "browser_snapshot", "browser_state", "browser_upload", "browser_view",
 	]);
 	const traction = modelTools.filter((tool) => audienceOf(tool) !== undefined);
 	expect(traction.map((tool) => tool.name).sort()).toEqual([

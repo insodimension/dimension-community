@@ -38,6 +38,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
 import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type EffectGuard, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, type ModelShot, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type UploadRequest, type Viewport } from "../contracts.js";
+import { originOf } from "../address.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, BrowserRuntimeError, fail } from "../store.js";
@@ -2780,19 +2781,11 @@ async function navigating<T>(tab: Tab, navigation: Promise<T>): Promise<T> {
 
 type DriverAction = BrowserAction | ({ kind: "upload" } & UploadRequest);
 
-function originOf(url: string): string {
-	try {
-		return new URL(url).origin;
-	} catch {
-		return "null";
-	}
-}
-
 function uploadMismatch(page: Page, frame: Frame, request: UploadRequest): string | undefined {
-	const tab = originOf(page.url());
+	const tab = originOf(page.url()) ?? page.url();
 	if (tab !== request.origin) return `upload_mismatch: the tab is on ${tab}, not ${request.origin}`;
 	const expected = request.frameOrigin ?? request.origin;
-	const holder = frame.detached ? "a frame that is gone" : originOf(frame.url());
+	const holder = frame.detached ? "a frame that is gone" : (originOf(frame.url()) ?? frame.url());
 	return holder === expected ? undefined : `upload_mismatch: the element is in ${holder}, not ${expected}`;
 }
 
