@@ -166,7 +166,6 @@ function adopt(runtime: BrowserRuntime, profile: string, page: ComposePage): str
 		task: null,
 		worker: null,
 		publish: null,
-		refusedBeforePage: null,
 		secrets: new Set<string>(),
 		logRead: 0,
 		logNoticed: 0,

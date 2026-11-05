@@ -159,7 +159,6 @@ export interface EngineDriver {
    * the actual native dispatch continuation. Any error after an effect is spent.
    */
   perform(action: BrowserAction, password?: PasswordSource, guard?: EffectGuard): Promise<PerformOutcome>;
-  attachFile(selector: string, path: string, guard?: EffectGuard): Promise<void>;
   /**
    * Replace a field's content exactly as `perform({ kind: "type" })` does. A
    * password input is refused with `ActionNotDispatched` before any input event.

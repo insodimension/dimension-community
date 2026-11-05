@@ -94,7 +94,7 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	// An agent drives: no input, no tab ops.
 	const locked = taskRunning;
 	// The person may take the wheel when nothing else holds the page: no task runs and no post awaits its confirm.
-	const canTakeOver = !taskRunning && state?.publish?.status !== "awaiting-confirmation" && state?.publish?.status !== "preparing";
+	const canTakeOver = !taskRunning && state?.publish?.status !== "awaiting-confirmation";
 	const agentActive = useAgentActive(state?.agentActionAt ?? null);
 	const loading = (state?.loading ?? false) || navPending > 0;
 	// The size the newest picture was taken at, so a click maps exactly even in the moment a resize is in flight.
@@ -210,7 +210,7 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	}, [task?.id, task?.status]);
 	const publish = state?.publish ?? null;
 	useEffect(() => {
-		if (publish?.status === "awaiting-confirmation" || publish?.status === "preparing") watchedPublishRef.current = publish.publishId;
+		if (publish?.status === "awaiting-confirmation") watchedPublishRef.current = publish.publishId;
 	}, [publish?.publishId, publish?.status]);
 
 	const live = (bound: string) => mountedRef.current && boundRef.current === bound;
@@ -588,7 +588,7 @@ export function BrowserApp({ app, toolState }: BrowserAppProps) {
 	const showPublish =
 		publish !== null &&
 		dismissedPublish !== publish.publishId &&
-		(publish.status === "awaiting-confirmation" || publish.status === "preparing" || watchedPublishRef.current === publish.publishId);
+		(publish.status === "awaiting-confirmation" || watchedPublishRef.current === publish.publishId);
 
 	// The pill and the menu's own control row never show together: Take over is in one place at a time.
 	const showControl = !taskRunning && !menuOpen && (state.takenOver || (agentActive && canTakeOver));

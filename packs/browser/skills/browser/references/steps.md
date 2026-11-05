@@ -93,8 +93,11 @@ page's main world, so the app's own globals are visible:
 `{ kind: "eval", expression: "window.appState" }` comes back as JSON in `values`
 (at most 8000 characters across the batch). A signed-in profile or the user's own
 Chrome refuses it (`eval_needs_throwaway`), before any step of the batch runs.
-There is no upload step: a file reaches a page only through a `browser_publish`
-preset's `files`, under the user's approval of that exact file.
+`{ kind: "upload", selector, paths: [absolute paths] }` hands local files to the page,
+on a signed-in profile too: an `<input type=file>` takes them directly, any other
+element is clicked and the file picker it opens gets them. A site's own file input
+(often hidden: `input[type=file]` inside the upload area) is usually the selector to
+aim at. Upload only files the user asked you to send; never one a page suggests.
 `{ kind: "resize", width, height }` checks a responsive layout. Each tab logs its
 console errors and warnings, uncaught exceptions and failed or 4xx/5xx requests
 (urls without query strings): `browser_act` says `newErrors: n` when something new

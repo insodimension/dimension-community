@@ -13,20 +13,18 @@
  * one-shot spender; this pack never writes an approval:
  *
  *   - `<draftId>.json` — { v: 1, draftId, nonce, binding, approvedAt, expiresAt }.
- *     `binding` is `bindingOf({ origin, profile, preset, values, files? })`: the site, the browser
+ *     `binding` is `bindingOf({ origin, profile, preset, values })`: the site, the browser
  *     profile (the account), the shipped preset the post goes through (null for a
  *     recipe the caller wrote, whose selectors nobody approved) and every field's
- *     value in order, and, for a post that uploads, each file as [path, size, sha256] by label,
- *     hashed with a domain tag, so an approval for text X, on
+ *     value in order, hashed with a domain tag, so an approval for text X, on
  *     profile P, at site S, through preset R covers nothing else. One draft has at
  *     most one entry; approving it again (a Retry)
  *     replaces it with a fresh `nonce`.
  *   - `<draftId>.<nonce>.used` — created EXCLUSIVELY (`wx`) by the confirm that is
- *     about to click Post, or by the park of a post with files, whose upload
- *     starts the moment a file is set. That create is the lock: two confirms, two browsers or
+ *     about to click Post. That create is the lock: two confirms, two browsers or
  *     a model and the View cannot both spend one approval, and a spent approval
  *     is never spendable again, whatever the post's outcome. Removed only when
- *     nothing was submitted and no file was attached.
+ *     nothing was submitted (the page changed, the click never dispatched).
  *
  * Checked twice, both fail closed with `publish_unapproved` and the page
  * untouched by the refusal: when a post is parked (before the compose page is
@@ -45,7 +43,6 @@
 import { createHash } from "node:crypto";
 import { open, readdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { FileIdentity } from "./files.js";
 import { fail } from "./store.js";
 
 /** The domain tag in the hash: a binding for another purpose can never collide with this one. */
@@ -63,21 +60,11 @@ export interface PublishBinding {
 	/** The shipped preset's name; absent for a recipe the caller wrote (its selectors and submit button are the caller's, so no surface approves one). */
 	readonly preset?: string;
 	readonly values: readonly string[];
-	readonly files?: Readonly<Record<string, FileIdentity>>;
 }
 
 /** The hex SHA-256 an approval stores for a post. Another writer must compute the identical string (golden vectors in both packs' tests). */
 export function bindingOf(binding: PublishBinding): string {
-	const files = Object.entries(binding.files ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-	const hashed = [
-		BINDING_DOMAIN,
-		binding.origin,
-		binding.profile,
-		binding.preset ?? null,
-		[...binding.values],
-		...(files.length === 0 ? [] : [Object.fromEntries(files.map(([label, file]) => [label, [file.path, file.size, file.sha256]]))]),
-	];
-	return createHash("sha256").update(JSON.stringify(hashed)).digest("hex");
+	return createHash("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
 }
 
 interface Approval {
@@ -91,7 +78,6 @@ interface Approval {
 /** A spent approval: `release()` gives it back, and only when nothing was submitted. */
 export interface Spend {
 	readonly draftId: string;
-	readonly nonce: string;
 	release(): Promise<void>;
 }
 
@@ -138,7 +124,6 @@ export class PublishApprovals {
 			}
 			return {
 				draftId: approval.draftId,
-				nonce: approval.nonce,
 				release: async () => {
 					await unlink(marker).catch((error: NodeJS.ErrnoException) => {
 						if (error.code !== "ENOENT") throw error;
@@ -147,11 +132,6 @@ export class PublishApprovals {
 			};
 		}
 		return refuse(binding, found, stage);
-	}
-
-	async held(spend: Spend): Promise<boolean> {
-		const approval = await readApproval(join(this.#dir, `${spend.draftId}.json`), `${spend.draftId}.json`);
-		return approval !== null && approval.nonce === spend.nonce;
 	}
 
 	/** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
