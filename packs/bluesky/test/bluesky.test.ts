@@ -1,6 +1,7 @@
-import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import dns from "node:dns/promises";
+import * as fsPromises from "node:fs/promises";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,16 @@ type Tool = {
 	formatApprovalDetails?: (args: unknown) => string[];
 	execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }>;
 };
+
+const SHARED_IMAGE = "C:/assets/a.png";
+const realReadFile = fsPromises.readFile;
+mock.module("node:fs/promises", () => ({
+	...fsPromises,
+	readFile: ((path: unknown, ...rest: unknown[]) =>
+		path === SHARED_IMAGE
+			? Promise.resolve(Buffer.from("test"))
+			: (realReadFile as (...args: unknown[]) => Promise<unknown>)(path, ...rest)) as typeof fsPromises.readFile,
+}));
 
 const tools = new Map<string, Tool>();
 blueskyExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool) } as never);
@@ -524,4 +535,41 @@ test("a JPEG keeps only its rotation, so a portrait photo stays upright", () => 
 
 	expect(Buffer.from(stripped).includes(Buffer.from("Acm"))).toBe(false);
 	expect(imageSize(stripped, "image/jpeg")).toEqual({ width: 480, height: 640 });
+});
+
+test("publishes against the approval binding Traction's board mints, pinned by the shared golden vector", async () => {
+	await writeFile(
+		join(configDir, "credential.json"),
+		JSON.stringify({ handle: "inso.bsky.social", appPassword: "abcd-efgh-ijkl-mnop" }),
+	);
+	const now = Date.now();
+	await writeFile(
+		join(approvals, "golden.json"),
+		JSON.stringify({
+			v: 1,
+			draftId: "golden",
+			nonce: randomBytes(16).toString("hex"),
+			binding: "ddcc4e9b242804ba9020ff72e5ef991ec551981b370105499d255cf9f41dfe69",
+			approvedAt: new Date(now - 1000).toISOString(),
+			expiresAt: new Date(now + 3_600_000).toISOString(),
+		}),
+	);
+	const created: unknown[] = [];
+	serve({
+		...publishRoutes(created),
+		"public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle": () => Response.json({ did: "did:plc:inso" }),
+		"plc.directory/did:plc:inso": () =>
+			Response.json({ service: [{ id: "#atproto_pds", type: "AtprotoPersonalDataServer", serviceEndpoint: PDS }] }),
+		"pds.example.net/xrpc/com.atproto.server.createSession": () =>
+			Response.json({ did: "did:plc:inso", handle: "inso.bsky.social", accessJwt: "a", refreshJwt: "r" }),
+	});
+
+	const text = await run("bluesky_publish", {
+		draftId: "golden",
+		posts: ["one", "two"],
+		media: [{ path: SHARED_IMAGE, post: 1, alt: "a chart" }],
+	});
+
+	expect(text).toContain("Posted 2/2");
+	expect(created).toHaveLength(2);
 });

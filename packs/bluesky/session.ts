@@ -135,8 +135,14 @@ async function onlyTheUser(file: string): Promise<void> {
 		process.env.USERDOMAIN && process.env.USERNAME
 			? `${process.env.USERDOMAIN}\\${process.env.USERNAME}`
 			: process.env.USERNAME;
-	if (user === undefined) throw new Error("no Windows user name to restrict the Bluesky session file to");
-	await execFileAsync("icacls", [file, "/inheritance:r", "/grant:r", `${user}:F`], { windowsHide: true });
+	const restricted =
+		user !== undefined &&
+		(await execFileAsync("icacls", [file, "/inheritance:r", "/grant:r", `${user}:F`], { windowsHide: true }).then(
+			() => true,
+			() => false,
+		));
+	if (!restricted)
+		console.error("The Bluesky session file could not be restricted to your account; it keeps the folder's permissions.");
 }
 
 async function save(session: BlueskySession): Promise<BlueskySession> {
