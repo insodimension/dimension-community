@@ -31,13 +31,13 @@ Search for questions and pain, not for the brand: "looking for", "how do I",
 - **X**: `x_search` with the phrases plus `-is:retweet` (sort `recent`, then sort
   `top` for the day), and `x_read_thread` for context. X reaches the last 7 days.
 - **YouTube**: `youtube_search` (order `date`, publishedAfter about 7 days ago) on
-  the problem and on tutorials in the niche; `youtube_get_video` for views and
-  comment count; `youtube_list_comments` for open questions a reply could answer.
+  the problem and on tutorials in the niche; one `youtube_get_videos` call for views
+  and comment counts; `youtube_list_comments` for open questions a reply could answer.
 - **Hacker News**: the search API through `browser_read`:
   `https://hn.algolia.com/api/v1/search_by_date?query=<q>&tags=(story,comment)&numericFilters=created_at_i%3E<unix seconds>`;
   read the thread at `https://news.ycombinator.com/item?id=<id>`.
 
-A platform that cannot be read (plugin off, not connected, free lane down) is listed
+A platform that cannot be read (plugin off, not connected, out of API credits) is listed
 as not covered at the top of the result.
 
 ## Check the rules before ranking

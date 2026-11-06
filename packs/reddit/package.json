@@ -1,8 +1,8 @@
 {
 	"name": "@inso/reddit",
 	"author": "Dimension",
-	"version": "0.1.7",
-	"description": "Reddit connector — browse feeds, read posts/comments, search, submit, comment, vote, and read your inbox via the Reddit OAuth API (script app)",
+	"version": "0.2.0",
+	"description": "Reddit connector, read-only — subreddit posts and rules, comment trees, search and your public profile, over the Reddit API with an app-only token (no password)",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {

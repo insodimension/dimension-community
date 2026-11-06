@@ -11,14 +11,14 @@ tools (`x_me`, `x_mentions`, `x_my_posts`, `x_home_timeline`, `x_search`,
 `x_posts_envelope` is X's share of a last30days run: call it before the engine
 and pass the flags it returns.
 
-- **Two lanes: reads are usually FREE, writes always cost.** `x_search`,
-  `x_read_thread`, and `x_my_posts` run on x.com's own web endpoint using the
-  user's browser cookies at $0 when they're logged into x.com; they fall back
-  to the billed official API when cookies are absent. Writes ALWAYS use the
-  official API. `x_usage` says which read lane is live.
-- **Never try to write through the free lane** — it has no write methods by
-  construction, and posting via cookies gets X accounts blocked. If a write
-  fails for lack of credits, say so; do not look for a free workaround.
+- **One lane, billed per call.** Every read and write uses the official X API
+  on the user's own developer app: $0.001 per post for owned reads
+  (`x_mentions`, `x_my_posts`, `x_bookmarks`), $0.005 per post for `x_search`,
+  `x_read_thread`, `x_home_timeline`, `x_get_post`. Set limits deliberately;
+  `x_usage` shows reads against the monthly cap.
+- **Never read the browser's cookies for X** and never ask for
+  `auth_token`/`ct0`. Posts older than 7 days and analytics are read on x.com
+  in the Browser pack's signed-in profile, a few page loads per task.
 - **Confirm the exact text AND target with the user before every write**
   (`x_post`, `x_thread`, `x_delete`, `x_dm`). Each is public or sent for real,
   immediate, attributed to the user, and cannot be silently undone. Show the
@@ -28,18 +28,17 @@ and pass the flags it returns.
   Otherwise **draft the reply and let the user send it** — that is always
   allowed and is the default for anything unsolicited. Never auto-reply at
   volume, never mass-DM, never astroturf.
-- **Still billed on the official lane:** `x_home_timeline`, `x_get_post`,
-  `x_bookmarks` ($0.005/post for timeline and posts; $0.001 for owned reads),
-  and `x_mentions`, which is official-FIRST on purpose because it is
-  authoritative — $0.001 per mention buys completeness a search can't match.
-  Prefer `x_search` (free) over `x_home_timeline` (billed) for research.
+- `x_search` takes the API's operators (`min_likes:`, `min_reposts:`,
+  `is:reply`, `has:links`); web spellings (`min_faves:`, `filter:replies`,
+  `since:`) are translated and the output names the query sent. Prefer a
+  narrow `x_search` over `x_home_timeline` for research.
 - **A post containing a URL costs $0.20 instead of $0.015** — 13x. Worth
   mentioning once when the user is posting a link.
 - **Like, follow, and quote-post do not exist here** — X removed them from all
   self-serve tiers on 2026-04-20. Never claim to have liked or followed.
 - `x_search` and `x_read_thread` only reach the **last 7 days**. Older posts
-  are not retrievable on this tier; say so rather than reporting "nothing
-  found".
+  are read in the Browser (x.com advanced search); never report "nothing
+  found" for a window the API cannot reach.
 - Post ids: pass the numeric id or a full `https://x.com/…/status/…` URL —
   both work. Quote ids exactly from tool output; never invent one.
 - `x_thread` is **not atomic**. If it fails mid-thread the earlier posts are

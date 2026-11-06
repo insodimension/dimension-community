@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "reddit",
-	"version": "0.1.7",
-	"description": "Let your agent read Reddit feeds, posts, comments and your inbox, search, and post or vote when you ask.",
+	"version": "0.2.0",
+	"description": "Let your agent read Reddit: a subreddit's posts and rules, a thread's comments, search and your public profile. Read-only.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -23,8 +23,8 @@
 			"defaultEnabled": false,
 			"examples": [
 				"Show me the top posts in r/programming this week",
-				"Summarize the discussion on this Reddit thread and draft a reply for me to approve",
-				"Search r/rust for posts about async traits from the last month"
+				"Read r/unrealengine's rules and tell me whether a showcase post is allowed",
+				"Summarize the discussion on this Reddit thread"
 			],
 			"connect": {
 				"kind": [
@@ -32,29 +32,25 @@
 				],
 				"setup": [
 					{
-						"title": "Create a Reddit \"script\" app",
-						"detail": "Go to reddit.com/prefs/apps (logged in as the account the agent will act as), scroll to the bottom, and click \"create another app…\". Give it a name (e.g. \"Dimension\"), and choose the \"script\" app type — script apps are for personal use by their own developer, which is exactly this connector.",
+						"title": "Use a Reddit app you already own",
+						"detail": "Reddit closed self-service app creation on 2025-11-11 and stopped new Data API requests on 2026-10-31; apps that have not registered lose access from 2027-01-12, and all public access ends in March 2027. This connector works only with an app you created before then. Without one, leave this unconnected: your agent reads Reddit through the Browser on your signed-in profile instead.",
 						"url": "https://www.reddit.com/prefs/apps",
 						"urlLabel": "Open Reddit app preferences"
 					},
 					{
-						"title": "Set a redirect URI (required, unused)",
-						"detail": "In the \"redirect uri\" field enter http://localhost:8080 — script apps never redirect, but the form won't submit without a value. Leave \"about url\" blank. Click \"create app\"."
-					},
-					{
 						"title": "Copy the client ID and secret",
-						"detail": "After creating the app, the client ID is the short string shown directly UNDER the app name (labelled \"personal use script\"), and the \"secret\" is the longer string on the \"secret\" line. Copy both into the form below."
+						"detail": "On reddit.com/prefs/apps, the client ID is the short string shown directly under the app's name, and the secret is the longer string on the \"secret\" line. Copy both into the form below."
 					},
 					{
-						"title": "Enter your Reddit username and password",
-						"detail": "Script apps authenticate with the developer's own Reddit login (OAuth2 password grant). Enter the SAME account that owns the app. If your account has two-factor auth on, append the 6-digit code to your password as password:123456 when connecting. Credentials stay on this machine and are never logged."
+						"title": "Enter your Reddit username — no password",
+						"detail": "The connector reads with an app-only token (the client credentials grant): it never holds your password and never acts as your account. Your username builds the User-Agent Reddit requires and names the profile it reads. Reconnecting removes a password an earlier version stored."
 					}
 				],
 				"form": [
 					{
 						"id": "clientId",
 						"label": "Client ID",
-						"help": "The short string under your app's name on reddit.com/prefs/apps (labelled \"personal use script\").",
+						"help": "The short string under your app's name on reddit.com/prefs/apps.",
 						"helpUrl": "https://www.reddit.com/prefs/apps",
 						"helpUrlLabel": "Open Reddit app preferences"
 					},
@@ -62,7 +58,7 @@
 						"id": "clientSecret",
 						"label": "Client secret",
 						"secret": true,
-						"help": "The \"secret\" string shown for your script app on reddit.com/prefs/apps.",
+						"help": "The \"secret\" string shown for your app on reddit.com/prefs/apps.",
 						"helpUrl": "https://www.reddit.com/prefs/apps",
 						"helpUrlLabel": "Open Reddit app preferences"
 					},
@@ -70,25 +66,13 @@
 						"id": "username",
 						"label": "Reddit username",
 						"placeholder": "your_username",
-						"help": "Your Reddit username WITHOUT the u/ prefix — must be the same account that created the script app above. Also used to build the required User-Agent header."
-					},
-					{
-						"id": "password",
-						"label": "Reddit password",
-						"secret": true,
-						"help": "Your Reddit account password. If 2FA is enabled, append the current 6-digit code as password:123456. Stored only on this machine; never logged."
+						"help": "Your Reddit username WITHOUT the u/ prefix. Used for the User-Agent Reddit requires and for the profile reddit_my_profile reads."
 					}
 				],
 				"configTemplate": "connect/token.template.json",
 				"configTarget": "~/.config/dimension-reddit/token.json"
 			},
 			"toolRenderer": [
-				{
-					"match": "reddit_my_feed",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Reddit feed"
-				},
 				{
 					"match": "reddit_subreddit_posts",
 					"use": "summary",
@@ -114,36 +98,6 @@
 					"title": "Reddit search"
 				},
 				{
-					"match": "reddit_submit_post",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Submit post"
-				},
-				{
-					"match": "reddit_comment",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Reddit comment"
-				},
-				{
-					"match": "reddit_vote",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Reddit vote"
-				},
-				{
-					"match": "reddit_inbox",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Reddit inbox"
-				},
-				{
-					"match": "reddit_reply_message",
-					"use": "summary",
-					"icon": "reddit",
-					"title": "Reddit reply"
-				},
-				{
 					"match": "reddit_my_profile",
 					"use": "summary",
 					"icon": "reddit",
@@ -158,48 +112,24 @@
 			},
 			"tools": [
 				{
-					"name": "reddit_my_feed",
-					"description": "Read the connected account's home feed (subscribed subreddits). sort = best|hot|new|top|rising. Returns fullname/subreddit/score/comments/author/title per line; paginate with the returned 'after' cursor."
-				},
-				{
 					"name": "reddit_subreddit_posts",
 					"description": "List posts in a subreddit. Takes subreddit (without r/), sort = hot|new|top|rising|controversial, and time (hour|day|week|month|year|all) for top/controversial. Returns fullname/score/comments/age/author/title per line; paginate with 'after'."
 				},
 				{
 					"name": "reddit_subreddit_rules",
-					"description": "Read a subreddit's rules and profile: member and online counts, accepted post kinds, description, and every rule with its text. Read it before suggesting or drafting a post or reply there."
+					"description": "Read a subreddit's accepted post kinds, description, and every rule with its text. Read it before drafting a post or reply there. No member counts: Reddit hid them in 2025-09."
 				},
 				{
 					"name": "reddit_read_post",
-					"description": "Read a post and its comment tree, flattened with indentation and truncated for scanning. Takes the post id or t3_ fullname (from a feed/search line) and optional subreddit + sort (best|top|new|controversial|qa). Returns the post body then comments."
+					"description": "Read a post and its comment tree, flattened with indentation and truncated for scanning. Takes the post id or t3_ fullname and optional subreddit + sort (best|top|new|controversial|qa)."
 				},
 				{
 					"name": "reddit_search",
-					"description": "Search Reddit posts. Takes query; optional subreddit (without r/) to scope, sort (relevance|hot|top|new|comments), and time (hour|day|week|month|year|all). Returns fullname/subreddit/score/comments/title per line; paginate with 'after'."
-				},
-				{
-					"name": "reddit_submit_post",
-					"description": "Submit a post to a subreddit — a self (text) post or a link. DESTRUCTIVE — this publishes publicly; ALWAYS confirm the subreddit, title, and body/url with the user first. Returns the new post's id and url."
-				},
-				{
-					"name": "reddit_comment",
-					"description": "Comment on a post or reply to another comment. Takes the parent t3_ (post) or t1_ (comment) fullname and text. DESTRUCTIVE — this publishes publicly; ALWAYS confirm the parent and text with the user first. Returns the new comment id."
-				},
-				{
-					"name": "reddit_vote",
-					"description": "Vote on a post or comment. Takes the t3_/t1_ fullname and dir = up|down|clear. WRITE — cast ONLY votes the user explicitly asked for; Reddit's rules forbid vote manipulation and automated/directed voting. Confirm the target and direction first."
-				},
-				{
-					"name": "reddit_inbox",
-					"description": "Read the connected account's message inbox. box = inbox|unread|messages|comments|mentions. Returns id/from/subject/snippet per line — the id (a t4_/t1_ fullname) is what reddit_reply_message replies to."
-				},
-				{
-					"name": "reddit_reply_message",
-					"description": "Reply to a private message or inbox item. Takes the t4_ (message) or t1_ (comment reply) fullname from reddit_inbox and text. DESTRUCTIVE — sends a real message; ALWAYS confirm the recipient/thread and text with the user first."
+					"description": "Search Reddit posts with Reddit's operators (author:, subreddit:, title:, quoted phrases, AND/OR/NOT). Optional subreddit to scope, sort, and time. Returns fullname/subreddit/score/comments/title per line; paginate with 'after'."
 				},
 				{
 					"name": "reddit_my_profile",
-					"description": "Show the connected account's profile — username, karma (link/comment), account age, and unread-mail flag. Read-only; useful to confirm which account the connector is acting as."
+					"description": "The connected username's public profile — account age, post and comment karma, verified email, or suspended. The account-readiness read."
 				}
 			]
 		}

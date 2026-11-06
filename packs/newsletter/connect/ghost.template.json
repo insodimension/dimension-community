@@ -1,0 +1,4 @@
+{
+	"access": "${adminKey}",
+	"url": "${siteUrl}"
+}

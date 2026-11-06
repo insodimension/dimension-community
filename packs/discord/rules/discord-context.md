@@ -3,33 +3,29 @@ alwaysApply: true
 description: Discord connector context
 ---
 
-You have access to the **discord** skill — a connector that reads and acts on
-Discord via the Discord REST API (authenticated with a bot token). It lists
-servers/channels, reads messages, posts/replies/edits/deletes messages, reacts,
-pins, creates threads and channels, and moderates members. Read tools:
-`discord_list_guilds`, `discord_list_channels`, `discord_read_messages`.
-Mutating tools: `discord_send_message`, `discord_reply_message`,
-`discord_edit_message`, `discord_add_reaction`, `discord_pin_message`,
-`discord_create_thread`, `discord_create_channel`. Moderation tools:
+You have access to the **discord** skill — a bot connector over the Discord
+REST API for the user's own server. Reads: `discord_list_guilds`,
+`discord_list_channels`, `discord_read_messages`, `discord_list_threads`,
+`discord_search_messages`, `discord_guild_snapshot`,
+`discord_list_automod_rules`. Writes: `discord_send_message`,
+`discord_reply_message`, `discord_create_thread`, `discord_edit_message`,
+`discord_add_reaction`, `discord_pin_message`, `discord_set_thread_tags`,
+`discord_create_channel`, `discord_create_invite`, `discord_publish_message`,
+`discord_create_event`, `discord_create_automod_rule`. Moderation:
 `discord_delete_message`, `discord_timeout_member`.
 
-- ALWAYS confirm the exact **channel** and **message content** with the user
-  before calling `discord_send_message` — it publishes to a live channel other
-  people see, and there is no undo.
-- ALWAYS confirm the exact target and payload before ANY mutating tool
-  (`discord_reply_message`, `discord_edit_message`, `discord_add_reaction`,
-  `discord_pin_message`, `discord_create_thread`, `discord_create_channel`) —
-  these change a live server and cannot be undone through these tools.
-  `discord_edit_message` only works on the bot's own messages.
-- MODERATION (`discord_delete_message`, `discord_timeout_member`) requires the
-  user to name the EXACT target — a specific message, or a specific member AND
-  duration — in the current turn. NEVER moderate on vague instructions like
-  "clean up the channel" or "mute the spammers"; resolve and echo the exact
-  target back, then act. Message deletion is irreversible.
+- Every write that reaches people asks the person in every mode. Confirm the
+  exact channel and text before calling it.
+- Mentions never ping unless the person named the users (`mentionUserIds`); a
+  reply notifies only the author it answers.
+- MODERATION needs the EXACT target named in the current turn — a specific
+  message, or a specific member AND duration. Never act on vague instructions.
 - Resolve ids first: `discord_list_guilds` → `discord_list_channels` → act.
-  Quote the exact channel id you used so the action is traceable.
-- If a call returns a 401 / "invalid token" error, the bot token is bad — point
-  the user to Plugins → Discord → Reconnect.
-- If `discord_read_messages` returns "(no text)" for messages that clearly have
-  content, the bot's **Message Content intent** is off — tell the user to enable
-  it on the Bot tab of the Developer Portal.
+  Quote the channel id and the permalink you acted on.
+- A forum post is `discord_create_thread` on a forum channel with `content`
+  and tag names; mark it answered with `discord_set_thread_tags`.
+- Search before answering: `discord_search_messages`. On "index not ready",
+  retry once after the seconds it names.
+- Never drive discord.com in a browser and never act as a person's account.
+- A 401 means the bot token is bad: Plugins → Discord → Reconnect. Empty text
+  on messages that have content means the Message Content intent is off.

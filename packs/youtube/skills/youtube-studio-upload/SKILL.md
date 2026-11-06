@@ -42,7 +42,7 @@ What each setting comes from in `publish.json`: `title.chosen`, `description.tex
 
 1. The video id comes from the "Video link" on the Visibility page or in the "Video published" dialog, 11 characters. Pages link other videos too, so take it from that link's text. Without one you have not uploaded anything.
 2. Open the edit page for that id and read back every field you set: title, description, thumbnail, audience, visibility, age restriction, paid promotion, the altered-content answer, tags, language, licence, embedding, notify, category, and the subtitles row. Each goes into `readback` as `{ field, expected, actual, ok }`.
-3. Cross-check from outside Studio: for a public or unlisted video, `browser_read` of `https://www.youtube.com/oembed?url=https://youtu.be/<id>&format=json` returns its title (a private video answers 4xx). With the connector connected, `youtube_get_video` reads title, description and tags of your own video, private included.
+3. Cross-check from outside Studio: for a public or unlisted video, `browser_read` of `https://www.youtube.com/oembed?url=https://youtu.be/<id>&format=json` returns its title (a private video answers 4xx). With the connector connected, `youtube_get_videos` reads the title, description, tags and privacy of your own video, private included.
 4. Write `upload` into `receipts/publish.json`: `videoId`, `url` (`https://youtu.be/<id>`), `visibility`, `uploadedAt`, `profile` (the label the person knows, never a password or token), `channelId` when known, `readback`, and `oembed` when you have it. Then `check` again: it refuses a bad id or url, a visibility that is not one of the four, an empty readback, and any row with `ok: false`.
 5. Say the link, the visibility, what was read back and what was not.
 

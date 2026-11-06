@@ -1,0 +1,102 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "hackernews",
+	"version": "0.1.0",
+	"description": "Let your agent read Hacker News: search stories and comments, read a thread, check an account and a site's history, and watch a launch. Read only, no account needed.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"hacker news",
+		"hn",
+		"news",
+		"launch",
+		"research",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Hacker News",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Has our site been posted to Hacker News before, and how did it do?",
+				"Is my Hacker News account ready for a Show HN?",
+				"Watch our Show HN and tell me about new comments since you last looked"
+			],
+			"toolRenderer": [
+				{
+					"match": "hn_search",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN search"
+				},
+				{
+					"match": "hn_item",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN item"
+				},
+				{
+					"match": "hn_user",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN user"
+				},
+				{
+					"match": "hn_front",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN front page"
+				},
+				{
+					"match": "hn_domain",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN domain"
+				},
+				{
+					"match": "hn_thread_since",
+					"use": "summary",
+					"icon": "ycombinator",
+					"title": "HN launch watch"
+				}
+			],
+			"skillCard": {
+				"skill": "hackernews",
+				"use": "summary",
+				"icon": "ycombinator",
+				"title": "Hacker News"
+			},
+			"tools": [
+				{
+					"name": "hn_search",
+					"description": "Search Hacker News stories or comments through Algolia, with no key. Bare words are quoted so Algolia does not fuzz them; filter by kind, author, dates, points and comments. Returns one line per hit and the hit estimate."
+				},
+				{
+					"name": "hn_item",
+					"description": "Read one item: a story's points, comments, flags, link and text, and its comment tree with top-level comments in Hacker News's own rank order."
+				},
+				{
+					"name": "hn_user",
+					"description": "Read an account for a launch preflight: age, karma, story, comment and Show HN counts, and its Show HNs from the last year."
+				},
+				{
+					"name": "hn_front",
+					"description": "Read a live list (top, new, best, show, ask, job) with rank positions, or find where one item ranks on it right now."
+				},
+				{
+					"name": "hn_domain",
+					"description": "Every story submitted for a domain or one page, newest first, with points and comments: has this been posted before."
+				},
+				{
+					"name": "hn_thread_since",
+					"description": "One story's points, comments and rank now, and the comments posted after a cursor, oldest first; pass the returned cursor next time."
+				}
+			]
+		}
+	}
+}

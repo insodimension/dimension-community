@@ -25,6 +25,11 @@ before you drive a page:
 
 Publishing and task agents (Traction sessions only): read
 [references/publishing-and-tasks.md](references/publishing-and-tasks.md).
+Reading a platform account you are signed in to (analytics, insights, account
+health, notifications) on X, Reddit, LinkedIn, Threads, Instagram, Facebook,
+Bluesky, Product Hunt, TikTok, YouTube Studio, newsletters, or Discord and Hacker
+News logged out: read [references/platform-reads.md](references/platform-reads.md)
+first; it names the page, what to read on it and what never to touch.
 Everything below holds whichever you have.
 
 ## Opening, and profiles

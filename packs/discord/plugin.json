@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "discord",
-	"version": "0.1.6",
-	"description": "Let your agent read and send messages in your Discord servers, using a bot you create.",
+	"version": "0.2.0",
+	"description": "Let your agent read, answer and run your own Discord server through a bot you create: messages, forum posts, search, invites, events and announcements.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -22,9 +22,9 @@
 			"category": "connector",
 			"defaultEnabled": false,
 			"examples": [
-				"Post an update to the #announcements channel in my server",
-				"Summarize the last 20 messages in the #dev channel",
-				"List the Discord servers the bot is in"
+				"List the unsolved posts in the #help forum and draft an answer for each",
+				"Search the server for questions about Linux builds that nobody answered",
+				"Give me a snapshot of the server: members, invites by source and upcoming events"
 			],
 			"connect": {
 				"kind": [
@@ -33,7 +33,7 @@
 				"setup": [
 					{
 						"title": "Create an application",
-						"detail": "Open the Discord Developer Portal and click \"New Application\". Give it any name, e.g. \"Dimension\".",
+						"detail": "Open the Discord Developer Portal and click \"New Application\". Name it for your project's helper (members see the name), not \"Dimension\". On the Bot tab, turn Public Bot OFF so only you can add it to servers.",
 						"url": "https://discord.com/developers/applications",
 						"urlLabel": "Open Developer Portal"
 					},
@@ -47,7 +47,7 @@
 					},
 					{
 						"title": "Invite the bot to your server",
-						"detail": "OAuth2 → URL Generator → check scope `bot` → under Bot Permissions check View Channels, Send Messages, and Read Message History → copy the generated URL, open it, and add the bot to your server.",
+						"detail": "OAuth2 → URL Generator → check scope `bot` → under Bot Permissions check View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Embed Links, Attach Files and Add Reactions (posting in threads and forum posts needs Send Messages in Threads; Discord does not inherit it). Add Manage Threads to tag others' forum posts, Manage Server to read invites and AutoMod, Create Instant Invite for invite codes, Manage Events for events, Moderate Members only if you want timeouts. Copy the URL, open it, and add the bot to your server.",
 						"url": "https://discord.com/developers/applications",
 						"urlLabel": "Open Developer Portal"
 					}
@@ -150,6 +150,60 @@
 					"use": "summary",
 					"icon": "discord",
 					"title": "Timeout member"
+				},
+				{
+					"match": "discord_list_threads",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Threads"
+				},
+				{
+					"match": "discord_search_messages",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Search"
+				},
+				{
+					"match": "discord_guild_snapshot",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Server snapshot"
+				},
+				{
+					"match": "discord_create_invite",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Create invite"
+				},
+				{
+					"match": "discord_publish_message",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Publish"
+				},
+				{
+					"match": "discord_set_thread_tags",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Set tags"
+				},
+				{
+					"match": "discord_create_event",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Create event"
+				},
+				{
+					"match": "discord_list_automod_rules",
+					"use": "summary",
+					"icon": "discord",
+					"title": "AutoMod rules"
+				},
+				{
+					"match": "discord_create_automod_rule",
+					"use": "summary",
+					"icon": "discord",
+					"title": "Create AutoMod rule"
 				}
 			],
 			"skillCard": {
@@ -165,23 +219,23 @@
 				},
 				{
 					"name": "discord_list_channels",
-					"description": "List the channels in a Discord server. Returns id, name, and type per line."
+					"description": "List the channels in a Discord server the bot can view. Returns id, name, type, parent and a forum's tag names per line."
 				},
 				{
 					"name": "discord_read_messages",
-					"description": "Read the most recent messages in a Discord channel (newest first). Requires the bot's Message Content intent."
+					"description": "Read messages in a channel or thread, newest first: ids, author ids, reply refs, threads, reactions, attachments and permalinks; pages with before/after/around. Requires the Message Content intent."
 				},
 				{
 					"name": "discord_send_message",
-					"description": "Post a message to a Discord channel. DESTRUCTIVE — confirm the channel and content with the user first."
+					"description": "Post a message (optionally one image) to a channel. PUBLIC — confirm the channel and content first. Mentions never ping unless the person named those users. Asks every time."
 				},
 				{
 					"name": "discord_create_thread",
-					"description": "Create a thread in a channel (standalone, or spun off from a message when messageId is given). MUTATING — confirm the channel/message and thread name with the user first."
+					"description": "Create a thread, or a forum post (title, first message, tags) in a forum channel. PUBLIC — confirm first. Asks every time."
 				},
 				{
 					"name": "discord_reply_message",
-					"description": "Reply to a specific message in a channel. DESTRUCTIVE — confirm the channel, target message, and reply content with the user first."
+					"description": "Reply to a specific message (optionally with one image). PUBLIC — confirm the channel, target and text first. Only the replied-to author is notified. Asks every time."
 				},
 				{
 					"name": "discord_add_reaction",
@@ -201,11 +255,47 @@
 				},
 				{
 					"name": "discord_create_channel",
-					"description": "Create a channel in a server (text, voice, or category). MUTATING — confirm the server, name, and kind with the user first."
+					"description": "Create a channel in a server (text, voice, category, announcement or forum). MUTATING — confirm the server, name, and kind with the user first."
 				},
 				{
 					"name": "discord_timeout_member",
-					"description": "MODERATION. Time out (mute) a member for up to 28 days, or lift a timeout. Needs Moderate Members. Demand explicit user confirmation of the exact member AND duration; never act on vague instructions."
+					"description": "MODERATION. Time out (mute) a member for up to 28 days, or lift a timeout. Needs Moderate Members. Asks every time; the person must name the exact member and duration."
+				},
+				{
+					"name": "discord_list_threads",
+					"description": "List active threads and forum posts (and a parent's archived ones): title, tags, SOLVED, message count, created time, permalink."
+				},
+				{
+					"name": "discord_search_messages",
+					"description": "Search a server's messages by words, author, channel or attachment kind; total, hits with permalinks, paging by offset."
+				},
+				{
+					"name": "discord_guild_snapshot",
+					"description": "One read of a server: member and online counts, features, a readiness checklist, invite codes with uses, scheduled events with interest."
+				},
+				{
+					"name": "discord_create_invite",
+					"description": "Create an invite code for one source, so joins can be counted per source. Optional expiry, use limit and roles. Asks every time."
+				},
+				{
+					"name": "discord_publish_message",
+					"description": "Publish an announcement-channel message to every following server (at most 10 an hour per channel). Asks every time."
+				},
+				{
+					"name": "discord_set_thread_tags",
+					"description": "Set a forum post's tags by name, e.g. mark a help post Solved."
+				},
+				{
+					"name": "discord_create_event",
+					"description": "Schedule a server event in a voice or stage channel or at an outside location. Asks every time."
+				},
+				{
+					"name": "discord_list_automod_rules",
+					"description": "List a server's AutoMod rules: trigger, keywords or limits, actions, enabled."
+				},
+				{
+					"name": "discord_create_automod_rule",
+					"description": "Create one AutoMod rule the person approved (keywords, spam, presets or a mention limit) with block, alert or timeout. Asks every time."
 				}
 			]
 		}

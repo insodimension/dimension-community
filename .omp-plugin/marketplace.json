@@ -104,6 +104,28 @@
 			"channel": "canary"
 		},
 		{
+			"name": "bluesky",
+			"source": "./packs/bluesky",
+			"pluginId": "bluesky",
+			"title": "Bluesky",
+			"icon": "packs/bluesky/assets/icon.svg",
+			"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish a post you approved.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "connector",
+			"tags": [
+				"bluesky",
+				"atproto",
+				"social",
+				"research",
+				"connector"
+			]
+		},
+		{
 			"name": "brand-marks",
 			"source": "./packs/brand-marks",
 			"pluginId": "brand-marks",
@@ -135,7 +157,7 @@
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.14",
+			"version": "0.9.15",
 			"author": {
 				"name": "Dimension"
 			},
@@ -430,8 +452,8 @@
 			"pluginId": "discord",
 			"title": "Discord",
 			"icon": "packs/discord/assets/icon.svg",
-			"description": "Let your agent read and send messages in your Discord servers, using a bot you create.",
-			"version": "0.1.6",
+			"description": "Let your agent read, answer and run your own Discord server through a bot you create: messages, forum posts, search, invites, events and announcements.",
+			"version": "0.2.0",
 			"author": {
 				"name": "Dimension"
 			},
@@ -843,6 +865,29 @@
 			]
 		},
 		{
+			"name": "hackernews",
+			"source": "./packs/hackernews",
+			"pluginId": "hackernews",
+			"title": "Hacker News",
+			"icon": "packs/hackernews/assets/icon.svg",
+			"description": "Let your agent read Hacker News: search stories and comments, read a thread, check an account and a site's history, and watch a launch. Read only, no account needed.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "connector",
+			"tags": [
+				"hacker news",
+				"hn",
+				"news",
+				"launch",
+				"research",
+				"connector"
+			]
+		},
+		{
 			"name": "image",
 			"source": "./packs/image",
 			"pluginId": "image",
@@ -1012,6 +1057,33 @@
 			"channel": "canary"
 		},
 		{
+			"name": "newsletter",
+			"source": "./packs/newsletter",
+			"pluginId": "newsletter",
+			"title": "Newsletter",
+			"icon": "packs/newsletter/assets/icon.svg",
+			"description": "Let your agent save approved newsletter issues as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "connector",
+			"tags": [
+				"newsletter",
+				"email",
+				"beehiiv",
+				"kit",
+				"buttondown",
+				"ghost",
+				"connector"
+			],
+			"requires": {
+				"dimension": ">=0.11.17"
+			}
+		},
+		{
 			"name": "pr-viewer",
 			"source": "./packs/pr-viewer",
 			"pluginId": "pr-viewer",
@@ -1088,8 +1160,8 @@
 			"pluginId": "reddit",
 			"title": "Reddit",
 			"icon": "packs/reddit/assets/icon.svg",
-			"description": "Let your agent read Reddit feeds, posts, comments and your inbox, search, and post or vote when you ask.",
-			"version": "0.1.7",
+			"description": "Let your agent read Reddit: a subreddit's posts and rules, a thread's comments, search and your public profile. Read-only.",
+			"version": "0.2.0",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1209,7 +1281,7 @@
 			"title": "Social Listening",
 			"icon": "packs/social-listening/assets/icon.svg",
 			"description": "Hear what communities really say about a topic, find the conversations worth joining and the creators worth contacting, and collect your audience's own words.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1483,7 +1555,7 @@
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
 			"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
-			"version": "0.2.8",
+			"version": "0.3.0",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1506,7 +1578,7 @@
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
 			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
-			"version": "0.2.4",
+			"version": "0.3.0",
 			"author": {
 				"name": "Dimension"
 			},

@@ -38,10 +38,10 @@ Start from people the community already cites, then widen.
 
 Never estimate a number a page does not show; write "not shown". [S-03]
 
-- **YouTube**: `youtube_channel_stats` (subscribers, views, video count). Uploads:
+- **YouTube**: `youtube_channel_stats` by `handle` (subscribers, views, video count, uploads playlist). Uploads:
   `youtube_list_playlist_items` on the uploads playlist (the channel id with `UC`
-  replaced by `UU`) for the last 15 videos and their dates. `youtube_get_video` on
-  the last 10 for views, likes and comments.
+  replaced by `UU`) for the last 15 videos and their dates. One `youtube_get_videos`
+  call on the last 10 for views, likes and comments.
 - **X**: `x_user_lookup` (followers, posts, joined), then `x_search` with
   `from:<handle> -is:retweet` for the last 7 days: posts per week, and likes and
   replies per post.

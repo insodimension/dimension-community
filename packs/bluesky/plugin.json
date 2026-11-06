@@ -1,0 +1,187 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "bluesky",
+	"version": "0.1.0",
+	"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish a post you approved.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"bluesky",
+		"atproto",
+		"social",
+		"research",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Bluesky",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Search Bluesky for what people say about Unreal camera tools this month",
+				"Find the starter packs and custom feeds game developers on Bluesky read",
+				"Show me my Bluesky mentions, replies and quotes since yesterday"
+			],
+			"connect": {
+				"kind": [
+					"form"
+				],
+				"setup": [
+					{
+						"title": "Create a Bluesky app password",
+						"detail": "In Bluesky, open Settings, Privacy and security, App passwords, and add one named Dimension. Leave direct-message access off. An app password can read and post but cannot change your account, and you can revoke it any time.",
+						"url": "https://bsky.app/settings/app-passwords",
+						"urlLabel": "Open Bluesky app passwords"
+					},
+					{
+						"title": "Enter your handle and the app password",
+						"detail": "Your full handle without the @ (brand.com or you.bsky.social). The plugin signs in once and keeps the session on this machine, refreshing it instead of signing in again. Your main password is never needed."
+					}
+				],
+				"form": [
+					{
+						"id": "handle",
+						"label": "Bluesky handle",
+						"placeholder": "you.bsky.social",
+						"help": "Your full handle, without the @."
+					},
+					{
+						"id": "appPassword",
+						"label": "App password",
+						"secret": true,
+						"placeholder": "xxxx-xxxx-xxxx-xxxx",
+						"help": "The app password you just created, not your account password.",
+						"helpUrl": "https://bsky.app/settings/app-passwords",
+						"helpUrlLabel": "Open Bluesky app passwords"
+					}
+				],
+				"configTemplate": "connect/credential.template.json",
+				"configTarget": "~/.config/dimension-bluesky/credential.json"
+			},
+			"toolRenderer": [
+				{
+					"match": "bluesky_search_posts",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky search"
+				},
+				{
+					"match": "bluesky_get_posts",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky posts"
+				},
+				{
+					"match": "bluesky_thread",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky thread"
+				},
+				{
+					"match": "bluesky_quotes",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky quotes"
+				},
+				{
+					"match": "bluesky_profile",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky profile"
+				},
+				{
+					"match": "bluesky_author_feed",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky author feed"
+				},
+				{
+					"match": "bluesky_find_feeds",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky feeds"
+				},
+				{
+					"match": "bluesky_find_starter_packs",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky starter packs"
+				},
+				{
+					"match": "bluesky_trends",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky trends"
+				},
+				{
+					"match": "bluesky_my_notifications",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky notifications"
+				},
+				{
+					"match": "bluesky_publish",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky publish"
+				}
+			],
+			"skillCard": {
+				"skill": "bluesky",
+				"use": "summary",
+				"icon": "bluesky",
+				"title": "Bluesky"
+			},
+			"tools": [
+				{
+					"name": "bluesky_search_posts",
+					"description": "Search posts as your connected account (Bluesky closed keyless post search): top or latest, date, author, mention, language, domain, link and tag filters, with each post's numbers and a hit estimate."
+				},
+				{
+					"name": "bluesky_get_posts",
+					"description": "Read up to 25 posts by link with their likes, reposts, replies, quotes and bookmarks. No account needed."
+				},
+				{
+					"name": "bluesky_thread",
+					"description": "Read a post in its conversation: parents, the post and its replies. No account needed."
+				},
+				{
+					"name": "bluesky_quotes",
+					"description": "List the posts that quote a post. No account needed."
+				},
+				{
+					"name": "bluesky_profile",
+					"description": "Read an account: followers, follows, posts, join date, bio, labels, and the starter packs, feeds and lists it made. No account needed."
+				},
+				{
+					"name": "bluesky_author_feed",
+					"description": "Read one account's recent posts with each post's numbers. No account needed."
+				},
+				{
+					"name": "bluesky_find_feeds",
+					"description": "Find custom feeds about a topic, most liked first. No account needed."
+				},
+				{
+					"name": "bluesky_find_starter_packs",
+					"description": "Find starter packs by name with how many people joined through each this week and all time. No account needed."
+				},
+				{
+					"name": "bluesky_trends",
+					"description": "Read what is trending on Bluesky now. No account needed."
+				},
+				{
+					"name": "bluesky_my_notifications",
+					"description": "Read your account's mentions, replies and quotes (or likes, reposts, follows) without marking them read."
+				},
+				{
+					"name": "bluesky_publish",
+					"description": "Publish a post or thread you approved on Traction's campaign board, with its images and alt text. It refuses anything the board did not approve, and asks you before it sends."
+				}
+			]
+		}
+	}
+}

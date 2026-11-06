@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.2.4",
+	"version": "0.3.0",
 	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
@@ -45,6 +45,12 @@
 						"urlLabel": "Open the API Library"
 					},
 					{
+						"title": "Publish the OAuth consent screen (In production)",
+						"detail": "Google Auth Platform → Audience → Publish app. A client left in \"Testing\" gets refresh tokens that expire after 7 days, so the connection silently dies every week. For your own account, publishing needs no Google review; you may see an \"unverified app\" warning at sign-in, which is expected for your own client.",
+						"url": "https://console.cloud.google.com/auth/audience",
+						"urlLabel": "Open the consent screen"
+					},
+					{
 						"title": "Copy the Client ID and Client Secret into the form below",
 						"detail": "Same values as your Drive or Calendar connector — they stay on this machine."
 					}
@@ -85,7 +91,7 @@
 						{
 							"match": "quotaExceeded|dailyLimitExceeded|quota",
 							"title": "YouTube API quota exhausted for today",
-							"detail": "Your Google Cloud project has used its daily YouTube Data API quota. It resets at midnight Pacific — try again then, or request a higher quota in the Cloud console.",
+							"detail": "Your Google Cloud project has used today's YouTube Data API quota: 10,000 units shared by most calls, and since 2026-06-01 a separate 100 calls a day for search. It resets at midnight Pacific; a larger quota needs YouTube's compliance audit.",
 							"url": "https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas",
 							"urlLabel": "Open YouTube API quotas"
 						},
@@ -99,7 +105,7 @@
 						{
 							"match": "invalid_grant|UNAUTHENTICATED|Invalid Credentials|invalid_token",
 							"title": "Reconnect your Google account",
-							"detail": "The stored token is no longer valid — run Connect again to re-authorize."
+							"detail": "The stored token is no longer valid — run Connect again to re-authorize. If this happens every week, the OAuth consent screen is still in Testing: publish it (Audience → Publish app)."
 						}
 					]
 				}
@@ -112,10 +118,10 @@
 					"title": "Search"
 				},
 				{
-					"match": "youtube_get_video",
+					"match": "youtube_get_videos",
 					"use": "summary",
 					"icon": "youtube",
-					"title": "Video"
+					"title": "Videos"
 				},
 				{
 					"match": "youtube_list_playlists",
@@ -169,11 +175,11 @@
 			"tools": [
 				{
 					"name": "youtube_search",
-					"description": "Search YouTube for videos, channels, or playlists by keyword, by relevance, date or views, optionally only recent ones. Returns each result's id, title, kind, channel with its id, and published date."
+					"description": "Search YouTube for videos, channels, or playlists by keyword, by relevance, date or views, optionally only recent ones. Search has its own quota of 100 calls a day."
 				},
 				{
-					"name": "youtube_get_video",
-					"description": "Read one video's full detail by id — title, channel, description, duration, and statistics (views, likes, comments)."
+					"name": "youtube_get_videos",
+					"description": "Read 1 to 50 videos in one call — title, channel, duration, privacy, synthetic-media flag, and public views, likes and comments."
 				},
 				{
 					"name": "youtube_list_playlists",
@@ -193,15 +199,15 @@
 				},
 				{
 					"name": "youtube_post_comment",
-					"description": "Post a public comment on a video or a public reply to an existing comment. Mutating and PUBLIC — confirm the exact target and text first; it cannot be silently undone."
+					"description": "Post a public comment or reply as your channel. Asks you every time; at most 5 a day, and never the same text twice."
 				},
 				{
 					"name": "youtube_get_captions",
-					"description": "List the caption tracks available for a video (language, name, kind). Note: the official API only lets you DOWNLOAD caption text for videos you own."
+					"description": "List the caption tracks on a video. Caption text downloads only for videos you own; for others, use the watch pack."
 				},
 				{
 					"name": "youtube_channel_stats",
-					"description": "Read a channel's public statistics — subscribers, total views, video count — for your own channel (mine) or any channel by id."
+					"description": "Read a channel's public statistics by @handle, channel id, or your own: subscribers, views, video count, and its uploads playlist."
 				}
 			]
 		}

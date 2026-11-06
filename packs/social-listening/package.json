@@ -1,7 +1,7 @@
 {
 	"name": "@inso/social-listening",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Social listening — community pulse, engagement targets, creator prospecting and voice of customer over last30days and the Reddit, X and YouTube connectors",
 	"type": "module",
 	"scripts": {

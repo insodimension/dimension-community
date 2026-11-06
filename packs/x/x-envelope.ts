@@ -1,7 +1,26 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { XReadPost, XSearchPage, XSearchSort } from "./x-reads.js";
+
+export type XSearchSort = "recent" | "top";
+
+export interface XReadPost {
+	readonly id: string;
+	readonly text: string;
+	readonly authorUsername?: string;
+	readonly authorId?: string;
+	readonly createdAt?: string;
+	readonly likeCount?: number;
+	readonly replyCount?: number;
+	readonly retweetCount?: number;
+	readonly quoteCount?: number;
+	readonly conversationId?: string;
+}
+
+export interface XSearchPage {
+	readonly posts: readonly XReadPost[];
+	readonly nextCursor?: string;
+}
 
 export type ResearchDepth = "quick" | "default" | "deep";
 
@@ -176,7 +195,7 @@ export async function collectEnvelope(
 			if (failure !== undefined) break;
 			try {
 				const result = await search(page.query, page.limit, page.sort, page.window);
-				if (result.backend === "official") paidPosts += result.posts.length;
+				paidPosts += result.posts.length;
 				for (const post of result.posts) if (!unique.has(post.id)) unique.set(post.id, post);
 			} catch (error) {
 				failure = error;

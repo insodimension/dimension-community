@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Search YouTube; inspect videos and channels; browse and add to your playlists; read comment threads and post public comments/replies via the YouTube Data API v3. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to your playlists; read comment threads and post public comments/replies via the YouTube Data API v3. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
@@ -29,6 +29,12 @@ No new Cloud project is needed. If you don't have a client yet, follow the
 "Before you connect" steps in the connect modal (create project → enable the
 YouTube Data API v3 → Desktop-app OAuth client → copy creds).
 
+**Publish the OAuth consent screen.** In Google Auth Platform → Audience, press
+**Publish app**. A client left in "Testing" gets refresh tokens that expire
+after 7 days (Google's OAuth documentation), so the connection dies every week.
+For your own client no review is needed; an "unverified app" notice at sign-in
+is expected.
+
 If a call returns "YouTube isn't connected yet", the user hasn't finished the
 OAuth flow — point them at **Plugins → YouTube → Set up**. On an auth error, use
 **Plugins → YouTube → Reconnect**.
@@ -45,18 +51,19 @@ All native, always-on — no bash, no CLI, no MCP server:
   **videos** (default), **channels**, or **playlists**. `order` is `relevance`
   (default), `date` or `viewCount`; `publishedAfter` (YYYY-MM-DD) keeps only
   recent results. Returns `[kind] id  title  — channel [channelId]  date` per
-  line. **Search costs 100 quota units** — the most expensive call; keep
-  `limit` tight. (read)
-- `youtube_get_video({ videoId })` — one video's full detail: title, channel,
-  duration, statistics (views/likes/comments), tags, and description. Use this
-  (not the search summary) when the description or engagement numbers matter.
-  (read)
+  line. **Search has its own bucket of 100 calls a day** (since 2026-06-01);
+  spend it on discovery, not on channels you already know. (read)
+- `youtube_get_videos({ videoIds })` — 1 to 50 videos (ids or watch,
+  `youtu.be` or Shorts URLs) in one 1-unit call: title, published date,
+  duration, privacy, made-for-kids and altered/synthetic flags, public views,
+  likes and comments, and the time they were read. One id adds the channel,
+  tags and description. (read)
 - `youtube_list_playlists({ limit? })` — the connected account's own playlists:
   id, title, item count, privacy status. Grab a playlist id here. (read)
 - `youtube_list_playlist_items({ playlistId, limit? })` — the videos in a
   playlist: position, video id, title, channel, publish date. A channel's
   uploads playlist is its channel id with `UC` replaced by `UU`, which shows how
-  often it posts. (read)
+  often it posts, at 1 unit instead of a search. (read)
 - `youtube_playlist_add({ playlistId, videoId })` — add a video to one of your
   playlists (**mutating, confirm first**). (write)
 - `youtube_list_comments({ videoId, limit? })` — top-level comment threads,
@@ -64,12 +71,15 @@ All native, always-on — no bash, no CLI, no MCP server:
   Quote the comment id to reply. (read)
 - `youtube_post_comment({ text, videoId? | parentCommentId? })` — post a **new
   top-level comment** (`videoId`) OR a **reply** to an existing comment
-  (`parentCommentId`) — exactly one. **Public, mutating, confirm first.** (write)
+  (`parentCommentId`) — exactly one. **Public, mutating, confirm first.** Asks
+  the person in every mode. Refused after 5 comments in a UTC day, and refused
+  when the text shares 80% of its words with any earlier comment: YouTube's spam
+  policy names repetitive comments. (write)
 - `youtube_get_captions({ videoId })` — list the caption **tracks** for a video
-  (language, name, kind). See "Captions & transcripts" — the API does **not**
-  give you the caption text for videos you don't own. (read)
-- `youtube_channel_stats({ channelId? })` — subscribers, total views, video
-  count; omit `channelId` for your own channel. (read)
+  (language, name, kind). See "Captions & transcripts". (read)
+- `youtube_channel_stats({ handle? | channelId? })` — subscribers, total views,
+  video count and the uploads playlist id, by `@handle` or channel id; omit
+  both for your own channel. (read)
 
 Reads are `read`-tier; `youtube_playlist_add` and `youtube_post_comment` are
 `write`-tier and prompt for confirmation.
@@ -77,9 +87,15 @@ Reads are `read`-tier; `youtube_playlist_add` and `youtube_post_comment` are
 ## Usage patterns
 
 - "Find the top talks about X" → `youtube_search({ query: "X", limit: 5 })`,
-  then `youtube_get_video` on the ids you want to summarize.
-- "How's this video doing?" → `youtube_get_video` and report the view/like/
-  comment counts and the like-to-view ratio.
+  then one `youtube_get_videos` call on the ids you want to summarize.
+- "What does @channel post and what works for them?" →
+  `youtube_channel_stats({ handle })` → `youtube_list_playlist_items` on its
+  uploads playlist → `youtube_get_videos` on those ids; compare each video's
+  views to the channel's median.
+- "How's this video doing?" → `youtube_get_videos` for public counts, stamped
+  with the time read. Watch time, average view duration, retention, impressions
+  and CTR live in YouTube Studio (Analytics trails 48-72 hours): read them in
+  the Browser on the channel owner's signed-in profile.
 - "Add this to my Watch Later–style playlist" → `youtube_list_playlists` to
   resolve the title → its id, confirm, then `youtube_playlist_add`.
 - "What are people saying about this video?" → `youtube_list_comments`, then
@@ -87,18 +103,17 @@ Reads are `read`-tier; `youtube_playlist_add` and `youtube_post_comment` are
 - "Reply to that comment" → get the comment id from `youtube_list_comments`,
   confirm the exact reply text, then `youtube_post_comment({ parentCommentId,
   text })`.
-- "How big is this channel?" → `youtube_channel_stats` (with the channelId from
-  a search/video, or omit it for the user's own channel).
+- "How big is this channel?" → `youtube_channel_stats` (by `@handle`, a
+  channel id, or none for the user's own channel).
 
 ## Captions & transcripts
 
 `youtube_get_captions` lists the caption **tracks** (metadata) on a video. The
 official YouTube Data API's `captions.download` endpoint **only works for videos
-the connected account owns** — you cannot pull the transcript text of an
-arbitrary third-party video through this API. If a user asks for the transcript
-of a video they don't own, say so plainly: it is **not available via the
-official API**. Do **not** fabricate a transcript, and do not claim to have read
-captions you couldn't download.
+the connected account owns**. For another channel's video, fetch its captions
+with the watch pack (it pulls public captions without browser cookies). Do
+**not** fabricate a transcript, and do not claim to have read captions you
+couldn't download.
 
 ## Safety
 
@@ -118,22 +133,24 @@ captions you couldn't download.
 
 ## Quota
 
-The YouTube Data API bills per call against a daily project quota (10,000 units
-default). Reads like `videos.list` / `channels.list` are cheap (1 unit);
-**`search.list` is 100 units**; writes are ~50. If a call fails with
-`quotaExceeded`, the project is out for the day (resets midnight Pacific) — avoid
-repeated searches; per-id `youtube_get_video`/`youtube_channel_stats` reads cost
-1 unit each, so several of those are still ~free next to one search.
+As of 2026-11-06 (YouTube Data API quota page and revision history): since
+2026-06-01 `search.list` and `videos.insert` each have their own bucket of 100
+calls a day; every other method shares the project's 10,000 units a day.
+`videos.list`, `channels.list` and `playlistItems.list` cost 1 unit; a comment
+insert costs 50. More quota needs YouTube's compliance audit. On
+`quotaExceeded` the project is out until midnight Pacific.
 
 ## Deliberate exclusions (v1)
 
 These are intentionally **not** implemented — say so honestly if asked, rather
 than pretending:
 
-- **Video upload through the API** (`videos.insert`) — needs a resumable multipart media upload
-  (large binary streaming, distinct machinery). A finished film goes up through YouTube Studio
-  in the person's own browser instead: see the `youtube-package`, `youtube-thumbnail` and
-  `youtube-studio-upload` skills, which need the Browser plugin.
+- **Video upload and metadata edits through the API** — a finished film goes up
+  through YouTube Studio in the person's own signed-in browser: see the
+  `youtube-package`, `youtube-thumbnail` and `youtube-studio-upload` skills,
+  which need the Browser plugin.
+- **Analytics and Reporting APIs** — watch time, retention, impressions and CTR
+  are read in YouTube Studio in the Browser.
 - **Live chat** (`liveChat*`) — requires an active broadcast and long-poll
   streaming, which doesn't fit a request/response tool.
 - **Caption text download** (`captions.download`) — API-restricted to videos you

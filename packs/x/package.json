@@ -1,8 +1,8 @@
 {
 	"name": "@inso/x",
 	"author": "Dimension",
-	"version": "0.2.8",
-	"description": "X (Twitter) connector — research free via x.com web GraphQL with your browser cookies; post/reply/thread/DM via the official X API v2 (OAuth 2.0 PKCE, bring-your-own developer app)",
+	"version": "0.3.0",
+	"description": "X (Twitter) connector — read mentions, posts, threads and search, and post/reply/thread/DM, via the official X API v2 (OAuth 2.0 PKCE, bring-your-own developer app)",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {
@@ -14,16 +14,11 @@
 			"index.ts"
 		]
 	},
-	"dependencies": {
-		"@steipete/sweet-cookie": "~0.4.0"
-	},
 	"files": [
 		"skills/",
 		"rules/",
 		"assets/",
-		"vendor/",
 		"index.ts",
-		"x-reads.ts",
 		"x-envelope.ts",
 		"plugin.json"
 	],
