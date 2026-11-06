@@ -927,7 +927,7 @@
 			"title": "Independent Rail",
 			"icon": "panel",
 			"description": "An example session list built only from the public UI parts, to show how to build your own.",
-			"version": "0.1.4",
+			"version": "0.1.5",
 			"author": {
 				"name": "Dimension"
 			},

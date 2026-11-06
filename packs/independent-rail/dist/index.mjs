@@ -34,17 +34,14 @@ var IndependentRailSection = memo(function IndependentRailSection({ rail, action
 		actions: useMemo(() => /* @__PURE__ */ jsx(FraymRailActions, {
 			actions: railActions,
 			onNewSession: actions.newSession,
-			newSessionAgents: capabilities.agents,
 			newSessionBodies: capabilities.bodies,
 			onNewSessionOn: actions.newSessionOn,
-			onNewSessionAs: actions.newSessionAs,
 			onIntent: actions.intent,
 			activeSurface: facts.mode.activeSurface,
 			space: facts.mode.app
 		}), [
 			railActions,
 			actions,
-			capabilities.agents,
 			capabilities.bodies,
 			facts.mode.activeSurface,
 			facts.mode.app

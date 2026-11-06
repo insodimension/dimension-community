@@ -62,7 +62,7 @@ interface RailSectionProps {
 	/** Every mutation this rail may ask for, as verbs. */
 	readonly actions: RailActions;
 	/** What the host offers a creation gesture. */
-	readonly capabilities: { readonly agents?: unknown; readonly bodies?: unknown };
+	readonly capabilities: { readonly bodies?: unknown };
 	/** The host-resolved space switcher, already elided when it does not apply. */
 	readonly switcher?: ReactNode;
 }
@@ -95,7 +95,6 @@ type RailActions = {
 	openUserMenu: (event: never) => void;
 	sessionContextMenu: ComponentProps<typeof SessionRail>["onSessionContextMenu"];
 	newSession?: (workspace?: never) => void;
-	newSessionAs?: (agentName: string, workspace?: never) => void;
 	newSessionOn?: (harnessId: string, workspace?: never) => void;
 	openWorkspaceFilter?: (workspaceId: string, event: never) => void;
 	selectSession?: ComponentProps<typeof SessionRail>["onSessionClick"];
@@ -157,16 +156,14 @@ export const IndependentRailSection = memo(function IndependentRailSection({
 			<FraymRailActions
 				actions={railActions}
 				onNewSession={actions.newSession as ComponentProps<typeof FraymRailActions>["onNewSession"]}
-				newSessionAgents={capabilities.agents as ComponentProps<typeof FraymRailActions>["newSessionAgents"]}
 				newSessionBodies={capabilities.bodies as ComponentProps<typeof FraymRailActions>["newSessionBodies"]}
 				onNewSessionOn={actions.newSessionOn as ComponentProps<typeof FraymRailActions>["onNewSessionOn"]}
-				onNewSessionAs={actions.newSessionAs as ComponentProps<typeof FraymRailActions>["onNewSessionAs"]}
 				onIntent={actions.intent as ComponentProps<typeof FraymRailActions>["onIntent"]}
 				activeSurface={facts.mode.activeSurface as ComponentProps<typeof FraymRailActions>["activeSurface"]}
 				space={facts.mode.app}
 			/>
 		),
-		[railActions, actions, capabilities.agents, capabilities.bodies, facts.mode.activeSurface, facts.mode.app],
+		[railActions, actions, capabilities.bodies, facts.mode.activeSurface, facts.mode.app],
 	);
 	const sessionBar = useMemo(
 		() => (
