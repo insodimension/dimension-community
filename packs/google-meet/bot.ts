@@ -222,7 +222,8 @@ function createJoinTool(): ToolDefinition<typeof joinSchema> {
 					stdin: "ignore",
 					stdout: logFd,
 					stderr: logFd,
-					detached: true,
+					detached: process.platform !== "win32",
+					windowsHide: true,
 				});
 				proc.unref();
 				pid = proc.pid;
