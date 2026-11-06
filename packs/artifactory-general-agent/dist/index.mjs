@@ -140,7 +140,8 @@ Object.freeze({
 	],
 	hiddenNotice: "Hide",
 	hiddenRecency: [],
-	collapseAfter: 5
+	collapseAfter: 5,
+	pinnedBelow: 3
 });
 Object.freeze({
 	narrow: 560,

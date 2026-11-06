@@ -7021,6 +7021,7 @@ function buildScope(aliases, options) {
 }
 
 // ../../../omp/packages/coding-agent/src/config/agent-manifest.ts
+var REACH_WORDS = { none: true, all: true, space: true };
 var CONTROL_LANE_NAMES = [
   "observe",
   "create",
@@ -7255,15 +7256,14 @@ function narrowWorkspacePolicy(section, filePath) {
     );
   }
   const rawReach = section.reach;
-  const reachList = rawReach === "none" || rawReach === "all" ? void 0 : toStringList(rawReach);
+  const reachList = typeof rawReach === "string" && Object.hasOwn(REACH_WORDS, rawReach) ? void 0 : toStringList(rawReach);
+  const word = reachList?.length === 1 ? reachList[0] : rawReach;
   let reach;
-  if (rawReach === "none" || rawReach === "all") reach = rawReach;
-  else if (reachList && reachList.length === 1 && (reachList[0] === "none" || reachList[0] === "all")) {
-    reach = reachList[0];
-  } else if (reachList?.some((entry2) => entry2 === "none" || entry2 === "all")) {
+  if (typeof word === "string" && Object.hasOwn(REACH_WORDS, word)) reach = word;
+  else if (reachList?.some((entry2) => Object.hasOwn(REACH_WORDS, entry2))) {
     throw new AgentManifestError(
       filePath,
-      `workspace.reach mixes the grant word '${reachList.find((entry2) => entry2 === "none" || entry2 === "all")}' with workspace ids \u2014 write the word alone, or list only ids`
+      `workspace.reach mixes the grant word '${reachList.find((entry2) => Object.hasOwn(REACH_WORDS, entry2))}' with workspace ids \u2014 write the word alone, or list only ids`
     );
   } else reach = reachList;
   const resolved = { policy };

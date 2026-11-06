@@ -42,7 +42,7 @@
 			"title": "General Agents",
 			"icon": "bot",
 			"description": "See every agent you can run as a card with its face and its week at a glance, open one to edit it, or ask the Machinist to draft a new one.",
-			"version": "0.5.3",
+			"version": "0.5.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -157,7 +157,7 @@
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.15",
+			"version": "0.9.16",
 			"author": {
 				"name": "Dimension"
 			},
