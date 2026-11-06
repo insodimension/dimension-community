@@ -11,7 +11,6 @@ const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-// Dynamic with a query, so this file gets its own module instance even when another test file loaded the pack first: the pack resolves its token path from homedir() at module load, after HOME is swapped.
 const { default: discordExtension, automodRuleBody } = await import("../index.ts?discord-tools");
 if (priorHome === undefined) delete process.env.HOME;
 else process.env.HOME = priorHome;
@@ -146,6 +145,21 @@ test("the approval card says who is pinged", () => {
 			.formatApprovalDetails?.({ channelId: "c", content: "hi", mentionUserIds: ["42"] })
 			.join("\n"),
 	).toContain("only users 42");
+});
+
+test("the AutoMod approval card shows what the rule will do: the clamped timeout, the alert channel, presets and the mention limit", () => {
+	const card = (args: Record<string, unknown>) =>
+		tool("discord_create_automod_rule")
+			.formatApprovalDetails?.({ guildId: "g", name: "r", ...args })
+			.join("\n") ?? "";
+	expect(card({ trigger: "keyword", keywords: ["spam.link"], action: "timeout", timeoutSeconds: 9_999_999 })).toContain(
+		"2419200 seconds",
+	);
+	expect(card({ trigger: "keyword", keywords: ["spam.link"], action: "timeout" })).toContain("60 seconds");
+	expect(card({ trigger: "keyword", keywords: ["spam.link"], action: "alert", alertChannelId: "mods-7" })).toContain("mods-7");
+	expect(card({ trigger: "keyword_preset", presets: ["slurs", "profanity"] })).toContain("slurs, profanity");
+	expect(card({ trigger: "mention_spam", mentionLimit: 5 })).toContain("5");
+	expect(card({ trigger: "spam", action: "timeout" })).toContain("keyword and mention_spam");
 });
 
 test("a message over 2000 characters is refused before anything is sent", async () => {

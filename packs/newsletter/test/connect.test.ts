@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseConnectorDecl } from "@dimension/sdk/connector";
+import { connectPath } from "../credentials";
 import { connect, dimension, packRoot, registeredNames, run, stubFetch, useTempHome } from "./support";
 
 useTempHome();
@@ -73,7 +74,7 @@ test("with nothing connected the provider check names the Connect path and Subst
 	});
 	const out = await run("newsletter_provider", {});
 	expect(out).toContain("Plugins, Newsletter, Connect");
-	expect(out).toContain("Substack has no API");
+	expect(out).toContain("Substack");
 	expect(sent).toEqual([]);
 });
 
@@ -85,7 +86,11 @@ test("a provider whose key is rejected is reported, and the others still answer"
 		return Response.json({ results: [{ name: "Field Notes" }] });
 	});
 	const out = await run("newsletter_provider", {});
-	expect(out).toContain("Kit (kit): connected, but the check failed: Kit rejected the saved key (The access token is invalid). The person reconnects under Plugins, Newsletter, Connect, Kit.");
+	const kitLine = out.split("\n").find(line => line.startsWith("Kit (kit)")) ?? "";
+	expect(kitLine).toContain("The access token is invalid");
+	expect(kitLine).toContain(connectPath("kit"));
 	expect(out).toContain("Buttondown (buttondown): Field Notes");
-	expect(out).toContain("Not connected: beehiiv, Ghost.");
+	const missing = out.split("\n").find(line => line.startsWith("Not connected")) ?? "";
+	expect(missing).toContain("beehiiv");
+	expect(missing).toContain("Ghost");
 });

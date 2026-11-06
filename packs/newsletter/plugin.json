@@ -160,7 +160,7 @@
 								"id": "siteUrl",
 								"label": "API URL",
 								"placeholder": "https://yoursite.ghost.io",
-								"help": "The API URL the integration shows: your Ghost admin address."
+								"help": "The API URL the integration shows: your Ghost admin address. It must start with https://, so the Admin API key never travels unencrypted."
 							},
 							{
 								"id": "adminKey",

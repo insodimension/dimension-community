@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +15,6 @@ const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-// Dynamic with a query, so this file gets its own module instance even when another test file loaded the pack first: the pack resolves its token path from homedir() at module load, after HOME is swapped.
 const { default: redditExtension } = await import("../index.ts?reddit-credential");
 if (priorHome === undefined) delete process.env.HOME;
 else process.env.HOME = priorHome;
@@ -159,4 +158,5 @@ test("the token is an app-only grant: no password is ever sent, even from a cred
 	expect(sent.has("password")).toBe(false);
 	expect(sent.has("username")).toBe(false);
 	expect(tokenRequests[0]?.body).not.toContain("old-password");
+	expect(JSON.parse(await readFile(CONFIG_TARGET, "utf-8"))).toEqual(credential("legacy", "secret"));
 });

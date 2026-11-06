@@ -134,17 +134,19 @@ interface BeehiivPost {
 	};
 }
 
+const beehiivPublications = new Map<string, string>();
+
 function beehiiv(cred: BeehiivCredential): NewsletterProvider {
 	const api = "https://api.beehiiv.com/v2";
 	const headers = { Authorization: `Bearer ${cred.access}`, Accept: "application/json" };
-	let publication: string | undefined = cred.publicationId?.trim() || undefined;
 	const publicationId = async (): Promise<string> => {
-		if (publication) return publication;
+		const known = cred.publicationId?.trim() || beehiivPublications.get(cred.access);
+		if (known) return known;
 		const list = await call<{ data?: Array<{ id: string; name?: string }> }>("beehiiv", `${api}/publications?limit=100`, "listing publications", { headers });
 		const found = list?.data ?? [];
 		if (found.length === 1 && found[0]) {
-			publication = found[0].id;
-			return publication;
+			beehiivPublications.set(cred.access, found[0].id);
+			return found[0].id;
 		}
 		if (found.length === 0) throw new Error("This beehiiv key sees no publication.");
 		throw new Error(
@@ -378,7 +380,7 @@ function buttondown(cred: KeyCredential): NewsletterProvider {
 			] as const;
 		},
 		async createDraft(input) {
-			const payload: Record<string, string> = { subject: input.subject, body: input.body, status: "draft" };
+			const payload: Record<string, string> = { subject: input.subject, body: bodyHtml(input.body), status: "draft" };
 			if (input.previewText) payload.description = input.previewText;
 			const email = await call<ButtondownEmail>("buttondown", `${api}/emails`, "creating the draft email", {
 				method: "POST",
@@ -438,7 +440,7 @@ function ghost(cred: GhostCredential): NewsletterProvider {
 			return `${site}${names.length > 0 ? ` (newsletters: ${names.join(", ")})` : ""}`;
 		},
 		async listIssues(filter, limit) {
-			const where = filter === "draft" ? "&filter=status:draft" : filter === "sent" ? "&filter=status:published" : "";
+			const where = filter === "draft" ? "&filter=status:draft" : filter === "sent" ? `&filter=${encodeURIComponent("status:[published,sent]")}` : "";
 			const page = await call<{ posts?: GhostPost[] }>("ghost", `${api}/posts/?limit=${limit}&order=updated_at%20desc&fields=id,title,status,url,published_at,updated_at${where}`, "listing posts", {
 				headers: headers(),
 			});

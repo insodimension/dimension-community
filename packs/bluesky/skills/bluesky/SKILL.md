@@ -26,6 +26,7 @@ documented, fewer observed).
 | `bluesky_find_starter_packs` | no | Starter packs by name, with joins this week and all time. |
 | `bluesky_trends` | no | What is trending now. |
 | `bluesky_my_notifications` | yes | Mentions, replies and quotes by default (`reasons` adds likes, reposts, follows, starter-pack joins). Never marks them read. |
+| `bluesky_link_card` | no | The link card a post's link would show: title, description, image. Public pages only. |
 | `bluesky_publish` | yes | Posts a `bluesky-post` draft the person approved on the board. |
 
 ## Search traps
@@ -47,13 +48,15 @@ the brand's own analytics.
 
 `bluesky_publish` takes the board's `draftId` and the approved option exactly as
 the board holds it: `posts` in order and `media` (`{ path, post, alt }`, images
-only). It refuses with `publish_unapproved`, posting nothing, unless the board's
-approval covers this exact text, these images and this account. It then asks the
-person on an approval card in every mode, uploads images (PNG, JPEG, WebP, under
-2 MB each, metadata stripped), turns links, `@handles` and `#tags` into rich
-text, adds a link card for a post with a link and no image, and chains a thread
-as replies. The receipt is one `bsky.app` link per post; record the first with
-`draft_posted`.
+only). For each post with a link and no image, call `bluesky_link_card` on its
+first link and pass the result with the post's index in `cards`; a post with a
+link and no card there goes up without one. It refuses with
+`publish_unapproved`, posting nothing, unless the board's approval covers this
+exact text, these exact image files and this account. It then asks the person on
+an approval card in every mode, showing every card field, uploads images (PNG,
+JPEG, WebP, under 2 MB each, metadata stripped), turns links, `@handles` and
+`#tags` into rich text, and chains a thread as replies. The receipt is one
+`bsky.app` link per post; record the first with `draft_posted`.
 
 - "already used" means the post may be up: check `bluesky_author_feed`, never
   post it again.

@@ -1,15 +1,20 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
+import dns from "node:dns/promises";
 import { open, readFile, unlink } from "node:fs/promises";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
 import { authed, resolveDid, session, XrpcError } from "./session";
 
-export const POST_GRAPHEMES = 300;
-export const IMAGE_MAX_BYTES = 2_000_000;
+const POST_GRAPHEMES = 300;
+const IMAGE_MAX_BYTES = 2_000_000;
 const THUMB_MAX_BYTES = 1_000_000;
+const PAGE_MAX_BYTES = 1_000_000;
+const MAX_REDIRECTS = 5;
+const FETCH_TIMEOUT_MS = 8000;
 const IMAGES_PER_POST = 4;
 const MAX_APPROVAL_MS = 24 * 60 * 60_000;
 const DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -27,6 +32,9 @@ const PNG_METADATA_CHUNKS: Readonly<Record<string, true>> = {
 	tIME: true,
 };
 const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
+const LINK = /https?:\/\/[^\s<>"]+/g;
+const LINK_TAIL = /[.,;:!?)\]'"]+$/;
+const EXIF_ORIENTATION = 0x0112;
 
 const approvalRecord = type({
 	v: "1",
@@ -49,10 +57,26 @@ const publishSchema = type({
 	})
 		.array()
 		.describe("The draft's images, in the draft's order. At most 4 per post, each under 2 MB."),
+	"cards?": type({
+		post: type("number").describe("0-based index of the post the card rides on: a post with a link and no image."),
+		uri: type("string").describe("The post's first link, as bluesky_link_card returned it."),
+		title: type("string").describe("The card title bluesky_link_card returned."),
+		description: type("string").describe("The card description bluesky_link_card returned."),
+		"image?": type("string").describe("The card image URL bluesky_link_card returned, if any."),
+	})
+		.array()
+		.describe(
+			"Link cards, one per post that has a link and no image, each exactly as bluesky_link_card returned it. The person sees every field before it posts. A post with a link and no card here goes up without one.",
+		),
+});
+
+const linkCardSchema = type({
+	url: type("string").describe("The link the post carries: its first http(s) URL."),
 });
 
 type PublishParams = typeof publishSchema.infer;
 type Media = NonNullable<PublishParams["media"]>[number];
+type Card = NonNullable<PublishParams["cards"]>[number];
 
 interface Facet {
 	index: { byteStart: number; byteEnd: number };
@@ -75,24 +99,14 @@ interface StrongRef {
 	cid: string;
 }
 
-export function approvalsDir(): string {
+function approvalsDir(): string {
 	const insoHome = process.env.INSO_HOME;
 	return insoHome
 		? join(insoHome, "browser", "publish-approvals")
 		: join(homedir(), ".inso", "browser", "publish-approvals");
 }
 
-export function bindingValues(posts: readonly string[], media: readonly Media[]): string[] {
-	return [...posts, ...media.map(item => JSON.stringify([item.post, item.path, item.alt]))];
-}
-
-export function bindingOf(profile: string, values: readonly string[]): string {
-	return createHash("sha256")
-		.update(JSON.stringify(["publish-approval/v1", "https://bsky.app", profile, "bluesky_publish", [...values]]))
-		.digest("hex");
-}
-
-export function graphemeCount(text: string): number {
+function graphemeCount(text: string): number {
 	let count = 0;
 	for (const _ of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) count++;
 	return count;
@@ -124,6 +138,20 @@ function checkDraft(params: PublishParams): void {
 		if ((perPost.get(item.post) ?? 0) > IMAGES_PER_POST)
 			throw new Error(`Post ${item.post + 1} has more than ${IMAGES_PER_POST} images.`);
 	}
+	const carded = new Set<number>();
+	for (const card of params.cards ?? []) {
+		const text = params.posts[card.post];
+		if (!Number.isInteger(card.post) || text === undefined)
+			throw new Error(`A link card rides on post ${card.post}, which the draft does not have.`);
+		if (carded.has(card.post)) throw new Error(`Post ${card.post + 1} has more than one link card.`);
+		carded.add(card.post);
+		if (perPost.has(card.post))
+			throw new Error(`Post ${card.post + 1} carries images, so Bluesky shows no link card on it.`);
+		if (text.match(LINK)?.[0]?.replace(LINK_TAIL, "") !== card.uri)
+			throw new Error(`The link card for post ${card.post + 1} is for ${card.uri}, not the post's first link.`);
+		if (card.image !== undefined && !/^https?:\/\//i.test(card.image))
+			throw new Error(`The link card image ${card.image} is not an http(s) URL.`);
+	}
 }
 
 async function claimApproval(
@@ -132,7 +160,7 @@ async function claimApproval(
 	now: number,
 ): Promise<() => Promise<() => Promise<void>>> {
 	const dir = approvalsDir();
-	const unapproved = `publish_unapproved: no board approval covers this exact Bluesky post (draft ${draftId}, text sha256:${binding.slice(0, 12)}). Post only what the person approved on the campaign board, from the account that draft names, exactly as approved. Nothing was posted.`;
+	const unapproved = `publish_unapproved: no board approval covers this exact Bluesky post (draft ${draftId}, binding sha256:${binding.slice(0, 12)}). Post only what the person approved on the campaign board, from the account that draft names, exactly as approved, with each image file unchanged since Approve. Nothing was posted.`;
 	const raw = await readFile(join(dir, `${draftId}.json`), "utf8").catch(() => null);
 	if (raw === null) throw new Error(unapproved);
 	const parsed = (() => {
@@ -180,6 +208,25 @@ async function claimApproval(
 	};
 }
 
+function exifOrientation(bytes: Uint8Array, start: number, end: number): number | undefined {
+	if (end - start < 14 || Buffer.from(bytes.subarray(start, start + 6)).toString("latin1") !== "Exif\0\0") return undefined;
+	const tiff = start + 6;
+	const order = Buffer.from(bytes.subarray(tiff, tiff + 2)).toString("latin1");
+	if (order !== "II" && order !== "MM") return undefined;
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const little = order === "II";
+	const ifd = tiff + view.getUint32(tiff + 4, little);
+	if (ifd + 2 > end) return undefined;
+	const entries = view.getUint16(ifd, little);
+	for (let entry = ifd + 2; entry + 12 <= end && entry < ifd + 2 + entries * 12; entry += 12) {
+		if (view.getUint16(entry, little) === EXIF_ORIENTATION) {
+			const value = view.getUint16(entry + 8, little);
+			return value >= 1 && value <= 8 ? value : undefined;
+		}
+	}
+	return undefined;
+}
+
 export function stripImageMetadata(bytes: Uint8Array<ArrayBuffer>, mime: string): Uint8Array<ArrayBuffer> {
 	if (mime === "image/jpeg" && bytes[0] === 0xff && bytes[1] === 0xd8) {
 		const kept: Uint8Array[] = [bytes.subarray(0, 2)];
@@ -189,7 +236,17 @@ export function stripImageMetadata(bytes: Uint8Array<ArrayBuffer>, mime: string)
 			if (marker === 0xda) break;
 			const length = ((bytes[at + 2] ?? 0) << 8) | (bytes[at + 3] ?? 0);
 			const end = at + 2 + length;
-			if (marker !== 0xe1 && marker !== 0xfe) kept.push(bytes.subarray(at, end));
+			if (marker === 0xe1) {
+				const orientation = exifOrientation(bytes, at + 4, Math.min(end, bytes.length));
+				if (orientation !== undefined && orientation !== 1)
+					kept.push(
+						Uint8Array.from([
+							0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08,
+							0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, orientation, 0x00, 0x00, 0x00, 0x00, 0x00,
+							0x00,
+						]),
+					);
+			} else if (marker !== 0xfe) kept.push(bytes.subarray(at, end));
 			at = end;
 		}
 		kept.push(bytes.subarray(at));
@@ -216,26 +273,31 @@ export function imageSize(bytes: Uint8Array, mime: string): { width: number; hei
 	if (mime === "image/png" && bytes.length >= 24) return { width: view.getUint32(16), height: view.getUint32(20) };
 	if (mime === "image/jpeg") {
 		let at = 2;
+		let orientation = 1;
 		while (at + 9 < bytes.length && bytes[at] === 0xff) {
 			const marker = bytes[at + 1] ?? 0;
+			const end = at + 2 + view.getUint16(at + 2);
+			if (marker === 0xe1) orientation = exifOrientation(bytes, at + 4, Math.min(end, bytes.length)) ?? orientation;
 			if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-				return { height: view.getUint16(at + 5), width: view.getUint16(at + 7) };
+				const height = view.getUint16(at + 5);
+				const width = view.getUint16(at + 7);
+				return orientation >= 5 ? { width: height, height: width } : { width, height };
 			}
-			at += 2 + view.getUint16(at + 2);
+			at = end;
 		}
 	}
 	return undefined;
 }
 
-export async function facetsOf(text: string): Promise<Facet[]> {
+async function facetsOf(text: string): Promise<Facet[]> {
 	const encoder = new TextEncoder();
 	const span = (start: number, end: number) => ({
 		byteStart: encoder.encode(text.slice(0, start)).length,
 		byteEnd: encoder.encode(text.slice(0, end)).length,
 	});
 	const facets: Facet[] = [];
-	for (const match of text.matchAll(/https?:\/\/[^\s<>"]+/g)) {
-		const uri = match[0].replace(/[.,;:!?)\]'"]+$/, "");
+	for (const match of text.matchAll(LINK)) {
+		const uri = match[0].replace(LINK_TAIL, "");
 		facets.push({
 			index: span(match.index, match.index + uri.length),
 			features: [{ $type: "app.bsky.richtext.facet#link", uri }],
@@ -285,56 +347,173 @@ function metaContent(html: string, key: string): string | undefined {
 	return undefined;
 }
 
-async function linkCard(
-	uri: string,
-): Promise<
-	| {
-			$type: "app.bsky.embed.external";
-			external: { uri: string; title: string; description: string; thumb?: BlobRef };
-	  }
-	| undefined
-> {
-	const page = await fetch(uri, {
-		signal: AbortSignal.timeout(8000),
-		headers: { Accept: "text/html" },
-		redirect: "follow",
-	}).catch(() => null);
-	if (!page?.ok || !(page.headers.get("content-type") ?? "").includes("html")) return undefined;
-	const html = (await page.text()).slice(0, 1_000_000);
+function isPublicIPv4(address: string): boolean {
+	const [a = 0, b = 0, c = 0] = address.split(".").map(Number);
+	return !(
+		a === 0 ||
+		a === 10 ||
+		a === 127 ||
+		a >= 224 ||
+		(a === 100 && b >= 64 && b < 128) ||
+		(a === 169 && b === 254) ||
+		(a === 172 && b >= 16 && b < 32) ||
+		(a === 192 && b === 168) ||
+		(a === 192 && b === 0 && c === 0) ||
+		(a === 198 && (b === 18 || b === 19))
+	);
+}
+
+function isPublicIPv6(address: string): boolean {
+	const lower = address.toLowerCase().replace(/%.*$/, "");
+	const v4 = /(\d+\.\d+\.\d+\.\d+)$/.exec(lower)?.[1];
+	const [head = "", tail = ""] = (v4 ? `${lower.slice(0, -v4.length)}0:0` : lower).split("::");
+	const left = head === "" ? [] : head.split(":").map(group => Number.parseInt(group, 16));
+	const right = tail === "" ? [] : tail.split(":").map(group => Number.parseInt(group, 16));
+	const words = [...left, ...Array<number>(Math.max(0, 8 - left.length - right.length)).fill(0), ...right];
+	const [w0 = 0, w1 = 0, w2 = 0, w3 = 0, w4 = 0, w5 = 0] = words;
+	const upper96Zero = w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0;
+	return !(
+		(upper96Zero && (w5 === 0 || w5 === 0xffff)) ||
+		(w0 === 0x64 && w1 === 0xff9b && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0) ||
+		(w0 & 0xfe00) === 0xfc00 ||
+		(w0 & 0xffc0) === 0xfe80 ||
+		(w0 & 0xff00) === 0xff00
+	);
+}
+
+async function isPublicHost(hostname: string): Promise<boolean> {
+	const host = hostname.replace(/^\[|\]$/g, "");
+	const literal = isIP(host);
+	const addresses =
+		literal === 0
+			? await dns.lookup(host, { all: true, verbatim: true }).catch(() => [])
+			: [{ address: host, family: literal }];
+	return (
+		addresses.length > 0 &&
+		addresses.every(entry => (entry.family === 6 ? isPublicIPv6(entry.address) : isPublicIPv4(entry.address)))
+	);
+}
+
+async function publicFetch(
+	raw: string,
+	accept: string,
+	maxBytes: number,
+	whole: boolean,
+): Promise<{ url: URL; mime: string; bytes: Uint8Array<ArrayBuffer> } | undefined> {
+	let url = URL.canParse(raw) ? new URL(raw) : undefined;
+	for (let hop = 0; url !== undefined && hop <= MAX_REDIRECTS; hop++) {
+		if ((url.protocol !== "https:" && url.protocol !== "http:") || !(await isPublicHost(url.hostname)))
+			return undefined;
+		const res = await fetch(url, {
+			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			headers: { Accept: accept },
+			redirect: "manual",
+		}).catch(() => null);
+		if (res === null) return undefined;
+		if (res.status >= 300 && res.status < 400) {
+			await res.body?.cancel();
+			const location = res.headers.get("location");
+			url = location && URL.canParse(location, url) ? new URL(location, url) : undefined;
+			continue;
+		}
+		const mime = res.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+		const declared = Number(res.headers.get("content-length") ?? "0");
+		if (!res.ok || res.body === null || (whole && declared > maxBytes)) {
+			await res.body?.cancel();
+			return undefined;
+		}
+		const reader = res.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let size = 0;
+		for (;;) {
+			const next = await reader.read().catch(() => null);
+			if (next === null) return undefined;
+			if (next.done) break;
+			chunks.push(next.value);
+			size += next.value.length;
+			if (size > maxBytes) {
+				await reader.cancel();
+				if (whole) return undefined;
+				break;
+			}
+		}
+		return { url, mime, bytes: Buffer.concat(chunks).subarray(0, maxBytes) };
+	}
+	return undefined;
+}
+
+async function cardImage(raw: string): Promise<{ mime: string; bytes: Uint8Array<ArrayBuffer> } | undefined> {
+	const image = await publicFetch(raw, "image/*", THUMB_MAX_BYTES, true);
+	return image?.mime.startsWith("image/") ? image : undefined;
+}
+
+async function fetchCard(uri: string): Promise<Omit<Card, "post"> | undefined> {
+	const page = await publicFetch(uri, "text/html", PAGE_MAX_BYTES, false);
+	if (!page?.mime.includes("html")) return undefined;
+	const html = new TextDecoder().decode(page.bytes);
 	const title = metaContent(html, "og:title") ?? /<title[^>]*>([^<]*)<\/title>/i.exec(html)?.[1]?.trim() ?? "";
 	const description = metaContent(html, "og:description") ?? metaContent(html, "description") ?? "";
-	const external: { uri: string; title: string; description: string; thumb?: BlobRef } = { uri, title, description };
 	const imageUrl = metaContent(html, "og:image");
-	if (imageUrl) {
-		const image = await fetch(new URL(imageUrl, page.url || uri), { signal: AbortSignal.timeout(8000) }).catch(
-			() => null,
+	const image = imageUrl && URL.canParse(imageUrl, page.url) ? new URL(imageUrl, page.url).href : undefined;
+	return {
+		uri,
+		title,
+		description,
+		...(image !== undefined && (await cardImage(image)) !== undefined ? { image } : {}),
+	};
+}
+
+async function embedFor(media: readonly { item: Media; bytes: Uint8Array<ArrayBuffer> }[], card: Card | undefined): Promise<unknown> {
+	if (media.length > 0) {
+		const images = await Promise.all(
+			media.map(async ({ item, bytes: raw }) => {
+				const mime = IMAGE_MIME[extname(item.path).toLowerCase()] ?? "image/png";
+				const bytes = stripImageMetadata(raw, mime);
+				if (bytes.length > IMAGE_MAX_BYTES)
+					throw new Error(
+						`${item.path} is ${bytes.length.toLocaleString("en-US")} bytes; Bluesky takes images up to 2,000,000. Re-render it smaller. Nothing was posted.`,
+					);
+				const size = imageSize(bytes, mime);
+				return { alt: item.alt, image: await uploadBlob(bytes, mime), ...(size ? { aspectRatio: size } : {}) };
+			}),
 		);
-		const mime = image?.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
-		if (image?.ok && mime.startsWith("image/")) {
-			const bytes = new Uint8Array(await image.arrayBuffer());
-			if (bytes.length <= THUMB_MAX_BYTES) external.thumb = await uploadBlob(bytes, mime);
-		}
+		return { $type: "app.bsky.embed.images", images };
+	}
+	if (card === undefined) return undefined;
+	const external: { uri: string; title: string; description: string; thumb?: BlobRef } = {
+		uri: card.uri,
+		title: card.title,
+		description: card.description,
+	};
+	if (card.image !== undefined) {
+		const image = await cardImage(card.image);
+		if (image === undefined)
+			throw new Error(
+				`The link card image ${card.image} could not be fetched as a public image under 1 MB, so nothing was posted and the approval still stands. Get the card again with bluesky_link_card and call again with it.`,
+			);
+		external.thumb = await uploadBlob(image.bytes, image.mime);
 	}
 	return { $type: "app.bsky.embed.external", external };
 }
 
-async function embedFor(text: string, media: readonly Media[]): Promise<unknown> {
-	if (media.length > 0) {
-		const images = [];
-		for (const item of media) {
-			const mime = IMAGE_MIME[extname(item.path).toLowerCase()] ?? "image/png";
-			const bytes = stripImageMetadata(new Uint8Array(await readFile(item.path)), mime);
-			if (bytes.length > IMAGE_MAX_BYTES)
+export function createLinkCardTool(): ToolDefinition<typeof linkCardSchema> {
+	return {
+		name: "bluesky_link_card",
+		label: "Bluesky: Link card",
+		description:
+			"Read the link card Bluesky would show for a link: the page's title, description and image URL. Only public http(s) pages are read. Pass the result, with the post's index, in bluesky_publish's cards for a post with a link and no image; the person sees it on the approval card before anything is posted.",
+		parameters: linkCardSchema,
+		approval: "read",
+		async execute(_toolCallId: string, params: typeof linkCardSchema.infer) {
+			const uri = params.url.trim();
+			const card = await fetchCard(uri);
+			if (card === undefined)
 				throw new Error(
-					`${item.path} is ${bytes.length.toLocaleString("en-US")} bytes; Bluesky takes images up to 2,000,000. Re-render it smaller. Nothing was posted.`,
+					`${uri} gave no link card: it is not a public http(s) HTML page, or it did not answer. Post it without a card.`,
 				);
-			const size = imageSize(bytes, mime);
-			images.push({ alt: item.alt, image: await uploadBlob(bytes, mime), ...(size ? { aspectRatio: size } : {}) });
-		}
-		return { $type: "app.bsky.embed.images", images };
-	}
-	const link = /https?:\/\/[^\s<>"]+/.exec(text)?.[0]?.replace(/[.,;:!?)\]'"]+$/, "");
-	return link ? linkCard(link) : undefined;
+			return { content: [{ type: "text" as const, text: JSON.stringify(card) }] };
+		},
+	};
 }
 
 export function createPublishTool(): ToolDefinition<typeof publishSchema> {
@@ -342,7 +521,7 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 		name: "bluesky_publish",
 		label: "Bluesky: Publish",
 		description:
-			"Publish an APPROVED bluesky-post draft from the connected account: one post or a thread, with its images and alt text, links as rich text and a link card. Pass the draftId and the approved option's posts and media exactly as the board holds them. Refused (publish_unapproved, nothing posted) unless the board's Approve covers this exact text, images and account; an approval is spent once, so a refusal saying it was used means the post may already be up and must never be sent again. Returns each post's bsky.app link.",
+			"Publish an APPROVED bluesky-post draft from the connected account: one post or a thread, with its images and alt text, links as rich text, and a link card for each post listed in cards (get it with bluesky_link_card). Pass the draftId and the approved option's posts and media exactly as the board holds them. Refused (publish_unapproved, nothing posted) unless the board's Approve covers this exact text, these exact image files and this account; an approval is spent once, so a refusal saying it was used means the post may already be up and must never be sent again. Returns each post's bsky.app link.",
 		parameters: publishSchema,
 		approval: PROMPT_EVERY_MODE,
 		formatApprovalDetails(args: unknown) {
@@ -353,29 +532,51 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 				lines.push(`Post ${index + 1}/${parsed.posts.length}:\n${text}`);
 				for (const item of (parsed.media ?? []).filter(media => media.post === index))
 					lines.push(`  Image: ${item.path}\n  Alt: ${item.alt}`);
+				for (const card of (parsed.cards ?? []).filter(entry => entry.post === index))
+					lines.push(
+						`  Link card: ${card.uri}\n  Title: ${card.title}\n  Description: ${card.description}\n  Card image: ${card.image ?? "(none)"}`,
+					);
 			});
 			return lines;
 		},
 		async execute(_toolCallId: string, params: PublishParams) {
 			checkDraft(params);
-			const media = params.media ?? [];
+			const media = await Promise.all(
+				(params.media ?? []).map(async item => {
+					const bytes = new Uint8Array(
+						await readFile(item.path).catch(() => {
+							throw new Error(`${item.path} could not be read. Nothing was posted.`);
+						}),
+					);
+					return { item, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+				}),
+			);
 			const account = await session();
+			const values = [
+				...params.posts,
+				...media.map(({ item, sha256 }) => JSON.stringify([item.post, item.path, sha256, item.alt])),
+			];
 			const spend = await claimApproval(
 				params.draftId,
-				bindingOf(account.handle, bindingValues(params.posts, media)),
+				createHash("sha256")
+					.update(
+						JSON.stringify(["publish-approval/v1", "https://bsky.app", account.handle, "bluesky_publish", values]),
+					)
+					.digest("hex"),
 				Date.now(),
 			);
-			const prepared = [];
-			for (const [index, text] of params.posts.entries()) {
-				const [facets, embed] = await Promise.all([
-					facetsOf(text),
-					embedFor(
-						text,
-						media.filter(item => item.post === index),
-					),
-				]);
-				prepared.push({ text, facets, embed });
-			}
+			const prepared = await Promise.all(
+				params.posts.map(async (text, index) => {
+					const [facets, embed] = await Promise.all([
+						facetsOf(text),
+						embedFor(
+							media.filter(({ item }) => item.post === index),
+							params.cards?.find(card => card.post === index),
+						),
+					]);
+					return { text, facets, embed };
+				}),
+			);
 			const release = await spend();
 			const posted: string[] = [];
 			let root: StrongRef | undefined;
@@ -396,7 +597,14 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 					});
 				} catch (error) {
 					const reason = error instanceof Error ? error.message : String(error);
-					if (posted.length === 0 && error instanceof XrpcError) {
+					if (
+						posted.length === 0 &&
+						error instanceof XrpcError &&
+						error.status >= 400 &&
+						error.status < 500 &&
+						error.status !== 408 &&
+						error.status !== 429
+					) {
 						await release();
 						throw new Error(
 							`${reason}. Bluesky refused post 1, so nothing was posted and the approval still stands; fix the cause and call again.`,
@@ -404,7 +612,7 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 					}
 					if (posted.length === 0)
 						throw new Error(
-							`${reason}. Bluesky never answered, so post 1 may be up: check with bluesky_author_feed before anything else, and never post this draft again.`,
+							`${reason}. Bluesky gave no clear refusal, so post 1 may be up: check with bluesky_author_feed before anything else, and never post this draft again.`,
 						);
 					throw new Error(
 						`${reason}. Posted ${posted.length} of ${prepared.length} before it stopped, so the thread is incomplete: ${posted.join(" ")}. Record draft_posted with the first link and tell the person which posts are missing; never post the draft again.`,

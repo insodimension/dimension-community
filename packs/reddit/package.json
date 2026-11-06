@@ -20,7 +20,8 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"plugin.json"
+		"plugin.json",
+		"README.md"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

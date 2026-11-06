@@ -1,5 +1,6 @@
-import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
+import dns from "node:dns/promises";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,11 +50,17 @@ beforeEach(async () => {
 	calls = [];
 });
 
+const PUBLIC_HOSTS: Record<string, string> = { "brand.com": "93.184.216.34", "cdn.brand.com": "93.184.216.35" };
+const lookup = spyOn(dns, "lookup").mockImplementation((async (host: string) => [
+	{ address: PUBLIC_HOSTS[host] ?? (host === "intranet.corp" ? "10.0.0.7" : "127.0.0.1"), family: 4 },
+]) as never);
+
 afterEach(() => {
 	globalThis.fetch = realFetch;
 });
 
 afterAll(async () => {
+	lookup.mockRestore();
 	for (const name of ENV) {
 		if (prior[name] === undefined) delete process.env[name];
 		else process.env[name] = prior[name];
@@ -234,7 +241,7 @@ function approve(draftId: string, values: string[], over: { expiresInMs?: number
 	});
 }
 
-function publishRoutes(created: unknown[], failFirst = false): Record<string, Handler> {
+function publishRoutes(created: unknown[], failStatus?: number): Record<string, Handler> {
 	return {
 		...identity,
 		"pds.example.net/xrpc/com.atproto.repo.uploadBlob": call =>
@@ -247,10 +254,10 @@ function publishRoutes(created: unknown[], failFirst = false): Record<string, Ha
 				},
 			}),
 		"pds.example.net/xrpc/com.atproto.repo.createRecord": call => {
-			if (failFirst)
+			if (failStatus !== undefined)
 				return Response.json(
 					{ error: "InvalidRequest", message: "Record/text must not be longer than 300 graphemes" },
-					{ status: 400 },
+					{ status: failStatus },
 				);
 			created.push(call.body);
 			return Response.json({
@@ -264,27 +271,28 @@ function publishRoutes(created: unknown[], failFirst = false): Record<string, Ha
 test("publish sends only the exact approved thread, with links as rich text and each post replying to the one before, and spends the approval", async () => {
 	await connect();
 	const image = join(root, "shot.png");
-	await writeFile(image, Buffer.from("89504e470d0a1a0a0000000d49484452000004b0000002760806000000", "hex"));
+	const png = Buffer.from("89504e470d0a1a0a0000000d49484452000004b0000002760806000000", "hex");
+	await writeFile(image, png);
 	const posts = ["Ship day 🚀 see https://brand.com/launch.", "Built with #gamedev friends @ana.bsky.social"];
 	const media = [{ path: image, post: 1, alt: "The editor with the camera rig open" }];
-	await writeFile(join(approvals, "d1.json"), approve("d1", [...posts, JSON.stringify([1, image, media[0]?.alt])]));
+	const cards = [{ post: 0, uri: "https://brand.com/launch", title: "Launch & more", description: "" }];
+	await writeFile(
+		join(approvals, "d1.json"),
+		approve("d1", [...posts, JSON.stringify([1, image, createHash("sha256").update(png).digest("hex"), media[0]?.alt])]),
+	);
 	const created: { record: Record<string, unknown> }[] = [];
-	serve({
-		...publishRoutes(created),
-		"brand.com/launch": () =>
-			new Response(
-				"<html><head><meta property='og:title' content='Launch &amp; more'><title>x</title></head></html>",
-				{ headers: { "content-type": "text/html" } },
-			),
-	});
+	serve(publishRoutes(created));
 
 	await expect(
-		run("bluesky_publish", { draftId: "d1", posts: [posts[0], "Built with #gamedev friends"], media }),
+		run("bluesky_publish", { draftId: "d1", posts: [posts[0], "Built with #gamedev friends"], media, cards }),
 	).rejects.toThrow("publish_unapproved: no board approval covers this exact Bluesky post");
+	await writeFile(image, Buffer.concat([png, Buffer.from([0])]));
+	await expect(run("bluesky_publish", { draftId: "d1", posts, media, cards })).rejects.toThrow("publish_unapproved");
 	expect(created).toHaveLength(0);
 	expect(calls.some(call => call.url.pathname.endsWith("uploadBlob"))).toBe(false);
+	await writeFile(image, png);
 
-	const text = await run("bluesky_publish", { draftId: "d1", posts, media });
+	const text = await run("bluesky_publish", { draftId: "d1", posts, media, cards });
 
 	expect(text).toBe(
 		[
@@ -327,7 +335,7 @@ test("publish sends only the exact approved thread, with links as rich text and 
 		],
 	});
 
-	await expect(run("bluesky_publish", { draftId: "d1", posts, media })).rejects.toThrow(
+	await expect(run("bluesky_publish", { draftId: "d1", posts, media, cards })).rejects.toThrow(
 		"was already used, so this post may already be up",
 	);
 	expect(created).toHaveLength(2);
@@ -338,7 +346,7 @@ test("an expired approval posts nothing, and a post Bluesky refuses gives the ap
 	await writeFile(join(approvals, "old.json"), approve("old", ["hi"], { expiresInMs: -500 }));
 	await writeFile(join(approvals, "d2.json"), approve("d2", ["hello"]));
 	const created: unknown[] = [];
-	serve(publishRoutes(created, true));
+	serve(publishRoutes(created, 400));
 
 	await expect(run("bluesky_publish", { draftId: "old", posts: ["hi"] })).rejects.toThrow("expired at");
 	await expect(run("bluesky_publish", { draftId: "d2", posts: ["hello"] })).rejects.toThrow(
@@ -352,17 +360,135 @@ test("an expired approval posts nothing, and a post Bluesky refuses gives the ap
 	);
 });
 
-test("publish stops for a human in every approval mode and shows every post and image", () => {
+test("a 5xx on post 1 keeps the approval spent, since the post may be up", async () => {
+	await connect();
+	await writeFile(join(approvals, "d3.json"), approve("d3", ["hello"]));
+	const created: unknown[] = [];
+	serve(publishRoutes(created, 502));
+
+	await expect(run("bluesky_publish", { draftId: "d3", posts: ["hello"] })).rejects.toThrow("bluesky_author_feed");
+	serve(publishRoutes(created));
+	await expect(run("bluesky_publish", { draftId: "d3", posts: ["hello"] })).rejects.toThrow("already used");
+	expect(created).toHaveLength(0);
+});
+
+test("publish stops for a human in every approval mode and shows every post, image and link card field", () => {
 	const tool = tools.get("bluesky_publish");
-	const args = { draftId: "d9", posts: ["one", "two"], media: [{ path: "/a.png", post: 1, alt: "a chart" }] };
+	const args = {
+		draftId: "d9",
+		posts: ["see https://brand.com/x", "two"],
+		media: [{ path: "/a.png", post: 1, alt: "a chart" }],
+		cards: [{ post: 0, uri: "https://brand.com/x", title: "Brand X", description: "Ships today", image: "https://cdn.brand.com/x.png" }],
+	};
 	expect(resolveApproval(tool as Parameters<typeof resolveApproval>[0], args, "yolo").policy).toBe("prompt");
-	expect(tool?.formatApprovalDetails?.(args)).toEqual([
-		"Bluesky draft: d9",
-		"Post 1/2:\none",
-		"Post 2/2:\ntwo",
-		"  Image: /a.png\n  Alt: a chart",
-	]);
+	const card = tool?.formatApprovalDetails?.(args).join("\n") ?? "";
+	for (const shown of ["see https://brand.com/x", "two", "/a.png", "a chart", "Brand X", "Ships today", "https://cdn.brand.com/x.png"])
+		expect(card).toContain(shown);
 	for (const tool of tools.values()) if (tool.name !== "bluesky_publish") expect(tool.approval).toBe("read");
+});
+
+test("a link card reads only public pages, at every redirect, and publishes exactly the approved card", async () => {
+	await connect();
+	const thumb = Buffer.from("89504e470d0a1a0a", "hex");
+	const created: { record: { embed?: unknown } }[] = [];
+	serve({
+		...publishRoutes(created),
+		"brand.com/launch": () =>
+			new Response(
+				"<html><head><meta property='og:title' content='Launch &amp; more'><meta property='og:image' content='https://cdn.brand.com/card.png'></head></html>",
+				{ headers: { "content-type": "text/html" } },
+			),
+		"cdn.brand.com/card.png": () => new Response(thumb, { headers: { "content-type": "image/png" } }),
+		"brand.com/hop": () => new Response(null, { status: 302, headers: { location: "http://intranet.corp/admin" } }),
+		"brand.com/big": () =>
+			new Response("<html><head><meta property='og:image' content='https://cdn.brand.com/huge.png'></head></html>", {
+				headers: { "content-type": "text/html" },
+			}),
+		"cdn.brand.com/huge.png": () => new Response(new Uint8Array(1_000_001), { headers: { "content-type": "image/png" } }),
+	});
+
+	const card = JSON.parse(await run("bluesky_link_card", { url: "https://brand.com/launch" }));
+	expect(card).toEqual({
+		uri: "https://brand.com/launch",
+		title: "Launch & more",
+		description: "",
+		image: "https://cdn.brand.com/card.png",
+	});
+	expect(JSON.parse(await run("bluesky_link_card", { url: "https://brand.com/big" })).image).toBeUndefined();
+	const refused = [
+		"http://localhost:8080/",
+		"http://127.0.0.1/",
+		"http://169.254.169.254/latest/meta-data",
+		"http://[::1]/",
+		"http://[fd00::1]/",
+		"http://[::ffff:127.0.0.1]/",
+		"http://intranet.corp/",
+		"https://brand.com/hop",
+		"file:///etc/passwd",
+	];
+	for (const url of refused) {
+		await expect(run("bluesky_link_card", { url })).rejects.toThrow("gave no link card");
+	}
+	expect(calls.some(call => call.url.host !== "brand.com" && call.url.host !== "cdn.brand.com" && !call.url.host.endsWith("bsky.app"))).toBe(false);
+
+	await writeFile(join(approvals, "d4.json"), approve("d4", ["Out now https://brand.com/launch"]));
+	const text = await run("bluesky_publish", {
+		draftId: "d4",
+		posts: ["Out now https://brand.com/launch"],
+		cards: [{ post: 0, ...card }],
+	});
+	expect(text).toContain("Posted 1/1");
+	expect(created[0]?.record.embed).toEqual({
+		$type: "app.bsky.embed.external",
+		external: {
+			uri: "https://brand.com/launch",
+			title: "Launch & more",
+			description: "",
+			thumb: { $type: "blob", ref: { $link: "bafyimage" }, mimeType: "image/png", size: thumb.length },
+		},
+	});
+	await expect(
+		run("bluesky_publish", {
+			draftId: "d4",
+			posts: ["Out now https://brand.com/launch"],
+			cards: [{ post: 0, ...card, uri: "https://brand.com/other" }],
+		}),
+	).rejects.toThrow("not the post's first link");
+});
+
+test("parallel calls share one token refresh", async () => {
+	await connect();
+	let expired = true;
+	serve({
+		...identity,
+		"pds.example.net/xrpc/com.atproto.server.refreshSession": async () => {
+			await Bun.sleep(20);
+			expired = false;
+			return Response.json({ did: DID, handle: "brand.com", accessJwt: "access-2", refreshJwt: "refresh-2" });
+		},
+		"pds.example.net/xrpc/app.bsky.feed.searchPosts": call =>
+			expired || call.headers.get("authorization") !== "Bearer access-2"
+				? Response.json({ error: "ExpiredToken" }, { status: 400 })
+				: Response.json({ posts: [] }),
+	});
+
+	await Promise.all([1, 2, 3].map(() => run("bluesky_search_posts", { query: "camera" })));
+
+	expect(calls.filter(call => call.url.pathname.endsWith("refreshSession"))).toHaveLength(1);
+	expect(calls.filter(call => call.url.pathname.endsWith("createSession"))).toHaveLength(1);
+});
+
+test("bluesky_get_posts resolves each handle once", async () => {
+	serve({
+		...identity,
+		"public.api.bsky.app/xrpc/app.bsky.feed.getPosts": () => Response.json({ posts: [] }),
+	});
+
+	await run("bluesky_get_posts", {
+		posts: [1, 2, 3].map(id => `https://bsky.app/profile/ana.bsky.social/post/${id}`),
+	});
+
+	expect(calls.filter(call => call.url.pathname.endsWith("resolveHandle"))).toHaveLength(1);
 });
 
 test("image metadata is stripped before upload and the size is read from the header", () => {
@@ -377,4 +503,25 @@ test("image metadata is stripped before upload and the size is read from the hea
 	const stripped = stripImageMetadata(jpeg, "image/jpeg");
 	expect(Buffer.from(stripped).includes(Buffer.from("Exif"))).toBe(false);
 	expect(imageSize(stripped, "image/jpeg")).toEqual({ width: 640, height: 480 });
+});
+
+test("a JPEG keeps only its rotation, so a portrait photo stays upright", () => {
+	const exif = Buffer.from([
+		0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x02, 0x00, 0x0f, 0x01, 0x02,
+		0x00, 0x04, 0x00, 0x00, 0x00, 0x41, 0x63, 0x6d, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	]);
+	const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, 0x00, exif.length + 2]), exif]);
+	const sof = Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x01, 0xe0, 0x02, 0x80, 0x01, 0x01, 0x11, 0x00]);
+	const jpeg = Buffer.concat([
+		Buffer.from([0xff, 0xd8]),
+		app1,
+		sof,
+		Buffer.from([0xff, 0xda, 0x00, 0x02, 0x01, 0x02]),
+	]);
+
+	const stripped = stripImageMetadata(jpeg, "image/jpeg");
+
+	expect(Buffer.from(stripped).includes(Buffer.from("Acm"))).toBe(false);
+	expect(imageSize(stripped, "image/jpeg")).toEqual({ width: 480, height: 640 });
 });

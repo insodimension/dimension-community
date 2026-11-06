@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
-import { readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
@@ -42,9 +43,25 @@ async function readCredential(): Promise<StoredCredential> {
 			"Reddit isn't connected. Open Plugins → Reddit → Set up and paste the client id and secret of a Reddit app you already own. Reddit closed new app creation on 2025-11-11, so without one, read Reddit through the Browser pack's signed-in profile instead.",
 		);
 	}
-	const parsed = storedCredential(JSON.parse(raw));
+	const stored: unknown = JSON.parse(raw);
+	const parsed = storedCredential(stored);
 	if (parsed instanceof type.errors) {
 		throw new Error(`Reddit's stored credential at ${CONFIG_TARGET} is malformed. Reconnect the plugin.`);
+	}
+	if (typeof stored === "object" && stored !== null && "password" in stored) {
+		const kept: Record<string, unknown> = { ...stored };
+		delete kept.password;
+		const staging = `${CONFIG_TARGET}.${randomBytes(6).toString("hex")}.tmp`;
+		try {
+			await writeFile(staging, JSON.stringify(kept), { mode: 0o600, flag: "wx" });
+			await rename(staging, CONFIG_TARGET);
+		} catch (error) {
+			throw new Error(
+				`Reddit's stored credential at ${CONFIG_TARGET} still holds the password an older version saved, and it could not be removed (${(error as NodeJS.ErrnoException).code ?? "unknown"}). Reconnect the plugin under Plugins → Reddit.`,
+			);
+		} finally {
+			await rm(staging, { force: true });
+		}
 	}
 	return parsed;
 }

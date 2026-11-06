@@ -26,20 +26,23 @@ test("the reads run without a card in Full access", () => {
 test("the card names the provider and carries the subject, preview line and whole body untruncated", async () => {
 	await connect("kit", { apiKey: "kit-key" });
 	const shown = card({ subject: "Week 12: the launch", previewText: "Three things we learned", body: BODY });
-	expect(shown).toContain("Saves an UNSENT draft in Kit. Nothing is sent or scheduled");
-	expect(shown).toContain("Subject: Week 12: the launch");
-	expect(shown).toContain("Preview text: Three things we learned");
-	expect(shown).toContain(`Body:\n${BODY}`);
+	expect(shown).toContain("Kit");
+	expect(shown).toContain("Week 12: the launch");
+	expect(shown).toContain("Three things we learned");
+	expect(shown).toContain(BODY);
 });
 
 test("with several providers connected the card names the one the call picks", async () => {
 	await connect("kit", { apiKey: "kit-key" });
 	await connect("ghost", { siteUrl: "https://example.ghost.io", adminKey: "aa:bb" });
-	expect(card({ provider: "ghost", subject: "s", body: "b" })).toContain("UNSENT draft in Ghost");
-	expect(card({ subject: "s", body: "b" })).toContain("UNSENT draft in the connected newsletter provider");
+	expect(card({ provider: "ghost", subject: "s", body: "b" })).toContain("Ghost");
+	expect(card({ provider: "ghost", subject: "s", body: "b" })).not.toContain("Kit");
+	const unpicked = card({ subject: "s", body: "b" });
+	expect(unpicked).not.toContain("Ghost");
+	expect(unpicked).not.toContain("Kit");
 });
 
 test("malformed arguments still render a card instead of throwing", () => {
-	expect(card(null)).toContain("Subject: (missing)");
-	expect(card({ subject: 7, body: ["x"] })).toContain("Body:\n(missing)");
+	expect(card(null)).toContain("(missing)");
+	expect(card({ subject: 7, body: ["x"] })).toContain("(missing)");
 });

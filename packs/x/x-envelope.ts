@@ -19,6 +19,7 @@ export interface XReadPost {
 
 export interface XSearchPage {
 	readonly posts: readonly XReadPost[];
+	readonly billed: number;
 	readonly nextCursor?: string;
 }
 
@@ -195,7 +196,7 @@ export async function collectEnvelope(
 			if (failure !== undefined) break;
 			try {
 				const result = await search(page.query, page.limit, page.sort, page.window);
-				paidPosts += result.posts.length;
+				paidPosts += result.billed;
 				for (const post of result.posts) if (!unique.has(post.id)) unique.set(post.id, post);
 			} catch (error) {
 				failure = error;

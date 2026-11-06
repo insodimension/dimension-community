@@ -36,7 +36,7 @@ function post(id: string, author: string, extra: Partial<XReadPost> = {}): XRead
 	};
 }
 
-function recordingSearch(pages: (call: SearchCall) => XSearchPage | Error): {
+function recordingSearch(pages: (call: SearchCall) => Omit<XSearchPage, "billed"> | XSearchPage | Error): {
 	search: SearchPageFn;
 	calls: SearchCall[];
 } {
@@ -48,7 +48,7 @@ function recordingSearch(pages: (call: SearchCall) => XSearchPage | Error): {
 			calls.push(call);
 			const page = pages(call);
 			if (page instanceof Error) throw page;
-			return page;
+			return { billed: page.posts.length, ...page };
 		},
 	};
 }
@@ -188,14 +188,16 @@ test("the first failure stops the run: rows so far are kept as partial; a failur
 	expect(dead.calls).toHaveLength(1);
 });
 
-test("every post a call returns is counted so the billed cost can be stated", async () => {
+test("every post X bills a call for is counted, not only the ones kept, so the billed cost can be stated", async () => {
 	const { search } = recordingSearch(call =>
-		call.sort === "recent" ? { posts: [post("600", "jo"), post("601", "kai")] } : { posts: [post("602", "lee")] },
+		call.sort === "recent"
+			? { posts: [post("600", "jo"), post("601", "kai")], billed: 10 }
+			: { posts: [post("602", "lee")], billed: 10 },
 	);
 
 	const { paidPosts } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
 
-	expect(paidPosts).toBe(5);
+	expect(paidPosts).toBe(40);
 });
 
 test("the envelope never exceeds the engine's twenty-call limit", async () => {

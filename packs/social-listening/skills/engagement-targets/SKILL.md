@@ -28,8 +28,12 @@ Search for questions and pain, not for the brand: "looking for", "how do I",
 - **Reddit**: `reddit_search` (time `day` or `week`, sort `new`, and again sort
   `comments`) and `reddit_subreddit_posts` (sort `new` and `rising`) on known
   watering holes. Open the strongest with `reddit_read_post`.
-- **X**: `x_search` with the phrases plus `-is:retweet` (sort `recent`, then sort
-  `top` for the day), and `x_read_thread` for context. X reaches the last 7 days.
+- **X**: every X read is billed ($0.005 per post X returns, at least 10 posts a
+  call). Before the first call, state the estimate (calls planned × posts each ×
+  $0.005) and ask the person; only on their yes run `x_search` with the phrases
+  plus `-is:retweet` (sort `recent`, then sort `top` for the day) and
+  `x_read_thread` for context. Without a yes, X is not covered. X reaches the
+  last 7 days.
 - **YouTube**: `youtube_search` (order `date`, publishedAfter about 7 days ago) on
   the problem and on tutorials in the niche; one `youtube_get_videos` call for views
   and comment counts; `youtube_list_comments` for open questions a reply could answer.

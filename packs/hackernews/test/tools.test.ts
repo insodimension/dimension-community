@@ -36,6 +36,22 @@ async function run(name: string, params: Record<string, unknown>): Promise<strin
 
 const now = Math.floor(Date.now() / 1000);
 
+function algoliaPages(all: { created_at_i: number }[]): (url: URL) => unknown {
+	const newestFirst = [...all].sort((a, b) => b.created_at_i - a.created_at_i);
+	return url => {
+		const floor = Number(/created_at_i>(-?\d+)/.exec(url.searchParams.get("numericFilters") ?? "")?.[1] ?? Number.NEGATIVE_INFINITY);
+		const matching = newestFirst.filter(hit => hit.created_at_i > floor);
+		const size = Number(url.searchParams.get("hitsPerPage"));
+		const page = Number(url.searchParams.get("page") ?? "0");
+		return {
+			hits: matching.slice(page * size, (page + 1) * size),
+			nbHits: matching.length,
+			page,
+			nbPages: Math.ceil(matching.length / size),
+		};
+	};
+}
+
 test("every tool is a keyless read", () => {
 	expect([...tools.keys()].sort()).toEqual([
 		"hn_domain",
@@ -277,12 +293,12 @@ test("a launch watch returns comments after the cursor oldest first, the story's
 
 	const search = requested.find(url => url.pathname.endsWith("/search_by_date"));
 	expect(search?.searchParams.get("tags")).toBe("comment,story_500");
-	expect(search?.searchParams.get("numericFilters")).toBe(`created_at_i>${now - 3600}`);
+	expect(search?.searchParams.get("numericFilters")).toBe(`created_at_i>${now - 3600 - 120}`);
 	expect(text).toContain("33 points  12 comments  2h old  #3 on top, #1 on show");
 	expect(text.indexOf("510  early")).toBeLessThan(text.indexOf("511  late"));
 	expect(text).toContain("on the story: nice");
 	expect(text).toContain("reply to 510: how does it scale?");
-	expect(text).toContain(`Cursor: ${now - 60}`);
+	expect(text).toContain(`Cursor: ${now - 60}:511`);
 });
 
 test("a launch watch with more new comments than the limit returns the oldest ones, so the next call skips none", async () => {
@@ -296,8 +312,8 @@ test("a launch watch with more new comments than the limit returns the oldest on
 		},
 		"hacker-news.firebaseio.com/v0/topstories.json": [600],
 		"hacker-news.firebaseio.com/v0/showstories.json": [],
-		"hn.algolia.com/api/v1/search_by_date": {
-			hits: [3, 2, 1].map(n => ({
+		"hn.algolia.com/api/v1/search_by_date": algoliaPages(
+			[3, 2, 1].map(n => ({
 				objectID: `60${n}`,
 				author: `u${n}`,
 				comment_text: `c${n}`,
@@ -305,10 +321,7 @@ test("a launch watch with more new comments than the limit returns the oldest on
 				story_id: 600,
 				created_at_i: now - 100 + n,
 			})),
-			nbHits: 3,
-			page: 0,
-			nbPages: 1,
-		},
+		),
 	});
 
 	const text = await run("hn_thread_since", { story: 600, since: now - 1000, limit: 2 });
@@ -317,5 +330,40 @@ test("a launch watch with more new comments than the limit returns the oldest on
 	expect(text).toContain("602  u2");
 	expect(text).not.toContain("603  u3");
 	expect(text).toContain("(1 newer not shown)");
-	expect(text).toContain(`Cursor: ${now - 98} (call again with it for the next comments)`);
+	expect(text).toContain(`Cursor: ${now - 98}:602,601 (call again with it for the next comments)`);
+	expect(requested.every(url => !url.pathname.endsWith("/search_by_date") || Number(url.searchParams.get("hitsPerPage")) <= 2)).toBe(true);
+});
+
+test("the next poll catches a comment indexed after the cursor passed its time, and never repeats one already shown", async () => {
+	const comment = (objectID: string, created_at_i: number) => ({
+		objectID,
+		author: `u${objectID}`,
+		comment_text: `c${objectID}`,
+		parent_id: 700,
+		story_id: 700,
+		created_at_i,
+	});
+	const cursorTime = now - 300;
+	serve({
+		"hacker-news.firebaseio.com/v0/item/700.json": { id: 700, title: "Watch", score: 5, descendants: 4, time: now - 7200 },
+		"hacker-news.firebaseio.com/v0/topstories.json": [],
+		"hacker-news.firebaseio.com/v0/showstories.json": [],
+		"hn.algolia.com/api/v1/search_by_date": algoliaPages([
+			comment("701", cursorTime - 10),
+			comment("702", cursorTime),
+			comment("703", cursorTime - 40),
+			comment("704", cursorTime + 10),
+		]),
+	});
+
+	const text = await run("hn_thread_since", { story: 700, since: `${cursorTime}:701,702` });
+
+	expect(text).toContain("703  u703");
+	expect(text).toContain("704  u704");
+	expect(text).not.toContain("701  u701");
+	expect(text).not.toContain("702  u702");
+	const next = /Cursor: (\S+)/.exec(text)?.[1] ?? "";
+	requested.length = 0;
+	const again = await run("hn_thread_since", { story: 700, since: next });
+	expect(again).not.toMatch(/70[1-4] {2}u/);
 });

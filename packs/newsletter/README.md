@@ -29,13 +29,13 @@ Off by default; loads in every space once on. You need an account on one of the 
 - beehiiv: a workspace API key. Saving drafts needs a plan with the create-post API (Pro or Enterprise); reading stats works on every plan.
 - Kit: a V4 API key (Settings, Developer). Works on the free plan.
 - Buttondown: the API key from Settings, API. The API is part of Buttondown's paid plans.
-- Ghost: the Admin API key and API URL of a custom integration.
+- Ghost: the Admin API key and the https API URL of a custom integration.
 
 ## Limits and risks
 
 - It cannot send, schedule or publish. `newsletter_issue_draft` creates a draft only (beehiiv `status: draft`, Kit `send_at: null` and not public, Buttondown `status: draft`, Ghost `status: draft` with no newsletter attached). If the provider answers with anything but a draft, the tool fails and names where to check it.
 - Saving a draft asks you first in every permission mode, Full access included, and the card shows the provider, the subject, the preview line and the whole body.
-- The body goes in as plain text with paragraphs and links (simple HTML for beehiiv, Kit and Ghost; Markdown for Buttondown). Add images and buttons in the provider's editor.
+- The body goes in as plain text with paragraphs and links, sent to every provider as the same simple escaped HTML. Add images and buttons in the provider's editor.
 - Kit has no stable link to one draft, so the result points to Kit's Broadcasts page and names the draft's id.
 - It reads counts only, never subscriber addresses. Open counts are inflated by Apple Mail Privacy Protection and missing for some EU readers; the tools say so beside every open figure.
 - Your keys stay on this machine. A Ghost Admin API key can do anything an integration can on your site; this plugin only creates draft posts and reads posts, newsletters and member counts with it.

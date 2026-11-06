@@ -124,6 +124,12 @@
 					"title": "Bluesky notifications"
 				},
 				{
+					"match": "bluesky_link_card",
+					"use": "summary",
+					"icon": "bluesky",
+					"title": "Bluesky link card"
+				},
+				{
 					"match": "bluesky_publish",
 					"use": "summary",
 					"icon": "bluesky",
@@ -178,8 +184,12 @@
 					"description": "Read your account's mentions, replies and quotes (or likes, reposts, follows) without marking them read."
 				},
 				{
+					"name": "bluesky_link_card",
+					"description": "Read the link card a post would show for a link: the page's title, description and image. Public pages only. No account needed."
+				},
+				{
 					"name": "bluesky_publish",
-					"description": "Publish a post or thread you approved on Traction's campaign board, with its images and alt text. It refuses anything the board did not approve, and asks you before it sends."
+					"description": "Publish a post or thread you approved on Traction's campaign board, with its images, alt text and link cards. It refuses anything the board did not approve, and asks you before it sends, showing every post, image and link card."
 				}
 			]
 		}

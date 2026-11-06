@@ -1015,7 +1015,7 @@
 			"title": "last30days",
 			"icon": "packs/last30days/assets/icon.svg",
 			"description": "Research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News and the web.",
-			"version": "0.2.1",
+			"version": "0.2.2",
 			"author": {
 				"name": "Dimension"
 			},

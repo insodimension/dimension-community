@@ -20,7 +20,8 @@
 		"assets/",
 		"index.ts",
 		"x-envelope.ts",
-		"plugin.json"
+		"plugin.json",
+		"README.md"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

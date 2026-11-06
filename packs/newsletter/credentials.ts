@@ -16,7 +16,7 @@ export const PROVIDER_LABEL: Readonly<Record<ProviderId, string>> = {
 
 const keyCredential = type({ access: "string > 0" });
 const beehiivCredential = type({ access: "string > 0", "publicationId?": "string" });
-const ghostCredential = type({ access: /^[0-9a-f]+:[0-9a-f]+$/i, url: /^https?:\/\/\S+$/ });
+const ghostCredential = type({ access: /^[0-9a-f]+:[0-9a-f]+$/i, url: /^https:\/\/\S+$/i });
 
 export type KeyCredential = typeof keyCredential.infer;
 export type BeehiivCredential = typeof beehiivCredential.infer;
@@ -93,6 +93,9 @@ export async function readCredential<P extends ProviderId>(id: P): Promise<Crede
 		typeof json === "object" && json !== null
 			? Object.fromEntries(Object.entries(json).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]))
 			: json;
+	if (id === "ghost" && typeof trimmed === "object" && trimmed !== null && /^http:\/\//i.test(String(Reflect.get(trimmed, "url")))) {
+		throw new Error(`The saved Ghost API URL is http, which would send the Admin API key unencrypted. Reconnect under ${connectPath(id)} with the site's https address.`);
+	}
 	const parsed = SCHEMA[id](trimmed);
 	if (parsed instanceof type.errors) {
 		throw new Error(`The saved ${PROVIDER_LABEL[id]} key is unreadable. Reconnect under ${connectPath(id)}.`);

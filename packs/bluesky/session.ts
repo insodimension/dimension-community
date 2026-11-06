@@ -1,10 +1,13 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdir, open as openFile, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { type } from "arktype";
 
-export const PUBLIC_APPVIEW = "https://public.api.bsky.app/xrpc";
+const execFileAsync = promisify(execFile);
+const PUBLIC_APPVIEW = "https://public.api.bsky.app/xrpc";
 const APPVIEW_PROXY = "did:web:api.bsky.app#bsky_appview";
 
 const storedCredential = type({ handle: "string > 0", appPassword: "string > 0" });
@@ -39,19 +42,21 @@ export class XrpcError extends Error {
 	}
 }
 
-export function configDir(): string {
+function configDir(): string {
 	return join(homedir(), ".config", "dimension-bluesky");
 }
 
 let current: BlueskySession | null = null;
 let pending: Promise<BlueskySession> | null = null;
+let refreshing: Promise<BlueskySession> | null = null;
 
 export function forgetSession(): void {
 	current = null;
 	pending = null;
+	refreshing = null;
 }
 
-export function queryString(query: Query): string {
+function queryString(query: Query): string {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(query)) {
 		if (value === undefined) continue;
@@ -117,12 +122,40 @@ async function resolvePds(handle: string): Promise<string> {
 		service => service.id === "#atproto_pds" || service.type === "AtprotoPersonalDataServer",
 	)?.serviceEndpoint;
 	if (typeof endpoint !== "string") throw new Error(`${handle} (${did}) names no PDS in its DID document.`);
+	if (!/^https:\/\/[^/\s]+/i.test(endpoint))
+		throw new Error(
+			`${handle} (${did}) names a PDS that is not https (${endpoint}), so the app password is not sent to it.`,
+		);
 	return endpoint.replace(/\/+$/, "");
 }
 
+async function onlyTheUser(file: string): Promise<void> {
+	if (process.platform !== "win32") return;
+	const user =
+		process.env.USERDOMAIN && process.env.USERNAME
+			? `${process.env.USERDOMAIN}\\${process.env.USERNAME}`
+			: process.env.USERNAME;
+	if (user === undefined) throw new Error("no Windows user name to restrict the Bluesky session file to");
+	await execFileAsync("icacls", [file, "/inheritance:r", "/grant:r", `${user}:F`], { windowsHide: true });
+}
+
 async function save(session: BlueskySession): Promise<BlueskySession> {
-	await mkdir(configDir(), { recursive: true });
-	await writeFile(join(configDir(), "session.json"), JSON.stringify(session), { mode: 0o600 });
+	await mkdir(configDir(), { recursive: true, mode: 0o700 });
+	const target = join(configDir(), "session.json");
+	const staging = `${target}.${randomBytes(6).toString("hex")}.tmp`;
+	try {
+		const handle = await openFile(staging, "wx", 0o600);
+		try {
+			await onlyTheUser(staging);
+			await handle.writeFile(JSON.stringify(session));
+			await handle.sync();
+		} finally {
+			await handle.close();
+		}
+		await rename(staging, target);
+	} finally {
+		await rm(staging, { force: true });
+	}
 	current = session;
 	return session;
 }
@@ -185,6 +218,7 @@ async function open(): Promise<BlueskySession> {
 }
 
 export function session(): Promise<BlueskySession> {
+	if (refreshing) return refreshing;
 	pending ??= open().finally(() => {
 		pending = null;
 	});
@@ -192,10 +226,11 @@ export function session(): Promise<BlueskySession> {
 }
 
 function renewed(stale: BlueskySession): Promise<BlueskySession> {
-	pending ??= refresh(stale).finally(() => {
-		pending = null;
+	if (current && current.accessJwt !== stale.accessJwt) return Promise.resolve(current);
+	refreshing ??= refresh(stale).finally(() => {
+		refreshing = null;
 	});
-	return pending;
+	return refreshing;
 }
 
 export async function authed<T>(
@@ -225,7 +260,6 @@ export async function authed<T>(
 		if (res.ok) return (await res.json()) as T;
 		const error = await failure(res, method);
 		if (attempt === 0 && (error.code === "ExpiredToken" || error.code === "InvalidToken" || res.status === 401)) {
-			current = null;
 			active = await renewed(active);
 			continue;
 		}

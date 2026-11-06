@@ -34,8 +34,8 @@ As of 2026-11-06.
 | Substack | none | none by this plugin | no public write API: paste hand-off [practitioner] [11] |
 
 The body is sent as written: plain text with blank lines between paragraphs and bare
-https links (beehiiv, Kit and Ghost get it as simple HTML; Buttondown takes it as
-Markdown). The person adds images and buttons in the provider's editor.
+https links, sent to every provider as the same simple escaped HTML. The person adds
+images and buttons in the provider's editor.
 
 ## Reading the numbers
 

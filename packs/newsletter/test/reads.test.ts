@@ -86,6 +86,13 @@ test("listing maps draft and sent to each provider's own status words, newest fi
 	expect(second[0]?.url).toBe("https://api.buttondown.com/v1/emails?status=draft");
 });
 
+test("Ghost's sent list includes issues sent as email only, not just published posts", async () => {
+	await connect("ghost", { siteUrl: "https://example.ghost.io", adminKey: "aa:bb" });
+	const sent = stubFetch(() => Response.json({ posts: [] }));
+	await run("newsletter_list_issues", { status: "sent" });
+	expect(new URL(sent[0]?.url ?? "").searchParams.get("filter")).toBe("status:[published,sent]");
+});
+
 test("audience: counts by kind, and unknown where the provider gives none", async () => {
 	await connect("ghost", { siteUrl: "https://example.ghost.io", adminKey: "aa:bb" });
 	stubFetch(request => {

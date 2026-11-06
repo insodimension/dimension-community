@@ -56,6 +56,8 @@ test("a search asks X for at least its minimum of ten posts and returns only the
 	expect(Number(search?.searchParams.get("max_results"))).toBeGreaterThanOrEqual(10);
 	const rows = (result?.content[0]?.text ?? "").split("\n").filter(line => /^\d{19}\s/.test(line));
 	expect(rows).toHaveLength(5);
+	const billed = Number(search?.searchParams.get("max_results"));
+	expect(result?.content[0]?.text).toContain(`$${(billed * 0.005).toFixed(3)}`);
 });
 
 test("web search spellings reach the API in its own operators, the day operators as the window, and the output names the query sent", async () => {

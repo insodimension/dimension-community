@@ -335,10 +335,10 @@ function billedLine(count: number, query: string): string {
 }
 
 function renderPosts(page: XSearchPage, emptyMsg: string, query: string): string {
-	if (page.posts.length === 0) return `${emptyMsg}\n${billedLine(0, query)}`;
+	if (page.posts.length === 0) return `${emptyMsg}\n${billedLine(page.billed, query)}`;
 	const lines = page.posts.map(formatPostLine);
 	if (page.nextCursor) lines.push(`\n[more available — pass cursor: "${page.nextCursor}"]`);
-	lines.push(billedLine(page.posts.length, query));
+	lines.push(billedLine(page.billed, query));
 	return lines.join("\n");
 }
 
@@ -420,6 +420,7 @@ async function searchPage(
 	return {
 		...api,
 		posts: officialPosts(payload).slice(0, limit),
+		billed: payload.data?.length ?? 0,
 		...(payload.meta?.next_token ? { nextCursor: payload.meta.next_token } : {}),
 	};
 }
@@ -692,7 +693,7 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 		name: "x_search",
 		label: "X: Search",
 		description:
-			'Search public posts from the LAST 7 DAYS on the official X API, billed $0.005 per post returned, so state the limit deliberately. Operators: "from:user", "to:user", "#tag", "url:domain.com", "-is:retweet", "is:reply", "has:links", "lang:en", "min_likes:10", "min_reposts:5", quoted phrases. Web-search spellings are translated before the call (min_faves→min_likes, min_retweets→min_reposts, filter:replies→is:reply, filter:links→has:links, filter:media→has:media; since:/until: become the day window), and the output names the query sent. sort "top" is the popular pass (X\'s most-engaged ranking); since/until narrow it to days. Posts older than 7 days: read x.com advanced search in the Browser on the brand\'s profile (see the x skill).',
+			'Search public posts from the LAST 7 DAYS on the official X API, billed $0.005 per post X returns and at least 10 posts per call, so state the limit deliberately; the output states the posts billed. Operators: "from:user", "to:user", "#tag", "url:domain.com", "-is:retweet", "is:reply", "has:links", "lang:en", "min_likes:10", "min_reposts:5", quoted phrases. Web-search spellings are translated before the call (min_faves→min_likes, min_retweets→min_reposts, filter:replies→is:reply, filter:links→has:links, filter:media→has:media; since:/until: become the day window), and the output names the query sent. sort "top" is the popular pass (X\'s most-engaged ranking); since/until narrow it to days. Posts older than 7 days: read x.com advanced search in the Browser on the brand\'s profile (see the x skill).',
 		parameters: searchSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof searchSchema.infer) {

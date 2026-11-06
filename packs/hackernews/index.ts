@@ -7,6 +7,7 @@ const FIREBASE = "https://hacker-news.firebaseio.com/v0";
 const SITE = "https://news.ycombinator.com";
 const ALGOLIA_HIT_CAP = 1000;
 const DAY_S = 86_400;
+const INDEX_LAG_S = 120;
 const ENTITIES: Readonly<Record<string, string>> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
 interface AlgoliaHit {
@@ -64,7 +65,7 @@ interface FirebaseUser {
 	submitted?: number[];
 }
 
-export const FRONT_LISTS = ["top", "new", "best", "show", "ask", "job"] as const;
+const FRONT_LISTS = ["top", "new", "best", "show", "ask", "job"] as const;
 type FrontList = (typeof FRONT_LISTS)[number];
 
 async function getJson<T>(url: string, what: string): Promise<T> {
@@ -85,7 +86,7 @@ async function getJson<T>(url: string, what: string): Promise<T> {
 	return (await res.json()) as T;
 }
 
-export function plainText(html: string | null | undefined): string {
+function plainText(html: string | null | undefined): string {
 	return (html ?? "")
 		.replace(/<a\s[^>]*href="([^"]*)"[^>]*>.*?<\/a>/gis, "$1")
 		.replace(/<p>/gi, " ¶ ")
@@ -126,7 +127,7 @@ function unixOf(value: string, field: string): number {
 	return Math.floor(ms / 1000);
 }
 
-export function itemIdOf(raw: string | number): number {
+function itemIdOf(raw: string | number): number {
 	const text = String(raw).trim();
 	const fromUrl = /[?&]id=(\d+)/.exec(text)?.[1];
 	const id = Number(fromUrl ?? text);
@@ -134,7 +135,7 @@ export function itemIdOf(raw: string | number): number {
 	return id;
 }
 
-export function exactQuery(query: string): string {
+function exactQuery(query: string): string {
 	if (query.includes('"')) return query;
 	return query
 		.trim()
@@ -217,7 +218,7 @@ const domainSchema = type({
 const threadSinceSchema = type({
 	story: type("string | number").describe("The story's item id or URL."),
 	"since?": type("string | number").describe(
-		"The cursor from the previous call (unix seconds) or a date/ISO time. Absent = the newest comments.",
+		"The cursor from the previous call, exactly as returned, or a date/ISO time. Absent = the newest comments.",
 	),
 	"limit?": type("number").describe("Comments to return, 1-200 (default 50)."),
 });
@@ -304,7 +305,7 @@ function countNodes(nodes: readonly AlgoliaNode[]): number {
 	return total;
 }
 
-export function rankedChildren(children: readonly AlgoliaNode[], kids: readonly number[] | undefined): AlgoliaNode[] {
+function rankedChildren(children: readonly AlgoliaNode[], kids: readonly number[] | undefined): AlgoliaNode[] {
 	const rank = new Map((kids ?? []).map((id, index) => [id, index]));
 	return [...children].sort(
 		(a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
@@ -431,7 +432,7 @@ function createFrontTool(): ToolDefinition<typeof frontSchema> {
 	};
 }
 
-export function domainTarget(raw: string): { domain: string; page?: string } {
+function domainTarget(raw: string): { domain: string; page?: string } {
 	const text = raw.trim();
 	const url = (() => {
 		try {
@@ -504,31 +505,53 @@ function createThreadSinceTool(): ToolDefinition<typeof threadSinceSchema> {
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof threadSinceSchema.infer) {
 			const id = itemIdOf(params.story);
-			const since =
-				params.since === undefined
-					? undefined
-					: typeof params.since === "number" || /^\d+$/.test(params.since)
-						? Number(params.since)
-						: unixOf(params.since, "since");
+			const raw = params.since === undefined ? undefined : String(params.since).trim();
+			const cursorParts = raw === undefined ? null : /^(\d+)(?::([\d,]*))?$/.exec(raw);
+			const since = raw === undefined ? undefined : cursorParts ? Number(cursorParts[1]) : unixOf(raw, "since");
+			const seen = new Set((cursorParts?.[2] ?? "").split(",").filter(Boolean));
 			const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
-			const query: Record<string, string> = {
-				tags: `comment,story_${id}`,
-				hitsPerPage: String(since === undefined ? limit : ALGOLIA_HIT_CAP),
-			};
-			if (since !== undefined) query.numericFilters = `created_at_i>${since}`;
-			const [story, top, show, page] = await Promise.all([
+			const want = limit + seen.size;
+			const commentPage = (page: number) =>
+				getJson<AlgoliaPage>(
+					algoliaUrl("search_by_date", {
+						tags: `comment,story_${id}`,
+						hitsPerPage: String(want),
+						page: String(page),
+						...(since === undefined ? {} : { numericFilters: `created_at_i>${since - INDEX_LAG_S}` }),
+					}),
+					"new comments",
+				);
+			const [story, top, show, first] = await Promise.all([
 				getJson<FirebaseItem | null>(`${FIREBASE}/item/${id}.json`, "item"),
 				getJson<number[]>(`${FIREBASE}/topstories.json`, "top list"),
 				getJson<number[]>(`${FIREBASE}/showstories.json`, "show list"),
-				getJson<AlgoliaPage>(algoliaUrl("search_by_date", query), "new comments"),
+				commentPage(0),
 			]);
+			const reachable = Math.min(first.nbHits, ALGOLIA_HIT_CAP);
+			const last = Math.ceil(reachable / want) - 1;
+			const pool =
+				since === undefined || last <= 0
+					? first.hits
+					: last === 1
+						? [...first.hits, ...(await commentPage(1)).hits]
+						: (await Promise.all([commentPage(last - 1), commentPage(last)])).flatMap(page => page.hits);
 			if (!story) throw new Error(`Hacker News has no item ${id}.`);
 			const now = Math.floor(Date.now() / 1000);
 			const rank = (ids: number[], name: string) =>
 				ids.includes(id) ? `#${ids.indexOf(id) + 1} on ${name}` : `not on ${name}`;
-			const comments = [...page.hits].sort((a, b) => (a.created_at_i ?? 0) - (b.created_at_i ?? 0)).slice(0, limit);
-			const cursor = comments.reduce((latest, hit) => Math.max(latest, hit.created_at_i ?? 0), since ?? 0);
-			const waiting = page.nbHits - comments.length;
+			const fresh = pool.filter(hit => !seen.has(hit.objectID));
+			const comments = fresh.sort((a, b) => (a.created_at_i ?? 0) - (b.created_at_i ?? 0)).slice(0, limit);
+			const shown = new Set(comments.map(hit => hit.objectID));
+			const newest = comments.reduce((latest, hit) => Math.max(latest, hit.created_at_i ?? 0), since ?? 0) || now;
+			const pooled = new Set(pool.map(hit => hit.objectID));
+			const nextSeen = [
+				...pool
+					.filter(hit => (shown.has(hit.objectID) || seen.has(hit.objectID)) && (hit.created_at_i ?? 0) > newest - INDEX_LAG_S)
+					.map(hit => hit.objectID),
+				...[...seen].filter(objectID => !pooled.has(objectID) && since !== undefined && newest - INDEX_LAG_S < since),
+			];
+			const cursor = nextSeen.length > 0 ? `${newest}:${nextSeen.join(",")}` : String(newest);
+			const waiting = first.nbHits - (pool.length - fresh.length) - comments.length;
 			const flags = [story.dead ? "[dead]" : "", story.deleted ? "[deleted]" : ""].filter(Boolean).join(" ");
 			const lines = [
 				`${story.id}  ${story.score ?? 0} points  ${story.descendants ?? 0} comments  ${age(story.time, now)} old  ${rank(top, "top")}, ${rank(show, "show")}${flags ? `  ${flags}` : ""}`,
@@ -544,7 +567,7 @@ function createThreadSinceTool(): ToolDefinition<typeof threadSinceSchema> {
 						`${hit.objectID}  ${hit.author ?? "?"}  ${age(hit.created_at_i, now)} ago  ${hit.parent_id === id ? "on the story" : `reply to ${hit.parent_id ?? "?"}`}: ${clip(plainText(hit.comment_text), 300)}`,
 				),
 				"",
-				`Cursor: ${cursor || now}${since !== undefined && waiting > 0 ? " (call again with it for the next comments)" : ""}`,
+				`Cursor: ${cursor}${since !== undefined && waiting > 0 ? " (call again with it for the next comments)" : ""}`,
 			];
 			return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 		},

@@ -14,7 +14,6 @@ const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-// Dynamic with a query, so this file gets its own module instance even when another test file loaded the pack first: the pack resolves its token and ledger paths from homedir() at module load, after HOME is swapped.
 const { default: youtubeExtension, commentRefusal, videoIdOf } = await import("../index.ts?youtube-connector");
 if (priorHome === undefined) delete process.env.HOME;
 else process.env.HOME = priorHome;

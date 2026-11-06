@@ -106,7 +106,7 @@ interface DiscordUser {
 	readonly bot?: boolean;
 }
 
-export interface Message {
+interface Message {
 	readonly id: string;
 	readonly channel_id?: string;
 	readonly content: string;
@@ -156,7 +156,7 @@ function permalink(guildId: string | undefined, channelId: string, messageId?: s
 	return `${DISCORD_WEB}/${guildId ?? "@me"}/${channelId}${messageId ? `/${messageId}` : ""}`;
 }
 
-export function renderMessageLine(message: Message, guildId: string | undefined, channelId: string): string {
+function renderMessageLine(message: Message, guildId: string | undefined, channelId: string): string {
 	const author = message.author?.global_name || message.author?.username || "unknown";
 	const marks = [
 		message.message_reference?.message_id ? `reply-to ${message.message_reference.message_id}` : null,
@@ -191,7 +191,7 @@ function mentionCard(args: unknown): string {
 		: "Pings: none (@everyone, @here, roles and users are not notified)";
 }
 
-export function allowedMentions(userIds: readonly string[] | undefined, repliedUser = false): Record<string, unknown> {
+function allowedMentions(userIds: readonly string[] | undefined, repliedUser = false): Record<string, unknown> {
 	return { parse: [], users: [...(userIds ?? [])], replied_user: repliedUser };
 }
 
@@ -202,7 +202,7 @@ function checkLength(content: string, what: string): void {
 	if (!content.trim()) throw new Error(`Refusing to send an empty ${what.toLowerCase()}.`);
 }
 
-export async function messageBody(
+async function messageBody(
 	payload: Record<string, unknown>,
 	imagePath: string | undefined,
 ): Promise<RequestInit> {
@@ -475,14 +475,16 @@ function createReadMessagesTool(): ToolDefinition<typeof readMessagesSchema> {
 			const cursors = (["before", "after", "around"] as const).filter(key => params[key]);
 			if (cursors.length > 1) throw new Error("Pass at most one of before, after and around.");
 			const token = await botToken();
-			const channel = await channelOf(params.channelId, token);
 			const query = new URLSearchParams({ limit: String(Math.min(Math.max(params.limit ?? 20, 1), 100)) });
 			for (const key of cursors) query.set(key, params[key] ?? "");
-			const messages = await discordJson<Message[]>(
-				`/channels/${encodeURIComponent(params.channelId)}/messages?${query.toString()}`,
-				token,
-				"read messages",
-			);
+			const [channel, messages] = await Promise.all([
+				channelOf(params.channelId, token),
+				discordJson<Message[]>(
+					`/channels/${encodeURIComponent(params.channelId)}/messages?${query.toString()}`,
+					token,
+					"read messages",
+				),
+			]);
 			if (messages.length === 0) return { content: [{ type: "text" as const, text: "No messages here." }] };
 			const lines = messages.map(m => renderMessageLine(m, channel.guild_id, params.channelId));
 			const oldest = messages[messages.length - 1];
@@ -820,7 +822,7 @@ function createTimeoutMemberTool(): ToolDefinition<typeof timeoutMemberSchema> {
 	};
 }
 
-export function renderThreadLine(thread: Channel, parent: Channel | undefined, guildId: string): string {
+function renderThreadLine(thread: Channel, parent: Channel | undefined, guildId: string): string {
 	const tags = tagNames(parent, thread.applied_tags);
 	const solved = tags.some(tag => tag.toLowerCase() === "solved");
 	const state = thread.thread_metadata?.archived ? "archived" : "active";
@@ -839,21 +841,23 @@ function createListThreadsTool(): ToolDefinition<typeof listThreadsSchema> {
 		async execute(_toolCallId: string, params: typeof listThreadsSchema.infer) {
 			if (params.includeArchived && !params.channelId) throw new Error("includeArchived needs channelId: the forum or channel to list.");
 			const token = await botToken();
-			const active = await discordJson<{ threads: Channel[] }>(
-				`/guilds/${encodeURIComponent(params.guildId)}/threads/active`,
-				token,
-				"list active threads",
-			);
-			const parent = params.channelId ? await channelOf(params.channelId, token) : undefined;
-			const threads = active.threads.filter(thread => !params.channelId || thread.parent_id === params.channelId);
-			if (params.includeArchived && params.channelId) {
-				const archived = await discordJson<{ threads: Channel[] }>(
-					`/channels/${encodeURIComponent(params.channelId)}/threads/archived/public?limit=${Math.min(Math.max(params.limit ?? 25, 1), 100)}`,
+			const [active, parent, archived] = await Promise.all([
+				discordJson<{ threads: Channel[] }>(
+					`/guilds/${encodeURIComponent(params.guildId)}/threads/active`,
 					token,
-					"list archived threads",
-				);
-				threads.push(...archived.threads);
-			}
+					"list active threads",
+				),
+				params.channelId ? channelOf(params.channelId, token) : undefined,
+				params.includeArchived && params.channelId
+					? discordJson<{ threads: Channel[] }>(
+							`/channels/${encodeURIComponent(params.channelId)}/threads/archived/public?limit=${Math.min(Math.max(params.limit ?? 25, 1), 100)}`,
+							token,
+							"list archived threads",
+						)
+					: undefined,
+			]);
+			const threads = active.threads.filter(thread => !params.channelId || thread.parent_id === params.channelId);
+			threads.push(...(archived?.threads ?? []));
 			const text =
 				threads.length === 0
 					? "No threads found."
@@ -946,7 +950,7 @@ async function optionalRead<T>(read: () => Promise<T>): Promise<T | string> {
 	}
 }
 
-export function renderSnapshot(
+function renderSnapshot(
 	guild: GuildDetail,
 	invites: readonly Invite[] | string,
 	events: readonly ScheduledEvent[] | string,
@@ -1231,7 +1235,20 @@ function createListAutomodRulesTool(): ToolDefinition<typeof listAutomodSchema> 
 	};
 }
 
-export function automodRuleBody(params: typeof createAutomodSchema.infer): Record<string, unknown> {
+interface AutomodRuleBody {
+	readonly name: string;
+	readonly event_type: number;
+	readonly trigger_type: number | undefined;
+	readonly trigger_metadata: {
+		readonly keyword_filter?: readonly string[];
+		readonly presets?: readonly (number | undefined)[];
+		readonly mention_total_limit?: number;
+	};
+	readonly actions: readonly { readonly type: number; readonly metadata: { readonly channel_id?: string; readonly duration_seconds?: number } }[];
+	readonly enabled: boolean;
+}
+
+export function automodRuleBody(params: typeof createAutomodSchema.infer): AutomodRuleBody {
 	const action = params.action ?? "block";
 	if (action === "alert" && !params.alertChannelId) throw new Error("The alert action needs alertChannelId.");
 	if (action === "timeout" && params.trigger !== "keyword" && params.trigger !== "mention_spam") {
@@ -1272,13 +1289,29 @@ function createCreateAutomodRuleTool(): ToolDefinition<typeof createAutomodSchem
 		parameters: createAutomodSchema,
 		approval: PROMPT_EVERY_MODE,
 		formatApprovalDetails(args: unknown) {
-			const keywords = approvalList(args, "keywords");
-			return [
-				`Server: ${approvalArg(args, "guildId")}`,
-				`Rule: ${approvalArg(args, "name")}`,
-				`Trigger: ${approvalArg(args, "trigger")}${keywords.length ? ` (${keywords.join(", ")})` : ""}`,
-				`Action: ${approvalArg(args, "action", "block")}`,
-			];
+			const lines = [`Server: ${approvalArg(args, "guildId")}`, `Rule: ${approvalArg(args, "name")}`];
+			const parsed = createAutomodSchema(args);
+			if (parsed instanceof type.errors) return [...lines, "Rule settings: (arguments missing or malformed)"];
+			let body: AutomodRuleBody;
+			try {
+				body = automodRuleBody(parsed);
+			} catch (error) {
+				return [...lines, `Refused before sending: ${error instanceof Error ? error.message : String(error)}`];
+			}
+			const meta = body.trigger_metadata;
+			const action = body.actions[0];
+			lines.push(`Trigger: ${parsed.trigger}`);
+			if (meta.keyword_filter) lines.push(`Keywords: ${meta.keyword_filter.join(", ")}`);
+			if (parsed.presets?.length) lines.push(`Presets: ${parsed.presets.join(", ")}`);
+			if (meta.mention_total_limit !== undefined) lines.push(`Mention limit: ${meta.mention_total_limit} per message`);
+			lines.push(
+				action?.metadata.duration_seconds !== undefined
+					? `Action: timeout every member who trips it for ${action.metadata.duration_seconds} seconds (${(action.metadata.duration_seconds / 3600).toFixed(2)} hours)`
+					: action?.metadata.channel_id !== undefined
+						? `Action: alert in channel ${action.metadata.channel_id}`
+						: "Action: block the message",
+			);
+			return lines;
 		},
 		async execute(_toolCallId: string, params: typeof createAutomodSchema.infer) {
 			const rule = await discordJson<AutomodRule>(

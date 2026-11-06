@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { createPublishTool } from "./publish";
+import { createLinkCardTool, createPublishTool } from "./publish";
 import { authed, publicGet, resolveDid } from "./session";
 
 interface Author {
@@ -10,7 +10,7 @@ interface Author {
 	displayName?: string;
 }
 
-export interface PostView {
+interface PostView {
 	uri: string;
 	author: Author;
 	record: { text?: string; createdAt?: string };
@@ -83,7 +83,7 @@ function clip(text: string | undefined, max: number): string {
 	return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
-export function webUrl(uri: string, handle?: string): string {
+function webUrl(uri: string, handle?: string): string {
 	const match = /^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(uri);
 	if (!match) return uri;
 	const [, repo, collection, rkey] = match;
@@ -94,19 +94,25 @@ export function webUrl(uri: string, handle?: string): string {
 	return uri;
 }
 
-export async function postUri(raw: string): Promise<string> {
+async function postUri(raw: string, dids = new Map<string, Promise<string>>()): Promise<string> {
 	const text = raw.trim();
 	const parts = POST_PATH.exec(text) ?? AT_POST.exec(text);
 	if (!parts)
 		throw new Error(
 			`"${raw}" is not a Bluesky post. Pass https://bsky.app/profile/<handle>/post/<id> or an at:// post URI.`,
 		);
-	const [, actor, rkey] = parts;
-	const did = actor?.startsWith("did:") ? actor : await resolveDid(actor ?? "");
-	return `at://${did}/app.bsky.feed.post/${rkey}`;
+	const [, actor = "", rkey] = parts;
+	if (actor.startsWith("did:")) return `at://${actor}/app.bsky.feed.post/${rkey}`;
+	const handle = actor.toLowerCase();
+	let did = dids.get(handle);
+	if (did === undefined) {
+		did = resolveDid(handle);
+		dids.set(handle, did);
+	}
+	return `at://${await did}/app.bsky.feed.post/${rkey}`;
 }
 
-export function postLine(post: PostView): string {
+function postLine(post: PostView): string {
 	const labels = (post.labels ?? []).map(label => label.val).filter(value => !value.startsWith("!no-"));
 	return [
 		`@${post.author.handle}`,
@@ -259,7 +265,8 @@ function createGetPostsTool(): ToolDefinition<typeof getPostsSchema> {
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof getPostsSchema.infer) {
 			if (params.posts.length === 0 || params.posts.length > 25) throw new Error("Pass 1-25 posts.");
-			const uris = await Promise.all(params.posts.map(postUri));
+			const dids = new Map<string, Promise<string>>();
+			const uris = await Promise.all(params.posts.map(raw => postUri(raw, dids)));
 			const reply = await publicGet<{ posts: PostView[] }>("app.bsky.feed.getPosts", { uris });
 			const found = new Set(reply.posts.map(post => post.uri));
 			const missing = uris.filter(uri => !found.has(uri));
@@ -526,5 +533,6 @@ export default function blueskyExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createFindStarterPacksTool());
 	pi.registerTool(createTrendsTool());
 	pi.registerTool(createNotificationsTool());
+	pi.registerTool(createLinkCardTool());
 	pi.registerTool(createPublishTool());
 }

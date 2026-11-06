@@ -333,7 +333,7 @@ export function videoIdOf(input: string): string {
 	return fromUrl?.[1] ?? trimmed;
 }
 
-export function renderVideo(video: VideoItem, full: boolean): string {
+function renderVideo(video: VideoItem, full: boolean): string {
 	const s = video.snippet;
 	const st = video.statistics;
 	const status = video.status;
@@ -537,7 +537,7 @@ function createListCommentsTool(): ToolDefinition<typeof listCommentsSchema> {
 	};
 }
 
-export interface CommentLedgerEntry {
+interface CommentLedgerEntry {
 	readonly at: string;
 	readonly target: string;
 	readonly text: string;
