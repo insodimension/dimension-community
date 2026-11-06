@@ -106,6 +106,10 @@ Switch with `--account`:
 himalaya --account work envelope list
 ```
 
+The tools take the same name in their `account` argument, for example
+`gmail_list_messages` with `account: "work"`. `himalaya account list` shows the
+names. Left out, they use the account marked `default = true`.
+
 ## OAuth2 (Advanced Protection / no App Password)
 
 ```toml

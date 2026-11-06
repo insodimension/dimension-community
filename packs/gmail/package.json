@@ -1,21 +1,35 @@
 {
 	"name": "@inso/gmail",
 	"author": "Dimension",
-	"version": "0.1.3",
-	"description": "Email connector — read/search/compose/reply over IMAP/SMTP (Gmail) via the himalaya CLI",
+	"version": "0.3.0",
+	"description": "Email connector — list and read a mailbox over IMAP/SMTP (Gmail) through two native read-only tools, and send mail through one native, approval-gated tool; every tool takes an optional himalaya account name",
 	"type": "module",
+	"main": "index.ts",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "gmail"
+		"name": "gmail",
+		"extensions": [
+			"index.ts"
+		]
 	},
 	"files": [
 		"skills/",
 		"rules/",
 		"connect/",
 		"assets/",
+		"index.ts",
+		"account.ts",
+		"himalaya.ts",
+		"inbound.ts",
+		"mailbox.ts",
+		"message.ts",
 		"plugin.json"
 	],
+	"peerDependencies": {
+		"arktype": "^2.2.0",
+		"@oh-my-pi/pi-coding-agent": "*"
+	},
 	"license": "MIT"
 }
