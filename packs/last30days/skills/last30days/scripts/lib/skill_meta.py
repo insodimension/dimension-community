@@ -11,7 +11,7 @@ from pathlib import Path
 # frontmatter. Multiline so the pattern can be applied to a full SKILL.md text.
 # Three alternation groups — exactly one captures per successful match.
 _VERSION_RE = re.compile(
-    r'''^version:\s*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$''',
+    r'''^[ \t]*version:\s*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$''',
     re.MULTILINE,
 )
 
@@ -24,7 +24,7 @@ def read_skill_version(skill_md_path: Path) -> str | None:
     or unquoted YAML version scalars.
     """
     try:
-        text = skill_md_path.read_text()
+        text = skill_md_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
     match = _VERSION_RE.search(text)

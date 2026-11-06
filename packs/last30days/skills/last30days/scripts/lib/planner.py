@@ -4,8 +4,83 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+from collections import Counter
 
-from . import http, providers, query, schema
+from . import categories, competitors, entity_extract, http, log, providers, query, relevance, schema
+
+# Hebrew Unicode block: U+0590–U+05FF
+_HEBREW_RE = re.compile(r'[\u0590-\u05FF]')
+
+DISCOVERY_SOURCE_ORDER = ("reddit", "hackernews", "digg", "x")
+
+
+def detect_language(text: str) -> str | None:
+    """Return 'he' if the text contains Hebrew characters, else None."""
+    return 'he' if _HEBREW_RE.search(text) else None
+
+
+def build_discovery_plan(
+    domain: str,
+    *,
+    available_sources: list[str] | None = None,
+    subreddits: list[str] | None = None,
+) -> schema.DiscoveryPlan:
+    """Resolve a domain to the existing category-peer community feeds.
+
+    An empty domain is global trending: sweep every river feed's own hot list
+    (r/all, HN front page, Digg) with no category scoping. Keyword-driven
+    sources (X, Techmeme, arXiv - none of which expose a river/front-page
+    lane) sit out of the global nominate stage and join per-topic at the
+    enrichment pass, where every nomination gets a full research run.
+    """
+    normalized_domain = " ".join(domain.split())
+    if not normalized_domain:
+        resolved = [
+            subreddit.removeprefix("r/").strip()
+            for subreddit in (subreddits or ["all"])
+            if subreddit.strip()
+        ]
+        allowed = set(DISCOVERY_SOURCE_ORDER if available_sources is None else available_sources)
+        allowed.discard("x")
+        sources = [source for source in DISCOVERY_SOURCE_ORDER if source in allowed]
+        if not sources:
+            raise ValueError("No listing sources are available for global trending")
+        return schema.DiscoveryPlan(
+            domain="",
+            category=None,
+            subreddits=resolved or ["all"],
+            sources=sources,
+        )
+
+    category = categories.detect_category(normalized_domain)
+    candidate_subreddits = list(subreddits or categories.peer_subs_for(category))
+    seen_subreddits: set[str] = set()
+    resolved_subreddits: list[str] = []
+    for subreddit in candidate_subreddits:
+        normalized_subreddit = subreddit.removeprefix("r/").strip()
+        key = normalized_subreddit.lower()
+        if not normalized_subreddit or key in seen_subreddits:
+            continue
+        seen_subreddits.add(key)
+        resolved_subreddits.append(normalized_subreddit)
+    # The curated map intentionally stays small. Keep discovery's keyless floor
+    # for uncategorized domains by sweeping r/all and applying domain relevance
+    # during normalization instead of inventing a second category resolver.
+    if not resolved_subreddits:
+        resolved_subreddits = ["all"]
+
+    allowed = set(DISCOVERY_SOURCE_ORDER if available_sources is None else available_sources)
+    sources = [source for source in DISCOVERY_SOURCE_ORDER if source in allowed]
+    if not sources:
+        raise ValueError(f"No listing sources are available for {normalized_domain!r}")
+
+    return schema.DiscoveryPlan(
+        domain=normalized_domain,
+        category=category,
+        subreddits=resolved_subreddits,
+        sources=sources,
+    )
 
 ALLOWED_INTENTS = {
     "factual",
@@ -18,9 +93,10 @@ ALLOWED_INTENTS = {
     "prediction",
 }
 ALLOWED_CLUSTER_MODES = {"none", "story", "workflow", "market", "debate"}
+
 QUICK_SOURCE_PRIORITY = {
     "factual": ["hackernews", "reddit", "x", "xquik", "youtube"],
-    "product": ["youtube", "reddit", "x", "xquik", "tiktok"],
+    "product": ["jobs", "youtube", "reddit", "x", "xquik", "tiktok"],
     "concept": ["hackernews", "reddit", "x", "xquik", "youtube"],
     "opinion": ["reddit", "x", "xquik", "youtube", "hackernews"],
     "how_to": ["youtube", "reddit", "x", "xquik", "hackernews"],
@@ -30,13 +106,13 @@ QUICK_SOURCE_PRIORITY = {
 }
 SOURCE_PRIORITY = {
     "factual": ["hackernews", "reddit", "x", "youtube"],
-    "product": ["youtube", "reddit", "x", "tiktok", "hackernews"],
+    "product": ["jobs", "youtube", "reddit", "x", "tiktok", "hackernews"],
     "concept": ["hackernews", "reddit", "x", "youtube"],
-    "opinion": ["reddit", "x", "youtube", "hackernews"],
+    "opinion": ["reddit", "x", "stocktwits", "dripstack", "youtube", "hackernews"],
     "how_to": ["youtube", "reddit", "x", "hackernews"],
     "comparison": ["reddit", "x", "hackernews", "youtube"],
-    "breaking_news": ["x", "reddit", "hackernews", "youtube", "polymarket"],
-    "prediction": ["polymarket", "x", "hackernews", "reddit", "youtube"],
+    "breaking_news": ["x", "stocktwits", "reddit", "hackernews", "youtube", "polymarket"],
+    "prediction": ["polymarket", "stocktwits", "dripstack", "x", "hackernews", "reddit", "youtube"],
 }
 SOURCE_LIMITS = {
     "quick": {
@@ -65,19 +141,216 @@ SOURCE_CAPABILITIES = {
     "tiktok": {"video", "video_shortform", "social"},
     "instagram": {"video", "video_shortform", "social"},
     "hackernews": {"discussion", "link"},
+    "devto": {"discussion", "link", "reference"},
     "bluesky": {"discussion", "social"},
     "truthsocial": {"discussion", "social"},
     "polymarket": {"market"},
+    "stocktwits": {"social", "market", "finance_social"},
+    "dripstack": {"reference", "analysis", "link"},
     "digg": {"discussion", "social", "link"},
+    "arxiv": {"reference", "analysis", "link"},
+    "techmeme": {"discussion", "link", "reference"},
+    "trustpilot": {"reference", "company_signal", "social"},
+    "amazon": {"reference", "company_signal", "product_signal"},
+    "meta_ads": {"reference", "company_signal", "product_signal"},
     "xiaohongshu": {"video", "video_shortform", "social"},
+    "telegram": {"discussion", "social"},
     "github": {"discussion", "link"},
     "grounding": {"web", "reference", "link"},
     "perplexity": {"web", "reference", "analysis"},
+    "jobs": {"jobs", "company_signal", "link"},
+    "corpus": {"reference", "analysis"},
 }
+
+
+def _is_identity_anchor(anchor: object) -> bool:
+    return isinstance(anchor, str) and re.search(r"\w", anchor) is not None
+
+
+def validate_external_plan(raw: dict) -> None:
+    """Validate explicit-plan structure before permissive sanitization.
+
+    Enum-like metadata stays permissive because direct pipeline callers rely on
+    the sanitizer to canonicalize those values.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("top-level plan must be an object")
+    for field in ("intent", "freshness_mode", "cluster_mode", "subqueries"):
+        if field not in raw:
+            raise ValueError(f"missing required field '{field}'")
+    for field in ("intent", "freshness_mode", "cluster_mode"):
+        if not isinstance(raw[field], str) or not raw[field].strip():
+            raise ValueError(f"field '{field}' must be a non-empty string")
+
+    anchors = raw.get("person_identity_anchors", [])
+    if not isinstance(anchors, list) or not all(_is_identity_anchor(a) for a in anchors):
+        raise ValueError("person_identity_anchors must be an array of non-empty strings")
+
+    source_weights = raw.get("source_weights")
+    if source_weights is not None and not isinstance(source_weights, dict):
+        raise ValueError("field 'source_weights' must be an object when provided")
+    for source, weight in (source_weights or {}).items():
+        if (
+            not isinstance(source, str)
+            or not source.strip()
+            or isinstance(weight, bool)
+            or not isinstance(weight, (int, float))
+        ):
+            raise ValueError("field 'source_weights' must map source names to numbers")
+    subqueries = raw["subqueries"]
+    if not isinstance(subqueries, list) or not subqueries:
+        raise ValueError("field 'subqueries' must be a non-empty array")
+    for index, subquery in enumerate(subqueries):
+        if not isinstance(subquery, dict):
+            raise ValueError(f"subqueries[{index}] must be an object")
+        for field in ("search_query", "ranking_query"):
+            if not isinstance(subquery.get(field), str) or not subquery[field].strip():
+                raise ValueError(f"subqueries[{index}].{field} must be a non-empty string")
+        sources = subquery.get("sources")
+        if not isinstance(sources, list) or not sources or not all(
+            isinstance(source, str) and source.strip() for source in sources
+        ):
+            raise ValueError(f"subqueries[{index}].sources must be a non-empty string array")
+        weight = subquery.get("weight")
+        if weight is not None and (
+            isinstance(weight, bool) or not isinstance(weight, (int, float))
+        ):
+            raise ValueError(f"subqueries[{index}].weight must be a number when provided")
+
+
 DEFAULT_INTENT_CAPABILITIES = {
     "comparison": {"discussion", "video", "web", "reference", "social", "link", "market"},
     "how_to": {"discussion", "video", "web", "reference", "link"},
 }
+
+
+class DrillTargetError(ValueError):
+    """Raised when a follow-up target cannot be resolved to a report cluster."""
+
+    def __init__(self, target: str, clusters: list[schema.Cluster]) -> None:
+        candidates = ", ".join(
+            f"{index}. {cluster.title}"
+            for index, cluster in enumerate(clusters, start=1)
+        ) or "(no clusters in the cached report)"
+        super().__init__(f"No cluster matched {target!r}. Available clusters: {candidates}")
+
+
+def _drill_cluster_text(report: schema.Report, cluster: schema.Cluster) -> str:
+    candidates = {candidate.candidate_id: candidate for candidate in report.ranked_candidates}
+    parts = [cluster.title]
+    for candidate_id in cluster.candidate_ids:
+        candidate = candidates.get(candidate_id)
+        if candidate:
+            parts.extend((candidate.title, candidate.snippet))
+    return " ".join(part for part in parts if part)
+
+
+def resolve_drill_clusters(report: schema.Report, target: str) -> list[schema.Cluster]:
+    """Resolve a 1-based cluster index or fuzzy title/entity description."""
+    cleaned = target.strip()
+    numeric = re.fullmatch(r"(?:cluster\s*)?#?(\d+)", cleaned, flags=re.IGNORECASE)
+    if numeric:
+        index = int(numeric.group(1))
+        if 1 <= index <= len(report.clusters):
+            return [report.clusters[index - 1]]
+        raise DrillTargetError(target, report.clusters)
+
+    target_entities = entity_extract.extract_text_entities(cleaned)
+    scored: list[tuple[float, schema.Cluster]] = []
+    for cluster in report.clusters:
+        cluster_text = _drill_cluster_text(report, cluster)
+        title_score = relevance.token_overlap_relevance(cleaned, cluster.title)
+        body_score = relevance.token_overlap_relevance(cleaned, cluster_text)
+        entity_score = entity_extract.entity_overlap(
+            target_entities,
+            entity_extract.extract_text_entities(cluster_text),
+        )
+        score = max(title_score, (0.75 * body_score) + (0.25 * entity_score))
+        scored.append((score, cluster))
+
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+    if not scored or scored[0][0] < 0.35:
+        raise DrillTargetError(target, report.clusters)
+    return [scored[0][1]]
+
+
+def build_drill_plan(
+    report: schema.Report,
+    target: str,
+    *,
+    clusters: list[schema.Cluster] | None = None,
+) -> schema.QueryPlan:
+    """Build a deep follow-up plan limited to the matched clusters' sources."""
+    matched = clusters or resolve_drill_clusters(report, target)
+    candidates = {candidate.candidate_id: candidate for candidate in report.ranked_candidates}
+
+    sources: list[str] = []
+    for cluster in matched:
+        for source in cluster.sources:
+            if source and source not in sources:
+                sources.append(source)
+        for candidate_id in cluster.candidate_ids:
+            candidate = candidates.get(candidate_id)
+            if not candidate:
+                continue
+            for source in schema.candidate_sources(candidate):
+                if source and source not in sources:
+                    sources.append(source)
+    if not sources:
+        raise DrillTargetError(target, report.clusters)
+
+    titles: list[str] = []
+    entity_counts: Counter[str] = Counter()
+    for cluster in matched:
+        titles.append(cluster.title)
+        entity_counts.update(entity_extract.extract_text_entities(cluster.title))
+        for candidate_id in cluster.representative_ids:
+            candidate = candidates.get(candidate_id)
+            if candidate:
+                titles.append(candidate.title)
+                entity_counts.update(entity_extract.extract_text_entities(candidate.title))
+
+    queries: list[str] = []
+    for query_text in [
+        " ".join(titles[: len(matched)]),
+        " ".join(entity for entity, _ in entity_counts.most_common(8)),
+        *titles[len(matched):],
+    ]:
+        query_text = " ".join(query_text.split()).strip()
+        if query_text and query_text.lower() not in {item.lower() for item in queries}:
+            queries.append(query_text)
+        if len(queries) == 3:
+            break
+
+    subqueries = [
+        schema.SubQuery(
+            label=f"drill-{index}",
+            search_query=search_query,
+            ranking_query=(
+                "What deeper evidence, firsthand discussion, comments, and transcripts "
+                f"explain {search_query}?"
+            ),
+            sources=list(sources),
+            weight=1.0 if index == 1 else 0.85,
+        )
+        for index, search_query in enumerate(queries, start=1)
+    ]
+    return schema.QueryPlan(
+        intent=report.query_plan.intent,
+        freshness_mode=report.query_plan.freshness_mode,
+        cluster_mode=report.query_plan.cluster_mode,
+        raw_topic=report.topic,
+        person_identity_anchors=list(report.query_plan.person_identity_anchors),
+        subqueries=subqueries,
+        source_weights={
+            source: report.query_plan.source_weights.get(source, 1.0)
+            for source in sources
+        },
+        notes=[
+            "drill-mode",
+            "drill-targets:" + ",".join(cluster.cluster_id for cluster in matched),
+        ],
+    )
 
 def plan_query(
     *,
@@ -96,7 +369,11 @@ def plan_query(
     internal_subrun: when True, suppress the LAW 7 "No --plan passed" stderr
     warning. LAW 7 targets the hosting-reasoning-model path; competitor
     fan-out sub-runs are engine-internal and the warning is a false positive
-    there. Default False preserves the warning on every user-facing invocation.
+    there. Default False preserves the warning on every user-facing invocation
+    that ends on the deterministic fallback, including a failed internal
+    planner. On a detected agent host the CLI stops a plan-less research run
+    before this is reached, apart from its documented exemptions and the
+    ``LAST30DAYS_ALLOW_ENGINE_PLAN`` override (``last30days._law7_host_plan_gate``).
     """
     if _should_force_deterministic_plan(topic):
         return _fallback_plan(
@@ -112,12 +389,19 @@ def plan_query(
     if provider and model:
         try:
             raw = provider.generate_json(model, prompt)
-            plan = _sanitize_plan(raw, topic, available_sources, requested_sources, depth)
+            plan = _sanitize_plan(
+                raw, topic, available_sources, requested_sources, depth,
+            )
             if plan.subqueries:
                 return plan
         except (ValueError, KeyError, json.JSONDecodeError, OSError, http.HTTPError) as exc:
             import sys
             print(f"[Planner] LLM planning failed, using deterministic fallback: {type(exc).__name__}: {exc}", file=sys.stderr)
+            # A failed internal planner (e.g. HTTP 402, no credits) degrades
+            # the run exactly like having none, and the host may not be
+            # detectable, so the LAW 7 reminder applies here too.
+            if not internal_subrun:
+                _print_law7_reminder()
             return _fallback_plan(
                 topic, available_sources, requested_sources, depth,
                 note=f"fallback-plan (LLM error: {type(exc).__name__})",
@@ -132,17 +416,22 @@ def plan_query(
     # the hosting reasoning model, YOU are the provider. LAW 7 / 2026-04-19
     # Hermes Agent Use Cases failure mode.
     if not internal_subrun:
-        import sys
-        print(
-            "[Planner] No --plan passed. If you are the reasoning model hosting "
-            "this skill (Claude Code, Codex, Hermes, Gemini, or any agent runtime), "
-            "YOU ARE the planner: generate a JSON query plan yourself and pass it "
-            "via --plan. You do not need an API key or credentials; you ARE the "
-            "LLM. The deterministic fallback below is the headless/cron path only. "
-            "See LAW 7 in SKILL.md and Step 0.75 for the plan schema.",
-            file=sys.stderr,
-        )
+        _print_law7_reminder()
     return _fallback_plan(topic, available_sources, requested_sources, depth)
+
+
+def _print_law7_reminder() -> None:
+    import sys
+    print(
+        "[Planner] No --plan passed. If you are the reasoning model hosting "
+        "this skill (Claude Code, Codex, Hermes, Gemini, or any agent runtime), "
+        "YOU ARE the planner: generate a JSON query plan yourself and pass it "
+        "via --plan. You do not need an API key or credentials; you ARE the "
+        "LLM. The deterministic fallback below is the headless/cron path only. "
+        "See LAW 7 in SKILL.md and Step 0.75 in references/research-runbook.md "
+        "for the plan schema.",
+        file=sys.stderr,
+    )
 
 
 def _build_prompt(
@@ -176,10 +465,12 @@ Return JSON only with this shape:
       "weight": 1.0
     }}
   ],
+  "person_identity_anchors": [],
   "notes": ["optional short notes"]
 }}
 
 Rules:
+- for a collision-prone person, preserve specific company/organization identity anchors explicitly supplied in the topic in person_identity_anchors; for an organization whose first word also names other people or things, use its full name (["Pace Capital"]), never a topic plus a search descriptor ("Stripe payments"); otherwise use []; never invent affiliations or use the shared name/generic role as an anchor
 - emit 1 to 5 subqueries (how_to/opinion/product/breaking_news intents benefit from 4-5; factual/concept from 2)
 - every subquery must include both search_query and ranking_query
 - sources must be drawn from Available sources only
@@ -204,6 +495,8 @@ def _sanitize_plan(
     available_sources: list[str],
     requested_sources: list[str] | None,
     depth: str,
+    *,
+    honor_plan_sources: bool = False,
 ) -> schema.QueryPlan:
     intent_hint = str(raw.get("intent") or _infer_intent(topic)).strip()
     if intent_hint not in ALLOWED_INTENTS:
@@ -242,6 +535,15 @@ def _sanitize_plan(
         if requested:
             sources = [source for source in sources if source in requested]
         if not sources:
+            if honor_plan_sources:
+                label = str(subquery.get("label") or f"q{index}")
+                log.source_log(
+                    "Planner",
+                    f"Skipping external-plan subquery {label}: none of its planned "
+                    "sources are available under the current source configuration.",
+                    tty_only=False,
+                )
+                continue
             sources = list(source_weights)
         search_query = str(subquery.get("search_query") or "").strip()
         ranking_query = str(subquery.get("ranking_query") or "").strip()
@@ -259,6 +561,11 @@ def _sanitize_plan(
     if depth == "quick" and subqueries:
         subqueries = subqueries[:1]
     if not subqueries:
+        if honor_plan_sources:
+            raise ValueError(
+                "No available planned sources remain. Enable a source named in "
+                "--plan or revise the plan/source configuration; no retrieval was started."
+            )
         return _fallback_plan(topic, available_sources, requested_sources, depth)
 
     intent = intent_hint
@@ -269,6 +576,11 @@ def _sanitize_plan(
     if cluster_mode not in ALLOWED_CLUSTER_MODES:
         cluster_mode = _default_cluster_mode(intent)
 
+    # --plan input was already validated strictly; a malformed field from the
+    # internal LLM planner degrades to unscoped instead of discarding its plan.
+    anchors = raw.get("person_identity_anchors")
+    if not isinstance(anchors, list):
+        anchors = []
     return schema.QueryPlan(
         intent=intent,
         freshness_mode=freshness_mode,
@@ -281,10 +593,12 @@ def _sanitize_plan(
                 depth,
                 eligible_sources,
                 requested_sources=requested_sources,
+                honor_plan_sources=honor_plan_sources,
             )
         ),
         source_weights=source_weights,
         notes=[str(note).strip() for note in raw.get("notes") or [] if str(note).strip()],
+        person_identity_anchors=[a.strip() for a in anchors if _is_identity_anchor(a)],
     )
 
 
@@ -316,12 +630,19 @@ def _trim_subqueries_for_depth(
     depth: str,
     available_sources: list[str],
     requested_sources: list[str] | None = None,
+    honor_plan_sources: bool = False,
 ) -> list[schema.SubQuery]:
     # At non-quick depth, expand sources: use capability routing for intents
     # that define it, or all available sources otherwise. The LLM planner may
     # assign narrow source lists; we override to let fusion decide quality.
-    if depth != "quick":
+    # Operator-supplied --plan is a contract: keep per-subquery sources.
+    if depth != "quick" and not honor_plan_sources:
         expanded_sources = _default_sources_for_intent(intent, available_sources)
+        # Explicit --search sources are a user override: intent routing must not drop them.
+        expanded_sources += [
+            source for source in available_sources
+            if source in (requested_sources or []) and source not in expanded_sources
+        ]
         return [
             schema.SubQuery(
                 label=subquery.label,
@@ -335,7 +656,7 @@ def _trim_subqueries_for_depth(
     limits = SOURCE_LIMITS.get(depth)
     if not limits:
         return subqueries
-    priority_table = QUICK_SOURCE_PRIORITY if depth == "quick" else SOURCE_PRIORITY
+    priority_table = QUICK_SOURCE_PRIORITY
     priority = priority_table.get(intent, priority_table["breaking_news"])
     limit = limits.get(intent, 3)
     ranked_sources = [source for source in priority if source in available_sources]
@@ -343,26 +664,34 @@ def _trim_subqueries_for_depth(
         ranked_sources = list(available_sources)
     trimmed = []
     for subquery in subqueries:
-        if depth in {"quick", "default"}:
-            preferred_sources = ranked_sources[:limit]
-            if requested_sources:
-                requested = [
-                    source
-                    for source in requested_sources
-                    if source in available_sources and source in subquery.sources
-                ]
-                for source in requested:
-                    if source not in preferred_sources:
-                        preferred_sources.append(source)
-        else:
-            preferred_sources = [source for source in ranked_sources if source in subquery.sources][:limit]
-            if len(preferred_sources) < limit:
-                for source in ranked_sources:
-                    if source in preferred_sources:
-                        continue
+        # Quick depth only reaches this block. Honor the plan's explicit
+        # per-subquery sources: prefer priority-ranked plan sources first, then
+        # append any plan sources absent from the priority table (e.g.
+        # instagram). Explicit --search sources are user overrides, so they get
+        # first claim on the quick slots when present. The final list remains
+        # capped to the quick-depth limit.
+        plan_sources = [s for s in ranked_sources if s in subquery.sources]
+        for source in subquery.sources:
+            if source not in plan_sources:
+                plan_sources.append(source)
+        if not plan_sources:
+            plan_sources = ranked_sources[:limit]
+        preferred_sources: list[str] = []
+        if requested_sources:
+            for source in requested_sources:
+                if (
+                    source in available_sources
+                    and source in subquery.sources
+                    and source not in preferred_sources
+                ):
                     preferred_sources.append(source)
                     if len(preferred_sources) >= limit:
                         break
+        for source in plan_sources:
+            if len(preferred_sources) >= limit:
+                break
+            if source not in preferred_sources:
+                preferred_sources.append(source)
         trimmed.append(
             schema.SubQuery(
                 label=subquery.label,
@@ -383,6 +712,14 @@ def _fallback_plan(
     note: str = "fallback-plan",
 ) -> schema.QueryPlan:
     intent = _infer_intent(topic)
+    # Hebrew-language topics: elevate web search (grounding) to the front of
+    # the source list since Reddit/HN/GitHub are English-dominant platforms.
+    # Grounding covers Ynet, Walla, Mako, N12 etc. if a web search key is set.
+    if detect_language(topic) == 'he' and 'grounding' in available_sources:
+        ordered = ['grounding'] + [s for s in available_sources if s != 'grounding']
+        available_sources = ordered
+        if requested_sources:
+            requested_sources = ['grounding'] + [s for s in requested_sources if s != 'grounding']
     allowed_sources = requested_sources or available_sources
     source_weights = _default_source_weights(intent, allowed_sources)
     core = query.extract_core_subject(topic, max_words=6, strip_suffixes=True)
@@ -459,12 +796,15 @@ def _fallback_plan(
     )
 
 
+_SLASH_COMPARISON = re.compile(r"\b[A-Z][a-z]{2,}(?:/[A-Z][a-z]{2,})+\b")
+
+
 def _infer_intent(topic: str) -> str:
     text = topic.lower().strip()
     if re.search(r"\b(vs|versus|compare|compared to|difference between)\b", text):
         return "comparison"
     # Slash-separated proper nouns: "React/Vue/Svelte" (not URLs, not acronyms like CI/CD or I/O)
-    if not re.search(r"https?://", topic) and re.search(r"\b[A-Z][a-z]{2,}(?:/[A-Z][a-z]{2,})+\b", topic):
+    if not re.search(r"https?://", topic) and _SLASH_COMPARISON.search(topic):
         return "comparison"
     if re.search(r"\b(odds|predict|prediction|forecast|chance|probability|will .* win)\b", text):
         return "prediction"
@@ -532,6 +872,10 @@ def _default_source_weights(intent: str, sources: list[str]) -> dict[str, float]
         for source, bonus in {"reddit": 0.8, "x": 0.5}.items():
             if source in base:
                 base[source] += bonus
+    elif intent == "product":
+        for source, bonus in {"jobs": 0.8, "youtube": 0.5}.items():
+            if source in base:
+                base[source] += bonus
     return base
 
 
@@ -555,8 +899,26 @@ def _keyword_query(topic: str, core: str) -> str:
         term for term in compounds
         if re.match(r"^(?:[A-Z][a-z]+\s+){1,}[A-Z][a-z]+$", term)
     ]
-    quoted = " ".join(f'"{term}"' for term in title_cased[:2])
-    keywords = [quoted.strip(), core.strip() or topic.strip()]
+    selected = title_cased[:2]
+    quoted = " ".join(f'"{term}"' for term in selected)
+    remainder = core.strip() or topic.strip()
+    # Drop words already carried by a quoted phrase. Emitting both produced
+    # '"Peter Steinberger" peter steinberger steipete', which reads to a
+    # provider as the phrase AND each of its words again -- strictly narrower
+    # than the phrase alone, and on X it degraded to a bare token conjunction
+    # once the quotes were stripped downstream. Distinct tokens (here
+    # "steipete") are preserved.
+    if selected and remainder:
+        phrase_words = {
+            word.lower()
+            for term in selected
+            for word in term.split()
+        }
+        remainder = " ".join(
+            word for word in remainder.split()
+            if word.strip('"').lower() not in phrase_words
+        )
+    keywords = [quoted.strip(), remainder.strip()]
     return " ".join(part for part in keywords if part).strip()
 
 
@@ -574,7 +936,18 @@ _TRAILING_CONTEXT = re.compile(
 )
 
 
-def _comparison_entities(topic: str) -> list[str]:
+def _comparison_entities(topic: str, *, uncapped: bool = False) -> list[str]:
+    """Split a comparison topic into entity names.
+
+    Caps at ``competitors.COMPARISON_ENTITY_MAX`` unless ``uncapped`` (caller
+    truncates and may warn about dropped entities).
+
+    Standalone comparator tokens are syntax, including repeated tokens.
+    Compact ``vs.`` separates entities only after a nonempty left entity.
+    """
+    if _infer_intent(topic) != "comparison":
+        return []
+
     # "difference between X and Y" -> "X vs Y" (replace "and" only in this context)
     normalized = re.sub(
         r"\bdifference between\s+(.+?)\s+and\s+",
@@ -583,20 +956,36 @@ def _comparison_entities(topic: str) -> list[str]:
         flags=re.I,
     )
     normalized = re.sub(r"\b(compared to)\b", " vs ", normalized, flags=re.I)
-    parts = [
-        part.strip(" \t\r\n?.,:;!()[]{}\"'")
-        for part in re.split(r"\bvs\.?\b|\bversus\b|/", normalized, flags=re.I)
-        if part.strip(" \t\r\n?.,:;!()[]{}\"'")
-    ]
+    separator = r"(?<!\S)(?:(?P<standalone>vs\.?|versus)(?!\S)|vs\.(?=\S))"
+    if not re.search(separator, normalized, flags=re.I):
+        if re.search(r"https?://", normalized):
+            return []
+        normalized = _SLASH_COMPARISON.sub(
+            lambda match: match.group(0).replace("/", " vs "), normalized,
+        )
+    trim = " \t\r\n?.,:;!()[]{}\"'"
+    parts = []
+    part_start = 0
+    for match in re.finditer(separator, normalized, flags=re.I):
+        part = normalized[part_start:match.start()].strip(trim)
+        if part:
+            parts.append(part)
+        if part or match.group("standalone") is not None:
+            part_start = match.end()
+    last_part = normalized[part_start:].strip(trim)
+    if last_part:
+        parts.append(last_part)
     # Strip trailing context from parts ("Svelte for frontend in 2026" -> "Svelte")
-    if len(parts) >= 2:
-        parts = [_TRAILING_CONTEXT.sub("", part).strip() or part for part in parts]
-        deduped = []
-        for part in parts:
-            if part and part not in deduped:
-                deduped.append(part)
-        return deduped[:_max_subqueries("comparison")]
-    return []
+    if len(parts) < 2:
+        return []
+    parts = [_TRAILING_CONTEXT.sub("", part).strip() or part for part in parts]
+    deduped: list[str] = []
+    for part in parts:
+        if part and part not in deduped:
+            deduped.append(part)
+    if uncapped:
+        return deduped
+    return deduped[: competitors.COMPARISON_ENTITY_MAX]
 
 
 def _should_force_deterministic_plan(topic: str) -> bool:
@@ -671,7 +1060,8 @@ def _max_subqueries(intent: str, topic: str | None = None) -> int:
     # Hermes Agent Use Cases failure: prior cap of 3 produced near-literal
     # echoes of the topic instead of a paraphrase fanout.
     if intent == "comparison":
-        return 4
+        # primary + one dedicated subquery per entity (up to COMPARISON_ENTITY_MAX)
+        return competitors.COMPARISON_ENTITY_MAX + 1
     # Intent-modifier topics get headroom for paraphrase fanout even when
     # the intent itself is factual/concept. Without this, a "Hermes Agent
     # use cases" query (classified "concept" after the 2026-04-19 default

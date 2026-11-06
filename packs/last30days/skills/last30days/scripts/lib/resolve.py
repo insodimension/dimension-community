@@ -1,6 +1,6 @@
 """Auto-resolve subreddits, X handles, and current events context for a topic.
 
-Uses web search (Brave/Exa/Serper) to discover relevant communities and context
+Uses web search (Brave/Exa/Serper/Parallel) to discover relevant communities and context
 before the planner runs. This is the engine-side equivalent of SKILL.md Steps
 0.55/0.75 which use Claude Code's WebSearch tool.
 """
@@ -8,18 +8,17 @@ before the planner runs. This is the engine-side equivalent of SKILL.md Steps
 from __future__ import annotations
 
 import re
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
-from . import categories, dates, grounding
+from . import categories, dates, grounding, http, log
 
 MAX_SUBS = 10
 
 
 def _log(msg: str) -> None:
-    print(f"[Resolve] {msg}", file=sys.stderr)
+    log.source_log("Resolve", msg, tty_only=False)
 
 
 def _merge_category_peers(topic: str, subreddits: list[str]) -> tuple[list[str], Optional[str]]:
@@ -70,14 +69,8 @@ def _merge_category_peers(topic: str, subreddits: list[str]) -> tuple[list[str],
 
 
 def _has_backend(config: dict) -> bool:
-    """Check if any web search backend is available."""
-    return bool(
-        config.get("BRAVE_API_KEY")
-        or config.get("EXA_API_KEY")
-        or config.get("SERPER_API_KEY")
-        or config.get("PARALLEL_API_KEY")
-        or config.get("OPENROUTER_API_KEY")
-    )
+    """Require a configured search API; the keyless floor is not peer discovery."""
+    return grounding.configured_backend(config) is not None
 
 
 def _extract_subreddits(items: list[dict]) -> list[str]:
@@ -137,6 +130,167 @@ def _extract_github_user(items: list[dict]) -> str:
     if not counts:
         return ""
     return max(counts, key=counts.get)
+
+
+# Hosts that can never be a brand's own site; their presence in results is
+# platform noise, not an official-domain signal.
+_PLATFORM_HOSTS = {
+    "reddit.com", "x.com", "twitter.com", "github.com", "youtube.com",
+    "facebook.com", "instagram.com", "tiktok.com", "linkedin.com",
+    "wikipedia.org", "medium.com", "trustpilot.com", "crunchbase.com",
+    "bloomberg.com", "apple.com", "play.google.com", "google.com",
+    "threads.com", "pinterest.com", "glassdoor.com", "indeed.com",
+    "news.ycombinator.com", "substack.com", "amazon.com", "ebay.com",
+}
+
+
+def _extract_official_domain(topic: str, items: list[dict]) -> str:
+    """Extract the brand's own domain from search-result URLs.
+
+    Conservative on purpose: only a hostname whose registrable label
+    normalizes to the topic name qualifies ("ThriftBooks" -> thriftbooks.com).
+    This feeds Trustpilot targeting as a HINT (the engine retries via the
+    CLI's own search when the hint misses), so a miss here is cheap and a
+    wrong guess is recoverable.
+    """
+    want = re.sub(r"[^a-z0-9]", "", topic.lower())
+    if not want:
+        return ""
+    host_pattern = re.compile(r"https?://([A-Za-z0-9.-]+)")
+    for item in items:
+        for source in [item.get("url", ""), f"{item.get('title', '')} {item.get('snippet', '')}"]:
+            for host in host_pattern.findall(source):
+                host = host.lower().strip(".")
+                bare = host.removeprefix("www.")
+                if any(bare == p or bare.endswith("." + p) for p in _PLATFORM_HOSTS):
+                    continue
+                labels = bare.split(".")
+                if len(labels) < 2:
+                    continue
+                registrable = labels[-2] if labels[-2] not in ("co", "com") or len(labels) < 3 else labels[-3]
+                if re.sub(r"[^a-z0-9]", "", registrable) == want:
+                    return bare
+    return ""
+
+
+_HREF = re.compile(r"""href\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+# Profile links only: x.com/{handle} with nothing after the handle but a slash,
+# query or fragment. /status/, /intent/ and /share links name someone else's
+# post or a share widget, never the site's own account.
+_X_PROFILE_LINK = re.compile(
+    r"^(?:https?:)?//(?:www\.|mobile\.)?(?:x|twitter)\.com/([A-Za-z0-9_]{1,15})/?(?:[?#].*)?$",
+    re.IGNORECASE,
+)
+_GITHUB_OWNER_LINK = re.compile(
+    r"^(?:https?:)?//(?:www\.)?github\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))(?:[/?#].*)?$",
+    re.IGNORECASE,
+)
+_X_NON_ACCOUNTS = {
+    "twitter", "x", "search", "hashtag", "intent", "share", "i", "home",
+    "explore", "settings", "login", "signup", "tos", "privacy", "messages",
+    "notifications", "compose",
+}
+_GITHUB_NON_OWNERS = {
+    "topics", "explore", "settings", "orgs", "search", "features", "about",
+    "pricing", "enterprise", "login", "join", "sponsors", "marketplace",
+    "apps", "collections", "trending", "site", "security", "customer-stories",
+}
+
+
+def _official_site_url(site: str) -> str:
+    """Normalize a domain or URL to the site's homepage URL, or ""."""
+    text = (site or "").strip()
+    if not text:
+        return ""
+    host = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text, flags=re.IGNORECASE)
+    host = re.split(r"[/?#]", host, maxsplit=1)[0].strip().lower()
+    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?", host):
+        return ""
+    return f"https://{host}/"
+
+
+_CHROME_REGION = re.compile(
+    r"<(header|footer|nav)\b[^>]*>(.*?)</\1\s*>", re.IGNORECASE | re.DOTALL,
+)
+
+
+def _site_label(url: str) -> str:
+    """The registrable label of a homepage URL: https://www.typesafe.ai/ -> typesafe."""
+    labels = url.split("://", 1)[-1].strip("/").split(":")[0].split(".")
+    labels = [label for label in labels if label not in {"www", "m"}]
+    return re.sub(r"[^a-z0-9]", "", labels[0].lower()) if labels else ""
+
+
+def _own_account(links: list[tuple[str, bool]], site_label: str) -> str:
+    """The site's own account among its profile links, or "" when ambiguous.
+
+    A homepage also links customers, testimonials, and dependencies, so
+    link counts and page order cannot tell the site's account from someone
+    else's. Accept an account only when it is the sole one linked, the sole
+    one in the page's header/footer/nav, or the sole one named after the site.
+    """
+    # X and GitHub names are case-insensitive: TypeSafeAI and typesafeai are
+    # one account. Keep the first spelling the page uses.
+    spelling: dict[str, str] = {}
+    for name, _ in links:
+        spelling.setdefault(name.lower(), name)
+    distinct = list(spelling.values())
+    if len(distinct) <= 1:
+        return distinct[0] if distinct else ""
+    chrome = list(dict.fromkeys(spelling[name.lower()] for name, in_chrome in links if in_chrome))
+    if len(chrome) == 1:
+        return chrome[0]
+    named = [
+        name for name in (chrome or distinct)
+        if site_label and len(site_label) >= 3
+        and site_label in re.sub(r"[^a-z0-9]", "", name.lower())
+    ]
+    return named[0] if len(named) == 1 else ""
+
+
+def official_site_socials(site: str, *, timeout: int = 10) -> dict[str, str]:
+    """Read a brand's own X and GitHub accounts from its homepage links.
+
+    A company's homepage links its own accounts (usually in the header or
+    footer), so this is the most reliable first-party source for the handle,
+    and it needs no search key. Only ``href`` targets count: a handle quoted
+    in page copy may be anyone's. Returns ``{"x_handle": ..., "github_user":
+    ...}`` with "" for any account the page does not link, and both empty
+    when the page cannot be fetched.
+    """
+    result = {"x_handle": "", "github_user": ""}
+    url = _official_site_url(site)
+    if not url:
+        return result
+    html = http.get_text(url, timeout=timeout, retries=1, accept="text/html")
+    if not html:
+        _log(f"Official site {url} could not be fetched")
+        return result
+    chrome_hrefs = {
+        href.strip()
+        for match in _CHROME_REGION.finditer(html)
+        for href in _HREF.findall(match.group(2))
+    }
+    x_links: list[tuple[str, bool]] = []
+    github_links: list[tuple[str, bool]] = []
+    for href in _HREF.findall(html):
+        href = href.strip()
+        in_chrome = href in chrome_hrefs
+        x_match = _X_PROFILE_LINK.match(href)
+        if x_match and x_match.group(1).lower() not in _X_NON_ACCOUNTS:
+            x_links.append((x_match.group(1), in_chrome))
+            continue
+        gh_match = _GITHUB_OWNER_LINK.match(href)
+        if gh_match and gh_match.group(1).lower() not in _GITHUB_NON_OWNERS:
+            github_links.append((gh_match.group(1), in_chrome))
+    label = _site_label(url)
+    result["x_handle"] = _own_account(x_links, label)
+    result["github_user"] = _own_account(github_links, label)
+    _log(
+        f"Official site {url}: x_handle={result['x_handle']!r}, "
+        f"github_user={result['github_user']!r}"
+    )
+    return result
 
 
 def _extract_github_repos(items: list[dict]) -> list[str]:
@@ -268,7 +422,7 @@ def auto_resolve(topic: str, config: dict) -> dict:
 
     Args:
         topic: The research topic.
-        config: Dict with API keys (BRAVE_API_KEY, EXA_API_KEY, SERPER_API_KEY).
+        config: Dict with a Brave, Exa, Serper, or Parallel API key.
 
     Returns:
         Dict with keys: subreddits, x_handle, github_user, github_repos,
@@ -280,6 +434,7 @@ def auto_resolve(topic: str, config: dict) -> dict:
         "x_handle": "",
         "github_user": "",
         "github_repos": [],
+        "trustpilot_domain": "",
         "context": "",
         "category": None,
         "searches_run": 0,
@@ -329,16 +484,23 @@ def auto_resolve(topic: str, config: dict) -> dict:
     github_user = _extract_github_user(results.get("github", []))
     github_repos = canonicalize_github_repos(topic, _extract_github_repos(results.get("github", [])))
     context = _build_context_summary(results.get("news", []))
+    # Official-site domain doubles as the Trustpilot targeting hint (review
+    # pages are keyed by domain). Scan news first (official sites surface in
+    # coverage), then the handle query's profile-adjacent results.
+    trustpilot_domain = _extract_official_domain(
+        topic, (results.get("news") or []) + (results.get("x_handle") or [])
+    )
 
     subreddits, category = _merge_category_peers(topic, subreddits)
 
-    _log(f"Resolved {len(subreddits)} subreddits, x_handle={x_handle!r}, github_user={github_user!r}, github_repos={github_repos!r}, context_len={len(context)}, category={category!r}")
+    _log(f"Resolved {len(subreddits)} subreddits, x_handle={x_handle!r}, github_user={github_user!r}, github_repos={github_repos!r}, trustpilot_domain={trustpilot_domain!r}, context_len={len(context)}, category={category!r}")
 
     return {
         "subreddits": subreddits,
         "x_handle": x_handle,
         "github_user": github_user,
         "github_repos": github_repos,
+        "trustpilot_domain": trustpilot_domain,
         "context": context,
         "category": category,
         "searches_run": searches_run,

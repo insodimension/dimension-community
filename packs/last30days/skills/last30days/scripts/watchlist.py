@@ -5,16 +5,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
+import tempfile
+import urllib.parse
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import store
-from lib import http, schema
+from lib import env as envlib, http, schema, usage
 
 
 # --- Webhook Delivery Functions ---
@@ -28,10 +31,22 @@ def _deliver_findings(topic_name: str, counts: dict) -> None:
     mode = store.get_setting("delivery_mode", "announce")
     message = _format_delivery_message(topic_name, counts, mode)
     
+    # Require https before routing. The old "hooks.slack.com" in channel
+    # substring test ran before any scheme check, so a channel like
+    # http://evil.example/hooks.slack.com was treated as Slack and POSTed in
+    # cleartext to the wrong host. Match Slack on the exact hostname instead.
+    parsed = urllib.parse.urlparse(channel)
+    if parsed.scheme != "https":
+        print(
+            f"Delivery skipped: delivery_channel must be an https:// URL, got {channel!r}",
+            file=sys.stderr,
+        )
+        return
+
     try:
-        if "hooks.slack.com" in channel:
+        if parsed.hostname == "hooks.slack.com":
             _send_slack_webhook(channel, message)
-        elif channel.startswith("https://"):
+        else:
             _send_generic_webhook(channel, message)
     except Exception as e:
         # Don't fail the research run if delivery fails
@@ -108,6 +123,7 @@ def cmd_list(args):
         "topics": topics,
         "budget_used": budget_used,
         "budget_limit": budget_limit,
+        "budget_unknown_runs": store.get_daily_unknown_cost_runs(),
     }, default=str))
 
 
@@ -124,7 +140,7 @@ def cmd_run_one(args):
     if not topic:
         print(json.dumps({"error": f'Topic not found: "{args.topic}"'}))
         sys.exit(1)
-    print(json.dumps(_run_topic(topic), default=str))
+    print(json.dumps(_budget_skip(topic) or _run_topic(topic), default=str))
 
 
 def cmd_run_all(args):
@@ -137,27 +153,49 @@ def cmd_run_all(args):
     budget_limit = float(store.get_setting("daily_budget", "5.00"))
     results = []
     for topic in topics:
-        if store.get_daily_cost() >= budget_limit:
-            results.append({
-                "topic": topic["name"],
-                "status": "skipped",
-                "reason": f"Budget exceeded: ${store.get_daily_cost():.2f}/${budget_limit:.2f}",
-            })
-            continue
-        results.append(_run_topic(topic))
+        results.append(_budget_skip(topic) or _run_topic(topic))
 
     print(json.dumps({
         "action": "run_all",
         "results": results,
         "budget_used": store.get_daily_cost(),
         "budget_limit": budget_limit,
+        "budget_unknown_runs": store.get_daily_unknown_cost_runs(),
     }, default=str))
 
 
+def _budget_skip(topic: dict) -> dict | None:
+    limit = float(store.get_setting("daily_budget", "5.00"))
+    cost = store.get_daily_cost()
+    unknown = store.get_daily_unknown_cost_runs()
+    if cost >= limit:
+        reason = f"Budget exceeded: ${cost:.2f}/${limit:.2f}"
+    elif unknown:
+        reason = f"Budget unknown: {unknown} run(s) today have unreported provider charges"
+    else:
+        return None
+    return {"topic": topic["name"], "status": "skipped", "reason": reason}
+
+
 def _run_topic(topic: dict) -> dict:
+    topic_id = topic["id"]
+    with tempfile.TemporaryDirectory(prefix="last30days-usage-") as temp_dir:
+        journal = Path(temp_dir) / "usage.db"
+        usage.create_journal(journal)
+        child_env = dict(os.environ, **{usage.JOURNAL_ENV: str(journal), "LAST30DAYS_STORE": "0"})
+        run_id = store.record_run(topic_id, source_mode="v3", status="running")
+        try:
+            result = _research_topic(topic, run_id, child_env)
+        finally:
+            costs = usage.read_journal(journal)
+            store.update_run(run_id, **costs)
+        result.update(costs)
+        return result
+
+
+def _research_topic(topic: dict, run_id: int, child_env: dict) -> dict:
     start_time = time.time()
     topic_id = topic["id"]
-    run_id = store.record_run(topic_id, source_mode="v3", status="running")
 
     try:
         search_queries = json.loads(topic["search_queries"]) if topic.get("search_queries") else None
@@ -168,13 +206,20 @@ def _run_topic(topic: dict) -> dict:
                 str(SCRIPT_DIR / "last30days.py"),
                 search_term,
                 "--emit=json",
+                "--json-profile=raw",
                 "--quick",
                 "--lookback-days",
                 "90",
+                # Watchlist is an unattended cron host: never probe browser
+                # cookies (matches the MCP server). Avoids a silent Chromium
+                # read / unattended macOS Keychain prompt when a user has set
+                # FROM_BROWSER=auto for interactive use.
+                "--no-browser-cookies",
             ],
             capture_output=True,
             text=True,
             timeout=300,
+            env={**child_env, envlib.ALLOW_ENGINE_PLAN_VAR: "1"},
         )
         duration = time.time() - start_time
         if result.returncode != 0:
@@ -236,8 +281,15 @@ def cmd_config(args):
         print(json.dumps({"action": "config", "key": "daily_budget", "value": str(args.value)}))
         return
     if args.key == "delivery":
-        store.set_setting("delivery_channel", str(args.value))
-        print(json.dumps({"action": "config", "key": "delivery_channel", "value": str(args.value)}))
+        value = str(args.value)
+        # Reject a non-https channel at write time so the operator gets
+        # immediate feedback, rather than discovering it via a stderr line
+        # buried in a research run hours later. Matches the delivery-time guard
+        # in _deliver_findings.
+        if value and urllib.parse.urlparse(value).scheme != "https":
+            raise SystemExit(f"delivery_channel must be an https:// URL, got {value!r}")
+        store.set_setting("delivery_channel", value)
+        print(json.dumps({"action": "config", "key": "delivery_channel", "value": value}))
         return
     raise SystemExit(f"Unknown config key: {args.key}")
 

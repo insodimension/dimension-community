@@ -7,11 +7,16 @@ Requires SCRAPECREATORS_API_KEY in config (same key as TikTok + Instagram).
 API docs: https://scrapecreators.com/docs
 """
 
+import copy
+import math
 import re
 import sys
+import threading
 import time
+from contextlib import ExitStack
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait as futures_wait
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 def _first_of(*values, default=None):
@@ -21,9 +26,16 @@ def _first_of(*values, default=None):
             return v
     return default
 
-from . import dates, http, log
+from . import dates, health, http, log
 
 SCRAPECREATORS_BASE = "https://api.scrapecreators.com/v1/reddit"
+
+# Reddit's highest-upvote content (relationship drama, AITA, viral news) often
+# has near-zero topic overlap. Engagement-only ranking floats it above on-topic
+# posts, especially on bare global searches where no subreddits were resolved
+# upstream. A relevance floor + relevance-first ranking (see _relevance_rank_key
+# below and RELEVANCE_FLOOR / MIN_ON_TOPIC in relevance.py) keeps an off-topic
+# viral post from ever outranking an on-topic one.
 
 # Depth configurations: how many API calls per phase
 DEPTH_CONFIG = {
@@ -31,24 +43,22 @@ DEPTH_CONFIG = {
         "global_searches": 1,
         "subreddit_searches": 2,
         "comment_enrichments": 3,
-        "timeframe": "week",
     },
     "default": {
         "global_searches": 2,
         "subreddit_searches": 3,
         "comment_enrichments": 5,
-        "timeframe": "month",
     },
     "deep": {
         "global_searches": 3,
         "subreddit_searches": 5,
         "comment_enrichments": 8,
-        "timeframe": "month",
     },
 }
 
-from .query import extract_core_subject as _query_extract
-from .relevance import token_overlap_relevance
+from .query import extract_core_subject as _query_extract, infer_query_intent
+from .relevance import token_overlap_relevance, RELEVANCE_FLOOR, MIN_ON_TOPIC
+
 
 # Reddit-specific noise words (preserves original smaller set)
 NOISE_WORDS = frozenset({
@@ -67,6 +77,16 @@ NOISE_WORDS = frozenset({
 
 def _log(msg: str):
     log.source_log("Reddit", msg, tty_only=False)
+
+
+def classify_run_failure(detail: str) -> str:
+    """Map Reddit auth and anti-bot responses that do not carry HTTP status."""
+    text = detail.lower()
+    if any(marker in text for marker in ("interstitial", "blocked by reddit", "too many requests")):
+        return health.RATE_LIMITED
+    if any(marker in text for marker in ("login required", "invalid token", "expired token")):
+        return health.AUTH_FAILED
+    return http.classify_failure(message=detail)
 
 
 def _extract_core_subject(topic: str) -> str:
@@ -96,7 +116,7 @@ def expand_reddit_queries(topic: str, depth: str) -> List[str]:
     if core.lower() != original_clean.lower() and len(original_clean.split()) <= 8:
         queries.append(original_clean)
 
-    qtype = _infer_query_intent(topic)
+    qtype = infer_query_intent(topic)
 
     # Product queries: always include review-oriented variant to bias toward
     # review communities instead of keyword-matching unrelated subreddits.
@@ -116,22 +136,6 @@ def expand_reddit_queries(topic: str, depth: str) -> List[str]:
         queries.append(f"{core} issues OR problems OR bug OR broken")
 
     return queries
-
-
-def _infer_query_intent(topic: str) -> str:
-    """Tiny local fallback for Reddit query expansion only."""
-    text = topic.lower().strip()
-    if re.search(r"\b(vs|versus|compare|difference between)\b", text):
-        return "comparison"
-    if re.search(r"\b(how to|tutorial|guide|setup|step by step|deploy|install|configuration|configure|troubleshoot|troubleshooting|error|errors|fix|debug)\b", text):
-        return "how_to"
-    if re.search(r"\b(thoughts on|worth it|should i|opinion|review)\b", text):
-        return "opinion"
-    if re.search(r"\b(pricing|feature|features|best .* for)\b", text):
-        return "product"
-    if re.search(r"\b(predict|prediction|odds|forecast|chance)\b", text):
-        return "prediction"
-    return "breaking_news"
 
 
 # Known utility/meta subreddits that match queries but aren't discussion subs.
@@ -250,6 +254,18 @@ def _total_engagement(item: Dict[str, Any]) -> int:
     score = eng.get("score", 0) or 0
     num_comments = eng.get("num_comments", 0) or 0
     return score + num_comments
+
+
+def _relevance_rank_key(item: Dict[str, Any]) -> float:
+    """Rank by relevance first, with a bounded engagement bonus as tiebreaker.
+
+    The log-scaled bonus is capped at 0.25 so it orders similarly-relevant posts
+    by discussion volume but is too small to lift an off-topic post (relevance
+    ~0) above an on-topic one (relevance >= RELEVANCE_FLOOR).
+    """
+    rel = item.get("relevance") or 0.0
+    eng_bonus = min(0.25, math.log10(max(0, _total_engagement(item)) + 1) / 20.0)
+    return rel + eng_bonus
 
 
 def _normalize_post(post: Dict[str, Any], idx: int, source_label: str = "global", query: str = "") -> Dict[str, Any]:
@@ -389,6 +405,9 @@ def _subreddit_search(
 def fetch_post_comments(
     url: str,
     token: str,
+    *,
+    deadline_monotonic: float | None = None,
+    cancel: threading.Event | None = None,
 ) -> List[Dict[str, Any]]:
     """Fetch comments for a Reddit post via ScrapeCreators.
 
@@ -406,6 +425,9 @@ def fetch_post_comments(
             params={"url": url},
             timeout=30,
             retries=2,
+            deadline_monotonic=deadline_monotonic,
+            cancel=cancel,
+            owned_get=deadline_monotonic is not None,
         )
         return data.get("comments", data.get("data", []))
     except http.HTTPError as e:
@@ -438,6 +460,51 @@ def _dedupe_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return unique
 
 
+def _days_to_reddit_bucket(days: float) -> str:
+    """Map a day count onto the smallest Reddit rolling bucket that covers it.
+
+    Adds one day of slack so calendar windows that cross a day boundary still
+    fit inside Reddit's rolling ``t=`` buckets (a yesterday→today request needs
+    ``week``, not ``day``).
+    """
+    covered = days + 1
+    if covered <= 1:
+        return "day"
+    if covered <= 7:
+        return "week"
+    if covered <= 31:
+        return "month"
+    if covered <= 366:
+        return "year"
+    return "all"
+
+
+def _window_to_time_filter(from_date: str, to_date: str) -> str:
+    """Map a requested YYYY-MM-DD window onto Reddit's coarse `t` param.
+
+    Reddit's ``t=day|week|month`` buckets are rolling windows ending *now*, not
+    calendar spans and not anchored to ``to_date``. Coverage therefore needs:
+
+    1. Span — a yesterday→today request needs more than rolling ``t=day``.
+    2. Historical reach — a one-day request ending two weeks ago still needs a
+       bucket that reaches ``from_date``; span-alone would pick ``week`` and
+       the API would omit the entire requested range.
+
+    Take the wider of the two, independently of retrieval depth.
+    Phase 5 still trims to ``from_date``/``to_date``. Falls back to ``month``
+    if the dates don't parse.
+    """
+    try:
+        start = date.fromisoformat(from_date)
+        end = date.fromisoformat(to_date)
+    except (ValueError, TypeError):
+        return "month"
+    span_days = max(0, (end - start).days)
+    # Age of from_date relative to "today" — Reddit always anchors to now.
+    age_days = max(0, (datetime.now(timezone.utc).date() - start).days)
+    return _days_to_reddit_bucket(max(span_days, age_days))
+
+
 def search_reddit(
     topic: str,
     from_date: str,
@@ -465,8 +532,8 @@ def search_reddit(
         return {"items": [], "error": "No SCRAPECREATORS_API_KEY configured"}
 
     config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
-    timeframe = config["timeframe"]
-    intent = _infer_query_intent(topic)
+    timeframe = _window_to_time_filter(from_date, to_date)
+    intent = infer_query_intent(topic)
 
     # === Phase 1: Query Expansion ===
     queries = expand_reddit_queries(topic, depth)
@@ -482,7 +549,9 @@ def search_reddit(
         with ThreadPoolExecutor(max_workers=min(5, len(subreddits))) as executor:
             futures = {}
             for sub in subreddits:
-                futures[executor.submit(_subreddit_search, sub, core, token, "relevance", timeframe)] = sub
+                futures[http.submit_with_context(
+                    executor, _subreddit_search, sub, core, token, "relevance", timeframe,
+                )] = sub
             for future in as_completed(futures):
                 sub = futures[future]
                 sub_posts = future.result()
@@ -501,7 +570,9 @@ def search_reddit(
             # from relevant communities instead of keyword-matched noise.
             sort = "top" if intent in ("product", "comparison") else ("relevance" if i == 0 else "top")
             _log(f"Global search {i+1}/{max_global}: '{query}' (sort={sort})")
-            futures[executor.submit(_global_search, query, token, sort, timeframe)] = query
+            futures[http.submit_with_context(
+                executor, _global_search, query, token, sort, timeframe,
+            )] = query
         for future in as_completed(futures):
             query = futures[future]
             posts = future.result()
@@ -524,7 +595,9 @@ def search_reddit(
             futures = {}
             for sub in discovered_subs[:subreddit_limit]:
                 _log(f"Subreddit search: r/{sub} for '{core}'")
-                futures[executor.submit(_subreddit_search, sub, core, token, "relevance", timeframe)] = sub
+                futures[http.submit_with_context(
+                    executor, _subreddit_search, sub, core, token, "relevance", timeframe,
+                )] = sub
             for future in as_completed(futures):
                 sub = futures[future]
                 sub_posts = future.result()
@@ -548,18 +621,27 @@ def search_reddit(
         else:
             out_of_range += 1
 
-    if in_range:
-        all_items = in_range
-        if out_of_range:
-            _log(f"Filtered {out_of_range} posts outside date range")
-    else:
-        _log(f"No posts within date range, keeping all {len(all_items)}")
+    all_items = in_range
+    if out_of_range:
+        _log(f"Filtered {out_of_range} posts outside date range")
 
-    # === Phase 6: Sort by engagement (upvotes + comment count) ===
-    all_items.sort(
-        key=lambda x: _total_engagement(x),
-        reverse=True,
-    )
+    # === Phase 6: Relevance floor + relevance-weighted ranking ===
+    # Drop the off-topic tail when enough on-topic posts remain. When too few clear
+    # the soft floor, still strip zero-overlap posts (relevance exactly 0 = no
+    # title/body token match at all, never on-topic) whenever anything relevant
+    # remains, so viral high-upvote junk can't fill the section. Then rank by
+    # relevance with a bounded engagement bonus (see RELEVANCE_FLOOR note above).
+    before = len(all_items)
+    on_topic = [it for it in all_items if (it.get("relevance") or 0) >= RELEVANCE_FLOOR]
+    if len(on_topic) >= MIN_ON_TOPIC:
+        all_items = on_topic
+    else:
+        nonzero = [it for it in all_items if (it.get("relevance") or 0) > 0]
+        if nonzero:
+            all_items = nonzero
+    if len(all_items) < before:
+        _log(f"Relevance floor dropped {before - len(all_items)} off-topic posts")
+    all_items.sort(key=_relevance_rank_key, reverse=True)
 
     # Re-index IDs
     for i, item in enumerate(all_items):
@@ -590,7 +672,7 @@ def enrich_with_comments(
     config = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
     max_comments = config["comment_enrichments"]
 
-    if not items or not token or max_comments <= 0:
+    if not items or not token or max_comments <= 0 or budget_seconds <= 0:
         return items
 
     # Select the top threads by total engagement (upvotes + comment count),
@@ -601,10 +683,24 @@ def enrich_with_comments(
     _log(f"Enriching comments for {len(top_items)} posts (by total engagement)")
 
     start = time.monotonic()
+    deadline = start + budget_seconds
+    cancel = threading.Event()
 
-    with ThreadPoolExecutor(max_workers=min(4, len(top_items))) as executor:
+    def fetch(item):
+        if cancel.is_set() or time.monotonic() >= deadline:
+            return None
+        comments = fetch_post_comments(
+            item.get("url", ""), token,
+            deadline_monotonic=deadline, cancel=cancel,
+        )
+        return comments if time.monotonic() < deadline else None
+
+    with ThreadPoolExecutor(max_workers=min(4, len(top_items))) as executor, ExitStack() as cleanup:
+        cleanup.callback(cancel.set)
         futures = {
-            executor.submit(fetch_post_comments, item.get("url", ""), token): item
+            http.submit_with_context(
+                executor, fetch, item,
+            ): item
             for item in top_items
             if item.get("url")
         }
@@ -612,6 +708,8 @@ def enrich_with_comments(
         # Wait with budget instead of unbounded as_completed
         remaining = max(0, budget_seconds - (time.monotonic() - start))
         done, not_done = futures_wait(futures, timeout=remaining)
+        if not_done:
+            cancel.set()
 
         enriched_count = 0
         for future in done:
@@ -703,6 +801,87 @@ def search_and_enrich(
         result["items"] = items
 
     return result
+
+
+# Run-scoped memo for the paid ScrapeCreators Reddit call (R9). All subquery
+# streams share the raw topic, and the thin-source retry repeats it, so without
+# this one run could pay for the same query five times. Concurrent callers for
+# one key wait on the first call; results AND failures are kept until the
+# per-command reset, so a failed backfill is never retried within the run.
+_SC_MEMO: Dict[tuple, tuple] = {}
+_SC_INFLIGHT: Dict[tuple, threading.Event] = {}
+_SC_MEMO_LOCK = threading.Lock()
+
+
+def reset_scrapecreators_memo() -> None:
+    """Forget memoized ScrapeCreators Reddit calls. Called once per command, and by tests."""
+    with _SC_MEMO_LOCK:
+        _SC_MEMO.clear()
+        _SC_INFLIGHT.clear()
+
+
+def _sc_memo_outcome(entry: tuple, replay_failures: bool = True) -> Dict[str, Any]:
+    ok, value, failures = entry
+    if replay_failures:
+        # search_and_enrich swallows ScrapeCreators HTTP errors into the
+        # caller's failure sink; a later caller must see them too, or an
+        # empty cached result reads as a clean no-results.
+        for failure in failures:
+            http._record_failure(failure)
+    if not ok:
+        raise value
+    # Each caller gets its own copy so one stream cannot mutate another's items.
+    return copy.deepcopy(value)
+
+
+def search_and_enrich_memo(
+    topic: str,
+    from_date: str,
+    to_date: str,
+    depth: str = "default",
+    token: str = None,
+    subreddits: List[str] | None = None,
+) -> Dict[str, Any]:
+    """:func:`search_and_enrich`, at most once per key per command.
+
+    Keyed by query, date window, depth, and sorted subreddits.
+    """
+    key = (topic, from_date, to_date, depth, tuple(sorted(subreddits or ())))
+    while True:
+        with _SC_MEMO_LOCK:
+            entry = _SC_MEMO.get(key)
+            if entry is None:
+                gate = _SC_INFLIGHT.get(key)
+                owner = gate is None
+                if owner:
+                    gate = threading.Event()
+                    _SC_INFLIGHT[key] = gate
+        if entry is not None:
+            return _sc_memo_outcome(entry)
+        if owner:
+            break
+        gate.wait()
+        # Loop: read the owner's cached outcome, or re-elect if it was
+        # interrupted before caching one (e.g. KeyboardInterrupt).
+    try:
+        with http.tee_failures() as recorded:
+            try:
+                result = search_and_enrich(
+                    topic, from_date, to_date, depth=depth, token=token,
+                    subreddits=subreddits,
+                )
+                outcome = (True, result)
+            except Exception as exc:
+                outcome = (False, exc)
+        entry = (*outcome, list(recorded))
+        with _SC_MEMO_LOCK:
+            _SC_MEMO[key] = entry
+    finally:
+        with _SC_MEMO_LOCK:
+            _SC_INFLIGHT.pop(key, None)
+        gate.set()
+    # The owner's failures already reached its own sink through tee_failures.
+    return _sc_memo_outcome(entry, replay_failures=False)
 
 
 def parse_reddit_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:

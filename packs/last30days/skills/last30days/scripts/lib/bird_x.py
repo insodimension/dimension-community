@@ -12,8 +12,8 @@ import sys
 import time
 from pathlib import Path
 
-from . import http, log, subproc
-from datetime import datetime
+from . import env, health, http, log, subproc
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from .relevance import token_overlap_relevance as _compute_relevance
@@ -22,6 +22,16 @@ from .relevance import token_overlap_relevance as _compute_relevance
 # (typically an HTML anti-bot interstitial from Twitter's edge).
 MAX_JSON_DECODE_RETRIES = 2
 JSON_DECODE_RETRY_DELAY = 5.0  # seconds between retry attempts
+
+
+def _leading_mentions(text: str) -> list:
+    """Leading-run @mention parse, shared with other X-shaped sources (xquik).
+
+    Thin wrapper over ``query.leading_mentions`` so bird and xquik share one
+    implementation; kept here for existing call sites and tests.
+    """
+    from .query import leading_mentions
+    return leading_mentions(text)
 
 
 def _first_of(*values):
@@ -44,6 +54,29 @@ DEPTH_CONFIG = {
 # Module-level credentials injected from .env config
 _credentials: Dict[str, str] = {}
 
+# The vendored bird-search client reads exactly this env surface, and the
+# node subprocess it spawns needs the node-runtime env (platform, locale,
+# TLS/proxy config) to run in every environment it runs in today. Ambient
+# BIRD_* vars pass through as well. Everything else in os.environ - unrelated
+# API keys, tokens, .env contents - must not reach the scan-excluded vendored
+# client (issue #1063). Mirrors the platform-var surface grok_x keeps for its
+# node child (grok_x._subprocess_env).
+_SUBPROCESS_ENV_ALLOWLIST = (
+    # Runtime / platform vars the node subprocess needs (mirrors grok_x)
+    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "SystemRoot",
+    "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "SystemDrive", "COMSPEC",
+    "PATHEXT", "TEMP", "TMP",
+    # Node TLS / proxy / CA config for custom-CA and proxied environments
+    "NODE_ENV", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS",
+    "NODE_TLS_REJECT_UNAUTHORIZED", "NODE_USE_ENV_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "no_proxy",
+    # X session cookies the vendored client reads from the environment
+    "AUTH_TOKEN", "CT0", "TWITTER_AUTH_TOKEN", "TWITTER_CT0",
+    # Browser-cookie disable flag the client reads (cookies.js envFlagEnabled)
+    "LAST30DAYS_DISABLE_BROWSER_COOKIES",
+)
+
 
 def set_credentials(auth_token: Optional[str], ct0: Optional[str]):
     """Inject AUTH_TOKEN/CT0 from .env config so Node subprocesses can use them."""
@@ -60,12 +93,26 @@ def _has_injected_credentials() -> bool:
 
 def _has_process_credentials() -> bool:
     """Return True when AUTH_TOKEN/CT0 are present in process env."""
-    return bool(os.environ.get("AUTH_TOKEN") and os.environ.get("CT0"))
+    return bool(env.read_secret_env("AUTH_TOKEN") and env.read_secret_env("CT0"))
 
 
 def _subprocess_env() -> Dict[str, str]:
-    """Build env dict for Node subprocesses, merging injected credentials."""
-    env = os.environ.copy()
+    """Build env dict for Node subprocesses, merging injected credentials.
+
+    The child env is limited to the vendored client's env surface (see
+    ``_SUBPROCESS_ENV_ALLOWLIST``) plus injected credentials, so unrelated
+    ambient secrets never reach scan-excluded vendored code (issue #1063).
+    The ambient-credential lane behaves exactly as before.
+    """
+    env = {
+        name: os.environ[name]
+        for name in _SUBPROCESS_ENV_ALLOWLIST
+        if name in os.environ
+    }
+    env.update({
+        key: value for key, value in os.environ.items()
+        if key.startswith("BIRD_")
+    })
     env.update(_credentials)
     # Hard-disable browser-cookie fallback so normal pipeline runs never hit
     # Safari/Chrome Keychain prompts during source detection or search.
@@ -77,6 +124,38 @@ def _log(msg: str):
     log.source_log("Bird", msg, tty_only=False)
 
 
+def _scrub_credentials(text: str) -> str:
+    """Redact X session cookie values from subprocess output.
+
+    A failure reason built from bird-search's stderr reaches the run's
+    ``source_status`` detail, which is rendered in the report and returned by
+    ``--emit=json``. The vendored client receives AUTH_TOKEN/CT0 in its
+    environment, so an error message that echoes a rejected cookie would
+    otherwise carry it into user-facing output. Log lines get the same
+    treatment because stderr is captured in agent harnesses.
+    """
+    scrubbed = text
+    for name in ("AUTH_TOKEN", "CT0", "TWITTER_AUTH_TOKEN", "TWITTER_CT0"):
+        value = _credentials.get(name) or os.environ.get(name)
+        # Short values would match too much ordinary text to be worth it.
+        if value and len(value) >= 8:
+            scrubbed = scrubbed.replace(value, "<redacted>")
+    return scrubbed
+
+
+def classify_run_failure(detail: str) -> str:
+    """Map Bird's subprocess-only failure shapes to run outcome states."""
+    text = detail.lower()
+    if any(marker in text for marker in ("interstitial", "non-json", "invalid json")):
+        return health.SCHEMA_DRIFT
+    if any(
+        marker in text
+        for marker in ("cookie expired", "expired cookie", "unauthorized", "forbidden", "login required")
+    ):
+        return health.AUTH_FAILED
+    return http.classify_failure(message=detail)
+
+
 def _extract_core_subject(topic: str) -> str:
     """Extract core subject from verbose query for X search.
 
@@ -86,6 +165,68 @@ def _extract_core_subject(topic: str) -> str:
     """
     from .query import extract_core_subject
     return extract_core_subject(topic, max_words=5, strip_suffixes=True)
+
+
+def _plain_query_tokens(text: str) -> list[str]:
+    """Return lexical tokens without Bird query grouping syntax.
+
+    Strips phrase quotes as well as grouping characters. Used where a flat
+    token list is wanted; use ``build_topic_query`` for the provider query,
+    which preserves quoted phrases.
+    """
+    separators = str.maketrans({char: " " for char in '\"“”()[]{}'})
+    return [
+        clean
+        for token in text.translate(separators).split()
+        if (clean := token.strip("'‘’"))
+    ]
+
+
+# Bird/X grouping syntax that carries no lexical meaning. Double quotes are
+# deliberately absent: X advanced search treats "..." as a phrase match, which
+# is exactly what the planner intended when it quoted a proper noun.
+_GROUPING_CHARS = "“”()[]{}"
+
+
+def _date_filters(from_date: str, to_date: Optional[str] = None) -> str:
+    filters = f"since:{from_date}"
+    if to_date is not None:
+        end = date.fromisoformat(to_date)
+        if end == date.max:
+            # No supported post date lies beyond this inclusive upper bound.
+            return filters
+        # The research window includes to_date; X's until bound is exclusive.
+        until = end + timedelta(days=1)
+        filters += f" until:{until.isoformat()}"
+    return filters
+
+
+def build_topic_query(
+    topic: str, from_date: str, to_date: Optional[str] = None
+) -> str:
+    """Build the X topic query, preserving quoted proper-noun phrases.
+
+    Previously the topic went through ``_plain_query_tokens``, which stripped
+    the quotes the planner had added, so an intended phrase match for
+    '"Peter Steinberger"' degraded into `peter AND steinberger` -- narrower and
+    noisier at once. X supports phrase queries natively, so the quotes are
+    passed through.
+    """
+    separators = str.maketrans({char: " " for char in _GROUPING_CHARS})
+    cleaned = topic.translate(separators)
+    # An unbalanced quote is worse than no quote: X reads the orphan as an
+    # unterminated phrase and matches nothing. Upstream trimming (core-subject
+    # extraction, retry shortening) can cut a topic mid-phrase, so verify the
+    # quotes pair up and fall back to bare tokens when they do not.
+    if cleaned.count('"') % 2:
+        cleaned = cleaned.replace('"', " ")
+    tokens = [
+        clean
+        for token in cleaned.split()
+        if (clean := token.strip("'‘’"))
+    ]
+    core = " ".join(tokens).strip()
+    return " ".join(part for part in (core, _date_filters(from_date, to_date)) if part)
 
 
 def is_bird_installed() -> bool:
@@ -113,6 +254,40 @@ def is_bird_authenticated() -> Optional[str]:
     if _has_process_credentials():
         return "env AUTH_TOKEN"
     return None
+
+
+_probe_cache: Optional[Optional[bool]] = "unset"  # "unset" | True | False | None
+
+
+def probe_works(timeout: int = 8) -> Optional[bool]:
+    """Cheap runtime check that X auth actually returns data.
+
+    Returns True when a 1-result probe comes back without an error, False on a
+    clear failure (auth error / generic search failure), and None when the
+    result is inconclusive (network timeout) so callers can fail open and keep
+    the static credential-presence status rather than reporting a false-down.
+    Cached per process so repeated diagnose calls don't re-probe.
+    """
+    global _probe_cache
+    if _probe_cache != "unset":
+        return _probe_cache  # type: ignore[return-value]
+    if not (_has_injected_credentials() or _has_process_credentials()):
+        _probe_cache = False
+        return False
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    # @x (the platform's own account) posts frequently, so a no-error response
+    # means auth works even if this particular window is quiet.
+    resp = _run_bird_search(f"from:x since:{since}", count=1, timeout=timeout)
+    if isinstance(resp, dict) and resp.get("error"):
+        err = str(resp.get("error")).lower()
+        if "timed out" in err or "timeout" in err:
+            _probe_cache = None  # inconclusive — don't downgrade on a transient timeout
+            return None
+        _probe_cache = False
+        return False
+    _probe_cache = True
+    return True
 
 
 def check_npm_available() -> bool:
@@ -170,39 +345,43 @@ def _invoke_bird_subprocess(query: str, count: int, timeout: int):
         "--json",
     ]
 
-    pid_holder: list[int] = []
-
-    def _register(pid: int) -> None:
-        pid_holder.append(pid)
-        try:
-            from last30days import register_child_pid
-            register_child_pid(pid)
-        except ImportError:
-            pass
-
     try:
         result = subproc.run_with_timeout(
             cmd,
             timeout=timeout,
             env=_subprocess_env(),
-            on_pid=_register,
         )
     except subproc.SubprocTimeout:
         return None, {"error": f"Search timed out after {timeout}s", "items": []}
     except Exception as e:
         return None, {"error": str(e), "items": []}
-    finally:
-        if pid_holder:
-            try:
-                from last30days import unregister_child_pid
-                unregister_child_pid(pid_holder[0])
-            except Exception:
-                pass
 
     return result, None
 
 
-def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
+def _invalid_json_error(
+    attempts: int,
+    decode_error: Optional[str],
+    budget_exhausted: bool = False,
+) -> Dict[str, Any]:
+    noun = "attempt" if attempts == 1 else "attempts"
+    skipped = ", retry skipped: chain budget exhausted" if budget_exhausted else ""
+    return {
+        "error": (
+            f"Invalid JSON response after {attempts} {noun}{skipped} "
+            f"(likely Twitter anti-bot interstitial): {decode_error}"
+        ),
+        "items": [],
+    }
+
+
+def _run_bird_search(
+    query: str,
+    count: int,
+    timeout: int,
+    deadline: Optional[float] = None,
+    cancel: Any = None,
+) -> Dict[str, Any]:
     """Run a search using the vendored bird-search.mjs module.
 
     Retries the subprocess on JSON-decode failure (typically a Twitter
@@ -215,22 +394,42 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
         query: Full search query string (including since: filter)
         count: Number of results to request
         timeout: Timeout in seconds (per attempt)
+        deadline: Optional shared ``time.monotonic()`` deadline. A decode
+            retry runs only when the delay plus at least one second of
+            subprocess time still fits; its timeout is re-clamped after the
+            delay.
 
     Returns:
         Raw Bird JSON response or error dict.
     """
     last_decode_error: Optional[str] = None
+    attempt_timeout: Optional[int] = timeout
 
     for attempt in range(MAX_JSON_DECODE_RETRIES):
-        result, terminal_error = _invoke_bird_subprocess(query, count, timeout)
+        if cancel is not None and cancel.is_set():
+            return {"error": "bird: research cancelled", "items": []}
+        if attempt > 0:
+            attempt_timeout = _clamped_bird_timeout(timeout, deadline)
+            if attempt_timeout is None:
+                return _invalid_json_error(
+                    attempt, last_decode_error, budget_exhausted=True,
+                )
+        result, terminal_error = _invoke_bird_subprocess(query, count, attempt_timeout)
         if terminal_error is not None:
             return terminal_error
 
-        if result.returncode != 0:
-            error = result.stderr.strip() or "Bird search failed"
-            return {"error": error, "items": []}
-
         output = result.stdout.strip()
+        if result.returncode != 0:
+            if not output:
+                error = result.stderr.strip() or "Bird search failed"
+                return {"error": error, "items": []}
+            # Windows/Node 24: the vendored Bird CLI uses native fetch (undici),
+            # and calling process.exit() while keep-alive sockets are still
+            # closing trips a libuv assertion -> non-zero exit code AFTER it has
+            # already written a complete, valid JSON result to stdout. Trust
+            # stdout when it has content; only treat a non-zero exit as a real
+            # failure when stdout is empty.
+
         if not output:
             return {"items": []}
 
@@ -249,20 +448,29 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
             )
             last_decode_error = str(e)
             if attempt_num < MAX_JSON_DECODE_RETRIES:
+                if deadline is not None and (
+                    deadline - time.monotonic() < JSON_DECODE_RETRY_DELAY + 1
+                ):
+                    log.source_log(
+                        "X/bird",
+                        f"{log_msg}; retry skipped, chain budget exhausted",
+                        tty_only=False,
+                    )
+                    return _invalid_json_error(
+                        attempt_num, last_decode_error, budget_exhausted=True,
+                    )
                 log.source_log(
                     "X/bird",
                     f"{log_msg}; retrying in {JSON_DECODE_RETRY_DELAY:.0f}s",
+                    tty_only=False,
                 )
-                time.sleep(JSON_DECODE_RETRY_DELAY)
+                if cancel is not None:
+                    cancel.wait(JSON_DECODE_RETRY_DELAY)
+                else:
+                    time.sleep(JSON_DECODE_RETRY_DELAY)
                 continue
-            log.source_log("X/bird", log_msg)
-            return {
-                "error": (
-                    f"Invalid JSON response after {MAX_JSON_DECODE_RETRIES} attempts "
-                    f"(likely Twitter anti-bot interstitial): {e}"
-                ),
-                "items": [],
-            }
+            log.source_log("X/bird", log_msg, tty_only=False)
+            return _invalid_json_error(attempt_num, last_decode_error)
 
         if isinstance(parsed, list):
             return {"items": parsed}
@@ -275,38 +483,84 @@ def _run_bird_search(query: str, count: int, timeout: int) -> Dict[str, Any]:
     }
 
 
+def _clamped_bird_timeout(base: int, deadline: Optional[float]) -> Optional[int]:
+    """Per-attempt timeout clamped to the chain's remaining budget.
+
+    Returns None when the deadline already passed so the caller skips the
+    subprocess instead of starting a call guaranteed to overrun the chain.
+    """
+    if deadline is None:
+        return base
+    remaining = deadline - time.monotonic()
+    if remaining < 1:
+        return None
+    return max(1, min(base, int(remaining)))
+
+
+def _budget_stop(
+    response: Dict[str, Any],
+    last_clean_response: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Outcome when an optional zero-result retry no longer fits the budget.
+
+    A clean empty response stays a no-results outcome with a coverage warning;
+    otherwise the earlier search's own error (interstitial, timeout) is more
+    diagnostic than a generic budget message.
+    """
+    _log("chain budget exhausted; skipping remaining zero-result retries")
+    if last_clean_response is not None:
+        return {
+            **last_clean_response,
+            "warning": "Partial coverage: optional zero-result retries skipped because the search budget was exhausted.",
+        }
+    return response
+
+
 def search_x(
     topic: str,
     from_date: str,
     to_date: str,
     depth: str = "default",
+    deadline: Optional[float] = None,
+    cancel: Any = None,
 ) -> Dict[str, Any]:
     """Search X using Bird CLI with automatic retry on 0 results.
 
     Args:
         topic: Search topic
         from_date: Start date (YYYY-MM-DD)
-        to_date: End date (YYYY-MM-DD) - unused but kept for API compatibility
+        to_date: Inclusive end date (YYYY-MM-DD)
         depth: Research depth - "quick", "default", or "deep"
+        deadline: Optional shared wall-clock deadline (``time.monotonic()``
+            instant) from the X backend chain. Each of the up-to-four
+            sequential searches clamps its per-attempt timeout to the time
+            left; searches past the deadline never start.
 
     Returns:
         Raw Bird JSON response or error dict.
     """
     count = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
-    timeout = 30 if depth == "quick" else 45 if depth == "default" else 60
+    cancel_kwargs = {"cancel": cancel} if cancel is not None else {}
+    base_timeout = 30 if depth == "quick" else 45 if depth == "default" else 60
+    timeout = _clamped_bird_timeout(base_timeout, deadline)
+    if timeout is None:
+        return {"error": "bird: chain budget exhausted", "items": []}
 
     # Extract core subject - X search is literal, not semantic
-    core_topic = _extract_core_subject(topic)
-    query = f"{core_topic} since:{from_date}"
+    core_subject = _extract_core_subject(topic)
+    core_words = _plain_query_tokens(core_subject)
+    core_topic = " ".join(core_words)
+    query = build_topic_query(core_subject, from_date, to_date)
+    date_filters = _date_filters(from_date, to_date)
 
     _log(f"Searching: {query}")
-    response = _run_bird_search(query, count, timeout)
+    response = _run_bird_search(query, count, timeout, deadline=deadline, **cancel_kwargs)
+    last_clean_response = response if not response.get("error") else None
 
     # Check if we got results
     items = parse_bird_response(response, query=core_topic)
 
     # Retry with OR groups for multi-word queries (X supports OR operator)
-    core_words = core_topic.split()
     if not items and len(core_words) >= 2:
         from .query import extract_compound_terms
         compounds = extract_compound_terms(topic)
@@ -314,16 +568,26 @@ def search_x(
             # Build OR-group query: ("multi-agent" OR "agent simulation") since:DATE
             or_parts = ' OR '.join(f'"{t}"' for t in compounds[:3])
             _log(f"0 results for '{core_topic}', retrying with OR groups: {or_parts}")
-            query = f"({or_parts}) since:{from_date}"
-            response = _run_bird_search(query, count, timeout)
+            query = f"({or_parts}) {date_filters}"
+            timeout = _clamped_bird_timeout(base_timeout, deadline)
+            if timeout is None:
+                return _budget_stop(response, last_clean_response)
+            response = _run_bird_search(query, count, timeout, deadline=deadline, **cancel_kwargs)
+            if not response.get("error"):
+                last_clean_response = response
             items = parse_bird_response(response, query=core_topic)
 
     # Retry with fewer keywords if still 0 results and query has 3+ words
     if not items and len(core_words) > 2:
         shorter = ' '.join(core_words[:2])
         _log(f"0 results for '{core_topic}', retrying with '{shorter}'")
-        query = f"{shorter} since:{from_date}"
-        response = _run_bird_search(query, count, timeout)
+        query = f"{shorter} {date_filters}"
+        timeout = _clamped_bird_timeout(base_timeout, deadline)
+        if timeout is None:
+            return _budget_stop(response, last_clean_response)
+        response = _run_bird_search(query, count, timeout, deadline=deadline, **cancel_kwargs)
+        if not response.get("error"):
+            last_clean_response = response
         items = parse_bird_response(response, query=core_topic)
 
     # Last-chance retry: use strongest remaining token (often the product name)
@@ -335,11 +599,29 @@ def search_x(
         }
         candidates = [w for w in core_words if w not in low_signal]
         if candidates:
+            # Keep an entity anchor (the first distinctive topic token) in the
+            # retry so it can't collapse to a bare generic token like "compound"
+            # and flood the X pool with off-topic noise. Add the strongest
+            # (longest) distinctive token when it differs from the anchor;
+            # otherwise query the anchor alone. Better to return 0 than to
+            # over-broaden to an unanchored generic term.
+            anchor = candidates[0]
             strongest = max(candidates, key=len)
-            _log(f"0 results for '{core_topic}', retrying with strongest token '{strongest}'")
-            query = f"{strongest} since:{from_date}"
-            response = _run_bird_search(query, count, timeout)
+            retry_terms = anchor if strongest == anchor else f"{anchor} {strongest}"
+            _log(f"0 results for '{core_topic}', retrying anchored on '{retry_terms}'")
+            query = f"{retry_terms} {date_filters}"
+            timeout = _clamped_bird_timeout(base_timeout, deadline)
+            if timeout is None:
+                return _budget_stop(response, last_clean_response)
+            response = _run_bird_search(query, count, timeout, deadline=deadline, **cancel_kwargs)
+            if not response.get("error"):
+                last_clean_response = response
 
+    if cancel is not None and cancel.is_set():
+        return {**response, "error": "bird: research cancelled"}
+    if response.get("error") and last_clean_response is not None:
+        _log("Optional retry failed after a clean empty response; preserving no-results outcome")
+        return last_clean_response
     return response
 
 
@@ -348,29 +630,48 @@ def search_handles(
     topic: Optional[str],
     from_date: str,
     count_per: int = 5,
+    failure_out: Optional[List[str]] = None,
+    *,
+    to_date: Optional[str] = None,
+    deadline: Optional[float] = None,
+    cancel: Any = None,
 ) -> List[Dict[str, Any]]:
     """Search specific X handles for topic-related content.
 
-    Runs targeted Bird searches using `from:handle topic` syntax.
-    Used in Phase 2 supplemental search after entity extraction.
+    Pulls each handle's actual timeline via `from:handle since:` — the FROM
+    lane (tweets BY the person), engagement-weighted downstream. The topic is
+    used for relevance RANKING, never AND'd into the query: X search is literal,
+    so `from:handle <their name>` only matched tweets where they wrote their own
+    name and returned ~0. Used in Phase 2 after entity extraction.
 
     Args:
         handles: List of X handles to search (without @)
-        topic: Search topic (core subject), or None for unfiltered search
+        topic: Search topic — used for relevance ranking only, not the query
         from_date: Start date (YYYY-MM-DD)
         count_per: Results to request per handle
+        failure_out: When provided, a short reason is appended for every
+            per-handle failure branch, so the caller can distinguish a
+            transport failure from a handle that genuinely posted nothing.
+        to_date: Inclusive end date (YYYY-MM-DD), when supplied
 
     Returns:
         List of raw item dicts (same format as parse_bird_response output).
     """
     core_topic = _extract_core_subject(topic) if topic else None
+    date_filters = _date_filters(from_date, to_date)
+
+    def _note(msg: str) -> None:
+        if failure_out is not None:
+            failure_out.append(msg)
 
     def _search_one_handle(handle: str) -> List[Dict[str, Any]]:
+        timeout = _clamped_bird_timeout(15, deadline)
+        if timeout is None or (cancel is not None and cancel.is_set()):
+            _note("bird handle research cancelled or timed out")
+            return []
         handle = handle.lstrip("@")
-        if core_topic:
-            query = f"from:{handle} {core_topic} since:{from_date}"
-        else:
-            query = f"from:{handle} since:{from_date}"
+        # Always unfiltered: pull the timeline, rank by topic relevance below.
+        query = f"from:{handle} {date_filters}"
 
         cmd = [
             "node", str(_BIRD_SEARCH_MJS),
@@ -380,19 +681,28 @@ def search_handles(
         ]
 
         try:
-            result = subproc.run_with_timeout(cmd, timeout=15, env=_subprocess_env())
+            result = subproc.run_with_timeout(cmd, timeout=timeout, env=_subprocess_env())
         except subproc.SubprocTimeout:
             _log(f"Handle search timed out for @{handle}")
+            _note(f"@{handle}: bird-search timed out after 15s")
             return []
         except OSError as e:
             _log(f"Handle search error for @{handle}: {e}")
-            return []
-
-        if result.returncode != 0:
-            _log(f"Handle search failed for @{handle}: {result.stderr.strip()}")
+            _note(f"@{handle}: could not spawn bird-search ({e})")
             return []
 
         output = result.stdout.strip()
+        if result.returncode != 0:
+            if not output:
+                _log(f"Handle search failed for @{handle}: {_scrub_credentials(result.stderr.strip())}")
+                _note(
+                    f"@{handle}: bird-search exited {result.returncode} "
+                    f"({_scrub_credentials(result.stderr.strip())[:160] or 'no stderr'})"
+                )
+                return []
+            # Windows/Node 24: benign libuv assertion can cause non-zero exit
+            # AFTER valid JSON is written to stdout. Trust stdout content.
+
         if not output:
             return []
 
@@ -400,8 +710,13 @@ def search_handles(
             response = json.loads(output)
         except json.JSONDecodeError:
             _log(f"Invalid JSON from handle search for @{handle}")
+            _note(f"@{handle}: bird-search returned invalid JSON")
             return []
-        return parse_bird_response(response, query=core_topic)
+        items = parse_bird_response(response, query=core_topic)
+        # Log on success/empty too (not only on failure): a silent handle search
+        # made the from: query look like it never ran and caused wrong diagnoses.
+        _log(f"Searching: {query} -> {len(items)} results")
+        return items
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -411,6 +726,103 @@ def search_handles(
         for future in as_completed(futures):
             all_items.extend(future.result())
 
+    return all_items
+
+
+def search_mentions(
+    handles: List[str],
+    from_date: str,
+    count_per: int = 5,
+    failure_out: Optional[List[str]] = None,
+    *,
+    to_date: Optional[str] = None,
+    deadline: Optional[float] = None,
+    cancel: Any = None,
+) -> List[Dict[str, Any]]:
+    """Search for tweets ABOUT/TO each handle — the mention lane.
+
+    Queries `@handle since:` (tweets that mention the account) and excludes the
+    handle's OWN tweets (those belong to the FROM lane via search_handles), so
+    this surfaces what OTHERS are saying about the person. Engagement-weighted
+    downstream; deduped against the FROM lane by URL at normalize time.
+
+    Args:
+        handles: List of X handles (without @)
+        from_date: Start date (YYYY-MM-DD)
+        count_per: Results to request per handle
+        failure_out: When provided, a short reason is appended for every
+            per-handle failure branch, so the caller can distinguish a
+            transport failure from a handle nobody mentioned.
+        to_date: Inclusive end date (YYYY-MM-DD), when supplied
+
+    Returns:
+        List of raw item dicts (same format as parse_bird_response output).
+    """
+    date_filters = _date_filters(from_date, to_date)
+
+    def _note(msg: str) -> None:
+        if failure_out is not None:
+            failure_out.append(msg)
+
+    def _search_one(handle: str) -> List[Dict[str, Any]]:
+        timeout = _clamped_bird_timeout(15, deadline)
+        if timeout is None or (cancel is not None and cancel.is_set()):
+            _note("bird mention research cancelled or timed out")
+            return []
+        handle = handle.lstrip("@")
+        query = f"@{handle} {date_filters}"
+        cmd = [
+            "node", str(_BIRD_SEARCH_MJS),
+            query,
+            "--count", str(count_per),
+            "--json",
+        ]
+        try:
+            result = subproc.run_with_timeout(cmd, timeout=timeout, env=_subprocess_env())
+        except subproc.SubprocTimeout:
+            _log(f"Mention search timed out for @{handle}")
+            _note(f"@{handle}: bird-search timed out after 15s")
+            return []
+        except OSError as e:
+            _log(f"Mention search error for @{handle}: {e}")
+            _note(f"@{handle}: could not spawn bird-search ({e})")
+            return []
+        if result.returncode != 0:
+            _log(f"Mention search failed for @{handle}: {_scrub_credentials(result.stderr.strip())}")
+            _note(
+                f"@{handle}: bird-search exited {result.returncode} "
+                f"({_scrub_credentials(result.stderr.strip())[:160] or 'no stderr'})"
+            )
+            return []
+        output = result.stdout.strip()
+        if not output:
+            return []
+        try:
+            response = json.loads(output)
+        except json.JSONDecodeError:
+            _log(f"Invalid JSON from mention search for @{handle}")
+            _note(f"@{handle}: bird-search returned invalid JSON")
+            return []
+        items = parse_bird_response(response, query=None)
+        # ABOUT lane = OTHERS mentioning the handle. Drop the handle's own tweets
+        # (the FROM lane already covers those); identify by the status URL author.
+        hl = handle.lower()
+        # The Bird API may return either x.com or twitter.com permalinks, so
+        # match both when excluding the handle's own tweets.
+        def _is_own(url):
+            u = (url or "").lower()
+            return f"x.com/{hl}/status" in u or f"twitter.com/{hl}/status" in u
+        about = [it for it in items if not _is_own(it.get("url"))]
+        _log(f"Searching: {query} -> {len(about)} mentions")
+        return about
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    all_items: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=min(5, len(handles))) as executor:
+        futures = {executor.submit(_search_one, h): h for h in handles}
+        for future in as_completed(futures):
+            all_items.extend(future.result())
     return all_items
 
 
@@ -489,11 +901,16 @@ def parse_bird_response(response: Dict[str, Any], query: str = "") -> List[Dict[
                     engagement[key] = None
 
         # Build normalized item
+        text = str(tweet.get("text", tweet.get("full_text", ""))).strip()[:500]
         item = {
             "id": f"X{i+1}",
-            "text": str(tweet.get("text", tweet.get("full_text", ""))).strip()[:500],
+            "text": text,
             "url": url,
             "author_handle": author_handle.lstrip("@"),
+            # Leading @mentions parsed from the post text identify who a reply is
+            # directed at (X replies open with the target handle(s)). Used by the
+            # interaction-signal classifier in rerank.
+            "mentioned_handles": _leading_mentions(text),
             "date": date,
             "engagement": engagement if any(v is not None for v in engagement.values()) else None,
             "why_relevant": "",  # Bird doesn't provide relevance explanations

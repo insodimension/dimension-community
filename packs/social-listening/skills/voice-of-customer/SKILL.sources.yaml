@@ -1,0 +1,54 @@
+# Borrow ledger for marketplace/packs/social-listening/skills/voice-of-customer/SKILL.md. Clones read at the pinned refs on 2026-11-06.
+#
+#   bun run docs:sources marketplace/packs/social-listening/skills/voice-of-customer/SKILL.md
+
+version: 1
+doc: marketplace/packs/social-listening/skills/voice-of-customer/SKILL.md
+updated: 2026-11-06
+
+repos:
+  scrapecreators:
+    name: ScrapeCreators social-media-research-skills (MIT)
+    url: https://github.com/ScrapeCreators/social-media-research-skills
+    ref: 64ba7b4d
+    ref_date: 2026-08-26
+    clone: research-clones/social-media-research-skills
+    tracked: true
+    role: "Research procedures written for the ScrapeCreators API, adapted to Dimension's own connectors."
+  marketingskills:
+    name: marketingskills by Corey Haines (MIT)
+    url: https://github.com/coreyhaines31/marketingskills
+    ref: 88c79f65
+    ref_date: 2026-10-30
+    clone: research-clones/marketingskills
+    tracked: true
+    role: "Marketing method skills; listening triage and customer research."
+
+borrowings:
+  - id: S-01
+    concept: "Comment mining: the value is questions, objections and exact wording; separate one loud comment from a pattern"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/comment-mining/SKILL.md
+    our_target: "Intro and Synthesise"
+    why: "Copy and positioning need the audience's words, not a sentiment score."
+
+  - id: S-02
+    concept: "Extraction framework (pains, triggers, desired outcomes, language, alternatives), watering holes by audience, confidence by independent sources, sample bias"
+    verdict: adapt
+    upstream: marketingskills
+    paths:
+      - skills/customer-research/SKILL.md
+    our_target: "Where to listen, Extract, Synthesise"
+    why: "A tested structure for voice-of-customer synthesis."
+    adapted: "Interviews and surveys are out of scope here; objections, questions and buying intent from comment mining are added as tags."
+
+  - id: S-03
+    concept: "Read the post and the comments; keep slang and emotional wording; drop spam and bots"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/comment-mining/SKILL.md
+    our_target: "Where to listen, Extract"
+    why: "Cleaning too hard removes the language the skill exists to keep."

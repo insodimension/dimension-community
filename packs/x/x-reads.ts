@@ -43,6 +43,7 @@ export interface XReadPost {
 	readonly likeCount?: number;
 	readonly replyCount?: number;
 	readonly retweetCount?: number;
+	readonly quoteCount?: number;
 	readonly conversationId?: string;
 }
 
@@ -127,6 +128,7 @@ function normalize(tweet: BirdTweet): XReadPost | null {
 		...(typeof tweet.likeCount === "number" ? { likeCount: tweet.likeCount } : {}),
 		...(typeof tweet.replyCount === "number" ? { replyCount: tweet.replyCount } : {}),
 		...(typeof tweet.retweetCount === "number" ? { retweetCount: tweet.retweetCount } : {}),
+		...(typeof tweet.quoteCount === "number" ? { quoteCount: tweet.quoteCount } : {}),
 		...(tweet.conversationId ? { conversationId: tweet.conversationId } : {}),
 	};
 }
@@ -225,6 +227,8 @@ export async function readLaneStatus(): Promise<XReadLaneStatus> {
 	return (await resolveLane()).status;
 }
 
+export type XSearchSort = "recent" | "top";
+
 /**
  * Run a search on the FREE lane.
  *
@@ -235,11 +239,19 @@ export async function readLaneStatus(): Promise<XReadLaneStatus> {
  * `query` is X's ordinary search syntax, so the same string works on both
  * lanes: `from:user`, `to:user`, `conversation_id:…`, `-is:retweet`, `lang:en`.
  */
-export async function birdSearch(query: string, limit: number, cursor?: string): Promise<XSearchPage | null> {
+export async function birdSearch(
+	query: string,
+	limit: number,
+	cursor?: string,
+	sort: XSearchSort = "recent",
+): Promise<XSearchPage | null> {
 	const lane = await resolveLane();
 	if (!lane.client) return null;
 	try {
-		const result = await lane.client.search(query, limit, cursor ? { cursor } : {});
+		const result = await lane.client.search(query, limit, {
+			...(cursor ? { cursor } : {}),
+			product: sort === "top" ? "Top" : "Latest",
+		});
 		if (!result.success) return null;
 		const posts = result.tweets.flatMap(tweet => {
 			const post = normalize(tweet);

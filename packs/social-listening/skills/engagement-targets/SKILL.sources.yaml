@@ -1,0 +1,47 @@
+# Borrow ledger for marketplace/packs/social-listening/skills/engagement-targets/SKILL.md. Clones read at the pinned refs on 2026-11-06.
+#
+#   bun run docs:sources marketplace/packs/social-listening/skills/engagement-targets/SKILL.md
+
+version: 1
+doc: marketplace/packs/social-listening/skills/engagement-targets/SKILL.md
+updated: 2026-11-06
+
+repos:
+  marketingskills:
+    name: marketingskills by Corey Haines (MIT)
+    url: https://github.com/coreyhaines31/marketingskills
+    ref: 88c79f65
+    ref_date: 2026-10-30
+    clone: research-clones/marketingskills
+    tracked: true
+    role: "Marketing method skills; listening triage and customer research."
+
+borrowings:
+  - id: S-01
+    concept: "A short daily triage list of posts worth replying to, drafted for a human to post"
+    verdict: adapt
+    upstream: marketingskills
+    paths:
+      - skills/social/references/listening.md
+    our_target: "Intro and output"
+    why: "Engagement is a shortlist decision, not an open feed, and posting stays human."
+    adapted: "The skill stops at a ranked list with an angle; the platform's own drafter writes the reply."
+
+  - id: S-02
+    concept: "Read a subreddit's rules before commenting; Hacker News welcomes transparent founders and punishes promotion"
+    verdict: adopt
+    upstream: marketingskills
+    paths:
+      - skills/social/references/listening.md
+    our_target: "Check the rules before ranking"
+    why: "A reply the place forbids costs the account and the brand."
+
+  - id: S-03
+    concept: "Weighted scoring rubric (fit, intent, comment opportunity, reach, recency) and the drop rules"
+    verdict: adapt
+    upstream: marketingskills
+    paths:
+      - skills/social/references/listening.md
+    our_target: "Score and rank"
+    why: "A repeatable score keeps the list honest across platforms."
+    adapted: "Reach becomes momentum (engagement per hour) because our readers return post age and counts."

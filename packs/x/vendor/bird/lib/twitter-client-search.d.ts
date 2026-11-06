@@ -15,6 +15,7 @@ export interface BirdTweet {
 	readonly replyCount?: number;
 	readonly retweetCount?: number;
 	readonly likeCount?: number;
+	readonly quoteCount?: number;
 	readonly conversationId?: string;
 	readonly inReplyToStatusId?: string;
 	readonly author?: BirdAuthor;
@@ -25,6 +26,7 @@ export interface BirdSearchOptions {
 	readonly cursor?: string | undefined;
 	readonly maxPages?: number | undefined;
 	readonly includeRaw?: boolean | undefined;
+	readonly product?: "Latest" | "Top" | undefined;
 }
 
 export interface BirdSearchResult {

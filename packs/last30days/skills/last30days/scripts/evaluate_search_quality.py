@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -46,6 +47,19 @@ DEFAULT_TOPICS = _load_default_topics()
 DEFAULT_SEARCH = ""
 DEFAULT_JUDGE_MODEL = GEMINI_FLASH_LITE
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+EVAL_CREDENTIAL_ENV_KEYS = (
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_GENAI_API_KEY",
+    "OPENAI_API_KEY",
+    "XAI_API_KEY",
+    "SCRAPECREATORS_API_KEY",
+    "BSKY_HANDLE",
+    "BSKY_APP_PASSWORD",
+    "TRUTHSOCIAL_TOKEN",
+    "AUTH_TOKEN",
+    "CT0",
+)
 
 
 def stable_item_key(item: dict[str, Any]) -> str:
@@ -269,12 +283,25 @@ def get_judgments(
 ) -> dict[str, int]:
     cache_file = output_dir / "judgments" / f"{slug}.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt = build_judge_prompt(topic, query_type, items)
+    input_sha256 = hashlib.sha256(json.dumps([judge_model, prompt]).encode("utf-8")).hexdigest()
+    stale_cache = False
     if cache_file.exists():
         payload = json.loads(cache_file.read_text())
-        return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
+        if payload.get("input_sha256") == input_sha256:
+            return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
+        stale_cache = True
     if not gemini_api_key or not items:
+        if stale_cache and not gemini_api_key:
+            sys.stderr.write(
+                f"[Eval] Cached judgments for {slug!r} have different or unverified "
+                f"judge inputs/model and no Gemini API key is set to re-judge; returning "
+                f"no grades (metrics for this topic will be zero).\n"
+            )
         return {}
-    payload = call_gemini_judge(gemini_api_key, judge_model, build_judge_prompt(topic, query_type, items))
+    payload = call_gemini_judge(gemini_api_key, judge_model, prompt)
+    payload["judge_model"] = judge_model
+    payload["input_sha256"] = input_sha256
     cache_file.write_text(json.dumps(payload, indent=2))
     return {row["id"]: int(row["grade"]) for row in payload.get("judgments") or []}
 
@@ -289,19 +316,7 @@ def create_eval_env() -> dict[str, str]:
         "PYTHONUTF8": "1",
         "LAST30DAYS_CONFIG_DIR": "",
     }
-    for key in (
-        "GOOGLE_API_KEY",
-        "GEMINI_API_KEY",
-        "GOOGLE_GENAI_API_KEY",
-        "OPENAI_API_KEY",
-        "XAI_API_KEY",
-        "SCRAPECREATORS_API_KEY",
-        "BSKY_HANDLE",
-        "BSKY_APP_PASSWORD",
-        "TRUTHSOCIAL_TOKEN",
-        "AUTH_TOKEN",
-        "CT0",
-    ):
+    for key in EVAL_CREDENTIAL_ENV_KEYS:
         value = os.environ.get(key) or config.get(key)
         if value:
             passthrough[key] = value
@@ -313,6 +328,12 @@ def run_last30days(repo_dir: Path, topic: str, *, search: str, timeout_seconds: 
     if not engine.exists():
         engine = repo_dir / "scripts" / "last30days.py"
     cmd = [sys.executable, str(engine), topic, "--emit=json"]
+    # Current engines default to the stable agent export, while older revisions
+    # used by the evaluator implicitly emit the raw report and do not recognize
+    # --json-profile. Request raw explicitly whenever the checked-out engine
+    # supports the selector.
+    if not engine.exists() or "--json-profile" in engine.read_text(encoding="utf-8"):
+        cmd.append("--json-profile=raw")
     if search:
         cmd.extend(["--search", search])
     if quick:
@@ -330,7 +351,16 @@ def run_last30days(repo_dir: Path, topic: str, *, search: str, timeout_seconds: 
     )
     if result.returncode != 0:
         raise RuntimeError(f"{repo_dir.name} failed for '{topic}' with exit {result.returncode}\n{result.stderr.strip()}")
-    return json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    # Shape guard: the evaluator compares raw Report fields. If the engine
+    # emitted the agent profile anyway (flag detection missed a future
+    # spelling), fail loudly instead of scoring empty ranked_candidates.
+    if "schema_version" in payload and "ranked_candidates" not in payload:
+        raise RuntimeError(
+            f"{repo_dir.name} emitted the agent JSON profile; the evaluator "
+            "requires the raw Report (--json-profile=raw)."
+        )
+    return payload
 
 
 def create_worktree(rev: str) -> Path:

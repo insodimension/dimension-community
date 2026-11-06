@@ -32,7 +32,8 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import type { XReadPost, XSearchPage } from "./x-reads.js";
+import { collectEnvelope, DEPTH_POSTS, type ResearchDepth, type SearchWindow, writeEnvelope } from "./x-envelope.js";
+import type { XReadPost, XSearchPage, XSearchSort } from "./x-reads.js";
 import { birdSearch, readLaneStatus } from "./x-reads.js";
 
 // MUST match `connect.configTarget` in dimension.plugin.json — the connect flow
@@ -49,7 +50,7 @@ const REFRESH_SKEW_MS = 120_000;
 const STANDARD_POST_LIMIT = 280;
 
 /** Tweet fields every read requests, so metrics/threading are always present. */
-const TWEET_FIELDS = "created_at,public_metrics,conversation_id,in_reply_to_user_id,referenced_tweets,lang";
+const TWEET_FIELDS = "created_at,public_metrics,conversation_id,in_reply_to_user_id,referenced_tweets,lang,note_tweet";
 const USER_FIELDS = "username,name,verified,description,public_metrics,created_at";
 
 const storedCredential = type({
@@ -263,6 +264,7 @@ interface XTweet {
 		readonly impression_count?: number;
 	};
 	readonly referenced_tweets?: readonly { readonly type?: string; readonly id?: string }[];
+	readonly note_tweet?: { readonly text?: string };
 }
 
 interface XUser {
@@ -328,7 +330,7 @@ function renderPosts(page: XSearchPage, emptyMsg: string): string {
 	if (page.posts.length === 0) return emptyMsg;
 	const lines = page.posts.map(formatPostLine);
 	if (page.nextCursor) lines.push(`\n[more available — pass cursor: "${page.nextCursor}"]`);
-	lines.push("\n[free lane — this read cost $0]");
+	if (page.backend === "bird") lines.push("\n[free lane — this read cost $0]");
 	return lines.join("\n");
 }
 
@@ -339,6 +341,62 @@ function renderThread(conversationId: string, posts: readonly XReadPost[]): stri
 	return `Conversation ${conversationId} — ${ordered.length} post(s)\n${body}\n\n[free lane — this read cost $0]`;
 }
 
+function officialPosts(payload: XListResponse): XReadPost[] {
+	const authors = authorIndex(payload);
+	return (payload.data ?? []).flatMap(tweet => {
+		if (!tweet.id) return [];
+		const author = tweet.author_id ? authors.get(tweet.author_id) : undefined;
+		const m = tweet.public_metrics;
+		return [
+			{
+				id: tweet.id,
+				text: tweet.note_tweet?.text ?? tweet.text ?? "",
+				...(author?.username ? { authorUsername: author.username } : {}),
+				...(tweet.author_id ? { authorId: tweet.author_id } : {}),
+				...(tweet.created_at ? { createdAt: tweet.created_at } : {}),
+				...(m?.like_count !== undefined ? { likeCount: m.like_count } : {}),
+				...(m?.reply_count !== undefined ? { replyCount: m.reply_count } : {}),
+				...(m?.retweet_count !== undefined ? { retweetCount: m.retweet_count } : {}),
+				...(m?.quote_count !== undefined ? { quoteCount: m.quote_count } : {}),
+				...(tweet.conversation_id ? { conversationId: tweet.conversation_id } : {}),
+			},
+		];
+	});
+}
+
+const OFFICIAL_END_MARGIN_MS = 30_000;
+
+function officialEndTime(until: string, now: number): string {
+	return new Date(Math.min(Date.parse(`${until}T00:00:00Z`), now - OFFICIAL_END_MARGIN_MS)).toISOString();
+}
+
+function freeLaneQuery(query: string, window: SearchWindow): string {
+	const since = window.since ? ` since:${window.since}` : "";
+	const until = window.until ? ` until:${window.until}` : "";
+	return `${query}${since}${until}`;
+}
+
+async function officialSearchPage(
+	query: string,
+	limit: number,
+	cursor: string | undefined,
+	sort: XSearchSort,
+	window: SearchWindow,
+): Promise<XSearchPage> {
+	const search = new URLSearchParams({ query, sort_order: sort === "top" ? "relevancy" : "recency" });
+	if (window.since) search.set("start_time", `${window.since}T00:00:00Z`);
+	if (window.until) search.set("end_time", officialEndTime(window.until, Date.now()));
+	const payload = await xJson<XListResponse>(
+		`/tweets/search/recent?${search.toString()}&${tweetListParams(limit, cursor, "next_token")}`,
+		"tweets/search/recent",
+	);
+	return {
+		backend: "official",
+		posts: officialPosts(payload),
+		...(payload.meta?.next_token ? { nextCursor: payload.meta.next_token } : {}),
+	};
+}
+
 /** Run a search on the FREE lane first, falling back to the paid official
  *  `/2/tweets/search/recent` when cookies are absent or the free call fails.
  *  Both lanes speak the same query syntax, so callers pass one string.
@@ -346,20 +404,15 @@ function renderThread(conversationId: string, posts: readonly XReadPost[]): stri
  *  This is the whole cost story of the connector: `x_search`, `x_read_thread`
  *  and `x_my_posts` are the high-volume reads, they are all searches, and a
  *  search is $0.005 PER POST RETURNED on the official API. */
-async function searchPosts(
+async function searchPage(
 	query: string,
 	limit: number,
 	cursor: string | undefined,
-	emptyMsg: string,
-): Promise<string> {
-	const free = await birdSearch(query, limit, cursor);
-	if (free) return renderPosts(free, emptyMsg);
-	const search = new URLSearchParams({ query });
-	const payload = await xJson<XListResponse>(
-		`/tweets/search/recent?${search.toString()}&${tweetListParams(limit, cursor, "next_token")}`,
-		"tweets/search/recent",
-	);
-	return renderTweetList(payload, emptyMsg);
+	sort: XSearchSort,
+	window: SearchWindow,
+): Promise<XSearchPage> {
+	const free = await birdSearch(freeLaneQuery(query, window), limit, cursor, sort);
+	return free ?? officialSearchPage(query, limit, cursor, sort, window);
 }
 
 /** Shared query string for any endpoint returning a tweet list. */
@@ -469,6 +522,31 @@ const searchSchema = type({
 		"Max posts, default 20, capped at 100 (min 5). Billed at $0.005 per post returned.",
 	),
 	"cursor?": type("string").describe("next_token from a previous call."),
+	"sort?": type("'recent' | 'top'").describe(
+		"recent (default): newest first. top: X's most-engaged ranking, the popular pass that surfaces the week's strongest posts instead of only the last few hours.",
+	),
+	"since?": type(/^\d{4}-\d{2}-\d{2}$/).describe("Earliest day to include, YYYY-MM-DD (UTC). Within the last 7 days."),
+	"until?": type(/^\d{4}-\d{2}-\d{2}$/).describe("Day to stop before, YYYY-MM-DD (UTC), exclusive."),
+});
+
+const postsEnvelopeSchema = type({
+	topic: type("string").describe(
+		"The research topic, character for character the topic string the last30days engine is run with: the engine refuses an envelope whose topic differs.",
+	),
+	"queries?": type("string[]").describe(
+		"One or two X search queries for the topic (the plan's X queries). Defaults to the topic itself. Multi-word topics unquoted; quote only proper names.",
+	),
+	"depth?": type("'quick' | 'default' | 'deep'").describe(
+		"Matches the engine's --quick / default / --deep: 10 / 30 / 60 newest posts per query, plus the popular pass.",
+	),
+	"handles?": type("string[]").describe(
+		"The run's --x-handle accounts: each gets a from: call (8 posts) and a mention call (5 posts).",
+	),
+	"related?": type("string[]").describe("The run's --x-related accounts: each gets a from: call (3 posts)."),
+	"days?": type("number").describe("The engine's --days window, default 30. X search itself reaches only the last 7."),
+	"allowPaid?": type("boolean").describe(
+		"Allow the billed official API when the free lane is unavailable ($0.005 per post). Default false: without the free lane, X is reported as not covered.",
+	),
 });
 
 const getPostSchema = type({
@@ -636,18 +714,93 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 		name: "x_search",
 		label: "X: Search",
 		description:
-			'Search public posts from the LAST 7 DAYS using X\'s operator syntax ("from:user", "to:user", "#tag", "url:domain.com", "-is:retweet", "lang:en", "min_faves:10", quoted phrases). The research tool. Runs on the FREE lane when x.com cookies are available; otherwise it bills $0.005 per post returned on the official API, so state the limit deliberately either way.',
+			'Search public posts from the LAST 7 DAYS using X\'s operator syntax ("from:user", "to:user", "#tag", "url:domain.com", "-is:retweet", "lang:en", "min_faves:10", quoted phrases). The research tool. sort "top" is the popular pass (X\'s most-engaged ranking); since/until narrow it to days. Runs on the FREE lane when x.com cookies are available; otherwise it bills $0.005 per post returned on the official API, so state the limit deliberately either way.',
 		parameters: searchSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof searchSchema.infer) {
 			const limit = clampLimit(params.limit, 20, 100);
-			const text = await searchPosts(
-				params.query,
-				limit,
-				params.cursor,
-				`No posts in the last 7 days match: ${params.query}`,
-			);
+			const window: SearchWindow = {
+				...(params.since ? { since: params.since } : {}),
+				...(params.until ? { until: params.until } : {}),
+			};
+			const page = await searchPage(params.query, limit, params.cursor, params.sort ?? "recent", window);
+			const text = renderPosts(page, `No posts in the last 7 days match: ${params.query}`);
 			return { content: [{ type: "text" as const, text }] };
+		},
+	};
+}
+
+const PAID_POST_USD = 0.005;
+
+function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
+	return {
+		name: "x_posts_envelope",
+		label: "X: Posts for last30days",
+		description:
+			"Fetch X posts for a last30days run and write them as a last30days-x-posts/1 envelope file: the newest posts for each query, a popular pass (X's top-ranked posts for each of the last 7 days), from/mention calls for named accounts, and up to 3 discovered authors. Returns the file path and the exact engine flags (LAST30DAYS_X_HOST_LANE=1, --x-posts, --x-related). X search reaches only the last 7 days of the 30-day window. FREE on the x.com cookie lane; refuses the billed lane unless allowPaid is set.",
+		parameters: postsEnvelopeSchema,
+		approval: "read" as const,
+		async execute(_toolCallId: string, params: typeof postsEnvelopeSchema.infer) {
+			const depth: ResearchDepth = params.depth ?? "default";
+			const lane = await readLaneStatus();
+			if (lane.backend === "official" && !params.allowPaid) {
+				const estimate = (DEPTH_POSTS[depth] * 2 * PAID_POST_USD).toFixed(2);
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `X is not covered for this run: the free x.com cookie lane is unavailable (${lane.detail}). Run last30days without --x-posts and say X was not covered. With allowPaid: true the official API would serve it at $0.005 per post, roughly $${estimate} or more for this depth.`,
+						},
+					],
+				};
+			}
+			const freeOnly = !params.allowPaid;
+			const result = await collectEnvelope(
+				{
+					topic: params.topic,
+					queries: params.queries?.length ? params.queries.slice(0, 2) : [params.topic],
+					depth,
+					handles: (params.handles ?? []).map(handle),
+					related: (params.related ?? []).map(handle),
+					days: params.days ?? 30,
+				},
+				async (query, limit, sort, window) => {
+					if (!freeOnly) return searchPage(query, limit, undefined, sort, window);
+					const page = await birdSearch(freeLaneQuery(query, window), limit, undefined, sort);
+					if (!page) throw new Error("the free x.com lane failed");
+					return page;
+				},
+				new Date(),
+			);
+			const rows = result.envelope.calls.reduce((sum, call) => sum + call.posts.length, 0);
+			const cost =
+				result.paidPosts > 0
+					? `$${(result.paidPosts * PAID_POST_USD).toFixed(2)} on the official API`
+					: "$0 (free lane)";
+			if (rows === 0) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `X search returned no posts for "${params.topic}" in the last 7 days (cost ${cost}). No envelope was written: run last30days without --x-posts and report X as having no posts this week.`,
+						},
+					],
+				};
+			}
+			const path = await writeEnvelope(result.envelope);
+			const related = [...(params.related ?? []).map(handle), ...result.discovered];
+			const lines = [
+				`Wrote ${rows} post(s) in ${result.envelope.calls.length} call(s) to ${path}`,
+				`Status: ${result.envelope.status}${result.envelope.error ? ` (${result.envelope.error})` : ""} · window ${result.envelope.window.from} to ${result.envelope.window.to}, X search covers only the last 7 days · cost ${cost}`,
+				"",
+				"Run the engine in the same shell with:",
+				"  LAST30DAYS_X_HOST_LANE=1",
+				`  --x-posts "${path}"`,
+				...(related.length ? [`  --x-related ${related.join(",")}`] : []),
+				"",
+				"The file is single-use, expires 6 hours after it was written, and the topic must match the engine's topic exactly.",
+			];
+			return { content: [{ type: "text" as const, text: lines.join("\n") }] };
 		},
 	};
 }
@@ -1054,6 +1207,7 @@ export default function xExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createMyPostsTool());
 	pi.registerTool(createHomeTimelineTool());
 	pi.registerTool(createSearchTool());
+	pi.registerTool(createPostsEnvelopeTool());
 	pi.registerTool(createGetPostTool());
 	pi.registerTool(createReadThreadTool());
 	pi.registerTool(createUserLookupTool());

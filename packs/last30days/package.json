@@ -1,20 +1,32 @@
 {
 	"name": "@inso/last30days",
 	"author": "Dimension",
-	"version": "0.1.2",
+	"version": "0.2.0",
 	"description": "last30days — research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News, and the web",
 	"type": "module",
+	"main": "index.ts",
 	"scripts": {
 		"check": "biome check . --no-errors-on-unmatched"
 	},
 	"dimension": {
-		"name": "last30days"
+		"name": "last30days",
+		"extensions": [
+			"index.ts"
+		]
 	},
 	"files": [
 		"skills/",
+		"rules/",
+		"connect/",
 		"assets/",
+		"index.ts",
+		"setup.ts",
 		"plugin.json",
 		"LICENSE"
 	],
+	"peerDependencies": {
+		"arktype": "^2.2.0",
+		"@oh-my-pi/pi-coding-agent": "*"
+	},
 	"license": "MIT"
 }

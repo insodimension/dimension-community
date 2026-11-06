@@ -13,6 +13,43 @@ GENERIC_HANDLES = {
     "verified", "jack", "sundarpichai",
 }
 
+ENTITY_STOPWORDS = frozenset({
+    "the", "a", "an", "to", "for", "how", "is", "in", "of", "on", "and",
+    "with", "from", "by", "at", "this", "that", "it", "what", "are", "do",
+    "can", "his", "her", "he", "she", "its", "was", "has", "new", "just",
+    "says", "said", "will", "about", "after", "now", "all", "been", "here",
+    "not", "out", "up", "more", "also", "but", "who", "year", "first",
+    "make", "being", "making", "over", "into", "than", "they", "their",
+    "would", "could", "get", "got", "some", "like", "back", "going",
+    "breaking", "https", "http", "www", "com",
+})
+
+
+def has_anchor_signal(word: str) -> bool:
+    """True when a word carries an anchor signal: leading capital, all-caps,
+    or any digit (product/person/version anchors)."""
+    return word[0].isupper() or word.isupper() or any(char.isdigit() for char in word)
+
+
+def extract_text_entities(text: str) -> set[str]:
+    """Extract significant words used by clustering and eval scoring."""
+    words = re.sub(r"[^\w\s]", " ", text).split()
+    entities = set()
+    for word in words:
+        lower = word.lower()
+        if lower in ENTITY_STOPWORDS or len(word) <= 2:
+            continue
+        if has_anchor_signal(word) or len(word) >= 4:
+            entities.add(lower)
+    return entities
+
+
+def entity_overlap(entities_a: set[str], entities_b: set[str]) -> float:
+    """Return overlap coefficient for two extracted entity sets."""
+    if not entities_a or not entities_b:
+        return 0.0
+    return len(entities_a & entities_b) / min(len(entities_a), len(entities_b))
+
 
 def extract_entities(
     reddit_items: List[Dict[str, Any]],
@@ -125,3 +162,37 @@ def _extract_subreddits(reddit_items: List[Dict[str, Any]]) -> List[str]:
 
     # Return subreddits ranked by frequency
     return [sub for sub, _ in sub_counts.most_common()]
+
+
+def matches_person_identity(item, anchors: list[str], primary_handle: str | None = None) -> bool:
+    """Fail closed for scoped person evidence; a shared name is insufficient.
+
+    Only the explicitly resolved X subject may omit the identity anchors.
+    Related/discovered handles and other platforms cannot inherit that trust.
+    """
+    if not anchors:
+        return True
+    if (item.source == "x" and primary_handle and item.author
+            and item.author.lstrip("@").lower() == primary_handle.lstrip("@").lower()):
+        return True
+    parts = [item.title or "", item.body or "", item.snippet or ""]
+    metadata = item.metadata or {}
+    transcript = metadata.get("transcript_snippet")
+    if isinstance(transcript, str):
+        parts.append(transcript)
+    for field in ("transcript_highlights", "comment_insights"):
+        parts.extend(value for value in metadata.get(field) or [] if isinstance(value, str))
+    for comment in metadata.get("top_comments") or []:
+        if isinstance(comment, str):
+            parts.append(comment)
+        elif isinstance(comment, dict):
+            text = comment.get("excerpt") or comment.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    normalized = " ".join(re.findall(r"\w+", " ".join(parts).casefold()))
+    return any(
+        re.search(r"(?<!\w)" + re.escape(" ".join(re.findall(r"\w+", anchor.casefold())))
+                  + r"(?!\w)", normalized)
+        for anchor in anchors
+        if re.search(r"\w", anchor)
+    )

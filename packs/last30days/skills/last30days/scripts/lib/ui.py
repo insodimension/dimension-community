@@ -121,12 +121,18 @@ SOURCE_COMPLETION_ORDER = [
     "tiktok",
     "instagram",
     "hackernews",
+    "devto",
     "bluesky",
     "truthsocial",
     "polymarket",
     "grounding",
     "xiaohongshu",
     "digg",
+    "arxiv",
+    "techmeme",
+    "trustpilot",
+    "amazon",
+    "meta_ads",
 ]
 
 SOURCE_COMPLETION_META = {
@@ -136,12 +142,18 @@ SOURCE_COMPLETION_META = {
     "tiktok": ("TikTok", "video", "videos", Colors.PURPLE),
     "instagram": ("Instagram", "reel", "reels", Colors.PURPLE),
     "hackernews": ("HN", "story", "stories", Colors.YELLOW),
+    "devto": ("dev.to", "article", "articles", Colors.GREEN),
     "bluesky": ("Bluesky", "post", "posts", Colors.BLUE),
     "truthsocial": ("Truth Social", "post", "posts", Colors.CYAN),
     "polymarket": ("Polymarket", "market", "markets", Colors.GREEN),
     "grounding": ("Web", "result", "results", Colors.GREEN),
     "xiaohongshu": ("Xiaohongshu", "post", "posts", Colors.RED),
     "digg": ("Digg", "cluster", "clusters", Colors.YELLOW),
+    "arxiv": ("arXiv", "paper", "papers", Colors.RED),
+    "techmeme": ("Techmeme", "headline", "headlines", Colors.CYAN),
+    "trustpilot": ("Trustpilot", "review", "reviews", Colors.GREEN),
+    "amazon": ("Amazon", "product", "products", Colors.YELLOW),
+    "meta_ads": ("Meta Ads", "creative", "creatives", Colors.BLUE),
 }
 
 
@@ -200,8 +212,12 @@ Just start with "last30" and talk to me like normal.
 
 # Shorter promo for single missing key
 PROMO_SINGLE_KEY = {
-    "reddit": "\n💡 Unlock TikTok and Instagram with SCRAPECREATORS_API_KEY - 100 free credits, no CC - scrapecreators.com\n",
-    "x": "\n💡 Unlock X: log into x.com in Firefox or Safari, then re-run. Or add AUTH_TOKEN/CT0 or XAI_API_KEY.\n",
+    "reddit": "\n💡 Unlock TikTok and Instagram with SCRAPECREATORS_API_KEY - 10,000 free calls, no CC - scrapecreators.com\n",
+    "x": "\n💡 Unlock X: log into x.com in your browser, then re-run. "
+         "Firefox works on all platforms. Safari works on macOS (detected automatically). "
+         "Chrome, Brave, Edge, Arc, Dia, Vivaldi, Opera, or Chromium on macOS require "
+         "FROM_BROWSER=auto in .env (Keychain dialog). On Windows only Firefox is supported. "
+         "Or add AUTH_TOKEN/CT0 or XAI_API_KEY.\n",
     "web": "\n💡 You can unlock native grounded web search with BRAVE_API_KEY or SERPER_API_KEY.\n",
 }
 
@@ -210,7 +226,7 @@ BIRD_AUTH_HELP = f"""
 {Colors.YELLOW}Bird authentication failed.{Colors.RESET}
 
 To fix this:
-1. Add AUTH_TOKEN and CT0 to ~/.config/last30days/.env or .claude/last30days.env
+1. Add AUTH_TOKEN and CT0 to ~/.config/last30days/.env, or to trusted .claude/last30days.env with LAST30DAYS_TRUST_PROJECT_CONFIG=1
 2. Or set XAI_API_KEY for the xAI fallback backend
 """
 
@@ -218,7 +234,7 @@ BIRD_AUTH_HELP_PLAIN = """
 Bird authentication failed.
 
 To fix this:
-1. Add AUTH_TOKEN and CT0 to ~/.config/last30days/.env or .claude/last30days.env
+1. Add AUTH_TOKEN and CT0 to ~/.config/last30days/.env, or to trusted .claude/last30days.env with LAST30DAYS_TRUST_PROJECT_CONFIG=1
 2. Or set XAI_API_KEY for the xAI fallback backend
 """
 

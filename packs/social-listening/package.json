@@ -1,0 +1,20 @@
+{
+	"name": "@inso/social-listening",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Social listening — community pulse, engagement targets, creator prospecting and voice of customer over last30days and the Reddit, X and YouTube connectors",
+	"type": "module",
+	"scripts": {
+		"check": "biome check . --no-errors-on-unmatched"
+	},
+	"dimension": {
+		"name": "social-listening"
+	},
+	"files": [
+		"skills/",
+		"assets/",
+		"plugin.json",
+		"THIRD_PARTY_NOTICES.md"
+	],
+	"license": "MIT"
+}

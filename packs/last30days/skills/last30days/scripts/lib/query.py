@@ -8,8 +8,13 @@ from typing import FrozenSet, List, Optional, Set
 PREFIXES = [
     'what are the best', 'what is the best', 'what are the latest',
     'what are people saying about', 'what do people think about',
-    'how do i use', 'how to use', 'how to',
+    'how do i use', 'how do you use', 'how can i use', 'how to use',
+    'how do you', 'how can i', 'how to',
     'what are', 'what is', 'tips for', 'best practices for',
+    # Hebrew question/meta prefixes
+    'מה יש חדש ב', 'מה יש חדש על', 'מה אנשים אומרים על',
+    'מה חדש ב', 'מה חדש על', 'איך להשתמש ב',
+    'מהם המוצרים של', 'מה הם', 'מהם',
 ]
 
 # Multi-word suffixes (used by bird_x)
@@ -41,6 +46,34 @@ NOISE_WORDS = frozenset({
     'using', 'uses', 'use',
     # Misc filler
     'people', 'saying', 'think', 'said', 'lately',
+    # Hebrew function words / prepositions / filler
+    'מה', 'מי', 'איך', 'למה', 'איפה', 'מתי', 'כמה', 'האם',
+    'של', 'על', 'עם', 'אל', 'את', 'בין', 'כי', 'כן', 'לא',
+    'יש', 'אין', 'כבר', 'רק', 'גם', 'אבל', 'כך', 'זה', 'זו',
+    'חדש', 'חדשים', 'טוב', 'טובים', 'הכי', 'ביותר',
+    'מוצרים', 'מבצע', 'מבצעים', 'חדשות', 'עדכונים',
+})
+
+
+# Shared noise sets for adapter `_extract_core_subject` wrappers.
+#
+# SOCIAL_NOISE: short-form micro-social platforms (Bluesky, Threads, Truth Social)
+# where research/meta words rarely appear in the body of a post.
+SOCIAL_NOISE = frozenset({
+    'best', 'top', 'good', 'great', 'awesome',
+    'latest', 'new', 'news', 'update', 'updates',
+    'trending', 'hottest', 'popular', 'viral',
+    'practices', 'features', 'recommendations', 'advice',
+    'or', 'and',
+})
+
+# VIRAL_NOISE: viral / discovery platforms (TikTok, Instagram, Pinterest) and
+# the base for YouTube. Adds 'killer', the prompt-meta cluster, and the
+# methodology cluster on top of SOCIAL_NOISE.
+VIRAL_NOISE = SOCIAL_NOISE | frozenset({
+    'killer',
+    'prompt', 'prompts', 'prompting',
+    'methods', 'strategies', 'approaches',
 })
 
 
@@ -68,6 +101,10 @@ def extract_core_subject(
     text = topic.lower().strip()
     if not text:
         return text
+    # Drop the question's closing punctuation first, so that it neither keeps
+    # the last word from matching a suffix or noise word nor survives the
+    # max_words path ("What is Claude Code?" -> "claude code", not "claude code?")
+    text = text.rstrip('?!.').strip() or text
 
     # Phase 1: Strip multi-word prefixes (longest first, stop after first match)
     for p in PREFIXES:
@@ -95,6 +132,40 @@ def extract_core_subject(
     return result.rstrip('?!.') if not max_words else (result or topic.lower().strip())
 
 
+def infer_query_intent(topic: str) -> str:
+    """Classify a topic into a coarse intent for adapter query expansion.
+
+    Returns one of: ``comparison``, ``how_to``, ``opinion``, ``product``,
+    ``prediction``, ``breaking_news`` (default).
+
+    The ``how_to`` regex covers both prefixed forms (``how to install``)
+    and bare imperatives (``configure``, ``troubleshoot``, ``debug``,
+    ``fix``). Adapters that previously kept their own copy of this
+    classifier had drifted to subtly different word lists; this is the
+    superset.
+
+    Polymarket keeps a custom narrower classifier (prediction-only) and
+    does NOT delegate here; its expansion only needs that signal.
+    """
+    text = topic.lower().strip()
+    if re.search(r"\b(vs|versus|compare|difference between)\b", text):
+        return "comparison"
+    if re.search(
+        r"\b(how to|tutorial|guide|setup|step by step|deploy|install|"
+        r"configuration|configure|troubleshoot|troubleshooting|error|errors|"
+        r"fix|debug)\b",
+        text,
+    ):
+        return "how_to"
+    if re.search(r"\b(thoughts on|worth it|should i|opinion|review)\b", text):
+        return "opinion"
+    if re.search(r"\b(pricing|feature|features|best .* for)\b", text):
+        return "product"
+    if re.search(r"\b(predict|prediction|odds|forecast|chance)\b", text):
+        return "prediction"
+    return "breaking_news"
+
+
 def extract_compound_terms(topic: str) -> List[str]:
     """Detect multi-word terms that should be quoted in search queries.
 
@@ -115,3 +186,22 @@ def extract_compound_terms(topic: str) -> List[str]:
         terms.append(match.group())
 
     return terms
+
+
+def leading_mentions(text: Optional[str]) -> List[str]:
+    """Return the handles a post is directed at: the leading run of @mentions in the text.
+
+    X replies open with the target handle(s) (e.g. "@someone thanks!"), so the
+    leading run identifies who the post is addressed to. A mention later in the
+    body is not a reply target and is intentionally ignored. Returns normalized
+    (``@``-stripped, lowercased) handles, in order. Shared by every X-shaped
+    source adapter (bird, xquik) so leading-mention parsing has one definition.
+    """
+    out: List[str] = []
+    for token in (text or "").split():
+        tok = token.strip(",.:;!?")
+        if tok.startswith("@") and len(tok) > 1:
+            out.append(tok[1:].lower())
+        else:
+            break
+    return out

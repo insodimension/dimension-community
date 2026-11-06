@@ -85,7 +85,7 @@ def generate_daily(since: str = None) -> dict:
 
         # Extract top finding by engagement
         if findings:
-            top = max(findings, key=lambda f: f.get("engagement_score", 0))
+            top = max(findings, key=lambda f: f.get("engagement_score") or 0)
             topic_data["top_finding"] = {
                 "title": top.get("source_title", ""),
                 "source": top.get("source", ""),
@@ -110,7 +110,7 @@ def generate_daily(since: str = None) -> dict:
 
     top_overall = None
     if all_findings:
-        top_overall = max(all_findings, key=lambda f: f.get("engagement_score", 0))
+        top_overall = max(all_findings, key=lambda f: f.get("engagement_score") or 0)
 
     result = {
         "status": "ok",
@@ -121,6 +121,8 @@ def generate_daily(since: str = None) -> dict:
         "total_topics": len(briefing_topics),
         "top_finding": {
             "title": top_overall.get("source_title", ""),
+            "source": top_overall.get("source", ""),
+            "source_url": top_overall.get("source_url", ""),
             "topic": top_overall.get("_topic", ""),
             "engagement": top_overall.get("engagement_score", 0),
         } if top_overall else None,
@@ -160,20 +162,10 @@ def generate_weekly() -> dict:
         this_week = store.get_new_findings(topic["id"], week_ago)
 
         # Last week's findings (for comparison)
-        conn = store._connect()
-        try:
-            last_week_rows = conn.execute(
-                """SELECT * FROM findings
-                   WHERE topic_id = ? AND first_seen >= ? AND first_seen < ? AND dismissed = 0
-                   ORDER BY engagement_score DESC""",
-                (topic["id"], two_weeks_ago, week_ago),
-            ).fetchall()
-            last_week = [dict(r) for r in last_week_rows]
-        finally:
-            conn.close()
+        last_week = store.get_new_findings(topic["id"], two_weeks_ago, before=week_ago)
 
-        this_engagement = sum(f.get("engagement_score", 0) for f in this_week)
-        last_engagement = sum(f.get("engagement_score", 0) for f in last_week)
+        this_engagement = sum(f.get("engagement_score") or 0 for f in this_week)
+        last_engagement = sum(f.get("engagement_score") or 0 for f in last_week)
 
         # Trend calculation
         if last_engagement > 0:
@@ -188,7 +180,15 @@ def generate_weekly() -> dict:
             "this_week_engagement": this_engagement,
             "last_week_engagement": last_engagement,
             "engagement_change_pct": round(engagement_change, 1),
-            "top_findings": this_week[:5],  # Top 5 by engagement (already sorted)
+            # get_new_findings returns first_seen DESC, so sort by engagement
+            # before slicing — otherwise the digest headlines the most recent
+            # items, not the highest-engagement ones (the daily path keys on
+            # engagement too).
+            "top_findings": sorted(
+                this_week,
+                key=lambda f: f.get("engagement_score") or 0,
+                reverse=True,
+            )[:5],
         })
 
     result = {
