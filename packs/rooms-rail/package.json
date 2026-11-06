@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/rooms-rail",
 	"author": "Dimension",
-	"version": "0.1.3",
+	"version": "0.1.4",
 	"description": "Rooms Rail - the rail of a rooms space as Dimension ships it, delivered as a marketplace component (re-exports the shipped implementation from @fraym/ui; no reimplementation).",
 	"type": "module",
 	"main": "./src/index.ts",

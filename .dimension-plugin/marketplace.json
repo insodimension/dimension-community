@@ -1183,7 +1183,7 @@
 			"title": "Rooms Rail",
 			"icon": "chat",
 			"description": "The session list for rooms spaces: the space's own header, direct messages, channels and projects, an Organise menu and a marker on rows that need you.",
-			"version": "0.1.3",
+			"version": "0.1.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1197,8 +1197,7 @@
 			],
 			"requires": {
 				"dimension": ">=0.11.12"
-			},
-			"channel": "canary"
+			}
 		},
 		{
 			"name": "router-jev",

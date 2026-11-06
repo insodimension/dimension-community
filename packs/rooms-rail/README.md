@@ -10,7 +10,7 @@ One component, `rooms-rail`, filling the `rail` slot. No tools, skills, rules, a
 
 ## Who can use it
 
-On by default. It draws only in a space that binds it with `components: { "rail": "rooms-rail" }` and declares `rail.rooms: true` and `rail.sections`. Unreal and Traction do, and each lists `rooms-rail` in `requires.plugins`, so opening the space installs it. It is on the canary ring, like both spaces. Its floor is 0.11.12, the first release whose host grants `RAIL_ROOMS` to packs: the 0.11.11 host does not, so a bundle that takes the name would fail to link there. A build of `main` identifies itself as the last release (0.11.11) until the next cut bumps the version, so it does not load the pack until then.
+On by default. It draws only in a space that binds it with `components: { "rail": "rooms-rail" }` and declares `rail.rooms: true` and `rail.sections`. Clients, Unreal and Traction do, and each lists `rooms-rail` in `requires.plugins`, so opening the space installs it. It ships to every install, stable and canary, because Clients is on stable and its rail is this pack. Its floor is 0.11.12, the first release whose host grants `RAIL_ROOMS` to packs: the 0.11.11 host does not, so a bundle that takes the name would fail to link there. A build of `main` identifies itself as the last release (0.11.11) until the next cut bumps the version, so it does not load the pack until then.
 
 ## Limits and risks
 
