@@ -3,30 +3,34 @@ alwaysApply: true
 description: YouTube connector context
 ---
 
-You have access to the **youtube** skill — native, always-on tools over the
-connected Google account's YouTube (no CLI, no MCP server): `youtube_search`,
-`youtube_get_video`, `youtube_list_playlists`, `youtube_list_playlist_items`,
-`youtube_playlist_add`, `youtube_list_comments`, `youtube_post_comment`,
-`youtube_get_captions`, `youtube_channel_stats`.
+You have access to the **youtube** skill — native tools over the connected
+Google account's YouTube: `youtube_search`, `youtube_get_videos`,
+`youtube_list_playlists`, `youtube_list_playlist_items`, `youtube_playlist_add`,
+`youtube_list_comments`, `youtube_post_comment`, `youtube_get_captions`,
+`youtube_channel_stats`.
 
 - **Confirm before writing.** `youtube_playlist_add` and `youtube_post_comment`
-  are mutating. A comment is **public** under the user's real identity — state
-  the exact target and the full text and get the user's go-ahead before posting.
-- **Resolve ids, don't guess.** Use `youtube_search` /
-  `youtube_list_playlists` to turn titles/names into ids before acting; adding to
-  the wrong playlist or replying to the wrong comment is the common mistake.
+  are mutating. A comment is **public** under the channel's name: state the
+  exact target and the full text and get the user's go-ahead. The tool refuses
+  a sixth comment in a UTC day and any text that repeats an earlier comment.
+- **Resolve ids, don't guess.** Turn titles and names into ids with
+  `youtube_search`, `youtube_list_playlists` or `youtube_channel_stats`
+  (by `@handle`) before acting.
 - **Reply vs. top-level comment.** `youtube_post_comment` takes EITHER `videoId`
-  (new top-level comment) OR `parentCommentId` (reply to an existing comment from
-  `youtube_list_comments`) — exactly one.
-- **Transcripts are limited.** `youtube_get_captions` lists caption TRACKS only;
-  the official API does NOT let you download the transcript text of a video the
-  user doesn't own. If asked for such a transcript, say it's unavailable via the
-  official API — never fabricate one.
-- **Mind the quota.** `youtube_search` costs 100 quota units (most calls cost 1);
-  keep `limit` tight and prefer per-id `youtube_get_video`/`youtube_channel_stats`
-  calls (1 unit each) over repeated searches. A `quotaExceeded` error means the
-  project is out for the day.
-- If a call errors "isn't connected yet" or the token is rejected, the user
-  needs to (re)authorize — point them at **Plugins → YouTube → Reconnect**. It
-  reuses the same Google Cloud OAuth client as Google Drive/Calendar; the only
-  extra step is enabling the **YouTube Data API v3** in that project.
+  OR `parentCommentId` — exactly one.
+- **Transcripts.** `youtube_get_captions` lists tracks; the API downloads text
+  only for the account's own videos. For another channel's video, fetch
+  captions with the watch pack. Never invent a transcript.
+- **Mind the quota.** Since 2026-06-01 `search.list` has its own bucket of 100
+  calls a day; most other calls share 10,000 units a day at 1 unit each.
+  Search sparingly; to study a channel read its uploads playlist (`UC…` →
+  `UU…`) with `youtube_list_playlist_items`, then up to 50 ids per
+  `youtube_get_videos` call. `quotaExceeded` means the project is out for
+  the day.
+- **Numbers.** Public views count from the first frame since 2026-08-24. Watch
+  time, average view duration, retention, impressions and CTR are read in
+  YouTube Studio through the Browser, not here; name each number's source and
+  the time it was read.
+- If a call errors "isn't connected yet" or the token is rejected, point the
+  user at **Plugins → YouTube → Reconnect**. A connection that dies every week
+  means the Google OAuth consent screen is still in Testing: publish it.

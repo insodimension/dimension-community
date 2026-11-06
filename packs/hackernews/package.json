@@ -1,0 +1,29 @@
+{
+	"name": "@inso/hackernews",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Hacker News connector: keyless, read-only search, items, users, front-page ranks, domain history and a launch watch over the Algolia and Firebase APIs",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"check": "biome check . --no-errors-on-unmatched"
+	},
+	"dimension": {
+		"name": "hackernews",
+		"extensions": [
+			"index.ts"
+		]
+	},
+	"files": [
+		"skills/",
+		"assets/",
+		"index.ts",
+		"plugin.json",
+		"README.md"
+	],
+	"peerDependencies": {
+		"arktype": "^2.2.0",
+		"@oh-my-pi/pi-coding-agent": "*"
+	},
+	"license": "MIT"
+}

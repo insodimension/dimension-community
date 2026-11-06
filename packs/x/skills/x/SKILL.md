@@ -1,19 +1,20 @@
 ---
 name: x
-description: Act on X (Twitter) from the agent — research free (search, threads, your own posts via x.com web GraphQL with your browser cookies) and publish via the official X API v2 (posts, replies, threads, bookmarks, DMs). Use when the user asks to check, search, monitor, summarize, draft for, reply on, or post to X/Twitter.
+description: Act on X (Twitter) from the agent through the official X API v2 - read mentions, your own posts, threads, profiles and search the last 7 days, and publish posts, replies, threads, bookmarks and DMs. Every read and write is billed to your own developer app. Use when the user asks to check, search, monitor, summarize, draft for, reply on, or post to X/Twitter.
 ---
 
-# X (Twitter) connector — free reads, paid writes
+# X (Twitter) connector — the official API, billed per call
 
-Act on the user's X account through fifteen tools. This is an **outbound**
+Act on the user's X account through sixteen tools. This is an **outbound**
 connector — the agent reads mentions/timelines/threads/search and publishes as
 the connected account. It is not an inbound bot listening for X events.
 
-**Two lanes, and the split is the whole design.** Research reads go through
-x.com's own web GraphQL using the browser cookies the user already has, at
-**zero cost**. Every write goes through the official X API v2 on OAuth 2.0,
-because posting through cookies gets accounts blocked. `x_usage` reports which
-read lane is live at any moment.
+**One lane.** Every read and every write goes through the official X API v2 on
+the user's own developer app, and X bills each call. Nothing here reads the
+browser's cookies. For what the API does not give (posts older than 7 days,
+post and account analytics, notifications), read x.com in the Browser pack on
+the account's own signed-in profile, at human pace (see "Reading x.com in the
+Browser" below).
 
 ## Auth shape — OAuth 2.0 PKCE, public client, user context
 
@@ -40,16 +41,7 @@ Two ceilings must BOTH be right, and they are different things:
 - **OAuth scopes** (the connect modal's radio) — `Read only`,
   `Read and post` (default), or `Read, post, and DMs`.
 
-## Setup — reads need nothing, writes need an app
-
-**For reading: log into x.com in Safari, Chrome, or Firefox. That's it.** The
-connector picks the cookies up automatically. If browser extraction can't work
-(headless box, locked keychain), set `X_AUTH_TOKEN` and `X_CT0` instead — take
-them from your browser's devtools cookie panel for x.com. Run `x_usage` to
-confirm which lane is live; it names the exact blocker when the free lane is
-unavailable.
-
-**For writing** you need your own X developer app:
+## Setup — your own X developer app
 
 Connect via **Plugins → X → Set up**. The wizard walks it; precisely:
 
@@ -68,42 +60,15 @@ Connect via **Plugins → X → Set up**. The wizard walks it; precisely:
 6. **Keys and tokens** → copy the **OAuth 2.0 Client ID** into the form. A
    Native App has no secret.
 
-## Cost model — the two lanes
+## Cost model
 
-X went **pay-per-use** on 2026-02-06 and priced reads per post returned, which
-makes naive research genuinely expensive: a single 100-result search is $0.50
-on the official API. So reads default to the free lane.
+X went **pay-per-use** on 2026-02-06 and prices reads per post returned, so a
+single 100-result search is $0.50.
 
-### The free lane (reads)
-
-Uses the same endpoint x.com's own web client uses, authenticated with the
-user's existing login cookies (auto-extracted from Safari/Chrome/Firefox, or
-`X_AUTH_TOKEN`/`X_CT0`). **Setup is "be logged into x.com".** Output is
-identical to the official lane plus a `[free lane — this read cost $0]` footer.
-
-|Tool|Free lane|Fallback|
-|---|---|---|
-|`x_search`|✅ yes|$0.005/post|
-|`x_read_thread`|✅ yes|$0.005/post|
-|`x_posts_envelope`|✅ yes|refuses unless `allowPaid`|
-|`x_my_posts`|✅ yes (`from:` search)|$0.001/post|
-|`x_mentions`|fallback only|official first, $0.001/post|
-|`x_home_timeline`, `x_get_post`, `x_bookmarks`, `x_user_lookup`, `x_me`|❌|official|
-
-`x_mentions` is deliberately official-FIRST: it reads X's own notification set,
-so it is authoritative and complete where a search only approximates. At $0.001
-per mention that accuracy costs essentially nothing. It falls back to a free
-`@handle` search only when the official call fails, and **says so in the output**
-when it does.
-
-If cookies are absent the free lane silently becomes the official one — the
-connector degrades to "costs money", never to "broken". Set
-`INSO_X_READ_BACKEND=official` to disable it entirely, or `=bird` to pin it.
-
-### The paid lane (writes — always)
-
-|Action|Price|
+|Call|Price|
 |---|---|
+|Owned read: `x_mentions`, `x_my_posts`, `x_bookmarks`|$0.001 per post|
+|Other reads: `x_search`, `x_read_thread`, `x_home_timeline`, `x_get_post`, `x_posts_envelope`|$0.005 per post|
 |Post|**$0.015**|
 |Post **containing a URL**|**$0.20**|
 |DM send|$0.015|
@@ -111,18 +76,12 @@ connector degrades to "costs money", never to "broken". Set
 
 Consequences that should change your behavior:
 
-- **Never route a write through the free lane.** It is not a policy in prose —
-  the cookie client is built with the search mixin only, so it has no
-  `createTweet`/`favoriteTweet` method to call. Don't try to add one: bird's
-  author is explicit that posting this way gets accounts blocked fast.
+- **Fetch what was asked for, not a speculative sweep.** Set `limit`
+  deliberately; `x_search` prints the query it sent and what the call cost.
 - **A link makes a post 13x more expensive.** Worth saying once when the user is
   posting a URL — not to block them. `x_post` reports the tier it spent.
-- **Reads are cheap now, but not free of consequence.** The free lane rides the
-  user's real logged-in session. Fetch what was asked for, not a speculative
-  sweep, and never poll in a tight loop.
-- **Check `x_usage`** to answer "am I being charged for reads?" and to see the
-  official monthly cap.
-- Rate limits are **separate** from billing on both lanes. A 429 means wait.
+- **Check `x_usage`** for this app's reads against its monthly cap.
+- Rate limits are **separate** from billing. A 429 means wait.
 
 ## Tools
 
@@ -135,12 +94,17 @@ Consequences that should change your behavior:
 - `x_my_posts` — the user's own recent posts with engagement metrics.
 - `x_home_timeline` — reverse-chronological timeline of who they follow.
   Expensive tier.
-- `x_search` — public posts from the **last 7 days**. Full operator syntax:
-  `from:user`, `to:user`, `#tag`, `url:domain.com`, `-is:retweet`, `lang:en`,
-  `min_faves:10`, `"quoted phrase"`. `sort: "top"` is the popular pass (X's
-  most-engaged ranking instead of newest first); `since`/`until` (YYYY-MM-DD,
-  UTC, `until` exclusive) narrow it to days. Expensive tier — set `limit`
-  deliberately.
+- `x_search` — public posts from the **last 7 days**, in the API's operator
+  syntax: `from:user`, `to:user`, `#tag`, `url:domain.com`, `-is:retweet`,
+  `is:reply`, `has:links`, `lang:en`, `min_likes:10`, `min_reposts:5`,
+  `"quoted phrase"`. The x.com web spellings are translated before the call
+  (`min_faves:` → `min_likes:`, `min_retweets:` → `min_reposts:`,
+  `filter:replies` → `is:reply`, `filter:links` → `has:links`, `filter:media` →
+  `has:media`, and `since:`/`until:` become the day window); the API rejects the
+  web spellings with a 400, and the output names the query actually sent.
+  `sort: "top"` is the popular pass (X's most-engaged ranking instead of newest
+  first); `since`/`until` (YYYY-MM-DD, UTC, `until` exclusive) narrow it to
+  days.
 - `x_posts_envelope` — X's share of a last30days run. Give it the engine's exact
   topic, the plan's X queries, the depth, the run's `--x-handle` account
   (`handle`) and any `--x-related` accounts; it runs the newest-posts search, the
@@ -149,15 +113,16 @@ Consequences that should change your behavior:
   returns the path plus the flags to add (`LAST30DAYS_X_HOST_LANE=1`,
   `--x-posts`, `--x-handle`, `--x-related`). It only covers the last 7 days of
   last30days' 30-day window, and stops at the first failed read, keeping what it
-  has as partial. Without the free lane it answers "X not covered" with a cost
-  estimate; ask the person, and only on their yes call it with `allowPaid`, which
-  shows them the estimate again before anything is billed.
+  has as partial. Every read in it is billed: without `allowPaid` it answers "X
+  not covered" with a cost estimate; ask the person, and only on their yes call
+  it with `allowPaid`, which shows them the estimate again before anything is
+  billed.
 - `x_get_post` — one post by id **or URL**: text, author, metrics.
 - `x_read_thread` — a whole conversation from any post in it, oldest-first.
   Built on recent search, so it only reaches the last 7 days.
 - `x_user_lookup` — a public profile by handle.
 - `x_bookmarks` — the user's saved posts.
-- `x_usage` — post-read consumption vs the monthly cap.
+- `x_usage` — this app's post-read consumption vs the monthly cap.
 
 **Writes** — `x_post`, `x_thread`, `x_delete`, and `x_dm` always ask the human
 first, in every approval mode (yolo included), and the approval card shows the
@@ -190,8 +155,25 @@ URL**, and every read prints the id first. Quote ids exactly; never invent one.
 - *"Track what @someone is saying"* → `x_search { query: "from:someone" }`
   (cheaper and more precise than the home timeline).
 - *"What's the community saying this month?"* with last30days → call
-  `x_posts_envelope` first, then run the engine with the flags it returns, so
-  last30days never reads browser cookies itself.
+  `x_posts_envelope` first (it states the cost and asks), then run the engine
+  with the flags it returns, so last30days never reads browser cookies itself.
+
+## Reading x.com in the Browser
+
+The API stops at 7 days of search and at public metrics. For the rest, open
+x.com in the Browser pack on the account's own saved profile (the one the user
+signed in to; never ask for a password), a few page loads per task, reading
+only:
+
+- `https://x.com/search?q=<query>&f=live` — advanced search with the web
+  operators (`min_faves:`, `since:`, `until:`), any date since the first post.
+- A post's own analytics (`https://x.com/<handle>/status/<id>/analytics`), the
+  account's `https://x.com/i/account_analytics`, and
+  `https://x.com/notifications`.
+
+Never compose, reply, like or follow from a page: posting is a write, and a
+write here goes through `x_post` with the user's confirm, or through the
+Browser pack's publish flow where the host uses it.
 
 ## Safety
 
@@ -213,6 +195,8 @@ URL**, and every read prints the id first. Quote ids exactly; never invent one.
   claim to have liked or followed anything.
 - **Reads cost money and expose real people.** Fetch what was asked for, not a
   speculative sweep "for context".
+- **Never read the browser's cookies** for X, and never ask the user for
+  `auth_token`/`ct0`. Signed-in reads go through the Browser pack's own profile.
 - On a **403**, the cause is almost always one of: no purchased credits, app
   permissions below what the call needs, or a token missing the scope. Say
   which and point to **Plugins → X → Reconnect** after the fix — don't retry
@@ -229,4 +213,7 @@ URL**, and every read prints the id first. Quote ids exactly; never invent one.
   The autonomy Loop shape (poll `x_mentions` on a schedule, park drafts for
   approval) covers the monitoring need without it.
 - **Lists, spaces, communities, analytics** — lower daily-use frequency than
-  the mention/search/post loop covered here.
+  the mention/search/post loop covered here; analytics are read in the Browser.
+- **A cookie read lane** — reading x.com's web endpoint with cookies taken from
+  Safari, Chrome or Firefox was removed on 2026-11-06: it read browser cookies
+  outside a Browser pack profile.

@@ -1,0 +1,34 @@
+{
+	"name": "@inso/newsletter",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Newsletter connector: save approved issues as unsent drafts and read issue stats and subscriber counts in beehiiv, Kit, Buttondown or Ghost with your own API key",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"check": "biome check . --no-errors-on-unmatched"
+	},
+	"dimension": {
+		"name": "newsletter",
+		"extensions": [
+			"index.ts"
+		],
+		"bundle": true
+	},
+	"files": [
+		"skills/",
+		"rules/",
+		"connect/",
+		"assets/",
+		"index.ts",
+		"credentials.ts",
+		"providers.ts",
+		"plugin.json",
+		"README.md"
+	],
+	"peerDependencies": {
+		"arktype": "^2.2.0",
+		"@oh-my-pi/pi-coding-agent": "*"
+	},
+	"license": "MIT"
+}

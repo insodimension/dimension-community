@@ -1,6 +1,5 @@
 {
 	"clientId": "${clientId}",
 	"clientSecret": "${clientSecret}",
-	"username": "${username}",
-	"password": "${password}"
+	"username": "${username}"
 }

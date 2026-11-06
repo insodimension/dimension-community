@@ -1,0 +1,32 @@
+{
+	"name": "@inso/bluesky",
+	"author": "Dimension",
+	"version": "0.1.0",
+	"description": "Bluesky connector: keyless reads (posts, threads, quotes, profiles, feeds, starter packs, trends), authenticated post search and notifications with an app password, and publishing of board-approved posts",
+	"type": "module",
+	"main": "index.ts",
+	"scripts": {
+		"check": "biome check . --no-errors-on-unmatched"
+	},
+	"dimension": {
+		"name": "bluesky",
+		"extensions": [
+			"index.ts"
+		]
+	},
+	"files": [
+		"skills/",
+		"connect/",
+		"assets/",
+		"index.ts",
+		"session.ts",
+		"publish.ts",
+		"plugin.json",
+		"README.md"
+	],
+	"peerDependencies": {
+		"arktype": "^2.2.0",
+		"@oh-my-pi/pi-coding-agent": "*"
+	},
+	"license": "MIT"
+}

@@ -1,0 +1,4 @@
+{
+	"access": "${apiKey}",
+	"publicationId": "${publicationId}"
+}

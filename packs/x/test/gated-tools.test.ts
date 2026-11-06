@@ -85,7 +85,8 @@ test.each([
 	"telegram_send_message",
 	"telegram_delete_message",
 	"whatsapp_send_message",
-	"reddit_submit_post",
+	"discord_timeout_member",
+	"discord_publish_message",
 	"youtube_post_comment",
 	"google_drive_share_file",
 	"google_calendar_delete_event",
@@ -94,6 +95,6 @@ test.each([
 	expect(yolo(name)).toBe("prompt");
 });
 
-test.each(["x_bookmark", "discord_add_reaction", "reddit_vote"])("%s stays auto-approved in yolo mode", name => {
+test.each(["x_bookmark", "discord_add_reaction", "discord_set_thread_tags"])("%s stays auto-approved in yolo mode", name => {
 	expect(yolo(name)).toBe("allow");
 });

@@ -8,8 +8,10 @@ import {
 	type SearchPageFn,
 	type SearchWindow,
 	writeEnvelope,
+	type XReadPost,
+	type XSearchPage,
+	type XSearchSort,
 } from "../x-envelope";
-import type { XReadPost, XSearchPage, XSearchSort } from "../x-reads";
 
 const NOW = new Date("2026-11-06T15:30:00Z");
 
@@ -34,7 +36,7 @@ function post(id: string, author: string, extra: Partial<XReadPost> = {}): XRead
 	};
 }
 
-function recordingSearch(pages: (call: SearchCall) => XSearchPage | Error): {
+function recordingSearch(pages: (call: SearchCall) => Omit<XSearchPage, "billed"> | XSearchPage | Error): {
 	search: SearchPageFn;
 	calls: SearchCall[];
 } {
@@ -46,7 +48,7 @@ function recordingSearch(pages: (call: SearchCall) => XSearchPage | Error): {
 			calls.push(call);
 			const page = pages(call);
 			if (page instanceof Error) throw page;
-			return page;
+			return { billed: page.posts.length, ...page };
 		},
 	};
 }
@@ -63,9 +65,8 @@ const REQUEST: EnvelopeRequest = {
 test("the topic call merges the newest posts with one top-ranked page per day of the searchable week", async () => {
 	const { search, calls } = recordingSearch(call =>
 		call.sort === "recent"
-			? { backend: "bird", posts: [post("100", "alice"), post("101", "bob")] }
+			? { posts: [post("100", "alice"), post("101", "bob")] }
 			: {
-					backend: "bird",
 					posts: [post("101", "bob"), post(`2${call.window.since?.slice(8)}`, `day${call.window.since}`)],
 				},
 	);
@@ -109,7 +110,6 @@ test("a row carries exactly the eight envelope fields and drops posts the engine
 	const { search } = recordingSearch(call =>
 		call.sort === "recent"
 			? {
-					backend: "bird",
 					posts: [
 						post("300", "dana"),
 						post("301", "", { authorUsername: undefined }),
@@ -117,7 +117,7 @@ test("a row carries exactly the eight envelope fields and drops posts the engine
 						post("303", "fay", { text: "  " }),
 					],
 				}
-			: { backend: "bird", posts: [] },
+			: { posts: [] },
 	);
 
 	const { envelope } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
@@ -140,7 +140,6 @@ test("named accounts get from and mention calls; frequent topic authors are disc
 	const { search, calls } = recordingSearch(call =>
 		call.query.endsWith("plugin -is:retweet")
 			? {
-					backend: "bird",
 					posts:
 						call.sort === "recent"
 							? [
@@ -152,7 +151,7 @@ test("named accounts get from and mention calls; frequent topic authors are disc
 								]
 							: [post("402", "hana")],
 				}
-			: { backend: "bird", posts: [] },
+			: { posts: [] },
 	);
 
 	const result = await collectEnvelope(
@@ -176,7 +175,7 @@ test("named accounts get from and mention calls; frequent topic authors are disc
 
 test("the first failure stops the run: rows so far are kept as partial; a failure before any post is thrown", async () => {
 	const partial = recordingSearch(call =>
-		call.sort === "recent" ? { backend: "bird", posts: [post("500", "ivy")] } : new Error("rate limited"),
+		call.sort === "recent" ? { posts: [post("500", "ivy")] } : new Error("rate limited"),
 	);
 	const { envelope } = await collectEnvelope({ ...REQUEST, handle: "epic" }, partial.search, NOW);
 	expect(envelope.status).toBe("partial");
@@ -184,26 +183,26 @@ test("the first failure stops the run: rows so far are kept as partial; a failur
 	expect(partial.calls.filter(call => call.sort === "top")).toHaveLength(1);
 	expect(envelope.calls.map(call => call.lane)).toEqual(["topic"]);
 
-	const dead = recordingSearch(() => new Error("cookies expired"));
-	await expect(collectEnvelope(REQUEST, dead.search, NOW)).rejects.toThrow("cookies expired");
+	const dead = recordingSearch(() => new Error("credits exhausted"));
+	await expect(collectEnvelope(REQUEST, dead.search, NOW)).rejects.toThrow("credits exhausted");
 	expect(dead.calls).toHaveLength(1);
 });
 
-test("posts served by the billed lane are counted so the cost can be stated", async () => {
+test("every post X bills a call for is counted, not only the ones kept, so the billed cost can be stated", async () => {
 	const { search } = recordingSearch(call =>
 		call.sort === "recent"
-			? { backend: "official", posts: [post("600", "jo"), post("601", "kai")] }
-			: { backend: "bird", posts: [post("602", "lee")] },
+			? { posts: [post("600", "jo"), post("601", "kai")], billed: 10 }
+			: { posts: [post("602", "lee")], billed: 10 },
 	);
 
 	const { paidPosts } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
 
-	expect(paidPosts).toBe(2);
+	expect(paidPosts).toBe(40);
 });
 
 test("the envelope never exceeds the engine's twenty-call limit", async () => {
 	const related = Array.from({ length: 24 }, (_, index) => `acct${index}`);
-	const { search } = recordingSearch(() => ({ backend: "bird", posts: [post("700", "mo"), post("701", "mo")] }));
+	const { search } = recordingSearch(() => ({ posts: [post("700", "mo"), post("701", "mo")] }));
 
 	const { envelope, discovered } = await collectEnvelope({ ...REQUEST, related }, search, NOW);
 
@@ -220,7 +219,7 @@ test("envelopes share one folder, are written compact, and ones older than six h
 		const fresh = join(dir, "x-posts-fresh.json");
 		await writeFile(fresh, "{}");
 		await utimes(fresh, new Date(NOW.getTime() - 3_600_000), new Date(NOW.getTime() - 3_600_000));
-		const { search } = recordingSearch(() => ({ backend: "bird", posts: [post("800", "nia")] }));
+		const { search } = recordingSearch(() => ({ posts: [post("800", "nia")] }));
 		const { envelope } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
 
 		const path = await writeEnvelope(envelope, dir);

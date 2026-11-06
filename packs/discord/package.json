@@ -1,8 +1,8 @@
 {
 	"name": "@inso/discord",
 	"author": "Dimension",
-	"version": "0.1.6",
-	"description": "Discord connector — list servers/channels, read and post messages over the Discord REST API (bot token)",
+	"version": "0.2.0",
+	"description": "Discord connector — read, search and post in your own server over the Discord REST API with your bot: forum posts, threads and tags, invites, events, announcements and AutoMod",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {
@@ -21,7 +21,8 @@
 		"connect/",
 		"assets/",
 		"index.ts",
-		"plugin.json"
+		"plugin.json",
+		"README.md"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

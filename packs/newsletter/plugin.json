@@ -1,0 +1,238 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "newsletter",
+	"version": "0.1.0",
+	"description": "Let your agent save approved newsletter issues as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"newsletter",
+		"email",
+		"beehiiv",
+		"kit",
+		"buttondown",
+		"ghost",
+		"connector"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"requires": {
+				"dimension": ">=0.11.17"
+			},
+			"title": "Newsletter",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"defaultEnabled": false,
+			"examples": [
+				"Save this week's approved issue as a draft in my newsletter tool so I can send it",
+				"How did my last newsletter do? Clicks, unsubscribes and replies, not opens",
+				"How many subscribers do I have, and how many joined in the last 90 days?"
+			],
+			"connect": {
+				"methods": [
+					{
+						"id": "beehiiv",
+						"label": "beehiiv",
+						"detail": "An API key from your beehiiv workspace. Saving drafts needs a plan with the create-post API (Pro or Enterprise); reading stats works on every plan.",
+						"kind": ["form"],
+						"setup": [
+							{
+								"title": "Create an API key in beehiiv",
+								"detail": "In beehiiv open Settings, then Workspace Settings, then API, and click Create New API Key. Name it Dimension and copy the key: beehiiv shows it once.",
+								"url": "https://app.beehiiv.com/settings/workspace/api",
+								"urlLabel": "Open beehiiv API settings"
+							},
+							{
+								"title": "Copy your publication id (only if you have several)",
+								"detail": "The same API page lists each publication's id, starting with pub_. With one publication you can leave it blank; Dimension finds it."
+							}
+						],
+						"form": [
+							{
+								"id": "apiKey",
+								"label": "beehiiv API key",
+								"secret": true,
+								"help": "From Settings, Workspace Settings, API. It stays on this machine."
+							},
+							{
+								"id": "publicationId",
+								"label": "Publication id (blank if you have one publication)",
+								"placeholder": "pub_…",
+								"required": false
+							}
+						],
+						"configTemplate": "connect/beehiiv.template.json",
+						"configTarget": "~/.config/dimension-newsletter/beehiiv.json",
+						"verify": {
+							"http": "https://api.beehiiv.com/v2/publications?limit=1",
+							"failures": [
+								{
+									"match": "INVALID_API_KEY|unauthorized",
+									"title": "beehiiv did not accept that key",
+									"detail": "Create a new key under Settings, Workspace Settings, API, and paste it again.",
+									"url": "https://app.beehiiv.com/settings/workspace/api",
+									"urlLabel": "Open beehiiv API settings"
+								}
+							]
+						}
+					},
+					{
+						"id": "kit",
+						"label": "Kit",
+						"detail": "A V4 API key from your Kit account. Drafts and stats work on the free plan.",
+						"kind": ["form"],
+						"setup": [
+							{
+								"title": "Create a V4 API key in Kit",
+								"detail": "In Kit open Settings, then Developer, and click Add a new key under V4 API Keys. Name it Dimension and copy the key. A V3 key or secret does not work here.",
+								"url": "https://app.kit.com/account_settings/developer_settings",
+								"urlLabel": "Open Kit developer settings"
+							}
+						],
+						"form": [
+							{
+								"id": "apiKey",
+								"label": "Kit V4 API key",
+								"secret": true,
+								"help": "From Settings, Developer, V4 API Keys. It stays on this machine. Run newsletter_provider after connecting to check it."
+							}
+						],
+						"configTemplate": "connect/kit.template.json",
+						"configTarget": "~/.config/dimension-newsletter/kit.json"
+					},
+					{
+						"id": "buttondown",
+						"label": "Buttondown",
+						"detail": "Your Buttondown API key. Buttondown's API is part of its paid plans.",
+						"kind": ["form"],
+						"setup": [
+							{
+								"title": "Copy your Buttondown API key",
+								"detail": "In Buttondown open Settings, then API, and copy the key.",
+								"url": "https://buttondown.com/requests",
+								"urlLabel": "Open Buttondown API settings"
+							}
+						],
+						"form": [
+							{
+								"id": "apiKey",
+								"label": "Buttondown API key",
+								"secret": true,
+								"help": "From Settings, API. It stays on this machine."
+							}
+						],
+						"configTemplate": "connect/buttondown.template.json",
+						"configTarget": "~/.config/dimension-newsletter/buttondown.json",
+						"verify": {
+							"http": "https://api.buttondown.com/v1/ping",
+							"authPrefix": "Token",
+							"failures": [
+								{
+									"match": "authentication|invalid|401",
+									"title": "Buttondown did not accept that key",
+									"detail": "Copy the key again from Settings, API, and paste it.",
+									"url": "https://buttondown.com/requests",
+									"urlLabel": "Open Buttondown API settings"
+								}
+							]
+						}
+					},
+					{
+						"id": "ghost",
+						"label": "Ghost",
+						"detail": "An Admin API key from a custom integration on your Ghost site.",
+						"kind": ["form"],
+						"setup": [
+							{
+								"title": "Add a custom integration in Ghost",
+								"detail": "In Ghost Admin open Settings, search for Integrations, click Add custom integration and name it Dimension."
+							},
+							{
+								"title": "Copy the Admin API key and the API URL",
+								"detail": "The integration shows an Admin API key (two parts joined by a colon) and an API URL (your admin address, for example https://yoursite.ghost.io). Copy both."
+							}
+						],
+						"form": [
+							{
+								"id": "siteUrl",
+								"label": "API URL",
+								"placeholder": "https://yoursite.ghost.io",
+								"help": "The API URL the integration shows: your Ghost admin address. It must start with https://, so the Admin API key never travels unencrypted."
+							},
+							{
+								"id": "adminKey",
+								"label": "Admin API key",
+								"secret": true,
+								"help": "The integration's Admin API key, id and secret joined by a colon. It stays on this machine. Run newsletter_provider after connecting to check it."
+							}
+						],
+						"configTemplate": "connect/ghost.template.json",
+						"configTarget": "~/.config/dimension-newsletter/ghost.json"
+					}
+				]
+			},
+			"toolRenderer": [
+				{
+					"match": "newsletter_provider",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "Newsletter provider"
+				},
+				{
+					"match": "newsletter_list_issues",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "Newsletter issues"
+				},
+				{
+					"match": "newsletter_issue_stats",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "Issue stats"
+				},
+				{
+					"match": "newsletter_audience",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "Subscribers"
+				},
+				{
+					"match": "newsletter_issue_draft",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "Save draft"
+				}
+			],
+			"skillCard": {
+				"skill": "newsletter",
+				"use": "summary",
+				"title": "Newsletter"
+			},
+			"tools": [
+				{
+					"name": "newsletter_provider",
+					"description": "Which email providers are connected and the publication each key reaches, checked live."
+				},
+				{
+					"name": "newsletter_list_issues",
+					"description": "List drafts and sent issues, newest first, with ids for the stats tool."
+				},
+				{
+					"name": "newsletter_issue_stats",
+					"description": "One sent issue's numbers: delivered, bounces, complaints, unsubscribes, clicks, replies; opens marked unreliable."
+				},
+				{
+					"name": "newsletter_audience",
+					"description": "Subscriber counts and growth, never addresses."
+				},
+				{
+					"name": "newsletter_issue_draft",
+					"description": "Save an approved issue as an UNSENT draft in the provider. Never sends or schedules; asks you first in every mode."
+				}
+			]
+		}
+	}
+}
