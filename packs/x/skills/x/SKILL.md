@@ -142,13 +142,16 @@ Consequences that should change your behavior:
   UTC, `until` exclusive) narrow it to days. Expensive tier — set `limit`
   deliberately.
 - `x_posts_envelope` — X's share of a last30days run. Give it the engine's exact
-  topic, the plan's X queries, the depth and any `--x-handle`/`--x-related`
-  accounts; it runs the newest-posts search, the popular pass (one top-ranked
-  page per day of the week), the account calls and up to three discovered
-  authors, writes a `last30days-x-posts/1` file, and returns the path plus the
-  flags to add (`LAST30DAYS_X_HOST_LANE=1`, `--x-posts`, `--x-related`). It
-  only covers the last 7 days of last30days' 30-day window. Without the free
-  lane it answers "X not covered" instead of spending, unless `allowPaid`.
+  topic, the plan's X queries, the depth, the run's `--x-handle` account
+  (`handle`) and any `--x-related` accounts; it runs the newest-posts search, the
+  popular pass (one top-ranked page per day of the week), the account calls and
+  up to three discovered authors, writes a `last30days-x-posts/1` file, and
+  returns the path plus the flags to add (`LAST30DAYS_X_HOST_LANE=1`,
+  `--x-posts`, `--x-handle`, `--x-related`). It only covers the last 7 days of
+  last30days' 30-day window, and stops at the first failed read, keeping what it
+  has as partial. Without the free lane it answers "X not covered" with a cost
+  estimate; ask the person, and only on their yes call it with `allowPaid`, which
+  shows them the estimate again before anything is billed.
 - `x_get_post` — one post by id **or URL**: text, author, metrics.
 - `x_read_thread` — a whole conversation from any post in it, oldest-first.
   Built on recent search, so it only reaches the last 7 days.

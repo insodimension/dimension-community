@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { XReadPost, XSearchPage, XSearchSort } from "./x-reads.js";
@@ -15,6 +15,7 @@ const MAX_DISCOVERED_AUTHORS = 3;
 const MIN_POSTS_TO_DISCOVER = 2;
 const MAX_CALLS = 20;
 const DAY_MS = 86_400_000;
+export const ENVELOPE_MAX_AGE_MS = 6 * 3_600_000;
 
 export interface SearchWindow {
 	readonly since?: string;
@@ -32,7 +33,7 @@ export interface EnvelopeRequest {
 	readonly topic: string;
 	readonly queries: readonly string[];
 	readonly depth: ResearchDepth;
-	readonly handles: readonly string[];
+	readonly handle: string | null;
 	readonly related: readonly string[];
 	readonly days: number;
 }
@@ -115,7 +116,7 @@ function popularPages(query: string, depth: ResearchDepth, todayMs: number): Pag
 	});
 }
 
-function discoveredAuthors(posts: readonly XReadPost[], known: ReadonlySet<string>, room: number): string[] {
+function discoveredAuthors(posts: Iterable<XReadPost>, known: ReadonlySet<string>, room: number): string[] {
 	const counts = new Map<string, number>();
 	for (const post of posts) {
 		const author = post.authorUsername;
@@ -172,6 +173,7 @@ export async function collectEnvelope(
 	const runCall = async (plan: CallPlan): Promise<{ call: EnvelopeCall; posts: XReadPost[] }> => {
 		const unique = new Map<string, XReadPost>();
 		for (const page of plan.pages) {
+			if (failure !== undefined) break;
 			try {
 				const result = await search(page.query, page.limit, page.sort, page.window);
 				if (result.backend === "official") paidPosts += result.posts.length;
@@ -196,7 +198,7 @@ export async function collectEnvelope(
 		};
 	});
 	const namedPlans: CallPlan[] = [
-		...handleCalls(request.handles, ""),
+		...handleCalls(request.handle ? [request.handle] : [], ""),
 		...request.related.map(handle => ({
 			lane: "related" as const,
 			handles: [handle],
@@ -205,16 +207,19 @@ export async function collectEnvelope(
 	];
 
 	const calls: EnvelopeCall[] = [];
-	const topicPosts: XReadPost[] = [];
+	const topicPosts = new Map<string, XReadPost>();
 	for (const plan of [...topicPlans, ...namedPlans].slice(0, MAX_CALLS)) {
+		if (failure !== undefined) break;
 		const { call, posts } = await runCall(plan);
 		calls.push(call);
-		if (plan.lane === "topic") topicPosts.push(...posts);
+		if (plan.lane === "topic") for (const post of posts) topicPosts.set(post.id, post);
 	}
 
-	const known = new Set([...request.handles, ...request.related].map(handle => handle.toLowerCase()));
-	const discovered = discoveredAuthors(topicPosts, known, MAX_CALLS - calls.length);
+	const known = new Set([...(request.handle ? [request.handle] : []), ...request.related].map(h => h.toLowerCase()));
+	const discovered =
+		failure === undefined ? discoveredAuthors(topicPosts.values(), known, MAX_CALLS - calls.length) : [];
 	for (const plan of handleCalls(discovered, request.queries[0] ?? request.topic)) {
+		if (failure !== undefined) break;
 		calls.push((await runCall(plan)).call);
 	}
 
@@ -241,9 +246,18 @@ export async function collectEnvelope(
 	};
 }
 
-export async function writeEnvelope(envelope: XPostsEnvelope): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "last30days-x-posts-"));
-	const path = join(dir, "x-posts.json");
+export async function writeEnvelope(
+	envelope: XPostsEnvelope,
+	dir: string = join(tmpdir(), "dimension-x-posts"),
+): Promise<string> {
+	await mkdir(dir, { recursive: true });
+	const nowMs = Date.parse(envelope.generated_at);
+	for (const name of await readdir(dir)) {
+		const path = join(dir, name);
+		const info = await stat(path).catch(() => null);
+		if (info && nowMs - info.mtimeMs > ENVELOPE_MAX_AGE_MS) await rm(path, { force: true });
+	}
+	const path = join(dir, `x-posts-${nowMs}-${crypto.randomUUID().slice(0, 8)}.json`);
 	await writeFile(path, JSON.stringify(envelope), "utf-8");
 	return path;
 }

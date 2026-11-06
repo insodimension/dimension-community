@@ -3,12 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	classifyDoctor,
+	environmentWarnings,
 	type Runner,
 	type RunResult,
 	readConnectorKeys,
 	reconcileEnv,
 	resolvePython,
-	summarizeDoctor,
 	writeEngineConfig,
 } from "../setup";
 
@@ -52,14 +53,13 @@ test("setup marks the engine configured, turns browser cookies off over a prior 
 		"OPENAI_API_KEY=sk-mine",
 		"BROWSER_CONSENT=true",
 		"export FROM_BROWSER=chrome",
-		"SCRAPECREATORS_API_KEY=old",
 		"",
 	].join("\n");
 
 	const after = reconcileEnv(
 		before,
-		{ SETUP_COMPLETE: "true", BROWSER_CONSENT: "false", FROM_BROWSER: "off", BSKY_APP_PASSWORD: "abcd efgh" },
-		new Set(["SCRAPECREATORS_API_KEY"]),
+		{ SETUP_COMPLETE: "true", BROWSER_CONSENT: "false", FROM_BROWSER: "off" },
+		new Set(),
 	);
 
 	expect(after).toBe(
@@ -69,13 +69,12 @@ test("setup marks the engine configured, turns browser cookies off over a prior 
 			"BROWSER_CONSENT=false",
 			"FROM_BROWSER=off",
 			"SETUP_COMPLETE=true",
-			'BSKY_APP_PASSWORD="abcd efgh"',
 			"",
 		].join("\n"),
 	);
 });
 
-test("a real interpreter wins over the Store alias and an old Python on PATH", async () => {
+test("a real interpreter wins over an old Python on PATH", async () => {
 	const { run } = scriptedRunner({
 		"/usr/bin/python3 -c": { code: 1, stdout: "/usr/bin/python3\n3.11.9\n", stderr: "" },
 		"/opt/py/python -c": { code: 0, stdout: "/opt/py/bin/python3.13\n3.13.2\n", stderr: "" },
@@ -88,13 +87,13 @@ test("a real interpreter wins over the Store alias and an old Python on PATH", a
 	expect(python).toEqual({ path: "/opt/py/bin/python3.13", version: "3.13.2", source: "path" });
 });
 
-test("Windows installs are probed newest first and the WindowsApps alias that exits without running is skipped", async () => {
-	const root = join(process.env.LOCALAPPDATA ?? "", "Python");
-	await mkdir(join(root, "pythoncore-3.9-64"), { recursive: true });
-	await mkdir(join(root, "pythoncore-3.14-64"), { recursive: true });
-	const newest = join(root, "pythoncore-3.14-64", "python.exe");
+test("Windows installs are probed newest first, Python312-style folders included, and the WindowsApps alias is skipped", async () => {
+	const root = join(process.env.LOCALAPPDATA ?? "", "Programs", "Python");
+	await mkdir(join(root, "Python39"), { recursive: true });
+	await mkdir(join(root, "Python312"), { recursive: true });
+	const newest = join(root, "Python312", "python.exe");
 	const { run, calls } = scriptedRunner({
-		[`${newest} -c`]: { code: 0, stdout: `${newest}\r\n3.14.0\r\n`, stderr: "" },
+		[`${newest} -c`]: { code: 0, stdout: `${newest}\r\n3.12.7\r\n`, stderr: "" },
 	});
 
 	const python = await resolvePython(
@@ -103,72 +102,66 @@ test("Windows installs are probed newest first and the WindowsApps alias that ex
 		"win32",
 	);
 
-	expect(python).toEqual({ path: newest, version: "3.14.0", source: "installed" });
+	expect(python).toEqual({ path: newest, version: "3.12.7", source: "installed" });
 	expect(calls[0]).toBe(`${newest} -c`);
 });
 
-test("with no Python 3.12+ anywhere, uv installs a managed one", async () => {
+test("uv supplies a managed Python it already has, and never installs one by itself", async () => {
 	const managed = "/home/me/.local/share/uv/python/cpython-3.12/bin/python3.12";
-	let installed = false;
-	const run: Runner = async (command, args) => {
-		const line = [command, ...args].join(" ");
-		if (line === "uv python install 3.12") {
-			installed = true;
-			return { code: 0, stdout: "", stderr: "" };
-		}
-		if (line === "uv python find >=3.12") {
-			return installed
-				? { code: 0, stdout: `${managed}\n`, stderr: "" }
-				: { code: 2, stdout: "", stderr: "not found" };
-		}
-		if (command === managed) return { code: 0, stdout: `${managed}\n3.12.7\n`, stderr: "" };
-		return { code: 1, stdout: "", stderr: "" };
-	};
+	const { run, calls } = scriptedRunner({
+		"uv python find --managed-python >=3.12": { code: 0, stdout: `${managed}\n`, stderr: "" },
+		[`${managed} -c`]: { code: 0, stdout: `${managed}\n3.12.7\n`, stderr: "" },
+	});
 
 	const python = await resolvePython(run, name => (name === "uv" ? "uv" : null), "linux");
 
-	expect(installed).toBe(true);
-	expect(python).toEqual({ path: managed, version: "3.12.7", source: "uv" });
+	expect(python?.source).toBe("uv");
+	expect(calls.some(call => call.includes("python install"))).toBe(false);
 });
 
-test("keys connected on the card reach the engine config, and a disconnected key is taken out again", async () => {
+test("the engine config never holds the card's keys, and copies an older setup made are taken out", async () => {
 	const connectors = join(home, ".config", "dimension-last30days");
 	const engine = join(home, ".config", "last30days");
 	await mkdir(connectors, { recursive: true });
 	await mkdir(engine, { recursive: true });
-	await writeFile(join(engine, ".env"), "XAI_API_KEY=mine\n");
-	await writeFile(join(connectors, "scrapecreators.json"), '{ "access": "sc-key" }\n');
-	await writeFile(
-		join(connectors, "bluesky.json"),
-		'{ "handle": "@me.bsky.social", "access": "aaaa-bbbb-cccc-dddd" }\n',
-	);
+	await writeFile(join(engine, ".env"), "XAI_API_KEY=mine\nSCRAPECREATORS_API_KEY=old-copy\nBSKY_HANDLE=me\n");
+	await writeFile(join(connectors, "managed-keys.json"), '{"keys":["SCRAPECREATORS_API_KEY","BSKY_HANDLE"]}');
 
-	const first = await writeEngineConfig(engine, await readConnectorKeys());
+	const outcome = await writeEngineConfig(engine);
 
-	expect(first.keys).toEqual(["SCRAPECREATORS_API_KEY", "BSKY_HANDLE", "BSKY_APP_PASSWORD"]);
-	expect(await readFile(join(engine, ".env"), "utf-8")).toBe(
-		[
-			"XAI_API_KEY=mine",
-			"SETUP_COMPLETE=true",
-			"BROWSER_CONSENT=false",
-			"FROM_BROWSER=off",
-			"SCRAPECREATORS_API_KEY=sc-key",
-			"BSKY_HANDLE=me.bsky.social",
-			"BSKY_APP_PASSWORD=aaaa-bbbb-cccc-dddd",
-			"",
-		].join("\n"),
-	);
-
-	await rm(join(connectors, "scrapecreators.json"));
-	const second = await writeEngineConfig(engine, await readConnectorKeys());
-
-	expect(second.removed).toEqual(["SCRAPECREATORS_API_KEY"]);
-	expect(await readFile(join(engine, ".env"), "utf-8")).not.toContain("SCRAPECREATORS_API_KEY");
-	expect(await readFile(join(engine, ".env"), "utf-8")).toContain("XAI_API_KEY=mine");
+	const text = await readFile(join(engine, ".env"), "utf-8");
+	expect(outcome.removed).toEqual(["SCRAPECREATORS_API_KEY", "BSKY_HANDLE"]);
+	expect(text).toContain("XAI_API_KEY=mine");
+	expect(text).toContain("BROWSER_CONSENT=false");
+	expect(text).toContain("LAST30DAYS_TRUST_PROJECT_CONFIG=false");
+	expect(text).not.toContain("SCRAPECREATORS_API_KEY");
+	expect(text).not.toContain("BSKY_HANDLE");
 });
 
-test("the source report names what is live and how to cover each gap the Dimension way", () => {
-	const lines = summarizeDoctor({
+test("a key with characters outside printable ASCII is refused and named", async () => {
+	const connectors = join(home, ".config", "dimension-last30days");
+	await mkdir(connectors, { recursive: true });
+	await writeFile(join(connectors, "scrapecreators.json"), JSON.stringify({ access: "sc-key\nINJECTED=1" }));
+	await writeFile(
+		join(connectors, "bluesky.json"),
+		JSON.stringify({ handle: "@me.bsky.social", access: "aaaa-bbbb" }),
+	);
+
+	const keys = await readConnectorKeys();
+
+	expect(keys.scrapecreators).toBe(false);
+	expect(keys.refused).toEqual(["ScrapeCreators API key"]);
+	expect(keys.bluesky).toBe("me.bsky.social");
+});
+
+test("cookie-related settings in the process environment are flagged", () => {
+	expect(environmentWarnings({ FROM_BROWSER: "chrome" })).toHaveLength(1);
+	expect(environmentWarnings({ LAST30DAYS_CONFIG_DIR: "" })).toHaveLength(1);
+	expect(environmentWarnings({})).toHaveLength(0);
+});
+
+test("every source lands in exactly one bucket, and every gap has a Dimension fix route", () => {
+	const summary = classifyDoctor({
 		sources: {
 			reddit: { audit_state: "working", status: "ok" },
 			hackernews: { audit_state: "working", status: "ok" },
@@ -181,13 +174,13 @@ test("the source report names what is live and how to cover each gap the Dimensi
 		},
 	});
 
-	expect(lines).toEqual([
-		"Working: hackernews, reddit",
-		"Turned on, not yet verified: bluesky",
-		"Not working: polymarket (connection reset)",
-		"Not covered: tiktok (needs a ScrapeCreators key: Capabilities, last30days, Connect, ScrapeCreators)",
-		"Not covered: x (comes from the X plugin (x_posts_envelope), last 7 days only)",
-		"Not covered: youtube (needs yt-dlp: Capabilities, last30days, Connect, Install)",
-		"Optional extras, off: arxiv",
-	]);
+	expect(summary.working).toEqual(["hackernews", "reddit"]);
+	expect(summary.unverified).toEqual(["bluesky"]);
+	expect(summary.notWorking.map(source => source.name)).toEqual(["polymarket"]);
+	expect(Object.fromEntries(summary.notCovered.map(source => [source.name, source.fix]))).toEqual({
+		tiktok: "scrapecreators",
+		x: "x-plugin",
+		youtube: "yt-dlp",
+	});
+	expect(summary.extras).toEqual(["arxiv"]);
 });

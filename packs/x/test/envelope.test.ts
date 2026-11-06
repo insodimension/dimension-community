@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { readFile, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import {
 	collectEnvelope,
 	type EnvelopeRequest,
@@ -54,7 +55,7 @@ const REQUEST: EnvelopeRequest = {
 	topic: "unreal engine camera plugin",
 	queries: ["unreal engine camera plugin"],
 	depth: "default",
-	handles: [],
+	handle: null,
 	related: [],
 	days: 30,
 };
@@ -137,22 +138,25 @@ test("a row carries exactly the eight envelope fields and drops posts the engine
 
 test("named accounts get from and mention calls; frequent topic authors are discovered and scoped to the topic", async () => {
 	const { search, calls } = recordingSearch(call =>
-		call.query.endsWith("plugin -is:retweet") && call.sort === "recent"
+		call.query.endsWith("plugin -is:retweet")
 			? {
 					backend: "bird",
-					posts: [
-						post("400", "gus"),
-						post("401", "gus"),
-						post("402", "hana"),
-						post("403", "Epic"),
-						post("404", "epic"),
-					],
+					posts:
+						call.sort === "recent"
+							? [
+									post("400", "gus"),
+									post("401", "gus"),
+									post("402", "hana"),
+									post("403", "Epic"),
+									post("404", "epic"),
+								]
+							: [post("402", "hana")],
 				}
 			: { backend: "bird", posts: [] },
 	);
 
 	const result = await collectEnvelope(
-		{ ...REQUEST, depth: "quick", handles: ["epic"], related: ["unrealengine"] },
+		{ ...REQUEST, depth: "quick", handle: "epic", related: ["unrealengine"] },
 		search,
 		NOW,
 	);
@@ -170,16 +174,19 @@ test("named accounts get from and mention calls; frequent topic authors are disc
 	expect(calls.map(call => call.query)).toContain("@epic -is:retweet");
 });
 
-test("a failure after some posts marks the envelope partial; a failure before any post is thrown", async () => {
+test("the first failure stops the run: rows so far are kept as partial; a failure before any post is thrown", async () => {
 	const partial = recordingSearch(call =>
 		call.sort === "recent" ? { backend: "bird", posts: [post("500", "ivy")] } : new Error("rate limited"),
 	);
-	const { envelope } = await collectEnvelope(REQUEST, partial.search, NOW);
+	const { envelope } = await collectEnvelope({ ...REQUEST, handle: "epic" }, partial.search, NOW);
 	expect(envelope.status).toBe("partial");
 	expect(envelope.error).toBe("unavailable");
+	expect(partial.calls.filter(call => call.sort === "top")).toHaveLength(1);
+	expect(envelope.calls.map(call => call.lane)).toEqual(["topic"]);
 
 	const dead = recordingSearch(() => new Error("cookies expired"));
 	await expect(collectEnvelope(REQUEST, dead.search, NOW)).rejects.toThrow("cookies expired");
+	expect(dead.calls).toHaveLength(1);
 });
 
 test("posts served by the billed lane are counted so the cost can be stated", async () => {
@@ -195,25 +202,34 @@ test("posts served by the billed lane are counted so the cost can be stated", as
 });
 
 test("the envelope never exceeds the engine's twenty-call limit", async () => {
-	const handles = Array.from({ length: 12 }, (_, index) => `acct${index}`);
+	const related = Array.from({ length: 24 }, (_, index) => `acct${index}`);
 	const { search } = recordingSearch(() => ({ backend: "bird", posts: [post("700", "mo"), post("701", "mo")] }));
 
-	const { envelope, discovered } = await collectEnvelope({ ...REQUEST, handles }, search, NOW);
+	const { envelope, discovered } = await collectEnvelope({ ...REQUEST, related }, search, NOW);
 
 	expect(envelope.calls.length).toBeLessThanOrEqual(20);
 	expect(discovered).toEqual([]);
 });
 
-test("the written file is the compact envelope", async () => {
-	const { search } = recordingSearch(() => ({ backend: "bird", posts: [post("800", "nia")] }));
-	const { envelope } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
-
-	const path = await writeEnvelope(envelope);
+test("envelopes share one folder, are written compact, and ones older than six hours are pruned", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "x-posts-test-"));
 	try {
+		const stale = join(dir, "x-posts-old.json");
+		await writeFile(stale, "{}");
+		await utimes(stale, new Date(NOW.getTime() - 7 * 3_600_000), new Date(NOW.getTime() - 7 * 3_600_000));
+		const fresh = join(dir, "x-posts-fresh.json");
+		await writeFile(fresh, "{}");
+		await utimes(fresh, new Date(NOW.getTime() - 3_600_000), new Date(NOW.getTime() - 3_600_000));
+		const { search } = recordingSearch(() => ({ backend: "bird", posts: [post("800", "nia")] }));
+		const { envelope } = await collectEnvelope({ ...REQUEST, depth: "quick" }, search, NOW);
+
+		const path = await writeEnvelope(envelope, dir);
+
 		const text = await readFile(path, "utf-8");
 		expect(text.includes("\n")).toBe(false);
 		expect(JSON.parse(text)).toEqual(envelope);
+		expect((await readdir(dir)).sort()).toEqual([basename(path), "x-posts-fresh.json"].sort());
 	} finally {
-		await rm(dirname(path), { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true });
 	}
 });

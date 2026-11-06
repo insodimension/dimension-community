@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -12,7 +12,7 @@ export interface RunResult {
 export type Runner = (
 	command: string,
 	args: readonly string[],
-	options?: { readonly input?: string; readonly timeoutMs?: number; readonly env?: NodeJS.ProcessEnv },
+	options?: { readonly timeoutMs?: number; readonly cwd?: string },
 ) => Promise<RunResult>;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -22,8 +22,8 @@ export const runHidden: Runner = (command, args, options = {}) => {
 	const child = spawn(command, [...args], {
 		windowsHide: true,
 		shell: false,
-		env: options.env ?? process.env,
-		stdio: ["pipe", "pipe", "pipe"],
+		cwd: options.cwd ?? homedir(),
+		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let stdout = "";
 	let stderr = "";
@@ -42,7 +42,6 @@ export const runHidden: Runner = (command, args, options = {}) => {
 		clearTimeout(timer);
 		resolve({ code, stdout, stderr });
 	});
-	child.stdin.end(options.input ?? "");
 	return promise;
 };
 
@@ -50,8 +49,6 @@ const PYTHON_PROBE =
 	"import sys;print(sys.executable);print('%d.%d.%d' % sys.version_info[:3]);raise SystemExit(0 if sys.version_info >= (3, 12) else 1)";
 const PYTHON_NAMES = ["python3.14", "python3.13", "python3.12", "python3", "python"];
 const UV_PYTHON_REQUEST = ">=3.12";
-const UV_INSTALL_VERSION = "3.12";
-const UV_INSTALL_TIMEOUT_MS = 300_000;
 
 export interface ResolvedPython {
 	readonly path: string;
@@ -115,28 +112,31 @@ export async function resolvePython(
 	}
 	const uv = which("uv");
 	if (!uv) return null;
-	const found = await run(uv, ["python", "find", UV_PYTHON_REQUEST]);
-	if (found.code !== 0) {
-		const install = await run(uv, ["python", "install", UV_INSTALL_VERSION], { timeoutMs: UV_INSTALL_TIMEOUT_MS });
-		if (install.code !== 0) return null;
-	}
-	const managed = found.code === 0 ? found : await run(uv, ["python", "find", UV_PYTHON_REQUEST]);
-	const managedPath = managed.stdout.trim().split(/\r?\n/).pop();
-	if (managed.code !== 0 || !managedPath) return null;
+	const found = await run(uv, ["python", "find", "--managed-python", UV_PYTHON_REQUEST], { cwd: homedir() });
+	const managedPath = found.stdout.trim().split(/\r?\n/).pop();
+	if (found.code !== 0 || !managedPath) return null;
 	const probed = await probePython(run, managedPath);
 	return probed ? { ...probed, source: "uv" } : null;
 }
 
-export function pythonInstallHint(platform: NodeJS.Platform): string {
+export function pythonInstallHint(platform: NodeJS.Platform, hasUv: boolean): string {
+	if (hasUv) return "uv python install 3.12";
 	if (platform === "win32") return "winget install -e --id Python.Python.3.12 --scope user";
 	if (platform === "darwin") return "brew install python@3.12";
-	return "sudo apt-get install -y python3.12 (or install uv, which provides its own Python)";
+	return "sudo apt-get install -y python3.12";
 }
 
 export const ENGINE_SETTINGS: Readonly<Record<string, string>> = {
 	SETUP_COMPLETE: "true",
 	BROWSER_CONSENT: "false",
 	FROM_BROWSER: "off",
+	LAST30DAYS_TRUST_PROJECT_CONFIG: "false",
+};
+
+const COPIED_KEY_NAMES: Readonly<Record<string, true>> = {
+	SCRAPECREATORS_API_KEY: true,
+	BSKY_HANDLE: true,
+	BSKY_APP_PASSWORD: true,
 };
 
 function envLineKey(line: string): string | null {
@@ -146,14 +146,6 @@ function envLineKey(line: string): string | null {
 		.slice(0, trimmed.indexOf("="))
 		.replace(/^export\s+/, "")
 		.trim();
-}
-
-export function formatEnvValue(value: string): string {
-	const flat = value.replace(/\r/g, "").replace(/\n/g, " ");
-	if (flat && !/^['"]/.test(flat) && !/\s/.test(flat)) return flat;
-	if (!flat.includes('"')) return `"${flat}"`;
-	if (!flat.includes("'")) return `'${flat}'`;
-	return flat;
 }
 
 export function reconcileEnv(
@@ -172,31 +164,22 @@ export function reconcileEnv(
 		if (key in assign) {
 			if (written.has(key)) continue;
 			written.add(key);
-			lines.push(`${key}=${formatEnvValue(assign[key] ?? "")}`);
+			lines.push(`${key}=${assign[key]}`);
 			continue;
 		}
 		if (!remove.has(key)) lines.push(line);
 	}
 	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
 	for (const [key, value] of Object.entries(assign)) {
-		if (!written.has(key)) lines.push(`${key}=${formatEnvValue(value)}`);
+		if (!written.has(key)) lines.push(`${key}=${value}`);
 	}
 	return `${lines.join("\n")}\n`;
 }
 
 export interface ConnectorKeys {
-	readonly scrapecreators: string | null;
-	readonly bluesky: { readonly handle: string; readonly appPassword: string } | null;
-}
-
-export function connectorDir(): string {
-	return join(homedir(), ".config", "dimension-last30days");
-}
-
-export function engineConfigDir(): string | null {
-	const override = process.env.LAST30DAYS_CONFIG_DIR;
-	if (override === undefined) return join(homedir(), ".config", "last30days");
-	return override === "" ? null : override;
+	readonly scrapecreators: boolean;
+	readonly bluesky: string | null;
+	readonly refused: readonly string[];
 }
 
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
@@ -208,22 +191,35 @@ async function readJson(path: string): Promise<Record<string, unknown> | null> {
 	}
 }
 
-function nonEmpty(value: unknown): string | null {
-	return typeof value === "string" && value.trim() ? value.trim() : null;
+function isPrintableAscii(value: unknown): value is string {
+	return typeof value === "string" && value.trim() !== "" && /^[\x20-\x7e]+$/.test(value);
 }
 
-export async function readConnectorKeys(dir: string = connectorDir()): Promise<ConnectorKeys> {
+export async function readConnectorKeys(
+	dir: string = join(homedir(), ".config", "dimension-last30days"),
+): Promise<ConnectorKeys> {
 	const scrape = await readJson(join(dir, "scrapecreators.json"));
 	const bluesky = await readJson(join(dir, "bluesky.json"));
-	const handle = nonEmpty(bluesky?.handle)?.replace(/^@/, "");
-	const appPassword = nonEmpty(bluesky?.access);
+	const refused = [
+		...(scrape && !isPrintableAscii(scrape.access) ? ["ScrapeCreators API key"] : []),
+		...(bluesky && !isPrintableAscii(bluesky.handle) ? ["Bluesky handle"] : []),
+		...(bluesky && !isPrintableAscii(bluesky.access) ? ["Bluesky app password"] : []),
+	];
 	return {
-		scrapecreators: nonEmpty(scrape?.access),
-		bluesky: handle && appPassword ? { handle, appPassword } : null,
+		scrapecreators: Boolean(scrape) && isPrintableAscii(scrape?.access),
+		bluesky:
+			bluesky && isPrintableAscii(bluesky.handle) && isPrintableAscii(bluesky.access)
+				? bluesky.handle.trim().replace(/^@/, "")
+				: null,
+		refused,
 	};
 }
 
-const MANAGED_KEYS_FILE = "managed-keys.json";
+export function engineConfigDir(): string | null {
+	const override = process.env.LAST30DAYS_CONFIG_DIR;
+	if (override === undefined) return join(homedir(), ".config", "last30days");
+	return override === "" ? null : override;
+}
 
 async function writeAtomic(path: string, content: string): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
@@ -234,26 +230,29 @@ async function writeAtomic(path: string, content: string): Promise<void> {
 
 export interface EngineConfigOutcome {
 	readonly path: string;
-	readonly keys: readonly string[];
 	readonly removed: readonly string[];
 }
 
-export async function writeEngineConfig(configDir: string, keys: ConnectorKeys): Promise<EngineConfigOutcome> {
+export async function writeEngineConfig(configDir: string): Promise<EngineConfigOutcome> {
 	const envPath = join(configDir, ".env");
-	const managedPath = join(connectorDir(), MANAGED_KEYS_FILE);
-	const connectorValues: Record<string, string> = {
-		...(keys.scrapecreators ? { SCRAPECREATORS_API_KEY: keys.scrapecreators } : {}),
-		...(keys.bluesky ? { BSKY_HANDLE: keys.bluesky.handle, BSKY_APP_PASSWORD: keys.bluesky.appPassword } : {}),
-	};
-	const previouslyManaged = await readJson(managedPath);
-	const previousKeys = Array.isArray(previouslyManaged?.keys)
-		? previouslyManaged.keys.filter((key): key is string => typeof key === "string")
+	const managedPath = join(homedir(), ".config", "dimension-last30days", "managed-keys.json");
+	const managed = await readJson(managedPath);
+	const copied = Array.isArray(managed?.keys)
+		? managed.keys.filter((key): key is string => typeof key === "string" && COPIED_KEY_NAMES[key] === true)
 		: [];
-	const removed = previousKeys.filter(key => !(key in connectorValues));
 	const current = await readFile(envPath, "utf-8").catch(() => "");
-	await writeAtomic(envPath, reconcileEnv(current, { ...ENGINE_SETTINGS, ...connectorValues }, new Set(removed)));
-	await writeAtomic(managedPath, `${JSON.stringify({ keys: Object.keys(connectorValues) })}\n`);
-	return { path: envPath, keys: Object.keys(connectorValues), removed };
+	const present = new Set(current.split(/\r?\n/).flatMap(line => envLineKey(line) ?? []));
+	await writeAtomic(envPath, reconcileEnv(current, ENGINE_SETTINGS, new Set(copied)));
+	await rm(managedPath, { force: true });
+	return { path: envPath, removed: copied.filter(key => present.has(key)) };
+}
+
+export function environmentWarnings(env: NodeJS.ProcessEnv): string[] {
+	return [
+		...(env.FROM_BROWSER !== undefined ? ["FROM_BROWSER is set in this process"] : []),
+		...(env.BROWSER_CONSENT !== undefined ? ["BROWSER_CONSENT is set in this process"] : []),
+		...(env.LAST30DAYS_CONFIG_DIR === "" ? ["LAST30DAYS_CONFIG_DIR is empty, so no config file is read"] : []),
+	];
 }
 
 export interface DoctorSource {
@@ -265,7 +264,16 @@ export interface DoctorSource {
 
 export interface DoctorReport {
 	readonly sources?: Readonly<Record<string, DoctorSource>>;
-	readonly engine_version?: string;
+}
+
+export type FixRoute = "x-plugin" | "yt-dlp" | "bluesky" | "scrapecreators" | "unconfigured";
+
+export interface DoctorSummary {
+	readonly working: readonly string[];
+	readonly unverified: readonly string[];
+	readonly notWorking: readonly { readonly name: string; readonly detail: string }[];
+	readonly notCovered: readonly { readonly name: string; readonly fix: FixRoute }[];
+	readonly extras: readonly string[];
 }
 
 const SCRAPECREATORS_SOURCES: Readonly<Record<string, true>> = {
@@ -278,37 +286,45 @@ const SCRAPECREATORS_SOURCES: Readonly<Record<string, true>> = {
 	telegram: true,
 };
 
-function notCoveredFix(name: string, source: DoctorSource): string | null {
-	if (name === "x") return "comes from the X plugin (x_posts_envelope), last 7 days only";
-	if (name === "youtube") return "needs yt-dlp: Capabilities, last30days, Connect, Install";
-	if (name === "bluesky") return "needs a Bluesky app password: Capabilities, last30days, Connect, Bluesky";
-	if (SCRAPECREATORS_SOURCES[name])
-		return "needs a ScrapeCreators key: Capabilities, last30days, Connect, ScrapeCreators";
-	return source.status === "opt-in" ? null : "not configured";
+const FIX_TEXT: Readonly<Record<FixRoute, string>> = {
+	"x-plugin": "comes from the X plugin (x_posts_envelope), last 7 days only",
+	"yt-dlp": "needs yt-dlp: Capabilities, last30days, Connect, Install",
+	bluesky: "needs a Bluesky app password: Capabilities, last30days, Connect, Bluesky",
+	scrapecreators: "needs a ScrapeCreators key: Capabilities, last30days, Connect, ScrapeCreators",
+	unconfigured: "not configured",
+};
+
+function fixRoute(name: string): FixRoute {
+	if (name === "x") return "x-plugin";
+	if (name === "youtube") return "yt-dlp";
+	if (name === "bluesky") return "bluesky";
+	if (SCRAPECREATORS_SOURCES[name]) return "scrapecreators";
+	return "unconfigured";
 }
 
-export function summarizeDoctor(report: DoctorReport): string[] {
+export function classifyDoctor(report: DoctorReport): DoctorSummary {
 	const working: string[] = [];
 	const unverified: string[] = [];
+	const notWorking: { name: string; detail: string }[] = [];
+	const notCovered: { name: string; fix: FixRoute }[] = [];
 	const extras: string[] = [];
-	const problems: string[] = [];
 	for (const [name, source] of Object.entries(report.sources ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
-		if (source.audit_state === "working") {
-			working.push(name);
-		} else if (source.audit_state === "not-working") {
-			problems.push(`Not working: ${name} (${source.probe?.detail || source.detail || "probe failed"})`);
-		} else if (source.audit_state === "could-be-on") {
-			const fix = notCoveredFix(name, source);
-			if (fix) problems.push(`Not covered: ${name} (${fix})`);
-			else extras.push(name);
-		} else {
-			unverified.push(name);
-		}
+		if (source.audit_state === "working") working.push(name);
+		else if (source.audit_state === "not-working")
+			notWorking.push({ name, detail: source.probe?.detail || source.detail || "probe failed" });
+		else if (source.audit_state === "could-be-on" && source.status === "opt-in") extras.push(name);
+		else if (source.audit_state === "could-be-on") notCovered.push({ name, fix: fixRoute(name) });
+		else unverified.push(name);
 	}
+	return { working, unverified, notWorking, notCovered, extras };
+}
+
+export function renderDoctor(summary: DoctorSummary): string[] {
 	return [
-		`Working: ${working.join(", ") || "none"}`,
-		...(unverified.length ? [`Turned on, not yet verified: ${unverified.join(", ")}`] : []),
-		...problems,
-		...(extras.length ? [`Optional extras, off: ${extras.join(", ")}`] : []),
+		`Working: ${summary.working.join(", ") || "none"}`,
+		...(summary.unverified.length ? [`Turned on, not yet verified: ${summary.unverified.join(", ")}`] : []),
+		...summary.notWorking.map(source => `Not working: ${source.name} (${source.detail})`),
+		...summary.notCovered.map(source => `Not covered: ${source.name} (${FIX_TEXT[source.fix]})`),
+		...(summary.extras.length ? [`Optional extras, off: ${summary.extras.join(", ")}`] : []),
 	];
 }

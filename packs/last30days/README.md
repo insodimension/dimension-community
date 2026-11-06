@@ -13,14 +13,18 @@ browser-cookie reading off.
 
 - **Skill `last30days`**: the upstream skill and its Python research engine.
 - **Tool `last30days_setup`**: finds a real Python 3.12 or newer (never the Windows
-  Store shortcut; it sets up a managed one through uv when uv is installed), checks
-  yt-dlp, marks setup complete with browser-cookie reading off, copies the keys you
-  connected on the card into the engine's config, removes them again after a
-  disconnect, and reports which sources are working, which are not covered and why.
+  Store shortcut; it uses a Python uv already manages, and only suggests installing
+  one), checks yt-dlp, marks setup complete with browser-cookie reading off and
+  project config untrusted, checks the keys you connected on the card, runs the
+  engine's source check, and reports which sources are working, which are not
+  covered and why.
+- **Runner `run.py`**: every engine command goes through it. It hands the card's
+  keys to that one run as environment variables, forces browser-cookie reading off
+  and adds `--no-browser-cookies`, then runs the upstream engine unchanged.
 - **Rule `last30days-in-dimension`**: always-on routing. Setup goes through the tool
-  instead of the upstream wizard, keys are added only on the card, and X comes from
-  the X plugin's envelope (`x_posts_envelope`) instead of last30days reading browser
-  cookies.
+  instead of the upstream wizard, every engine command goes through the runner,
+  keys are added only on the card, and X comes from the X plugin's envelope
+  (`x_posts_envelope`) instead of last30days reading browser cookies.
 - **Connect card** with three ways in: free sources (installs yt-dlp), free sources
   plus a ScrapeCreators key, and free sources plus a Bluesky app password. The card
   also offers "Finish setup with your agent".
@@ -40,12 +44,18 @@ Bluesky needs your handle and an app password.
   Some networks block Reddit's or Polymarket's public endpoints; the setup report
   says so, and the research names those sources as not covered.
 - X through the X plugin covers only the last 7 days of the 30-day window.
-- Keys you add on the card are copied into `~/.config/last30days/.env` (owner-only
-  file mode on macOS and Linux), because that is where the engine reads them.
-- Local changes to the upstream copy, kept as small as possible: the skill's
-  frontmatter moves its version, author and homepage under `metadata` so the skill
-  loads under the Agent Skills rules, and `scripts/lib/skill_meta.py` reads an
-  indented `version:` so the engine's badge still shows the version.
+- Keys you add on the card stay in `~/.config/dimension-last30days/` and are passed
+  to each engine run by the runner; they are not copied into last30days' own
+  `~/.config/last30days/.env`. Copies an earlier version of this plugin made there
+  are removed the next time setup runs. A key with characters outside printable
+  ASCII is refused and named; reconnect it on the card.
+- Local changes to the upstream copy, kept as small as possible. In the skill's
+  frontmatter, `version`, `author` and `homepage` move under `metadata`, and
+  `argument-hint` moves under `metadata` too; `repository`, `user-invocable` and the
+  whole `metadata.openclaw` block (its env, bin and file lists and tags) are dropped;
+  `allowed-tools` now follows `license`. The Agent Skills loader skips a skill with
+  any other top-level field. `scripts/lib/skill_meta.py` reads an indented
+  `version:` so the engine's badge still shows the version.
 
 ## Build and test
 

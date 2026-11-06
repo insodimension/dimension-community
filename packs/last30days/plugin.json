@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "last30days",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News and the web.",
 	"author": {
 		"name": "Dimension"
@@ -66,7 +66,7 @@
 							},
 							{
 								"title": "Python 3.12 or newer",
-								"detail": "last30days runs a Python research engine. Your agent checks for a real Python 3.12+ the first time it runs (the Windows Store shortcut does not count) and, if uv is installed, sets up its own copy; otherwise it tells you the one command to install it.",
+								"detail": "last30days runs a Python research engine. Your agent checks for a real Python 3.12+ the first time it runs (the Windows Store shortcut does not count) and, if none is found, tells you the one command to install it and waits for your yes.",
 								"url": "https://www.python.org/downloads/",
 								"urlLabel": "Get Python"
 							},
@@ -215,7 +215,7 @@
 			"tools": [
 				{
 					"name": "last30days_setup",
-					"description": "Set up last30days and report which sources are live: Python 3.12+, yt-dlp, setup complete with browser cookies off, and the ScrapeCreators and Bluesky keys connected on this card."
+					"description": "Set up last30days and report which sources are live: Python 3.12+, yt-dlp, setup complete with browser cookies off, the ScrapeCreators and Bluesky keys connected on this card, and the runner command every engine run uses."
 				}
 			]
 		}

@@ -365,10 +365,7 @@ function officialPosts(payload: XListResponse): XReadPost[] {
 }
 
 const OFFICIAL_END_MARGIN_MS = 30_000;
-
-function officialEndTime(until: string, now: number): string {
-	return new Date(Math.min(Date.parse(`${until}T00:00:00Z`), now - OFFICIAL_END_MARGIN_MS)).toISOString();
-}
+const OFFICIAL_SEARCH_MIN_RESULTS = 10;
 
 function freeLaneQuery(query: string, window: SearchWindow): string {
 	const since = window.since ? ` since:${window.since}` : "";
@@ -385,14 +382,18 @@ async function officialSearchPage(
 ): Promise<XSearchPage> {
 	const search = new URLSearchParams({ query, sort_order: sort === "top" ? "relevancy" : "recency" });
 	if (window.since) search.set("start_time", `${window.since}T00:00:00Z`);
-	if (window.until) search.set("end_time", officialEndTime(window.until, Date.now()));
+	if (window.until) {
+		const end = Math.min(Date.parse(`${window.until}T00:00:00Z`), Date.now() - OFFICIAL_END_MARGIN_MS);
+		search.set("end_time", new Date(end).toISOString());
+	}
+	const requested = Math.max(limit, OFFICIAL_SEARCH_MIN_RESULTS);
 	const payload = await xJson<XListResponse>(
-		`/tweets/search/recent?${search.toString()}&${tweetListParams(limit, cursor, "next_token")}`,
+		`/tweets/search/recent?${search.toString()}&${tweetListParams(requested, cursor, "next_token")}`,
 		"tweets/search/recent",
 	);
 	return {
 		backend: "official",
-		posts: officialPosts(payload),
+		posts: officialPosts(payload).slice(0, limit),
 		...(payload.meta?.next_token ? { nextCursor: payload.meta.next_token } : {}),
 	};
 }
@@ -539,8 +540,8 @@ const postsEnvelopeSchema = type({
 	"depth?": type("'quick' | 'default' | 'deep'").describe(
 		"Matches the engine's --quick / default / --deep: 10 / 30 / 60 newest posts per query, plus the popular pass.",
 	),
-	"handles?": type("string[]").describe(
-		"The run's --x-handle accounts: each gets a from: call (8 posts) and a mention call (5 posts).",
+	"handle?": type("string").describe(
+		"The run's --x-handle account: it gets a from: call (8 posts) and a mention call (5 posts).",
 	),
 	"related?": type("string[]").describe("The run's --x-related accounts: each gets a from: call (3 posts)."),
 	"days?": type("number").describe("The engine's --days window, default 30. X search itself reaches only the last 7."),
@@ -732,24 +733,38 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 
 const PAID_POST_USD = 0.005;
 
+function paidEstimate(depth: ResearchDepth): string {
+	return (DEPTH_POSTS[depth] * 2 * PAID_POST_USD).toFixed(2);
+}
+
 function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
 	return {
 		name: "x_posts_envelope",
 		label: "X: Posts for last30days",
 		description:
-			"Fetch X posts for a last30days run and write them as a last30days-x-posts/1 envelope file: the newest posts for each query, a popular pass (X's top-ranked posts for each of the last 7 days), from/mention calls for named accounts, and up to 3 discovered authors. Returns the file path and the exact engine flags (LAST30DAYS_X_HOST_LANE=1, --x-posts, --x-related). X search reaches only the last 7 days of the 30-day window. FREE on the x.com cookie lane; refuses the billed lane unless allowPaid is set.",
+			"Fetch X posts for a last30days run and write them as a last30days-x-posts/1 envelope file: the newest posts for each query, a popular pass (X's top-ranked posts for each of the last 7 days), from/mention calls for the named account, and up to 3 discovered authors. Returns the file path and the exact engine flags (LAST30DAYS_X_HOST_LANE=1, --x-posts, --x-handle, --x-related). X search reaches only the last 7 days of the 30-day window. FREE on the x.com cookie lane; refuses the billed lane unless the person agreed to the cost and allowPaid is set, which asks the person again.",
 		parameters: postsEnvelopeSchema,
-		approval: "read" as const,
+		approval: (args: unknown) =>
+			typeof args === "object" && args !== null && Reflect.get(args, "allowPaid") === true
+				? PROMPT_EVERY_MODE
+				: "read",
+		formatApprovalDetails(args: unknown) {
+			const depth = approvalArg(args, "depth");
+			const estimate = paidEstimate(depth === "quick" || depth === "deep" ? depth : "default");
+			return [
+				`Topic: ${approvalArg(args, "topic") ?? "(missing)"}`,
+				`Billed X reads on the official API at $0.005 per post: roughly $${estimate} or more for this run.`,
+			];
+		},
 		async execute(_toolCallId: string, params: typeof postsEnvelopeSchema.infer) {
 			const depth: ResearchDepth = params.depth ?? "default";
 			const lane = await readLaneStatus();
 			if (lane.backend === "official" && !params.allowPaid) {
-				const estimate = (DEPTH_POSTS[depth] * 2 * PAID_POST_USD).toFixed(2);
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `X is not covered for this run: the free x.com cookie lane is unavailable (${lane.detail}). Run last30days without --x-posts and say X was not covered. With allowPaid: true the official API would serve it at $0.005 per post, roughly $${estimate} or more for this depth.`,
+							text: `X is not covered for this run: the free x.com cookie lane is unavailable (${lane.detail}). Run last30days without --x-posts and say X was not covered. The official API could serve it at $0.005 per post, roughly $${paidEstimate(depth)} or more for this depth: ask the person whether to spend that, and only on their yes call again with allowPaid.`,
 						},
 					],
 				};
@@ -760,7 +775,7 @@ function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
 					topic: params.topic,
 					queries: params.queries?.length ? params.queries.slice(0, 2) : [params.topic],
 					depth,
-					handles: (params.handles ?? []).map(handle),
+					handle: params.handle ? handle(params.handle) : null,
 					related: (params.related ?? []).map(handle),
 					days: params.days ?? 30,
 				},
@@ -796,6 +811,7 @@ function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
 				"Run the engine in the same shell with:",
 				"  LAST30DAYS_X_HOST_LANE=1",
 				`  --x-posts "${path}"`,
+				...(params.handle ? [`  --x-handle ${handle(params.handle)}`] : []),
 				...(related.length ? [`  --x-related ${related.join(",")}`] : []),
 				"",
 				"The file is single-use, expires 6 hours after it was written, and the topic must match the engine's topic exactly.",

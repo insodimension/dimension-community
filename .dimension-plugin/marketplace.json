@@ -970,7 +970,7 @@
 			"title": "last30days",
 			"icon": "packs/last30days/assets/icon.svg",
 			"description": "Research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News and the web.",
-			"version": "0.2.0",
+			"version": "0.2.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1437,7 +1437,7 @@
 			"title": "Watch",
 			"icon": "packs/watch/assets/icon.svg",
 			"description": "Let your agent watch a video from a link or a file: it samples frames and reads a transcript with timestamps.",
-			"version": "0.3.3",
+			"version": "0.3.4",
 			"author": {
 				"name": "Dimension"
 			},

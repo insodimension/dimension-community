@@ -1,7 +1,7 @@
 {
 	"name": "@inso/last30days",
 	"author": "Dimension",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "last30days — research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News, and the web",
 	"type": "module",
 	"main": "index.ts",
@@ -21,8 +21,10 @@
 		"assets/",
 		"index.ts",
 		"setup.ts",
+		"run.py",
 		"plugin.json",
-		"LICENSE"
+		"LICENSE",
+		"README.md"
 	],
 	"peerDependencies": {
 		"arktype": "^2.2.0",

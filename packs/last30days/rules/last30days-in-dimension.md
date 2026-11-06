@@ -9,10 +9,14 @@ its own first-run, setup and X steps:
 - **Setup is a tool, not the wizard.** Before the first last30days run in a
   session, call `last30days_setup` instead of the skill's setup wizard or its
   `setup` command. It finds Python 3.12+, marks setup complete with browser-cookie
-  reading off, copies the keys the person connected on the last30days card, and
-  lists which sources are live. Begin every engine command with the
-  `LAST30DAYS_PYTHON=...` assignment it returns. Call it again after the person
-  connects or removes a key.
+  reading off, checks the keys the person connected on the last30days card, and
+  lists which sources are live. Call it again after the person connects or
+  removes a key.
+- **Every engine command goes through the runner.** Where the skill runs
+  `scripts/last30days.py`, run the interpreter and `run.py` exactly as
+  `last30days_setup` prints them, with the same arguments. The runner passes the
+  card's keys to that run only, forces browser cookies off and adds
+  `--no-browser-cookies`. Never call `scripts/last30days.py` directly.
 - **No browser cookies, no keys in chat.** Never run last30days `setup`, never
   pass `--allow-browser-cookies`, never set `FROM_BROWSER`, and never offer a
   browser-cookie scan or the GitHub signup flow. Optional keys (ScrapeCreators
