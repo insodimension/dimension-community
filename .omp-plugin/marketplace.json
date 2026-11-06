@@ -970,7 +970,7 @@
 			"title": "last30days",
 			"icon": "packs/last30days/assets/icon.svg",
 			"description": "Research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News and the web.",
-			"version": "0.1.2",
+			"version": "0.2.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1089,7 +1089,7 @@
 			"title": "Reddit",
 			"icon": "packs/reddit/assets/icon.svg",
 			"description": "Let your agent read Reddit feeds, posts, comments and your inbox, search, and post or vote when you ask.",
-			"version": "0.1.6",
+			"version": "0.1.7",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1201,6 +1201,33 @@
 			"requires": {
 				"dimension": ">=0.11.17"
 			}
+		},
+		{
+			"name": "social-listening",
+			"source": "./packs/social-listening",
+			"pluginId": "social-listening",
+			"title": "Social Listening",
+			"icon": "packs/social-listening/assets/icon.svg",
+			"description": "Hear what communities really say about a topic, find the conversations worth joining and the creators worth contacting, and collect your audience's own words.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "skills",
+			"tags": [
+				"social",
+				"listening",
+				"research",
+				"reddit",
+				"x",
+				"youtube",
+				"hackernews",
+				"creators",
+				"voice-of-customer",
+				"skill"
+			]
 		},
 		{
 			"name": "speech-elevenlabs",
@@ -1410,7 +1437,7 @@
 			"title": "Watch",
 			"icon": "packs/watch/assets/icon.svg",
 			"description": "Let your agent watch a video from a link or a file: it samples frames and reads a transcript with timestamps.",
-			"version": "0.3.3",
+			"version": "0.3.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1456,7 +1483,7 @@
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
 			"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
-			"version": "0.2.7",
+			"version": "0.2.8",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1479,7 +1506,7 @@
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
 			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
-			"version": "0.2.3",
+			"version": "0.2.4",
 			"author": {
 				"name": "Dimension"
 			},

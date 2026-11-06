@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "x",
-	"version": "0.2.7",
+	"version": "0.2.8",
 	"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
 	"author": {
 		"name": "Dimension"
@@ -197,6 +197,13 @@
 					"title": "Search"
 				},
 				{
+					"match": "x_posts_envelope",
+					"use": "summary",
+					"icon": "assets/tools/search.svg",
+					"iconSize": 30,
+					"title": "Posts for last30days"
+				},
+				{
 					"match": "x_get_post",
 					"use": "summary",
 					"icon": "assets/tools/posts.svg",
@@ -291,7 +298,11 @@
 				},
 				{
 					"name": "x_search",
-					"description": "Search public posts from the last 7 days with X's query syntax. The research tool — FREE when x.com cookies are available, otherwise $0.005 per post returned."
+					"description": "Search public posts from the last 7 days with X's query syntax, newest first or by X's top ranking (the popular pass), optionally narrowed to days. The research tool — FREE when x.com cookies are available, otherwise $0.005 per post returned."
+				},
+				{
+					"name": "x_posts_envelope",
+					"description": "Fetch X posts for a last30days run (newest, the week's popular pass, named and discovered accounts) and write them as the engine's X envelope file, so last30days never reads browser cookies. Free lane only unless paid reads are allowed. Covers the last 7 days."
 				},
 				{
 					"name": "x_get_post",

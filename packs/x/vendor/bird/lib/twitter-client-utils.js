@@ -391,6 +391,7 @@ export function mapTweetResult(result, quoteDepthOrOptions) {
         replyCount: result.legacy?.reply_count,
         retweetCount: result.legacy?.retweet_count,
         likeCount: result.legacy?.favorite_count,
+        quoteCount: result.legacy?.quote_count,
         conversationId: result.legacy?.conversation_id_str,
         inReplyToStatusId: result.legacy?.in_reply_to_status_id_str ?? undefined,
         author: {

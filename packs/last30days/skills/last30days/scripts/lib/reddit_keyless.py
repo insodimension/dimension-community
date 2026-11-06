@@ -1,53 +1,62 @@
-"""Keyless Reddit pipeline: tiered free search + comment enrichment.
+"""Keyless Reddit pipeline: free discovery + comment enrichment.
 
-Replaces the dead ``.json`` free path. Discovery tiers, cheapest/most-likely
-first; enrichment then runs on whatever was discovered:
+``search.json`` is permanently 403/429 keyless, so it is not used. Discovery
+runs on the surfaces that still serve data without a key, then enrichment runs
+on whatever was discovered:
 
-  Tier 0  one-shot legacy ``.json`` search — demoted. Datacenter IPs get 403,
-          but a residential machine (where the skill usually runs) may still
-          get 200, so it is worth one cheap try. Honors the "brute-force .json"
-          intent without depending on it.
-  Tier 1  RSS discovery (reddit_rss) — keyless, robust, the load-bearing path.
-  Tier 2  shreddit comment + count enrichment (reddit_shreddit) for top posts.
+  Dedicated lane  entity-home subreddits (e.g. r/Kanye) pulled in full via the
+                  shreddit listing partials (top+hot+new, real scores), kept
+                  whole (floor-exempt) because the sub IS the topic.
+  Search lane     Reddit's site search fragment (reddit_search): global keyword
+                  search plus per-sub search for targeted subreddits. Results
+                  arrive dated and scored. Targeted runs also merge the
+                  subreddits' listing partials. Relevance-floored.
+  Enrichment      shreddit comment + count enrichment (reddit_shreddit) for the
+                  top-ranked posts (author + score + text + permalink).
 
 Returns ``[]`` (never raises) so ``pipeline.py`` can fall through to the
-ScrapeCreators backup when every keyless tier comes up empty.
+ScrapeCreators backup when every keyless lane comes up empty.
 """
 
 import concurrent.futures
+import math
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-from collections import Counter
-
-from . import reddit_rss, reddit_shreddit, reddit_listing
+from . import http
+from . import reddit_search, reddit_shreddit, reddit_listing, reddit_arctic
+# High-upvote posts from targeted-sub listings can bury on-topic search hits
+# under an engagement-first final sort. A relevance floor + relevance-first
+# final ranking keeps the section on-topic. Thresholds are shared with the
+# keyed path (reddit.py) via relevance.py.
+from .relevance import RELEVANCE_FLOOR, MIN_ON_TOPIC
 
 ENRICH_LIMITS = reddit_shreddit.ENRICH_LIMITS
 ENRICH_BUDGET = 45  # seconds total across all enrichment threads
 MAX_ENRICH_WORKERS = 4
-MAX_DERIVED_SUBS = 5  # subreddits derived from RSS results for score backfill
+# Dedicated subreddits (the entity's home, e.g. r/Kanye for "Kanye West") are
+# wholly on-topic, so pull top+hot+new — the top-of-month listing alone misses
+# fresh threads — and keep every item (floor-exempt).
+DEDICATED_SORTS = ["top", "hot", "new"]
+
+
+def _relevance_rank_key(post: Dict[str, Any]) -> float:
+    """Rank by relevance first, with a bounded engagement bonus as tiebreaker.
+
+    Mirrors reddit.py: the log-scaled bonus (capped at 0.25) orders
+    similarly-relevant posts by discussion volume but is too small to lift an
+    off-topic post (relevance ~0) above an on-topic one.
+    """
+    eng = post.get("engagement", {})
+    total = (eng.get("score", 0) or 0) + (eng.get("num_comments", 0) or 0)
+    return (post.get("relevance") or 0.0) + min(0.25, math.log10(max(0, total) + 1) / 20.0)
 
 
 def _log(msg: str) -> None:
     sys.stderr.write(f"[RedditKeyless] {msg}\n")
     sys.stderr.flush()
-
-
-def _tier0_json(topic: str, depth: str) -> List[Dict[str, Any]]:
-    """One cheap global ``.json`` discovery attempt. Returns [] on the 403 wall."""
-    try:
-        from . import reddit_public
-        return reddit_public.search(topic, depth=depth) or []
-    except Exception as e:  # never let the demoted tier sink the run
-        _log(f"Tier 0 (.json) unavailable: {e}")
-        return []
-
-
-def _top_subreddits(posts: List[Dict[str, Any]], limit: int = MAX_DERIVED_SUBS) -> List[str]:
-    """Most frequent subreddits across discovered posts (for score backfill)."""
-    counts = Counter(p.get("subreddit", "") for p in posts if p.get("subreddit"))
-    return [sub for sub, _ in counts.most_common(limit)]
 
 
 def _apply_scores(post: Dict[str, Any], scored: Dict[str, int]) -> None:
@@ -57,52 +66,115 @@ def _apply_scores(post: Dict[str, Any], scored: Dict[str, int]) -> None:
     post["engagement"]["num_comments"] = scored["num_comments"]
 
 
-def _discover(topic: str, depth: str, subreddits: Optional[List[str]]) -> List[Dict[str, Any]]:
-    # Tier 0: demoted one-shot .json (dead for normal users too, but free to try).
-    posts = _tier0_json(topic, depth)
-    if posts:
-        _log(f"Tier 0 (.json) returned {len(posts)} posts")
-        return posts
+def _scored_listings(
+    subreddits: List[str],
+    depth: str = "default",
+    query: str = "",
+    sorts: Optional[List[str]] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Scored subreddit listings: shreddit partials, arctic-shift supplement.
 
-    # Tier 1: keyless discovery. RSS gives breadth (incl. global keyword search);
-    # the listing partials give real upvote scores.
-    rss_posts = reddit_rss.search_rss(topic, depth=depth, subreddits=subreddits)
+    The shreddit ``community-more-posts`` partials 403 from datacenter IPs
+    (and any host Reddit decides to block). Shreddit is tried first; arctic-
+    shift supplements with any posts shreddit missed. Individual sort lanes
+    can fail silently (shreddit's ``fetch_listings`` flattens results without
+    exposing per-sort status), so arctic is called for all requested subreddits
+    and merged via deduplication. This ensures fresh posts sought through
+    ``hot`` or ``new`` are recovered even when only ``top`` succeeded. Never
+    raises.
+    """
+    posts = reddit_listing.fetch_listings(subreddits, depth=depth, query=query, sorts=sorts)
 
+    # Supplement with arctic for all requested subreddits. Shreddit's per-sort
+    # success/failure is opaque, so arctic provides coverage for any failed
+    # sort lanes (e.g., hot/new failing while top succeeded). Deduplication
+    # ensures no redundant posts when shreddit fully succeeded.
     if subreddits:
-        # Targeted run: the caller chose these subreddits, so their listing cards
-        # are on-topic — include them as scored discovery AND as a score source.
-        listing_posts = reddit_listing.fetch_listings(subreddits, depth=depth, query=topic)
-        score_source = listing_posts
-    else:
-        # Bare global run: subreddits derived from noisy RSS results are NOT
-        # reliably on-topic, so their listings are used ONLY to backfill scores
-        # onto the keyword-matched RSS posts — never merged as discovery, which
-        # would flood results with high-upvote but irrelevant posts.
-        listing_posts = []
-        derived = _top_subreddits(rss_posts)
-        score_source = reddit_listing.fetch_listings(derived, depth=depth, query=topic)
+        try:
+            arctic_posts = reddit_arctic.fetch_listings(
+                subreddits, depth=depth, query=query, sorts=sorts,
+                from_date=from_date, to_date=to_date,
+            )
+        except Exception as exc:  # the fallback must never break the pipeline
+            _log(f"arctic-shift listing supplement failed: {exc}")
+            arctic_posts = []
+        if arctic_posts:
+            # Merge and dedupe by URL — shreddit posts take priority.
+            seen = {p["url"] for p in posts}
+            added = 0
+            for p in arctic_posts:
+                if p["url"] not in seen:
+                    seen.add(p["url"])
+                    posts.append(p)
+                    added += 1
+            if added:
+                _log(f"arctic-shift supplement: {added} new posts from {len(arctic_posts)} arctic results")
+    return posts
+
+
+def _discover(
+    topic: str,
+    depth: str,
+    subreddits: Optional[List[str]],
+    dedicated_subreddits: Optional[List[str]] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    # Dedicated lane: the entity's home subs are wholly on-topic. Pull
+    # top+hot+new (real scores from the listing) and mark them floor-exempt so
+    # an on-topic post whose title lacks the entity name is never dropped.
+    dedicated_posts: List[Dict[str, Any]] = []
+    if dedicated_subreddits:
+        dedicated_posts = _scored_listings(
+            dedicated_subreddits, depth=depth, query=topic, sorts=DEDICATED_SORTS,
+            from_date=from_date, to_date=to_date,
+        )
+        for p in dedicated_posts:
+            p["dedicated"] = True
+        _log(f"Dedicated lane: {len(dedicated_posts)} posts from {dedicated_subreddits}")
+
+    # search.json is permanently 403/429 keyless (no Tier 0). Discovery is
+    # Reddit's site search: global, plus per-sub for targeted subreddits. The
+    # dedicated subs keep their full-listing lane above and are not searched.
+    search_posts = reddit_search.search(
+        topic, depth=depth, subreddits=subreddits, from_date=from_date, to_date=to_date
+    )
+
+    # Targeted run: the caller chose these subreddits, so their listing cards
+    # are on-topic; include them as scored discovery. A bare run fetches no
+    # listings, so high-upvote off-topic posts cannot flood the results.
+    listing_posts = (
+        _scored_listings(
+            subreddits, depth=depth, query=topic, from_date=from_date, to_date=to_date
+        )
+        if subreddits
+        else []
+    )
     _log(
-        f"Tier 1 (RSS) {len(rss_posts)} posts; "
-        f"{'listing discovery ' + str(len(listing_posts)) if subreddits else 'score-only'}; "
-        f"{len(score_source)} scored cards"
+        f"Tier 1 (site search) {len(search_posts)} posts; "
+        f"{'listing discovery ' + str(len(listing_posts)) if subreddits else 'no listings'}"
     )
 
     # Score lookup by post id, from the scored listing cards.
     score_map: Dict[str, Dict[str, int]] = {}
-    for p in score_source:
+    for p in listing_posts:
         pid = p.get("metadata", {}).get("post_id", "")
         if pid:
             score_map[pid] = {"score": p["score"], "num_comments": p["num_comments"]}
 
-    # Merge: scored listing posts first (targeted only), then RSS breadth,
-    # backfilled with real scores where the post appears in a listing.
+    # Merge: dedicated-sub posts first (floor-exempt), then scored listing posts
+    # (targeted only), then search results, taking a listing's live score where
+    # the post also appears there. First writer wins the dedupe, so a thread in
+    # both the dedicated lane and a listing keeps its floor-exempt status.
     merged: List[Dict[str, Any]] = []
     seen: set = set()
-    for p in listing_posts:
+    for p in dedicated_posts + listing_posts:
         if p["url"] not in seen:
             seen.add(p["url"])
             merged.append(p)
-    for p in rss_posts:
+    for p in search_posts:
         if p["url"] in seen:
             continue
         pid = reddit_listing._post_id(p["url"])
@@ -110,13 +182,32 @@ def _discover(topic: str, depth: str, subreddits: Optional[List[str]]) -> List[D
             _apply_scores(p, score_map[pid])
         seen.add(p["url"])
         merged.append(p)
+
+    # Backfill posts still at score 0 from the free arctic-shift archive. Posts
+    # already scored by search or a listing keep that live score; arctic only
+    # fills the gap, and is best-effort (never raises).
+    need = [pid for p in merged
+            if not (p.get("engagement", {}).get("score"))
+            for pid in [reddit_listing._post_id(p["url"])] if pid]
+    if need:
+        scores = reddit_arctic.fetch_scores(need)
+        filled = 0
+        for p in merged:
+            if p.get("engagement", {}).get("score"):
+                continue
+            pid = reddit_listing._post_id(p["url"])
+            if pid in scores:
+                _apply_scores(p, scores[pid])
+                filled += 1
+        if filled:
+            _log(f"arctic-shift backfilled {filled} post scores")
     return merged
 
 
-def _enrich_one(post: Dict[str, Any]) -> Dict[str, Any]:
+def _enrich_one(post: Dict[str, Any], deadline: Optional[float] = None) -> Dict[str, Any]:
     """Attach shreddit comments + real comment count. Never raises."""
     try:
-        data = reddit_shreddit.fetch_comments(post.get("url", ""))
+        data = reddit_shreddit.fetch_comments(post.get("url", ""), deadline=deadline)
         if data.get("top_comments"):
             post["top_comments"] = data["top_comments"]
         if data.get("comment_insights"):
@@ -139,13 +230,21 @@ def _enrich(posts: List[Dict[str, Any]], depth: str) -> List[Dict[str, Any]]:
         return posts
 
     result_map: Dict[int, Dict[str, Any]] = {}
+    # Leaving the executor joins running workers, so the archive fallback
+    # must stop by the same budget the wait below enforces.
+    deadline = time.monotonic() + ENRICH_BUDGET
     try:
         with ThreadPoolExecutor(max_workers=min(limit, MAX_ENRICH_WORKERS)) as executor:
             futures = {
-                executor.submit(_enrich_one, post): i
+                http.submit_with_context(executor, _enrich_one, post, deadline): i
                 for i, post in enumerate(to_enrich)
             }
-            done, not_done = concurrent.futures.wait(futures, timeout=ENRICH_BUDGET)
+            # The budget covers the fetches; the allowance covers the shared
+            # bucket's queue (other lanes, other entities in compare mode).
+            done, not_done = concurrent.futures.wait(
+                futures,
+                timeout=ENRICH_BUDGET + http.reddit_keyless_wait_allowance(len(to_enrich)),
+            )
             for future in done:
                 idx = futures[future]
                 try:
@@ -163,6 +262,21 @@ def _enrich(posts: List[Dict[str, Any]], depth: str) -> List[Dict[str, Any]]:
     return enriched + rest
 
 
+def _by_comments(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Stable-sort posts by comment count descending for enrichment slots.
+
+    Ties (equal counts, including unknown counts treated as 0) preserve the
+    incoming order, which search_and_enrich's provisional score-first sort
+    establishes. Mirrors _relevance_rank_key's `or 0` guard so a present-but-
+    None count is treated as 0 rather than raising.
+    """
+    def _comment_count(post: Dict[str, Any]) -> int:
+        eng = post.get("engagement") or {}
+        return eng.get("num_comments") or post.get("num_comments") or 0
+
+    return sorted(posts, key=_comment_count, reverse=True)
+
+
 def _slot_priority(topic: str, posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Order posts for enrichment slots: entity-matching posts first.
 
@@ -170,12 +284,16 @@ def _slot_priority(topic: str, posts: List[Dict[str, Any]]) -> List[Dict[str, An
     posts that rerank later demotes as entity misses starves the on-topic
     posts the user actually sees (2026-06-06 "OpenClaw vs Hermes" run:
     2,000+ upvote Gemma/GPU threads took every slot, then were demoted to
-    zero). Mirror rerank's demotion signal — the topic's stripped primary
-    entity contained in the post text — so slots go to posts likely to
-    survive final ranking. Falls back to token-overlap relevance when the
-    topic yields no usable primary entity. Within each tier the incoming
-    (score-first) order is preserved. Never raises; on any failure the
-    incoming order is returned unchanged.
+    zero). Mirror rerank's demotion signal via the shared `_entity_grounded`
+    check (head token of the topic's stripped primary entity present in the
+    post text) so slots go to posts likely to survive final ranking — keying
+    on the same head token keeps the two paths from diverging. Falls back to
+    token-overlap relevance when the topic yields no usable primary entity.
+    Within each tier posts are ordered by comment count descending (stable:
+    equal or unknown counts preserve the incoming score-first order), so the
+    scarce slots go to the threads with the most discussion rather than to
+    near-empty threads that merely ranked higher by score. Never raises; on
+    any failure the incoming order is returned unchanged.
     """
     try:
         from . import relevance, rerank
@@ -186,7 +304,7 @@ def _slot_priority(topic: str, posts: List[Dict[str, Any]]) -> List[Dict[str, An
         entity = rerank._primary_entity(topic).lower()
         if entity:
             def _matches(post: Dict[str, Any]) -> bool:
-                return entity in _post_text(post).lower()
+                return rerank._entity_grounded(_post_text(post), entity)
         else:
             prepared = relevance.PreparedQuery(topic)
 
@@ -197,7 +315,7 @@ def _slot_priority(topic: str, posts: List[Dict[str, Any]]) -> List[Dict[str, An
         misses: List[Dict[str, Any]] = []
         for post in posts:
             (matches if _matches(post) else misses).append(post)
-        return matches + misses
+        return _by_comments(matches) + _by_comments(misses)
     except Exception:
         return posts
 
@@ -208,22 +326,27 @@ def search_and_enrich(
     to_date: str,
     depth: str = "default",
     subreddits: Optional[List[str]] = None,
+    dedicated_subreddits: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Full keyless Reddit pipeline: discover (Tier 0/1) then enrich (Tier 2).
+    """Full keyless Reddit pipeline: discover then enrich.
 
     Args:
         topic: Search topic
         from_date: Start date (YYYY-MM-DD)
         to_date: End date (YYYY-MM-DD)
         depth: 'quick', 'default', or 'deep'
-        subreddits: Optional pre-resolved subreddit names (without r/)
+        subreddits: Optional pre-resolved broad/category subreddit names (no r/)
+        dedicated_subreddits: Optional entity-home subreddit names (no r/) pulled
+            in full (top+hot+new) and exempt from the relevance floor.
 
     Returns:
         List of normalized item dicts matching the reddit_public output shape,
         with top_comments/comment_insights attached on enriched posts.
         Empty list when all keyless tiers fail (so SC backup can engage).
     """
-    posts = _discover(topic, depth, subreddits)
+    posts = _discover(
+        topic, depth, subreddits, dedicated_subreddits, from_date=from_date, to_date=to_date
+    )
     if not posts:
         return []
 
@@ -233,9 +356,26 @@ def search_and_enrich(
         if p.get("date") is None or (from_date <= p["date"] <= to_date)
     ]
 
-    # Rank by real upvote score (from listing cards / backfill), then query
-    # relevance, then recency. Posts without a recovered score sort by the
-    # latter two — same behavior as before scores were available.
+    # Relevance floor: strip zero-overlap posts (relevance exactly 0 = no
+    # title/body token match at all) when anything relevant remains, so
+    # high-upvote listing posts can't bury on-topic search
+    # hits. Keep all only when nothing scored above zero.
+    before = len(posts)
+    # Dedicated-sub posts are floor-exempt: their whole subreddit is the topic,
+    # so an on-topic post whose title lacks the entity name must not be dropped.
+    on_topic = [p for p in posts if p.get("dedicated") or (p.get("relevance") or 0) >= RELEVANCE_FLOOR]
+    if len(on_topic) >= MIN_ON_TOPIC:
+        posts = on_topic
+    else:
+        nonzero = [p for p in posts if p.get("dedicated") or (p.get("relevance") or 0) > 0]
+        if nonzero:
+            posts = nonzero
+    if len(posts) < before:
+        _log(f"Relevance floor dropped {before - len(posts)} off-topic posts")
+
+    # Provisional score-first order so enrichment-slot selection has a stable
+    # within-tier tiebreak order to preserve: within each entity tier, slots go
+    # to the most-commented threads first, and equal counts keep score order.
     posts.sort(
         key=lambda p: (
             p.get("engagement", {}).get("score", 0) or 0,
@@ -245,10 +385,16 @@ def search_and_enrich(
         reverse=True,
     )
 
-    # Enrichment slot selection is relevance-aware: entity-matching posts
-    # claim the scarce comment slots first (score order preserved within
-    # each tier). The score-first sort above still governs within-tier order.
+    # Enrichment slot selection is comment-aware within entity tiers:
+    # entity-matching posts claim the scarce comment slots first, and within
+    # each tier the most-commented threads get slots first (score order is the
+    # stable tiebreak for equal counts).
     posts = _enrich(_slot_priority(topic, posts), depth)
+
+    # Final display order ranks relevance-first with a bounded engagement bonus,
+    # so an off-topic high-upvote post can't outrank an on-topic one in what the
+    # user sees. Enrichment above may have backfilled real comment counts.
+    posts.sort(key=_relevance_rank_key, reverse=True)
 
     for i, post in enumerate(posts):
         post["id"] = f"R{i + 1}"

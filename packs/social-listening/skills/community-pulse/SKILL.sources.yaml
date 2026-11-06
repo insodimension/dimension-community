@@ -1,0 +1,81 @@
+# Borrow ledger for marketplace/packs/social-listening/skills/community-pulse/SKILL.md. Clones read at the pinned refs on 2026-11-06.
+#
+#   bun run docs:sources marketplace/packs/social-listening/skills/community-pulse/SKILL.md
+
+version: 1
+doc: marketplace/packs/social-listening/skills/community-pulse/SKILL.md
+updated: 2026-11-06
+
+repos:
+  scrapecreators:
+    name: ScrapeCreators social-media-research-skills (MIT)
+    url: https://github.com/ScrapeCreators/social-media-research-skills
+    ref: 64ba7b4d
+    ref_date: 2026-08-26
+    clone: research-clones/social-media-research-skills
+    tracked: true
+    role: "Research procedures written for the ScrapeCreators API, adapted to Dimension's own connectors."
+  last30days:
+    name: last30days by Matt Van Horn (MIT)
+    url: https://github.com/mvanhorn/last30days-skill
+    ref: 71dc2a15
+    ref_date: 2026-11-05
+    clone: research-clones/last30days-skill
+    tracked: true
+    role: "The broad sweep engine and its per-source outcome contract."
+  agent-reach:
+    name: Agent Reach (MIT)
+    url: https://github.com/Panniantong/Agent-Reach
+    ref: 47898829
+    ref_date: 2026-11-05
+    clone: research-clones/Agent-Reach
+    tracked: true
+    role: "One reader per platform, and telling the person which channels work now."
+
+borrowings:
+  - id: S-01
+    concept: "Social listening workflow: topic and aliases, a window, relevant sources, keep URLs, dates, engagement and quotes, cluster themes"
+    verdict: adapt
+    upstream: scrapecreators
+    paths:
+      - skills/social-listening-brief/SKILL.md
+    our_target: "The broad sweep then close read (intro, Steps 2 to 4)"
+    why: "The workflow is sound; its data layer is a paid API we only use when the person adds a key."
+    adapted: "The sweep runs on last30days and the close read on the Reddit, X, YouTube and Hacker News readers the person already has."
+
+  - id: S-02
+    concept: "Do not average sentiment across different communities; engagement is not truth; public research is not exhaustive monitoring"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/social-listening-brief/SKILL.md
+    our_target: "Step 4, themes from evidence"
+    why: "These are the honest limits of any public-data pulse."
+
+  - id: S-03
+    concept: "Partial, failed, rate-limited and unconfigured sources never establish that a source was quiet"
+    verdict: adopt
+    upstream: last30days
+    paths:
+      - skills/last30days/SKILL.md
+    our_target: "Step 1 and Step 2 coverage, output coverage table"
+    why: "The owner asked that missing coverage is always stated, never reported as quiet."
+
+  - id: S-04
+    concept: "Tell the person which channels work now and which could be added"
+    verdict: adapt
+    upstream: agent-reach
+    paths:
+      - docs/README_en.md
+    our_target: "Step 1, know your coverage"
+    why: "A pulse is only as wide as the readers that work today."
+    adapted: "Coverage comes from the last30days setup report and each connector's own answer, not from a separate health command."
+
+  - id: S-05
+    concept: "For Reddit, read both the original post and its comments"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/comment-mining/SKILL.md
+    our_target: "Step 3, read the threads that matter"
+    why: "Snippets and titles misstate what a thread concluded."

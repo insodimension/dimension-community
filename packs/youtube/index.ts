@@ -160,6 +160,7 @@ interface SearchId {
 interface SearchSnippet {
 	readonly title?: string;
 	readonly channelTitle?: string;
+	readonly channelId?: string;
 	readonly publishedAt?: string;
 	readonly description?: string;
 }
@@ -198,7 +199,11 @@ interface PlaylistItem {
 		readonly videoOwnerChannelTitle?: string;
 		readonly resourceId?: { readonly videoId?: string };
 	};
-	readonly contentDetails?: { readonly videoId?: string; readonly itemCount?: number };
+	readonly contentDetails?: {
+		readonly videoId?: string;
+		readonly itemCount?: number;
+		readonly videoPublishedAt?: string;
+	};
 	readonly status?: { readonly privacyStatus?: string };
 }
 
@@ -249,6 +254,12 @@ const searchSchema = type({
 	query: type("string").describe("Search terms."),
 	"kind?": type("'video' | 'channel' | 'playlist'").describe('Result type to search for. Defaults to "video".'),
 	"limit?": type("number").describe("Max results, default 10, capped at 50."),
+	"order?": type("'relevance' | 'date' | 'viewCount'").describe(
+		"relevance (default), date (newest first) or viewCount (most watched first).",
+	),
+	"publishedAfter?": type(/^\d{4}-\d{2}-\d{2}$/).describe(
+		"Only results published on or after this day, YYYY-MM-DD (UTC).",
+	),
 });
 
 const getVideoSchema = type({
@@ -295,7 +306,7 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 		name: "youtube_search",
 		label: "YouTube: Search",
 		description:
-			"Search YouTube for videos, channels, or playlists by keyword. Set kind to filter the result type (default video). Returns each result's id, title, kind, channel, and published date — pass a video id to youtube_get_video for full detail. Note: search is the most quota-expensive call (100 units), so keep limit tight.",
+			"Search YouTube for videos, channels, or playlists by keyword. Set kind to filter the result type (default video), order to sort by date or views, and publishedAfter to keep only recent results. Returns each result's id, title, kind, channel (with its channel id), and published date — pass a video id to youtube_get_video for full detail, a channel id to youtube_channel_stats. Note: search is the most quota-expensive call (100 units), so keep limit tight.",
 		parameters: searchSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof searchSchema.infer) {
@@ -306,7 +317,9 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 				q: params.query,
 				type: params.kind ?? "video",
 				maxResults: String(limit),
+				order: params.order ?? "relevance",
 			});
+			if (params.publishedAfter) search.set("publishedAfter", `${params.publishedAfter}T00:00:00Z`);
 			const payload = await youtubeJson<{ items?: SearchItem[] }>(
 				`/search?${search.toString()}`,
 				accessToken,
@@ -321,7 +334,9 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 								const id = it.id?.videoId ?? it.id?.channelId ?? it.id?.playlistId ?? "?";
 								const kind = (it.id?.kind ?? "").replace("youtube#", "") || "?";
 								const when = it.snippet?.publishedAt ? `  ${it.snippet.publishedAt.slice(0, 10)}` : "";
-								const channel = it.snippet?.channelTitle ? `  — ${it.snippet.channelTitle}` : "";
+								const channel = it.snippet?.channelTitle
+									? `  — ${it.snippet.channelTitle}${it.snippet.channelId ? ` [${it.snippet.channelId}]` : ""}`
+									: "";
 								return `[${kind}] ${id}  ${it.snippet?.title ?? "(untitled)"}${channel}${when}`;
 							})
 							.join("\n");
@@ -403,7 +418,7 @@ function createListPlaylistItemsTool(): ToolDefinition<typeof listPlaylistItemsS
 		name: "youtube_list_playlist_items",
 		label: "YouTube: List Playlist Items",
 		description:
-			"List the videos inside a playlist — position, video id, title, and owning channel. Pass a video id on to youtube_get_video for detail.",
+			"List the videos inside a playlist — position, video id, title, owning channel and publish date. A channel's uploads playlist is its channel id with the leading UC replaced by UU, which gives its posting cadence. Pass a video id on to youtube_get_video for detail.",
 		parameters: listPlaylistItemsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof listPlaylistItemsSchema.infer) {
@@ -423,7 +438,10 @@ function createListPlaylistItemsTool(): ToolDefinition<typeof listPlaylistItemsS
 								const pos = it.snippet?.position ?? "?";
 								const vid = it.contentDetails?.videoId ?? it.snippet?.resourceId?.videoId ?? "?";
 								const channel = it.snippet?.videoOwnerChannelTitle ?? it.snippet?.channelTitle ?? "";
-								return `${pos}. ${vid}  ${it.snippet?.title ?? "(untitled)"}${channel ? `  — ${channel}` : ""}`;
+								const published = it.contentDetails?.videoPublishedAt
+									? `  ${it.contentDetails.videoPublishedAt.slice(0, 10)}`
+									: "";
+								return `${pos}. ${vid}  ${it.snippet?.title ?? "(untitled)"}${channel ? `  — ${channel}` : ""}${published}`;
 							})
 							.join("\n");
 			return { content: [{ type: "text" as const, text }] };

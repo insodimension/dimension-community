@@ -297,13 +297,68 @@ interface RedditMe {
 	readonly is_mod?: boolean;
 }
 
+const HOUR_MS = 3_600_000;
+
+function postAge(createdUtc: number | undefined, now: number): string {
+	if (createdUtc === undefined) return "age ?";
+	const hours = Math.max(0, (now - createdUtc * 1000) / HOUR_MS);
+	return hours < 48 ? `${Math.floor(hours)}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
 function formatPostLine(p: RedditPostData): string {
 	const flags = [p.over_18 ? "NSFW" : null, p.stickied ? "pinned" : null, p.link_flair_text || null]
 		.filter(Boolean)
 		.join(",");
 	const title = oneLine(p.title);
 	const sub = p.subreddit ? `r/${p.subreddit}  ` : "";
-	return `${p.name}  ${sub}${p.score ?? 0} pts  ${p.num_comments ?? 0} cmts  u/${p.author ?? "—"}${flags ? `  [${flags}]` : ""}  ${title}`;
+	return `${p.name}  ${sub}${p.score ?? 0} pts  ${p.num_comments ?? 0} cmts  ${postAge(p.created_utc, Date.now())}  u/${p.author ?? "—"}${flags ? `  [${flags}]` : ""}  ${title}`;
+}
+
+interface SubredditRule {
+	readonly short_name?: string;
+	readonly description?: string;
+	readonly kind?: string;
+}
+
+interface SubredditAbout {
+	readonly display_name_prefixed?: string;
+	readonly subscribers?: number;
+	readonly active_user_count?: number;
+	readonly accounts_active?: number;
+	readonly public_description?: string;
+	readonly submission_type?: string;
+	readonly subreddit_type?: string;
+	readonly over18?: boolean;
+}
+
+export function renderSubredditRules(
+	subreddit: string,
+	about: SubredditAbout | undefined,
+	rules: readonly SubredditRule[],
+): string {
+	const online = about?.active_user_count ?? about?.accounts_active;
+	const header = [
+		about?.display_name_prefixed ?? `r/${subreddit}`,
+		about?.subscribers !== undefined ? `${about.subscribers.toLocaleString("en-US")} members` : null,
+		online !== undefined ? `${online.toLocaleString("en-US")} online` : null,
+		about?.subreddit_type && about.subreddit_type !== "public" ? about.subreddit_type : null,
+		about?.submission_type ? `accepts ${about.submission_type} posts` : null,
+		about?.over18 ? "NSFW" : null,
+	]
+		.filter(Boolean)
+		.join("  ");
+	const description = oneLine(about?.public_description);
+	const ruleLines = rules.map(
+		(rule, index) =>
+			`${index + 1}. ${oneLine(rule.short_name)}${rule.kind && rule.kind !== "all" ? ` (${rule.kind}s)` : ""}${rule.description ? `: ${oneLine(rule.description).slice(0, MAX_COMMENT_TEXT)}` : ""}`,
+	);
+	return [
+		header,
+		...(description ? [description] : []),
+		"",
+		"Rules:",
+		...(ruleLines.length ? ruleLines : ["(none listed; read the sidebar and pinned posts)"]),
+	].join("\n");
 }
 
 function renderPostListing(listing: Listing<RedditPostData>, emptyMsg: string): string {
@@ -380,6 +435,10 @@ const subredditPostsSchema = type({
 	"after?": type("string").describe(
 		"Pagination cursor from a previous call's 'after' line — omit for the first page.",
 	),
+});
+
+const subredditRulesSchema = type({
+	subreddit: type("string").describe("Subreddit name WITHOUT the r/ prefix, e.g. unrealengine."),
 });
 
 const readPostSchema = type({
@@ -499,6 +558,28 @@ function createSubredditPostsTool(): ToolDefinition<typeof subredditPostsSchema>
 				`No posts found in r/${params.subreddit}. Check the subreddit name (without r/) and that it isn't private/banned.`,
 			);
 			return { content: [{ type: "text" as const, text }] };
+		},
+	};
+}
+
+function createSubredditRulesTool(): ToolDefinition<typeof subredditRulesSchema> {
+	return {
+		name: "reddit_subreddit_rules",
+		label: "Reddit: Subreddit Rules",
+		description:
+			"Read a subreddit's rules and profile before posting or replying there: member and online counts, what kinds of posts it accepts, its description, and every rule with its text (self-promotion, link and flair rules live here). Read-only.",
+		parameters: subredditRulesSchema,
+		approval: "read" as const,
+		async execute(_toolCallId: string, params: typeof subredditRulesSchema.infer) {
+			const name = params.subreddit.replace(/^\/?r\//i, "");
+			const base = `/r/${encodeURIComponent(name)}`;
+			const [about, rules] = await Promise.all([
+				redditJson<RedditThing<SubredditAbout>>(`${base}/about?raw_json=1`, "subreddit_about"),
+				redditJson<{ rules?: readonly SubredditRule[] }>(`${base}/about/rules?raw_json=1`, "subreddit_rules"),
+			]);
+			return {
+				content: [{ type: "text" as const, text: renderSubredditRules(name, about.data, rules.rules ?? []) }],
+			};
 		},
 	};
 }
@@ -740,6 +821,7 @@ function createMyProfileTool(): ToolDefinition<typeof myProfileSchema> {
 export default function redditExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createMyFeedTool());
 	pi.registerTool(createSubredditPostsTool());
+	pi.registerTool(createSubredditRulesTool());
 	pi.registerTool(createReadPostTool());
 	pi.registerTool(createSearchTool());
 	pi.registerTool(createSubmitPostTool());

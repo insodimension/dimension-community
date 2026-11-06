@@ -10,6 +10,7 @@ import math
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from http.client import HTTPException
 from typing import Any, Dict, List, Optional
 
 import re
@@ -24,6 +25,9 @@ _HN_PREFIXES = re.compile(r"^(Tell HN|Show HN|Ask HN|Launch HN)\s*:\s*", re.IGNO
 ALGOLIA_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 ALGOLIA_SEARCH_BY_DATE_URL = "https://hn.algolia.com/api/v1/search_by_date"
 ALGOLIA_ITEM_URL = "https://hn.algolia.com/api/v1/items"
+# Official HN Firebase item API — `kids` is in the order the thread displays
+# top-level comments (Algolia's /items children do not carry useful points).
+FIREBASE_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item"
 
 DEPTH_CONFIG = {
     "quick": 15,
@@ -31,15 +35,20 @@ DEPTH_CONFIG = {
     "deep": 60,
 }
 
+MIN_STORY_POINTS = 2
+HN_OVERFETCH_MULTIPLIER = 2
+
 ENRICH_LIMITS = {
     "quick": 3,
     "default": 5,
     "deep": 10,
 }
 
+DISCOVERY_LIMITS = {"quick": 20, "default": 40, "deep": 60}
+
 
 def _log(msg: str):
-    log.source_log("HN", msg)
+    log.source_log("HN", msg, tty_only=False)
 
 
 def _date_to_unix(date_str: str) -> int:
@@ -83,6 +92,7 @@ def search_hackernews(
         Dict with Algolia response (contains 'hits' list).
     """
     count = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
+    fetch_count = count * HN_OVERFETCH_MULTIPLIER
     from_ts = _date_to_unix(from_date)
     to_ts = _date_to_unix(to_date) + 86400  # Include the end date
 
@@ -93,14 +103,19 @@ def search_hackernews(
     core_flat = _flatten_query_for_algolia(core)
     _log(f"Searching for '{core_flat}' (raw: '{topic}', since {from_date}, count={count})")
 
-    # Use relevance-sorted search with minimum engagement filter.
+    # Use relevance-sorted search. The HN Algolia index only allows
+    # `created_at_i` in numericFilters; `points` is NOT in its
+    # `numericAttributesForFiltering`, so a `points>N` clause makes the API
+    # return HTTP 400 ("invalid numeric attribute(points)") and zero stories.
+    # Low-engagement stories are filtered client-side after overfetching so the
+    # invalid numeric filter is not reintroduced.
     # NOTE: restrictSearchableAttributes=title omitted intentionally — it would
     # miss Ask HN/Show HN threads where the topic appears in the body.
     params = {
         "query": core_flat,
         "tags": "story",
-        "numericFilters": f"created_at_i>{from_ts},created_at_i<{to_ts},points>2",
-        "hitsPerPage": str(count),
+        "numericFilters": f"created_at_i>{from_ts},created_at_i<{to_ts}",
+        "hitsPerPage": str(fetch_count),
     }
     # Algolia defaults to AND across query tokens, so a 4-5 word theme query
     # matches no stories. Mark all-but-the-first token as optional so Algolia
@@ -121,9 +136,60 @@ def search_hackernews(
         _log(f"Search failed: {e}")
         return {"hits": [], "error": str(e)}
 
-    hits = response.get("hits", [])
+    raw_hits = response.get("hits", [])
+    qualifying_hits = [
+        hit for hit in raw_hits
+        if (hit.get("points") or 0) > MIN_STORY_POINTS
+    ]
+    hits = qualifying_hits[:count]
+    dropped_low_engagement = len(raw_hits) - len(qualifying_hits)
+    if dropped_low_engagement:
+        _log(f"Filtered {dropped_low_engagement}/{len(raw_hits)} low-engagement stories")
+    if len(hits) != len(raw_hits):
+        response = {**response, "hits": hits}
     _log(f"Found {len(hits)} stories")
     return response
+
+
+def fetch_discovery_listings(
+    from_date: str,
+    to_date: str,
+    depth: str = "default",
+) -> Dict[str, Any]:
+    """Fetch topic-less HN front-page and best-in-window story listings."""
+    limit = DISCOVERY_LIMITS.get(depth, DISCOVERY_LIMITS["default"])
+    from_ts = _date_to_unix(from_date)
+    to_ts = _date_to_unix(to_date) + 86400
+    from urllib.parse import urlencode
+
+    urls = [
+        f"{ALGOLIA_SEARCH_URL}?{urlencode({'tags': 'front_page', 'hitsPerPage': str(limit)})}",
+        f"{ALGOLIA_SEARCH_URL}?{urlencode({
+            'tags': 'story',
+            'numericFilters': f'created_at_i>{from_ts},created_at_i<{to_ts}',
+            'hitsPerPage': str(limit),
+        })}",
+    ]
+    hits: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for url in urls:
+        try:
+            response = http.request("GET", url, timeout=30)
+            hits.extend(response.get("hits") or [])
+        except Exception as exc:
+            errors.append(str(exc))
+
+    seen: set[str] = set()
+    unique_hits: list[dict[str, Any]] = []
+    for hit in hits:
+        object_id = str(hit.get("objectID") or "")
+        if not object_id or object_id in seen:
+            continue
+        seen.add(object_id)
+        unique_hits.append(hit)
+
+    items = parse_hackernews_response({"hits": unique_hits}, query="")
+    return {"items": items, "errors": errors}
 
 
 _WORD_BOUNDARY_RE_CACHE: Dict[str, "re.Pattern[str]"] = {}
@@ -213,7 +279,7 @@ def parse_hackernews_response(response: Dict[str, Any], query: str = "") -> List
 
         # Article URL vs HN discussion URL
         article_url = hit.get("url") or ""
-        hn_url = f"https://news.ycombinator.com/item?id={object_id}"
+        hn_url = _hn_item_url(object_id)
 
         # Relevance: blend Algolia rank with token-overlap content matching
         rank_score = max(0.3, 1.0 - (i * 0.02))  # 1.0 -> 0.3 over 35 items
@@ -242,6 +308,73 @@ def parse_hackernews_response(response: Dict[str, Any], query: str = "") -> List
     return items
 
 
+def _hn_item_url(item_id: Any) -> str:
+    """HN discussion/comment permalink for an item id."""
+    return f"https://news.ycombinator.com/item?id={item_id}"
+
+
+# Ordering is optional, so a slow Firebase must not hold up the report.
+FIREBASE_KIDS_TIMEOUT = 5
+FIREBASE_KIDS_RETRIES = 2
+FIREBASE_KIDS_BUDGET = 8.0
+
+
+def _fetch_hn_kids(object_id: str) -> Optional[List[Any]]:
+    """Return HN's display order for a story's top-level comments, or None on failure.
+
+    Algolia's `/items/<id>` children list is effectively id-order with `points`
+    always null, so sorting by points is a no-op (#1285). The Firebase item
+    endpoint returns `kids` in the same order the HN thread UI shows.
+    """
+    url = f"{FIREBASE_ITEM_URL}/{object_id}.json"
+    # Comment order is a refinement over comments Algolia already returned, so a
+    # Firebase failure must not reach the pipeline's sink and mark HN degraded.
+    try:
+        with http.capture_failures():
+            data = http.request(
+                "GET",
+                url,
+                timeout=FIREBASE_KIDS_TIMEOUT,
+                retries=FIREBASE_KIDS_RETRIES,
+                deadline_monotonic=time.monotonic() + FIREBASE_KIDS_BUDGET,
+            )
+    # http.request wraps HTTP and socket errors, but a truncated or non-UTF-8
+    # body escapes as IncompleteRead or UnicodeDecodeError.
+    except (http.HTTPError, HTTPException, UnicodeDecodeError) as e:
+        _log(f"Failed to fetch HN kids for {object_id}: {e}")
+        return None
+    if not isinstance(data, dict):
+        return None
+    kids = data.get("kids")
+    if not isinstance(kids, list):
+        return None
+    return kids
+
+
+def _order_comments_by_kids(
+    comments: List[Dict[str, Any]],
+    kids: List[Any],
+) -> List[Dict[str, Any]]:
+    """Reorder Algolia children to match HN `kids` order; unknowns keep relative order."""
+    by_id: Dict[Any, Dict[str, Any]] = {}
+    for comment in comments:
+        cid = comment.get("id")
+        if cid is not None and cid not in by_id:
+            by_id[cid] = comment
+    ordered: List[Dict[str, Any]] = []
+    seen = set()
+    for kid in kids:
+        comment = by_id.get(kid)
+        if comment is not None:
+            ordered.append(comment)
+            seen.add(kid)
+    for comment in comments:
+        cid = comment.get("id")
+        if cid not in seen:
+            ordered.append(comment)
+    return ordered
+
+
 def _fetch_item_comments(object_id: str, max_comments: int = 5) -> Dict[str, Any]:
     """Fetch top-level comments for a story from Algolia items endpoint.
 
@@ -262,22 +395,33 @@ def _fetch_item_comments(object_id: str, max_comments: int = 5) -> Dict[str, Any
 
     children = data.get("children", [])
 
-    # Sort by points (highest first), filter to actual comments
+    # Filter to actual comments. Prefer HN's Firebase `kids` order (#1285);
+    # Algolia children have null points, so a points sort is a no-op and leaves
+    # earliest-posted replies first. Fall back to points only when kids is unavailable.
     real_comments = [
         c for c in children
         if c.get("text") and c.get("author")
     ]
-    real_comments.sort(key=lambda c: c.get("points") or 0, reverse=True)
+    kids = _fetch_hn_kids(object_id)
+    if kids is not None:
+        real_comments = _order_comments_by_kids(real_comments, kids)
+    else:
+        real_comments.sort(key=lambda c: c.get("points") or 0, reverse=True)
 
     comments = []
     insights = []
+    # A quote links to where it was said: the comment's own permalink, else the
+    # story's discussion page -- never the article URL.
+    discussion_url = _hn_item_url(object_id)
     for c in real_comments[:max_comments]:
         text = _strip_html(c.get("text", ""))
         excerpt = text[:300] + "..." if len(text) > 300 else text
+        comment_id = c.get("id")
         comments.append({
             "author": c.get("author", ""),
             "text": excerpt,
-            "points": c.get("points") or 0,
+            "points": c.get("points"),
+            "url": _hn_item_url(comment_id) if comment_id else discussion_url,
         })
         # First sentence as insight
         first_sentence = text.split(". ")[0].split("\n")[0][:200]
@@ -308,7 +452,7 @@ def enrich_top_stories(
     # Sort by points to enrich the most popular stories
     by_points = sorted(
         range(len(items)),
-        key=lambda i: items[i].get("engagement", {}).get("points", 0),
+        key=lambda i: items[i].get("engagement", {}).get("points") or 0,
         reverse=True,
     )
     to_enrich = by_points[:limit]
@@ -316,8 +460,12 @@ def enrich_top_stories(
     _log(f"Enriching top {len(to_enrich)} stories with comments")
 
     with ThreadPoolExecutor(max_workers=5) as executor:
+        # submit_with_context, not executor.submit: a plain submit drops the
+        # pipeline's capture_failures() sink, so failed or rate-limited item
+        # fetches would vanish and the HN source would look fully enriched.
         futures = {
-            executor.submit(
+            http.submit_with_context(
+                executor,
                 _fetch_item_comments,
                 items[idx]["id"],
             ): idx

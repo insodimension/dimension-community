@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import os
 import re
 import sys
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from . import env, http, schema
 
 GEMINI_FLASH_LITE = "gemini-3.1-flash-lite"
 GEMINI_PRO = "gemini-3.1-pro-preview"
 OPENAI_DEFAULT = "gpt-5.4-nano"
-XAI_DEFAULT = "grok-4-1-fast"
+XAI_DEFAULT = "grok-4.20-0309-non-reasoning"
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # OpenRouter routes the Gemini Flash Lite tier as the -preview slug; that is the
@@ -24,12 +26,188 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # constant is suffix-free. If GEMINI_FLASH_LITE moves to a non-preview stable ID,
 # double-check that OpenRouter's slug still maps to the same upstream model.
 OPENROUTER_DEFAULT = "google/gemini-3.1-flash-lite-preview"
+PROVIDER_BASE_URL_KEYS = frozenset({"OPENAI_BASE_URL", "XAI_BASE_URL", "OPENROUTER_BASE_URL"})
+
+
+def _is_loopback(host: str) -> bool:
+    """True for hosts that never leave the machine."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def allowed_base_url_override(value: str) -> bool:
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return False
+    return bool(host) and (
+        parts.scheme == "https" or (parts.scheme == "http" and _is_loopback(host))
+    )
+
+
+def is_loopback_http_endpoint(url: str) -> bool:
+    parts = urlsplit(url)
+    return parts.scheme == "http" and _is_loopback(parts.hostname or "")
+
+
+def base_url_override(key: str, default: str) -> str:
+    """Resolve a provider base-URL override, refusing cleartext remote hosts.
+
+    Every provider resolves its endpoint through here so one guard covers both
+    ways a value arrives: the process environment, and
+    ``_propagate_config_to_environ`` pushing a `.env` value into os.environ.
+
+    A base-URL override redirects the request that carries the provider's bearer
+    token, so an `http://` override to a remote host would put the API key on
+    the wire in cleartext. That is refused and the built-in vendor endpoint is
+    used instead - failing closed protects the credential, and the warning makes
+    the drop visible instead of leaving the user to wonder why their gateway is
+    being bypassed. Loopback is the one legitimate `http://` case (a local
+    LiteLLM/Ollama gateway or an SSH tunnel never leaves the machine), so it is
+    allowed.
+    """
+    raw = (os.environ.get(key) or "").strip()
+    if not raw:
+        return default
+    if allowed_base_url_override(raw):
+        return raw
+    sys.stderr.write(
+        f"[last30days] WARNING: ignoring {key} - a provider endpoint override "
+        "must be https:// (http:// is allowed only on localhost), otherwise the API "
+        f"key would be sent in cleartext. Using {default} instead.\n"
+    )
+    sys.stderr.flush()
+    return default
+
+
+_ENDPOINT_PATHS = {
+    OPENAI_RESPONSES_URL: "/responses",
+    XAI_RESPONSES_URL: "/responses",
+    OPENROUTER_URL: "/chat/completions",
+}
+
+
+def resolve_endpoint(env_var: str, default_url: str) -> str:
+    """Resolve a ``*_BASE_URL`` override into a full endpoint URL.
+
+    By the convention every OpenAI-compatible provider documents, ``*_BASE_URL``
+    names the API root (``https://host/v1``) and the client appends the endpoint
+    path. This module historically required the full endpoint URL instead, so a
+    value copied from a provider's setup guide POSTed to the API root and failed.
+
+    Accept both forms: a host or versioned API root gets the endpoint path
+    appended, and a complete gateway route is used unchanged. Query strings
+    stay after the path in either form.
+    """
+    override = base_url_override(env_var, default_url)
+    if override == default_url:
+        return default_url
+    parts = urlsplit(override)
+    root_path = parts.path.rstrip("/")
+    last_segment = root_path.rsplit("/", 1)[-1]
+    if not root_path or re.fullmatch(r"v\d+(?:beta\d*)?", last_segment):
+        return urlunsplit(parts._replace(path=root_path + _ENDPOINT_PATHS[default_url]))
+    return override
 
 
 class ReasoningClient:
     """Shared interface for planner and rerank providers."""
 
     name: str
+
+    def __init__(self) -> None:
+        self._usage_calls = 0
+        self._usage_prompt_tokens = 0
+        self._usage_completion_tokens = 0
+        self._usage_complete = True
+
+    @staticmethod
+    def _valid_token_count(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+    def record_usage(
+        self,
+        prompt_tokens: Any,
+        completion_tokens: Any,
+        total_tokens: Any = None,
+    ) -> None:
+        self._usage_calls += 1
+        if not self._valid_token_count(prompt_tokens):
+            self._usage_complete = False
+            return
+        if total_tokens is not None:
+            if (
+                not self._valid_token_count(total_tokens)
+                or total_tokens < prompt_tokens
+                or (
+                    completion_tokens is not None
+                    and (
+                        not self._valid_token_count(completion_tokens)
+                        or total_tokens < prompt_tokens + completion_tokens
+                    )
+                )
+            ):
+                self._usage_complete = False
+                return
+            # Reported totals can include reasoning tokens absent from completion counts.
+            completion_tokens = total_tokens - prompt_tokens
+        elif not self._valid_token_count(completion_tokens):
+            self._usage_complete = False
+            return
+        self._usage_prompt_tokens += prompt_tokens
+        self._usage_completion_tokens += completion_tokens
+
+    @property
+    def total_usage(self) -> dict[str, int] | None:
+        if not self._usage_calls or not self._usage_complete:
+            return None
+        return {
+            "calls": self._usage_calls,
+            "promptTokens": self._usage_prompt_tokens,
+            "completionTokens": self._usage_completion_tokens,
+            "totalTokens": self._usage_prompt_tokens + self._usage_completion_tokens,
+        }
+
+    def _mark_usage_incomplete(self) -> None:
+        self._usage_complete = False
+
+    def _post(self, url: str, payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        try:
+            return http.post(url, payload, on_retry=self._mark_usage_incomplete, **kwargs)
+        except Exception:
+            self._mark_usage_incomplete()
+            raise
+
+    def _record_response_usage(
+        self,
+        response: dict[str, Any],
+        *,
+        metadata_key: str,
+        prompt_key: str,
+        completion_key: str,
+        total_key: str,
+        prompt_fallback_key: str | None = None,
+        completion_fallback_key: str | None = None,
+    ) -> None:
+        usage = response.get(metadata_key)
+        if not isinstance(usage, dict):
+            usage = {}
+        prompt_tokens = usage.get(prompt_key)
+        completion_tokens = usage.get(completion_key)
+        if prompt_tokens is None and prompt_fallback_key:
+            prompt_tokens = usage.get(prompt_fallback_key)
+        if completion_tokens is None and completion_fallback_key:
+            completion_tokens = usage.get(completion_fallback_key)
+        self.record_usage(
+            prompt_tokens,
+            completion_tokens,
+            usage.get(total_key),
+        )
 
     def generate_text(
         self,
@@ -56,6 +234,7 @@ class GeminiClient(ReasoningClient):
     name = "gemini"
 
     def __init__(self, api_key: str):
+        super().__init__()
         self.api_key = api_key
 
     def _generate_content(
@@ -74,7 +253,7 @@ class GeminiClient(ReasoningClient):
             body["generationConfig"]["responseMimeType"] = response_mime_type
         if tools:
             body["tools"] = tools
-        return http.post(
+        return self._post(
             GEMINI_URL.format(model=model, api_key=self.api_key),
             body,
             headers={"Content-Type": "application/json"},
@@ -95,15 +274,21 @@ class GeminiClient(ReasoningClient):
             tools=tools,
             response_mime_type=response_mime_type,
         )
+        self._record_response_usage(
+            payload,
+            metadata_key="usageMetadata",
+            prompt_key="promptTokenCount",
+            completion_key="candidatesTokenCount",
+            total_key="totalTokenCount",
+        )
         return extract_gemini_text(payload)
 
 class OpenAIClient(ReasoningClient):
     name = "openai"
 
-    def __init__(self, token: str, auth_source: str, account_id: str | None):
+    def __init__(self, token: str):
+        super().__init__()
         self.token = token
-        self.auth_source = auth_source
-        self.account_id = account_id
 
     def generate_text(
         self,
@@ -114,43 +299,29 @@ class OpenAIClient(ReasoningClient):
         response_mime_type: str | None = None,
     ) -> str:
         del tools, response_mime_type
-        if self.auth_source == env.AUTH_SOURCE_CODEX:
-            payload = {
-                "model": model,
-                "stream": True,
-                "store": False,
-                "input": [
-                    {
-                        "type": "message",
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": prompt}],
-                    }
-                ],
-            }
-            headers = {
-                "Authorization": f"Bearer {self.token}",
-                "chatgpt-account-id": self.account_id or "",
-                "OpenAI-Beta": "responses=experimental",
-                "originator": "pi",
-                "Content-Type": "application/json",
-            }
-            raw = http.post_raw(CODEX_RESPONSES_URL, payload, headers=headers, timeout=90)
-            return extract_openai_text(_parse_codex_stream(raw))
-
         payload = {
             "model": model,
             "store": False,
             "input": prompt,
             "temperature": 0,
         }
-        response = http.post(
-            OPENAI_RESPONSES_URL,
+        endpoint = resolve_endpoint("OPENAI_BASE_URL", OPENAI_RESPONSES_URL)
+        response = self._post(
+            endpoint,
             payload,
             headers={
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/json",
             },
             timeout=90,
+            bypass_proxy=is_loopback_http_endpoint(endpoint),
+        )
+        self._record_response_usage(
+            response,
+            metadata_key="usage",
+            prompt_key="input_tokens",
+            completion_key="output_tokens",
+            total_key="total_tokens",
         )
         return extract_openai_text(response)
 
@@ -159,6 +330,7 @@ class XAIClient(ReasoningClient):
     name = "xai"
 
     def __init__(self, api_key: str):
+        super().__init__()
         self.api_key = api_key
 
     def generate_text(
@@ -174,14 +346,25 @@ class XAIClient(ReasoningClient):
             "model": model,
             "input": [{"role": "user", "content": prompt}],
         }
-        response = http.post(
-            XAI_RESPONSES_URL,
+        endpoint = resolve_endpoint("XAI_BASE_URL", XAI_RESPONSES_URL)
+        response = self._post(
+            endpoint,
             payload,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
             timeout=90,
+            bypass_proxy=is_loopback_http_endpoint(endpoint),
+        )
+        self._record_response_usage(
+            response,
+            metadata_key="usage",
+            prompt_key="input_tokens",
+            completion_key="output_tokens",
+            total_key="total_tokens",
+            prompt_fallback_key="prompt_tokens",
+            completion_fallback_key="completion_tokens",
         )
         return extract_openai_text(response)
 
@@ -190,6 +373,7 @@ class OpenRouterClient(ReasoningClient):
     name = "openrouter"
 
     def __init__(self, api_key: str):
+        super().__init__()
         self.api_key = api_key
 
     def generate_text(
@@ -206,14 +390,23 @@ class OpenRouterClient(ReasoningClient):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
         }
-        response = http.post(
-            OPENROUTER_URL,
+        endpoint = resolve_endpoint("OPENROUTER_BASE_URL", OPENROUTER_URL)
+        response = self._post(
+            endpoint,
             payload,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
             timeout=90,
+            bypass_proxy=is_loopback_http_endpoint(endpoint),
+        )
+        self._record_response_usage(
+            response,
+            metadata_key="usage",
+            prompt_key="prompt_tokens",
+            completion_key="completion_tokens",
+            total_key="total_tokens",
         )
         return extract_openai_text(response)
 
@@ -309,9 +502,7 @@ def resolve_runtime(config: dict[str, Any], depth: str) -> tuple[schema.Provider
             x_search_backend=_resolve_x_backend(config),
         )
         return runtime, OpenAIClient(
-            openai_token,
-            config.get("OPENAI_AUTH_SOURCE") or env.AUTH_SOURCE_API_KEY,
-            config.get("OPENAI_CHATGPT_ACCOUNT_ID"),
+            openai_token
         )
 
     if provider_name == "xai":
@@ -342,9 +533,12 @@ def resolve_runtime(config: dict[str, Any], depth: str) -> tuple[schema.Provider
 
 
 def _resolve_x_backend(config: dict[str, Any]) -> str | None:
-    preferred = (config.get("LAST30DAYS_X_BACKEND") or "").lower()
-    if preferred in {"xai", "bird"}:
-        return preferred
+    """Resolve the X backend for runtime fetch.
+
+    Delegates to env.get_x_source which handles:
+    - Any known pin (X_BACKEND_KNOWN) exclusively: returns pin if available, None otherwise
+    - Unpinned: walks auto-chain (X_BACKEND_ORDER) only, never auto-selects opt-in backends
+    """
     return env.get_x_source(config)
 
 
@@ -405,64 +599,3 @@ def extract_openai_text(payload: dict[str, Any]) -> str:
     if payload:
         print(f"[Providers] extract_openai_text: no text in payload keys: {list(payload.keys())}", file=sys.stderr)
     return ""
-
-
-def _parse_sse_chunk(chunk: str) -> dict[str, Any] | None:
-    data_lines = [
-        line[5:].strip()
-        for line in chunk.split("\n")
-        if line.startswith("data:")
-    ]
-    if not data_lines:
-        return None
-    data = "\n".join(data_lines).strip()
-    if not data or data == "[DONE]":
-        return None
-    try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        print(f"[Providers] _parse_sse_chunk: invalid JSON: {data[:100]}", file=sys.stderr)
-        return None
-
-
-def _parse_codex_stream(raw: str) -> dict[str, Any]:
-    events: list[dict[str, Any]] = []
-    buffer = ""
-    for chunk in raw.splitlines(keepends=True):
-        buffer += chunk
-        while "\n\n" in buffer:
-            event_chunk, buffer = buffer.split("\n\n", 1)
-            event = _parse_sse_chunk(event_chunk)
-            if event is not None:
-                events.append(event)
-    if buffer.strip():
-        event = _parse_sse_chunk(buffer)
-        if event is not None:
-            events.append(event)
-
-    for event in reversed(events):
-        if event.get("type") == "response.completed" and isinstance(event.get("response"), dict):
-            return event["response"]
-        if isinstance(event.get("response"), dict):
-            return event["response"]
-
-    output_text = ""
-    for event in events:
-        delta = event.get("delta")
-        if isinstance(delta, str):
-            output_text += delta
-        text = event.get("text")
-        if isinstance(text, str):
-            output_text += text
-    if output_text:
-        return {
-            "output": [
-                {
-                    "type": "message",
-                    "content": [{"type": "output_text", "text": output_text}],
-                }
-            ]
-        }
-    if raw.strip():
-        print(f"[Providers] _parse_codex_stream: received {len(raw)} bytes but could not extract text", file=sys.stderr)
-    return {}

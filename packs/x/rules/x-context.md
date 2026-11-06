@@ -3,11 +3,13 @@ alwaysApply: true
 description: X (Twitter) connector context
 ---
 
-You have access to the **x** skill — an X (Twitter) connector with ten read
+You have access to the **x** skill — an X (Twitter) connector with eleven read
 tools (`x_me`, `x_mentions`, `x_my_posts`, `x_home_timeline`, `x_search`,
-`x_get_post`, `x_read_thread`, `x_user_lookup`, `x_bookmarks`, `x_usage`) and
-five write tools (`x_post`, `x_thread`, `x_delete`, `x_bookmark`, `x_dm`). It
-acts as the connected X account.
+`x_posts_envelope`, `x_get_post`, `x_read_thread`, `x_user_lookup`,
+`x_bookmarks`, `x_usage`) and five write tools (`x_post`, `x_thread`,
+`x_delete`, `x_bookmark`, `x_dm`). It acts as the connected X account.
+`x_posts_envelope` is X's share of a last30days run: call it before the engine
+and pass the flags it returns.
 
 - **Two lanes: reads are usually FREE, writes always cost.** `x_search`,
   `x_read_thread`, and `x_my_posts` run on x.com's own web endpoint using the

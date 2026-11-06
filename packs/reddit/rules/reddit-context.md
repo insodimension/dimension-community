@@ -3,11 +3,13 @@ alwaysApply: true
 description: Reddit connector context
 ---
 
-You have access to the **reddit** skill — a Reddit OAuth API connector with ten
-tools: `reddit_my_feed`, `reddit_subreddit_posts`, `reddit_read_post`,
-`reddit_search`, `reddit_submit_post`, `reddit_comment`, `reddit_vote`,
-`reddit_inbox`, `reddit_reply_message`, and `reddit_my_profile`. It acts as the
-connected Reddit account (a "script" app + that account's login).
+You have access to the **reddit** skill — a Reddit OAuth API connector with
+eleven tools: `reddit_my_feed`, `reddit_subreddit_posts`,
+`reddit_subreddit_rules`, `reddit_read_post`, `reddit_search`,
+`reddit_submit_post`, `reddit_comment`, `reddit_vote`, `reddit_inbox`,
+`reddit_reply_message`, and `reddit_my_profile`. It acts as the connected
+Reddit account (a "script" app + that account's login). Read a subreddit's
+rules with `reddit_subreddit_rules` before drafting anything for it.
 
 - **Always confirm the target AND the full text with the user before any
   publishing call** (`reddit_submit_post`, `reddit_comment`,

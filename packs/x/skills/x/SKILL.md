@@ -85,6 +85,7 @@ identical to the official lane plus a `[free lane — this read cost $0]` footer
 |---|---|---|
 |`x_search`|✅ yes|$0.005/post|
 |`x_read_thread`|✅ yes|$0.005/post|
+|`x_posts_envelope`|✅ yes|refuses unless `allowPaid`|
 |`x_my_posts`|✅ yes (`from:` search)|$0.001/post|
 |`x_mentions`|fallback only|official first, $0.001/post|
 |`x_home_timeline`, `x_get_post`, `x_bookmarks`, `x_user_lookup`, `x_me`|❌|official|
@@ -136,7 +137,21 @@ Consequences that should change your behavior:
   Expensive tier.
 - `x_search` — public posts from the **last 7 days**. Full operator syntax:
   `from:user`, `to:user`, `#tag`, `url:domain.com`, `-is:retweet`, `lang:en`,
-  `min_faves:10`, `"quoted phrase"`. Expensive tier — set `limit` deliberately.
+  `min_faves:10`, `"quoted phrase"`. `sort: "top"` is the popular pass (X's
+  most-engaged ranking instead of newest first); `since`/`until` (YYYY-MM-DD,
+  UTC, `until` exclusive) narrow it to days. Expensive tier — set `limit`
+  deliberately.
+- `x_posts_envelope` — X's share of a last30days run. Give it the engine's exact
+  topic, the plan's X queries, the depth, the run's `--x-handle` account
+  (`handle`) and any `--x-related` accounts; it runs the newest-posts search, the
+  popular pass (one top-ranked page per day of the week), the account calls and
+  up to three discovered authors, writes a `last30days-x-posts/1` file, and
+  returns the path plus the flags to add (`LAST30DAYS_X_HOST_LANE=1`,
+  `--x-posts`, `--x-handle`, `--x-related`). It only covers the last 7 days of
+  last30days' 30-day window, and stops at the first failed read, keeping what it
+  has as partial. Without the free lane it answers "X not covered" with a cost
+  estimate; ask the person, and only on their yes call it with `allowPaid`, which
+  shows them the estimate again before anything is billed.
 - `x_get_post` — one post by id **or URL**: text, author, metrics.
 - `x_read_thread` — a whole conversation from any post in it, oldest-first.
   Built on recent search, so it only reaches the last 7 days.
@@ -174,6 +189,9 @@ URL**, and every read prints the id first. Quote ids exactly; never invent one.
   yes, then `x_thread`.
 - *"Track what @someone is saying"* → `x_search { query: "from:someone" }`
   (cheaper and more precise than the home timeline).
+- *"What's the community saying this month?"* with last30days → call
+  `x_posts_envelope` first, then run the engine with the flags it returns, so
+  last30days never reads browser cookies itself.
 
 ## Safety
 

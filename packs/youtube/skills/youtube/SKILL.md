@@ -1,7 +1,6 @@
 ---
 name: youtube
 description: Search YouTube; inspect videos and channels; browse and add to your playlists; read comment threads and post public comments/replies via the YouTube Data API v3. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, or act on YouTube videos, channels, playlists, or comments.
-prerequisites: none
 ---
 
 # YouTube
@@ -42,9 +41,11 @@ channel/video data) + `https://www.googleapis.com/auth/youtube.force-ssl`
 
 All native, always-on — no bash, no CLI, no MCP server:
 
-- `youtube_search({ query, kind?, limit? })` — search **videos** (default),
-  **channels**, or **playlists**. Returns `[kind] id  title  — channel  date`
-  per line. **Search costs 100 quota units** — the most expensive call; keep
+- `youtube_search({ query, kind?, limit?, order?, publishedAfter? })` — search
+  **videos** (default), **channels**, or **playlists**. `order` is `relevance`
+  (default), `date` or `viewCount`; `publishedAfter` (YYYY-MM-DD) keeps only
+  recent results. Returns `[kind] id  title  — channel [channelId]  date` per
+  line. **Search costs 100 quota units** — the most expensive call; keep
   `limit` tight. (read)
 - `youtube_get_video({ videoId })` — one video's full detail: title, channel,
   duration, statistics (views/likes/comments), tags, and description. Use this
@@ -53,7 +54,9 @@ All native, always-on — no bash, no CLI, no MCP server:
 - `youtube_list_playlists({ limit? })` — the connected account's own playlists:
   id, title, item count, privacy status. Grab a playlist id here. (read)
 - `youtube_list_playlist_items({ playlistId, limit? })` — the videos in a
-  playlist: position, video id, title, channel. (read)
+  playlist: position, video id, title, channel, publish date. A channel's
+  uploads playlist is its channel id with `UC` replaced by `UU`, which shows how
+  often it posts. (read)
 - `youtube_playlist_add({ playlistId, videoId })` — add a video to one of your
   playlists (**mutating, confirm first**). (write)
 - `youtube_list_comments({ videoId, limit? })` — top-level comment threads,

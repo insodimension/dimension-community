@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "last30days",
-	"version": "0.1.2",
+	"version": "0.2.1",
 	"description": "Research what people actually said about any topic in the last 30 days across Reddit, X, YouTube, TikTok, Hacker News and the web.",
 	"author": {
 		"name": "Dimension"
@@ -31,12 +31,193 @@
 				"What are people saying about AI video tools in the last 30 days?",
 				"last30days what users want in react"
 			],
+			"connect": {
+				"methods": [
+					{
+						"id": "free",
+						"label": "Free sources",
+						"detail": "Reddit, Hacker News, YouTube, GitHub, Polymarket and the web, with no account and no key. X comes from the X plugin.",
+						"kind": [
+							"cli"
+						],
+						"requires": {
+							"commands": [
+								"yt-dlp"
+							],
+							"install": {
+								"yt-dlp": {
+									"win32": [
+										"winget install -e --id yt-dlp.yt-dlp --accept-source-agreements --accept-package-agreements"
+									],
+									"darwin": [
+										"brew install yt-dlp"
+									],
+									"linux": [
+										"pipx install yt-dlp",
+										"python3 -m pip install --user yt-dlp"
+									]
+								}
+							}
+						},
+						"setup": [
+							{
+								"title": "Install yt-dlp for YouTube",
+								"detail": "YouTube search and transcripts run through yt-dlp, a free open-source downloader. Use Install below, or install it yourself and connect again."
+							},
+							{
+								"title": "Python 3.12 or newer",
+								"detail": "last30days runs a Python research engine. Your agent checks for a real Python 3.12+ the first time it runs (the Windows Store shortcut does not count) and, if none is found, tells you the one command to install it and waits for your yes.",
+								"url": "https://www.python.org/downloads/",
+								"urlLabel": "Get Python"
+							},
+							{
+								"title": "No browser cookies",
+								"detail": "last30days never reads your browser's cookies here. X posts come from the X plugin, which you connect on its own card."
+							}
+						],
+						"verify": "yt-dlp --version",
+						"assist": {
+							"label": "Finish setup with your agent",
+							"prompt": "Finish setting up last30days for me.\n\nRun the last30days setup tool (last30days_setup), not the skill's own setup wizard, and never read my browser cookies. If it says Python 3.12+ is missing, tell me the one install command it gives and wait for my yes before running it, then run setup again.\n\nThen tell me, in plain words: which sources are working now, which are not covered and why, and what each optional key would add. Remind me that ScrapeCreators is a paid third-party service (10,000 free calls, then pay-as-you-go) and that I add its key on the last30days card, never in chat."
+						}
+					},
+					{
+						"id": "scrapecreators",
+						"label": "Free sources and TikTok, Instagram",
+						"detail": "Adds a ScrapeCreators key: TikTok and Instagram, plus Reddit and YouTube backfill when the free path comes back thin.",
+						"kind": [
+							"cli",
+							"form"
+						],
+						"requires": {
+							"commands": [
+								"yt-dlp"
+							],
+							"install": {
+								"yt-dlp": {
+									"win32": [
+										"winget install -e --id yt-dlp.yt-dlp --accept-source-agreements --accept-package-agreements"
+									],
+									"darwin": [
+										"brew install yt-dlp"
+									],
+									"linux": [
+										"pipx install yt-dlp",
+										"python3 -m pip install --user yt-dlp"
+									]
+								}
+							}
+						},
+						"setup": [
+							{
+								"title": "ScrapeCreators is a paid third-party API",
+								"detail": "It reads public posts from TikTok, Instagram and other platforms for you. New accounts get 10,000 free calls, then it is pay-as-you-go. A last30days run spends credits only on TikTok, Instagram and the Reddit or YouTube backfill.",
+								"url": "https://scrapecreators.com",
+								"urlLabel": "Open ScrapeCreators"
+							},
+							{
+								"title": "Copy your API key",
+								"detail": "Sign in, open your dashboard, and copy the API key into the field below. It stays on this machine."
+							},
+							{
+								"title": "Install yt-dlp for YouTube",
+								"detail": "Every way in also needs yt-dlp. Use Install below if it is missing."
+							}
+						],
+						"form": [
+							{
+								"id": "apiKey",
+								"label": "ScrapeCreators API key",
+								"secret": true,
+								"help": "From your ScrapeCreators dashboard.",
+								"helpUrl": "https://scrapecreators.com",
+								"helpUrlLabel": "Open ScrapeCreators"
+							}
+						],
+						"configTemplate": "connect/scrapecreators.template.json",
+						"configTarget": "~/.config/dimension-last30days/scrapecreators.json"
+					},
+					{
+						"id": "bluesky",
+						"label": "Free sources and Bluesky",
+						"detail": "Adds Bluesky search with your handle and an app password.",
+						"kind": [
+							"cli",
+							"form"
+						],
+						"requires": {
+							"commands": [
+								"yt-dlp"
+							],
+							"install": {
+								"yt-dlp": {
+									"win32": [
+										"winget install -e --id yt-dlp.yt-dlp --accept-source-agreements --accept-package-agreements"
+									],
+									"darwin": [
+										"brew install yt-dlp"
+									],
+									"linux": [
+										"pipx install yt-dlp",
+										"python3 -m pip install --user yt-dlp"
+									]
+								}
+							}
+						},
+						"setup": [
+							{
+								"title": "Create a Bluesky app password",
+								"detail": "In Bluesky, Settings, Privacy and security, App passwords, add one named Dimension. An app password can read and post but cannot change your account; you can revoke it any time.",
+								"url": "https://bsky.app/settings/app-passwords",
+								"urlLabel": "Open Bluesky app passwords"
+							},
+							{
+								"title": "Install yt-dlp for YouTube",
+								"detail": "Every way in also needs yt-dlp. Use Install below if it is missing."
+							}
+						],
+						"form": [
+							{
+								"id": "handle",
+								"label": "Bluesky handle",
+								"placeholder": "you.bsky.social",
+								"help": "Your full handle, without the @."
+							},
+							{
+								"id": "appPassword",
+								"label": "App password",
+								"secret": true,
+								"placeholder": "xxxx-xxxx-xxxx-xxxx",
+								"help": "The app password you just created, not your account password.",
+								"helpUrl": "https://bsky.app/settings/app-passwords",
+								"helpUrlLabel": "Open Bluesky app passwords"
+							}
+						],
+						"configTemplate": "connect/bluesky.template.json",
+						"configTarget": "~/.config/dimension-last30days/bluesky.json"
+					}
+				]
+			},
+			"toolRenderer": [
+				{
+					"match": "last30days_setup",
+					"use": "summary",
+					"icon": "assets/icon.svg",
+					"title": "last30days setup"
+				}
+			],
 			"skillCard": {
 				"skill": "last30days",
 				"use": "summary",
 				"icon": "assets/icon.svg",
 				"title": "last30days"
-			}
+			},
+			"tools": [
+				{
+					"name": "last30days_setup",
+					"description": "Set up last30days and report which sources are live: Python 3.12+, yt-dlp, setup complete with browser cookies off, the ScrapeCreators and Bluesky keys connected on this card, and the runner command every engine run uses."
+				}
+			]
 		}
 	}
 }

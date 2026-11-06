@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "reddit",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Let your agent read Reddit feeds, posts, comments and your inbox, search, and post or vote when you ask.",
 	"author": {
 		"name": "Dimension"
@@ -96,6 +96,12 @@
 					"title": "Subreddit posts"
 				},
 				{
+					"match": "reddit_subreddit_rules",
+					"use": "summary",
+					"icon": "reddit",
+					"title": "Subreddit rules"
+				},
+				{
 					"match": "reddit_read_post",
 					"use": "summary",
 					"icon": "reddit",
@@ -157,7 +163,11 @@
 				},
 				{
 					"name": "reddit_subreddit_posts",
-					"description": "List posts in a subreddit. Takes subreddit (without r/), sort = hot|new|top|rising|controversial, and time (hour|day|week|month|year|all) for top/controversial. Returns fullname/score/comments/author/title per line; paginate with 'after'."
+					"description": "List posts in a subreddit. Takes subreddit (without r/), sort = hot|new|top|rising|controversial, and time (hour|day|week|month|year|all) for top/controversial. Returns fullname/score/comments/age/author/title per line; paginate with 'after'."
+				},
+				{
+					"name": "reddit_subreddit_rules",
+					"description": "Read a subreddit's rules and profile: member and online counts, accepted post kinds, description, and every rule with its text. Read it before suggesting or drafting a post or reply there."
 				},
 				{
 					"name": "reddit_read_post",

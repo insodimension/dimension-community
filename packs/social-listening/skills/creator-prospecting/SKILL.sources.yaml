@@ -1,0 +1,64 @@
+# Borrow ledger for marketplace/packs/social-listening/skills/creator-prospecting/SKILL.md. Clones read at the pinned refs on 2026-11-06.
+#
+#   bun run docs:sources marketplace/packs/social-listening/skills/creator-prospecting/SKILL.md
+
+version: 1
+doc: marketplace/packs/social-listening/skills/creator-prospecting/SKILL.md
+updated: 2026-11-06
+
+repos:
+  scrapecreators:
+    name: ScrapeCreators social-media-research-skills (MIT)
+    url: https://github.com/ScrapeCreators/social-media-research-skills
+    ref: 64ba7b4d
+    ref_date: 2026-08-26
+    clone: research-clones/social-media-research-skills
+    tracked: true
+    role: "Research procedures written for the ScrapeCreators API, adapted to Dimension's own connectors."
+  marketingskills:
+    name: marketingskills by Corey Haines (MIT)
+    url: https://github.com/coreyhaines31/marketingskills
+    ref: 88c79f65
+    ref_date: 2026-10-30
+    clone: research-clones/marketingskills
+    tracked: true
+    role: "Marketing method skills; listening triage and customer research."
+
+borrowings:
+  - id: S-01
+    concept: "Score creators on niche fit, audience fit, reach, engagement quality, brand safety and contactability; follower count is not fit"
+    verdict: adapt
+    upstream: scrapecreators
+    paths:
+      - skills/influencer-prospecting/SKILL.md
+    our_target: "Intro, Score"
+    why: "The dimensions match what makes a partner worth contacting."
+    adapted: "Cadence is added as its own dimension and niche fit is split into topic and audience fit."
+
+  - id: S-02
+    concept: "Judge a post against the account's own median, not the mean; 2x and 5x lift; under 10 posts is low confidence"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/outlier-post-finder/SKILL.md
+    our_target: "Measure, engagement baseline"
+    why: "Medians resist one viral post and make small and large accounts comparable."
+
+  - id: S-03
+    concept: "Do not infer demographics from appearance; label weak public evidence"
+    verdict: adopt
+    upstream: scrapecreators
+    paths:
+      - skills/audience-research/SKILL.md
+    our_target: "Measure and Rules"
+    why: "Audience claims must rest on what the audience writes."
+
+  - id: S-04
+    concept: "Scout accounts of 5,000 to 10,000 followers already posting about the space"
+    verdict: adapt
+    upstream: marketingskills
+    paths:
+      - skills/social/references/listening.md
+    our_target: "Inputs, size band"
+    why: "Smaller growing creators are reachable and often better fits."
+    adapted: "Offered as an optional size band, not a fixed rule."

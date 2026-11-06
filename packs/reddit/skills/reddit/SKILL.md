@@ -55,11 +55,16 @@ manual steps, described precisely:
 
 - `reddit_my_feed` — your home feed (subscribed subreddits). `sort` =
   `best|hot|new|top|rising` (default `best`); `time` for `top`. Returns
-  `fullname  r/sub  score pts  N cmts  u/author  title` per line. Paginate with
-  the printed `after` cursor.
+  `fullname  r/sub  score pts  N cmts  age  u/author  title` per line (age is
+  `5h ago` or `3d ago`). A post's link is `https://www.reddit.com/comments/<id>`
+  (the fullname without `t3_`). Paginate with the printed `after` cursor.
 - `reddit_subreddit_posts` — posts in a subreddit. `subreddit` (without `r/`),
   `sort` = `hot|new|top|rising|controversial` (default `hot`), `time` for
   `top`/`controversial`. Same line format; paginate with `after`.
+- `reddit_subreddit_rules` — a subreddit's member and online counts, which post
+  kinds it accepts, its description and every rule with its text. Read it
+  before suggesting or drafting a post or reply there: self-promotion, link and
+  flair rules live here.
 - `reddit_read_post` — a post + its comment tree. `post` is the id or `t3_`
   fullname (optionally its `subreddit` and comment `sort`). Prints the post
   header/body, then comments as `t1_id  u/author (score): text`, indented by

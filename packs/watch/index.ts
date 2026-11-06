@@ -36,6 +36,7 @@ function pythonCandidates(): string[] {
 	const roots = [
 		process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Python") : undefined,
 		process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Programs", "Python") : undefined,
+		process.env.ProgramFiles,
 	].filter((dir): dir is string => !!dir);
 	for (const root of roots) {
 		let entries: string[];
@@ -44,17 +45,17 @@ function pythonCandidates(): string[] {
 		} catch {
 			continue;
 		}
-		// Numeric-aware, newest first. A lexicographic sort puts "3.9" ahead of
-		// "3.14" because "9" > "1", which would select the OLDER interpreter.
 		const version = (name: string): [number, number] => {
-			const m = /(\d+)\.(\d+)/.exec(name);
+			const m = /(\d)\.?(\d{1,2})/.exec(name);
 			return m ? [Number(m[1]), Number(m[2])] : [0, 0];
 		};
-		const ordered = [...entries].sort((a, b) => {
-			const [aMajor, aMinor] = version(a);
-			const [bMajor, bMinor] = version(b);
-			return bMajor - aMajor || bMinor - aMinor || b.localeCompare(a);
-		});
+		const ordered = entries
+			.filter(entry => /python/i.test(entry))
+			.sort((a, b) => {
+				const [aMajor, aMinor] = version(a);
+				const [bMajor, bMinor] = version(b);
+				return bMajor - aMajor || bMinor - aMinor || b.localeCompare(a);
+			});
 		for (const entry of ordered) {
 			names.push(join(root, entry, "python.exe"));
 		}

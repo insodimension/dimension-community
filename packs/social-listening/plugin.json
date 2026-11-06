@@ -1,0 +1,42 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "social-listening",
+	"version": "0.1.0",
+	"description": "Hear what communities really say about a topic, find the conversations worth joining and the creators worth contacting, and collect your audience's own words.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"social",
+		"listening",
+		"research",
+		"reddit",
+		"x",
+		"youtube",
+		"hackernews",
+		"creators",
+		"voice-of-customer",
+		"skill"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Social Listening",
+			"icon": "assets/icon.svg",
+			"category": "skills",
+			"defaultEnabled": true,
+			"examples": [
+				"What have Unreal Engine developers said about camera plugins this month? Quote them and link the threads.",
+				"Find today's Reddit and Hacker News threads where a reply about our product would be welcome and allowed",
+				"Which YouTubers and X accounts reach indie game developers, and how should we approach each one?"
+			],
+			"skillCard": {
+				"skill": "community-pulse",
+				"use": "summary",
+				"icon": "assets/icon.svg",
+				"title": "Community pulse"
+			}
+		}
+	}
+}
