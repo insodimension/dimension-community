@@ -52,10 +52,22 @@ review is the taste check.** No pack merges red.
    | `category` · `tags` | `package.json` → `dimension` block (`category`, `keywords`), else its top-level fields |
    | `version` · `author` · `license` · `repository` | `package.json` (license/repository default to this repo's) |
 
-   `icon` and every `spaces[].screenshots` entry is rewritten
-   catalog-root-relative (`assets/icon.svg` → `packs/<you>/assets/icon.svg`) and
-   must exist — a screenshot you deleted fails the generator by name. A bare
-   glyph name (`"icon": "hammer"`) is passed through untouched.
+   Each space's listing carries its `showcase` (`tagline`, `summary`,
+   `screenshots`, `video { src, poster? }`, `needs`, `onboarding`), copied
+   from the space's own `showcase` declaration — that block is what the
+   Spaces tab shows on the space's details page before anyone installs it.
+   `icon` and every showcase screenshot, video and poster are rewritten
+   catalog-root-relative (`assets/icon.svg` → `packs/<you>/assets/icon.svg`)
+   and must exist — a screenshot you deleted fails the generator by name.
+   Screenshots are `.png`, `.webp`, `.jpg`, `.jpeg` or `.svg` (at most 8);
+   the video is `.mp4` or `.webm` under 48 MiB. A bare glyph name
+   (`"icon": "hammer"`) is passed through untouched.
+
+   A space built in its maker's own repository is listed without code: its
+   entry's `source` is `{ "source": "release", "url", "sha256", "size" }`
+   pinning the built archive, its media sit under `packs/<space>/`, and
+   `dimension-space list` writes it. Such a listing must carry
+   `showcase.summary`, at least one screenshot and a video.
 
    A pack that adds a voice or a generator says so in its manifest, under
    `extensions["ai.insodimension.dimension"].providers`, and the generator

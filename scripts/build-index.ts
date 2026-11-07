@@ -120,24 +120,41 @@ function catalogIcon(icon: string, packDir: string, name: string): string {
  *  a no-diff run. */
 function spaceListing(space: Json, packDir: string): Json {
 	const listing: Json = { id: space.id, label: space.label };
-	const preview = asObject(space.preview);
-	const tagline = asString(preview?.tagline) ?? asString(space.description);
-	if (tagline) listing.tagline = tagline;
-	const screenshots = preview?.screenshots;
-	if (Array.isArray(screenshots) && screenshots.length > 0) {
-		listing.screenshots = screenshots.map(shot =>
-			catalogAsset(shot, packDir, `${String(space.id)}: preview screenshot`),
-		);
-	}
 	const icon = asString(space.icon);
 	if (icon) listing.icon = icon;
 	const accent = asString(asObject(space.mark)?.accent);
 	if (accent) listing.accent = accent;
-	// The dependency closure the install plan will walk. Carried in the index so
-	// a card can say "installs 7 components" BEFORE anything is fetched.
 	const requires = asStrings(asObject(space.requires)?.plugins);
 	if (requires) listing.requires = requires;
+	const showcase = showcaseListing(space, packDir);
+	if (showcase) listing.showcase = showcase;
 	return listing;
+}
+
+function showcaseListing(space: Json, packDir: string): Json | undefined {
+	const declared = asObject(space.showcase) ?? {};
+	const preview = asObject(space.preview);
+	const what = `${String(space.id)}: showcase`;
+	const showcase: Json = {};
+	const tagline = asString(declared.tagline) ?? asString(preview?.tagline) ?? asString(space.description);
+	if (tagline) showcase.tagline = tagline;
+	const summary = asString(declared.summary);
+	if (summary) showcase.summary = summary;
+	const screenshots = asStrings(declared.screenshots) ?? asStrings(preview?.screenshots);
+	if (screenshots) showcase.screenshots = screenshots.map(shot => catalogAsset(shot, packDir, `${what} screenshot`));
+	const video = asObject(declared.video);
+	if (video) {
+		const poster = asString(video.poster);
+		showcase.video = {
+			src: catalogAsset(video.src, packDir, `${what} video`),
+			...(poster ? { poster: catalogAsset(poster, packDir, `${what} video poster`) } : {}),
+		};
+	}
+	const needs = asStrings(declared.needs);
+	if (needs) showcase.needs = needs;
+	const onboarding = asString(declared.onboarding);
+	if (onboarding) showcase.onboarding = onboarding;
+	return Object.keys(showcase).length > 0 ? showcase : undefined;
 }
 
 /** Every space listing a pack contributes, or undefined when it contributes none. */
@@ -308,8 +325,14 @@ export function packDirectories(): string[] {
 /** The index as it SHOULD be, given the packs on disk. `seed` carries the
  *  shelf's own identity (`name`, `owner`, `metadata`) — the only hand-authored
  *  part of this file — and every other top-level key it happens to hold. */
-export function buildIndex(seed: Json): Json {
-	return { ...seed, plugins: packDirectories().map(entryFor) };
+export function buildIndex(seed: Json, listed: readonly Json[] = []): Json {
+	const releases = listed.filter(entry => asObject(entry.source)?.source === "release");
+	const plugins = [...packDirectories().map(entryFor), ...releases].sort((a, b) => {
+		const left = String(a.name);
+		const right = String(b.name);
+		return left < right ? -1 : left > right ? 1 : 0;
+	});
+	return { ...seed, plugins };
 }
 
 const serialize = (catalog: Json): string => `${JSON.stringify(catalog, null, "\t")}\n`;
@@ -340,7 +363,7 @@ if (!seed) {
 	console.error(`${catalogPath}: missing or not parseable JSON — the shelf identity (name/owner/metadata) is hand-authored and must exist`);
 	process.exit(1);
 }
-const { plugins: _previousPlugins, ...identity } = seed;
+const { plugins: listedPlugins, ...identity } = seed;
 
 // A refused build is a CONTENT error a contributor must fix (a screenshot that
 // is not there, a path that is not pack-relative, a pack with no description),
@@ -348,7 +371,7 @@ const { plugins: _previousPlugins, ...identity } = seed;
 // readers have to decode.
 let next: string;
 try {
-	next = serialize(buildIndex(identity));
+	next = serialize(buildIndex(identity, Array.isArray(listedPlugins) ? (listedPlugins as Json[]) : []));
 } catch (error) {
 	console.error(`marketplace.json: ${error instanceof Error ? error.message : String(error)}`);
 	process.exit(1);

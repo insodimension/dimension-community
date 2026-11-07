@@ -201,11 +201,6 @@
 				{
 					"id": "build",
 					"label": "Build",
-					"tagline": "Every part of this workspace is a pack you can swap.",
-					"screenshots": [
-						"packs/build/assets/preview/session.webp",
-						"packs/build/assets/preview/start.webp"
-					],
 					"icon": "hammer",
 					"accent": "#f59e0b",
 					"requires": [
@@ -222,7 +217,14 @@
 						"workbench",
 						"session-tools",
 						"general-chat"
-					]
+					],
+					"showcase": {
+						"tagline": "Every part of this workspace is a pack you can swap.",
+						"screenshots": [
+							"packs/build/assets/preview/session.webp",
+							"packs/build/assets/preview/start.webp"
+						]
+					}
 				}
 			]
 		},
@@ -253,11 +255,6 @@
 				{
 					"id": "chat",
 					"label": "Chat",
-					"tagline": "Your assistant in a room of its own, with a face you can talk to.",
-					"screenshots": [
-						"packs/chat/assets/preview/chat-start.webp",
-						"packs/chat/assets/preview/chat-call.webp"
-					],
 					"icon": "aether",
 					"accent": "#e8a838",
 					"requires": [
@@ -273,7 +270,20 @@
 						"face-to-face",
 						"general-chat",
 						"calendar"
-					]
+					],
+					"showcase": {
+						"tagline": "Your assistant in a room of its own, with a face you can talk to.",
+						"summary": "A calm conversation with Aether, your past sessions beside it, and whatever it makes opening next to it. Open Face to face to talk it through out loud, or start a live call that hands anything about your work to your agent.",
+						"screenshots": [
+							"packs/chat/assets/preview/chat-start.webp",
+							"packs/chat/assets/preview/chat-call.webp"
+						],
+						"video": {
+							"src": "packs/chat/assets/preview/chat-loop.mp4",
+							"poster": "packs/chat/assets/preview/chat-call.webp"
+						},
+						"onboarding": "Send a first message, then open Face to face to talk."
+					}
 				}
 			]
 		},
@@ -494,7 +504,6 @@
 				{
 					"id": "example-hub",
 					"label": "Example Hub",
-					"tagline": "A reference space for contributors: the Build workspace, scoped to one General Agent — the Example Hub's marketing lead.",
 					"icon": "bot",
 					"requires": [
 						"build",
@@ -511,7 +520,10 @@
 						"workbench",
 						"session-tools",
 						"general-chat"
-					]
+					],
+					"showcase": {
+						"tagline": "A reference space for contributors: the Build workspace, scoped to one General Agent — the Example Hub's marketing lead."
+					}
 				}
 			],
 			"generalAgents": [
