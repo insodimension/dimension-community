@@ -180,4 +180,29 @@ describe("publishing release builds from main", () => {
 			github.server.stop(true);
 		}
 	});
+
+	test("an upload url on a host other than the API's is refused before the token is sent", async () => {
+		const root = builtShelf();
+		const github = fakeGitHub();
+		const elsewhere: string[] = [];
+		const stranger = Bun.serve({
+			port: 0,
+			hostname: "127.0.0.1",
+			fetch(request) {
+				elsewhere.push(`${request.method} ${new URL(request.url).pathname} ${request.headers.get("authorization")}`);
+				return Response.json({}, { status: 201 });
+			},
+		});
+		github.releases.push({ id: 900, tag_name: "alpha-v1.0.0", target_commitish: "older", upload_url: `${stranger.url.origin}/uploads/900/assets{?name,label}`, assets: [] });
+		try {
+			const result = await publish(root, github.server.url.origin);
+
+			expect(result.status).toBe(1);
+			expect(result.output).toContain(`whose host ${stranger.url.host} is not ${github.server.url.host} or uploads.github.com`);
+			expect(elsewhere).toEqual([]);
+		} finally {
+			stranger.stop(true);
+			github.server.stop(true);
+		}
+	});
 });

@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildPackArchives, packArchiveName, packReleaseTag, packReleaseUrl, SHELF_REPO } from "./pack-archive.mjs";
+import { buildPackArchives } from "./pack-archive.mjs";
+import { packArchiveName, packReleaseTag, packReleaseUrl, SHELF_REPO } from "./shelf-release.mjs";
 import { shelfPackDir } from "./space-showcase.mjs";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const SHA256_DIGEST_PREFIX = "sha256:";
+const GITHUB_UPLOADS_HOST = "uploads.github.com";
 
 class GitHubError extends Error {
 	constructor(method, url, status, text) {
@@ -16,6 +18,12 @@ class GitHubError extends Error {
 }
 
 function githubClient(api, token) {
+	const tokenHosts = new Set([new URL(api).host, GITHUB_UPLOADS_HOST]);
+	const tokenUrl = url => {
+		const { host } = new URL(url);
+		if (!tokenHosts.has(host)) throw new Error(`GitHub answered with ${url}, whose host ${host} is not ${[...tokenHosts].join(" or ")}; the token is never sent there`);
+		return url;
+	};
 	const headers = {
 		accept: "application/vnd.github+json",
 		authorization: `Bearer ${token}`,
@@ -23,7 +31,7 @@ function githubClient(api, token) {
 		"user-agent": `${SHELF_REPO}-pack-releases`,
 	};
 	async function call(method, url, { body, contentType } = {}) {
-		const response = await fetch(url, {
+		const response = await fetch(tokenUrl(url), {
 			method,
 			headers: contentType ? { ...headers, "content-type": contentType } : headers,
 			body: contentType === "application/json" ? JSON.stringify(body) : body,
@@ -51,7 +59,7 @@ function githubClient(api, token) {
 			if (typeof asset.digest === "string" && asset.digest.startsWith(SHA256_DIGEST_PREFIX)) {
 				return asset.digest.slice(SHA256_DIGEST_PREFIX.length);
 			}
-			const first = await fetch(asset.url, { headers: { ...headers, accept: "application/octet-stream" }, redirect: "manual" });
+			const first = await fetch(tokenUrl(asset.url), { headers: { ...headers, accept: "application/octet-stream" }, redirect: "manual" });
 			const location = first.headers.get("location");
 			const response = first.status >= 300 && first.status < 400 && location ? await fetch(location) : first;
 			if (!response.ok) throw new GitHubError("GET", asset.url, response.status, await response.text());
@@ -157,13 +165,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 		process.exit(2);
 	}
 	const catalog = JSON.parse(readFileSync(join(root, ".dimension-plugin", "marketplace.json"), "utf8"));
-	const result = await publishPackReleases({
-		root,
-		catalog,
-		api: (process.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, ""),
-		token,
-		commit,
-	});
+	let result;
+	try {
+		result = await publishPackReleases({
+			root,
+			catalog,
+			api: (process.env.GITHUB_API_URL ?? "https://api.github.com").replace(/\/$/, ""),
+			token,
+			commit,
+		});
+	} catch (error) {
+		console.error(`publish-pack-releases: ${error instanceof Error ? error.message : String(error)}`);
+		process.exit(1);
+	}
 	console.log(`publish-pack-releases: ${result.published.length} published, ${result.present} already published`);
 	if (result.failures.length > 0) {
 		console.error(`publish-pack-releases: ${result.failures.length} problem(s)\n${result.failures.map(failure => `  - ${failure}`).join("\n")}`);
