@@ -47,11 +47,21 @@ function entry(root: string): Json {
 }
 
 describe("requires.plugins: the ranges a pack needs of other packs", () => {
-	test("ride the catalog entry beside requires.dimension, and validate", () => {
-		const root = shelfWith({ dimension: ">=0.11.26", plugins: { browser: "^0.9.13" } });
+	test("ride the catalog entry beside requires.dimension, and validate, with a key naming its marketplace", () => {
+		const plugins = { "browser@dimension-community": "^0.9.13", "local-pack": ">=1.0.0 <2.0.0 || 3.x" };
+		const root = shelfWith({ dimension: ">=0.11.26", plugins });
 		expect(run(root, "build-index.ts").status).toBe(0);
-		expect(entry(root).requires).toStrictEqual({ dimension: ">=0.11.26", plugins: { browser: "^0.9.13" } });
+		expect(entry(root).requires).toStrictEqual({ dimension: ">=0.11.26", plugins });
 		expect(run(root, "validate-marketplace.mjs").status).toBe(0);
+	});
+
+	test("refuses the ||/- forms the engine's isSemverRange refuses", () => {
+		const root = shelfWith({ plugins: { a: "^0.9.13 ||", b: "|| ^0.9.13", c: "- 0.9.13", d: "1.0.0 - 2.0.0" } });
+		expect(run(root, "build-index.ts").status).toBe(0);
+		const validated = run(root, "validate-marketplace.mjs");
+		expect(validated.status).not.toBe(0);
+		for (const id of ["a", "b", "c"]) expect(validated.output).toContain(`requires.plugins.${id} "`);
+		expect(validated.output).not.toContain("requires.plugins.d ");
 	});
 
 	test("an unparseable range or a non-id key fails the shelf, naming the entry", () => {

@@ -220,7 +220,6 @@ function generalAgentListings(packRoot: string, packDir: string): Json[] | undef
 	return listings.length > 0 ? listings : undefined;
 }
 
-
 function requirements(manifest: Json): Json | undefined {
 	const requires = asObject(manifest.requires);
 	const dimension = asString(requires?.dimension);

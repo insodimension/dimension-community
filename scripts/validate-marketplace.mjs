@@ -66,15 +66,38 @@ if (!Array.isArray(catalog.plugins) || catalog.plugins.length === 0) {
 	errors.push("catalog.plugins must be a non-empty array");
 }
 
-function semverRangeProblem(range) {
-	if (typeof range !== "string" || range.length === 0) return "must be a non-empty semver range string";
-	const tokens = range.split(/\s+/).filter(token => token.length > 0 && token !== "||" && token !== "-");
-	const malformed = tokens.filter(
-		token => !/^(?:\*|[xX]|(?:[<>]=?|=|~|\^|v)?\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.test(token),
-	);
-	if (tokens.length === 0 || malformed.length > 0) {
-		return `"${range}" is not a semver range (unrecognized: ${malformed.join(", ") || "<empty>"})`;
+const RANGE_COMPARATOR =
+	/^(?:\*|[<>]=?|=|\^|~>?)?v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const HYPHEN_RANGE = /^(\S+)\s+-\s+(\S+)$/;
+const MAX_RANGE_LENGTH = 128;
+const MAX_PLUGIN_REQUIREMENTS = 32;
+const PLUGIN_REQUIREMENT_KEY = /^[a-z0-9][a-z0-9._-]{0,63}(?:@([a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,62}[a-zA-Z0-9])?))?$/;
+
+function rangeTokenProblems(range) {
+	const malformed = [];
+	for (const alternative of range.trim().split("||")) {
+		const part = alternative.trim();
+		if (part.length === 0) {
+			malformed.push("an empty || alternative");
+			continue;
+		}
+		const hyphen = HYPHEN_RANGE.exec(part);
+		const tokens = hyphen
+			? [hyphen[1], hyphen[2]]
+			: part
+					.replace(/([<>]=?|=|\^|~>?)\s+/g, "$1")
+					.split(/\s+/)
+					.filter(token => token.length > 0);
+		for (const token of tokens) if (!RANGE_COMPARATOR.test(token)) malformed.push(token);
 	}
+	return malformed;
+}
+
+function semverRangeProblem(range) {
+	if (typeof range !== "string" || range.trim().length === 0) return "must be a non-empty semver range string";
+	if (range.length > MAX_RANGE_LENGTH) return `is longer than ${MAX_RANGE_LENGTH} characters`;
+	const malformed = rangeTokenProblems(range);
+	if (malformed.length > 0) return `"${range}" is not a semver range (unrecognized: ${malformed.join(", ")})`;
 	if (typeof Bun === "undefined") return undefined;
 	try {
 		Bun.semver.satisfies("0.0.0", range);
@@ -263,11 +286,24 @@ for (const plugin of catalog.plugins ?? []) {
 			const plugins = plugin.requires.plugins;
 			if (plugins !== undefined) {
 				if (typeof plugins !== "object" || plugins === null || Array.isArray(plugins)) {
-					errors.push(`plugin "${label}": requires.plugins must map plugin ids to semver ranges (e.g. { "browser": "^0.9.13" })`);
+					errors.push(
+						`plugin "${label}": requires.plugins must map plugin ids to semver ranges (e.g. { "browser@dimension-community": "^0.9.13" })`,
+					);
 				} else {
-					for (const [id, range] of Object.entries(plugins)) {
-						if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) errors.push(`plugin "${label}": requires.plugins key "${id}" is not a plugin id`);
-						if (id === plugin.name) errors.push(`plugin "${label}": requires.plugins names the pack itself`);
+					const entries = Object.entries(plugins);
+					if (entries.length > MAX_PLUGIN_REQUIREMENTS) {
+						errors.push(`plugin "${label}": requires.plugins names more than ${MAX_PLUGIN_REQUIREMENTS} packs`);
+					}
+					for (const [id, range] of entries) {
+						const key = PLUGIN_REQUIREMENT_KEY.exec(id);
+						if (!key) {
+							errors.push(`plugin "${label}": requires.plugins key ${JSON.stringify(id)} is not a plugin id (name or name@marketplace)`);
+							continue;
+						}
+						const name = id.split("@")[0];
+						if (name === plugin.name && (key[1] === undefined || key[1] === catalog.name)) {
+							errors.push(`plugin "${label}": requires.plugins names the pack itself`);
+						}
 						const problem = semverRangeProblem(range);
 						if (problem) errors.push(`plugin "${label}": requires.plugins.${id} ${problem}`);
 					}
