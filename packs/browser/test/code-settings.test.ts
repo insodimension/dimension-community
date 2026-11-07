@@ -14,6 +14,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { createRuntimeCodeHost } from "../src/code/host/code-host";
 import { createBrowserServer } from "../src/server";
 import { createRoot, newRuntime, teardown } from "./fixture";
+import { SPACES_UNDER_TEST, offeredToSpace } from "./model-audience";
 
 const SETTINGS = ["DIMENSION_BROWSER_CODE_ISOLATION", "DIMENSION_BROWSER_CODE_HEAP_MB", "DIMENSION_BROWSER_CODE_MEMORY_MB", "DIMENSION_BROWSER_CODE_TOTAL_MB", "DIMENSION_BROWSER_CODE_IDLE_MS", "DIMENSION_BROWSER_FREEZE_IDLE_MS", "DIMENSION_BROWSER_MODEL_TOOLS"] as const;
 const saved: Record<string, string | undefined> = {};
@@ -54,10 +55,11 @@ async function toolsOffered(): Promise<Tool[]> {
   return (await client.listTools()).tools;
 }
 
-const SPACES_META_KEY = "ai.insodimension/spaces";
 const names = (tools: Tool[]): string[] => tools.map(tool => tool.name);
-/** The step tools are hidden from the spaces that are offered `browser_run`: in that case they carry a spaces list. */
-const stepToolsHidden = (tools: Tool[]): boolean => tools.find(tool => tool.name === "browser_open")?._meta?.[SPACES_META_KEY] !== undefined;
+const spacesWithStepTools = (tools: Tool[]): string[] => {
+  const open = tools.find(tool => tool.name === "browser_open");
+  return SPACES_UNDER_TEST.filter(space => open !== undefined && offeredToSpace(open, space));
+};
 
 describe("a wrong setting that only concerns browser_run", () => {
   test("DIMENSION_BROWSER_CODE_ISOLATION=process starts the server without browser_run, says why, and keeps the step tools", async () => {
@@ -66,7 +68,7 @@ describe("a wrong setting that only concerns browser_run", () => {
     expect(names(tools)).not.toContain("browser_run");
     expect(names(tools)).toContain("browser_state");
     // The model keeps the step tools: nothing hides them from any space.
-    expect(stepToolsHidden(tools)).toBe(false);
+    expect(spacesWithStepTools(tools)).toEqual([...SPACES_UNDER_TEST]);
     expect(logged.join("\n")).toContain("browser_run is off");
     expect(logged.join("\n")).toContain("DIMENSION_BROWSER_CODE_ISOLATION");
   });
@@ -75,7 +77,7 @@ describe("a wrong setting that only concerns browser_run", () => {
     process.env.DIMENSION_BROWSER_CODE_HEAP_MB = "lots";
     const tools = await toolsOffered();
     expect(names(tools)).not.toContain("browser_run");
-    expect(stepToolsHidden(tools)).toBe(false);
+    expect(spacesWithStepTools(tools)).toEqual([...SPACES_UNDER_TEST]);
     expect(logged.join("\n")).toContain("DIMENSION_BROWSER_CODE_HEAP_MB must be a number of megabytes");
     expect(logged.join("\n")).not.toContain("milliseconds");
   });
@@ -84,7 +86,7 @@ describe("a wrong setting that only concerns browser_run", () => {
     process.env.DIMENSION_BROWSER_CODE_TOTAL_MB = "all of it";
     const tools = await toolsOffered();
     expect(names(tools)).not.toContain("browser_run");
-    expect(stepToolsHidden(tools)).toBe(false);
+    expect(spacesWithStepTools(tools)).toEqual([...SPACES_UNDER_TEST]);
     expect(logged.join("\n")).toContain("DIMENSION_BROWSER_CODE_TOTAL_MB must be a number of megabytes");
   });
 
@@ -97,13 +99,13 @@ describe("a wrong setting that only concerns browser_run", () => {
     process.env.DIMENSION_BROWSER_MODEL_TOOLS = "code";
     const tools = await toolsOffered();
     expect(names(tools)).not.toContain("browser_run");
-    expect(stepToolsHidden(tools)).toBe(false);
+    expect(spacesWithStepTools(tools)).toEqual([...SPACES_UNDER_TEST]);
   });
 
   test("with every setting right, browser_run is offered", async () => {
     const tools = await toolsOffered();
     expect(names(tools)).toContain("browser_run");
-    expect(stepToolsHidden(tools)).toBe(true);
+    expect(spacesWithStepTools(tools)).toEqual(["chat", "traction", "video", "unreal", "clients"]);
     expect(logged.join("\n")).not.toContain("browser_run is off");
   });
 });
