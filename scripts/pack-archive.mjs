@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { constants, gzipSync } from "node:zlib";
+import { deterministicGzip } from "./gzip.mjs";
 import { RELEASE_MAX_BYTES } from "./space-showcase.mjs";
 
 export const SHELF_REPO = "insodimension/dimension-community";
@@ -26,10 +26,6 @@ export function packDirectories(root) {
 const TAR_BLOCK = 512;
 const TAR_NAME_MAX = 100;
 const TAR_PREFIX_MAX = 155;
-const GZIP_OPTIONS = { level: 9, memLevel: 8, windowBits: 15, strategy: constants.Z_DEFAULT_STRATEGY };
-const GZIP_XFL = 8;
-const GZIP_OS = 9;
-const GZIP_OS_UNKNOWN = 255;
 const FILE_MODES = { "100644": 0o644, "100755": 0o755 };
 
 function git(root, args, options = {}) {
@@ -177,15 +173,6 @@ function tarOf(entries) {
 	return tar;
 }
 
-function gzipOf(tar) {
-	const gz = gzipSync(tar, GZIP_OPTIONS);
-	if (gz[0] !== 0x1f || gz[1] !== 0x8b || gz[3] !== 0) throw new Error("zlib wrote an unexpected gzip header");
-	gz.writeUInt32LE(0, 4);
-	gz[GZIP_XFL] = 0;
-	gz[GZIP_OS] = GZIP_OS_UNKNOWN;
-	return gz;
-}
-
 export function buildPackArchives(root, names) {
 	const files = shelfFiles(root, names);
 	const blobs = readNormalizedBlobs(root, files.map(file => file.path));
@@ -198,7 +185,7 @@ export function buildPackArchives(root, names) {
 	for (const [name, entries] of byPack) {
 		if (entries.length === 0) throw new Error(`packs/${name} holds no files git would commit`);
 		entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-		const bytes = gzipOf(tarOf(entries));
+		const bytes = deterministicGzip(tarOf(entries));
 		if (bytes.length > RELEASE_MAX_BYTES) {
 			throw new Error(`packs/${name} builds to ${bytes.length} bytes, over the ${RELEASE_MAX_BYTES}-byte release cap`);
 		}

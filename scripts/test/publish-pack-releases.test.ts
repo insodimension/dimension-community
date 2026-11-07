@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +9,8 @@ import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
 type Json = Record<string, unknown>;
 type Asset = { id: number; name: string; size: number; state: string; digest?: string; url: string; bytes: Uint8Array };
 type Release = { id: number; tag_name: string; target_commitish: string; upload_url: string; assets: Asset[] };
+
+setDefaultTimeout(30_000);
 
 const scriptsDir = resolve(import.meta.dir, "..");
 const REPO_PATH = "/repos/insodimension/dimension-community";

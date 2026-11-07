@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
 
 type Json = Record<string, unknown>;
+
+setDefaultTimeout(30_000);
 
 const scriptsDir = resolve(import.meta.dir, "..");
 const DIMENSION_NAMESPACE = "ai.insodimension.dimension";

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 export const SHELF_SCRIPTS = [
 	"build-index.ts",
+	"gzip.mjs",
 	"pack-archive.mjs",
 	"pack-manifest.mjs",
 	"publish-pack-releases.mjs",

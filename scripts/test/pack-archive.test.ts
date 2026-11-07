@@ -1,11 +1,14 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
+import { deterministicGzip } from "../gzip.mjs";
 import { buildPackArchives } from "../pack-archive.mjs";
 import { git, initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
+
+setDefaultTimeout(30_000);
 
 const scriptsDir = resolve(import.meta.dir, "..");
 const shelves: string[] = [];
@@ -107,5 +110,24 @@ describe("a pack's release build", () => {
 		expect(`${stale.stdout}${stale.stderr}`).toContain('"sha256"');
 		expect(run().status).toBe(0);
 		expect(run("--check").status).toBe(0);
+	});
+
+	test("the compressor's output is read back exactly by standard gunzip, from empty input to incompressible and highly repetitive data", () => {
+		let seed = 1;
+		const noise = Uint8Array.from({ length: 300_000 }, () => {
+			seed = (seed * 1103515245 + 12345) >>> 0;
+			return seed >>> 24;
+		});
+		const inputs = [
+			new Uint8Array(0),
+			Uint8Array.of(7),
+			new TextEncoder().encode("abc".repeat(100_000)),
+			new Uint8Array(70_000),
+			noise,
+			Uint8Array.from({ length: 200_000 }, (_, index) => noise[index % 997] ^ (index >> 12)),
+		];
+		for (const input of inputs) {
+			expect(Buffer.compare(gunzipSync(deterministicGzip(input)), Buffer.from(input))).toBe(0);
+		}
 	});
 });

@@ -120,10 +120,10 @@ sha256 and size are the ones your catalog entry pins.
   symlink or a nested repository fails the build by name.
 - **You build it by regenerating the catalog.** `bun scripts/build-index.ts`
   builds every pack's archive in memory and writes its `sha256` and `size`
-  into the entry. Run it with the bun version in `.bun-version`: the archive
-  is compressed by bun's zlib, and CI builds with that version. To look inside
-  your archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to
-  disk.
+  into the entry. The archive is compressed by the shelf's own deflate
+  (`scripts/gzip.mjs`), not the runtime's zlib, so any bun version gives the
+  bytes CI gives. To look inside your archive,
+  `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
 - **Builds are never committed.** No `.tgz` belongs in this repository; the
   catalog holds only the hash and size.
 - **Every change is a new version.** A published build is never replaced. Any
