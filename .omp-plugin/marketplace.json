@@ -13,8 +13,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/agents-best-practices-v0.1.2/agents-best-practices-0.1.2.tgz",
-				"sha256": "d176966b7c6e89372668c2fce143d1c379b779c8a84c21539058ec638d661f9d",
-				"size": 39516
+				"sha256": "f8175af98a1c7307556f03a9803440c9b66f64fc09ea5369257adb2acf8ec406",
+				"size": 40534
 			},
 			"pluginId": "agents-best-practices",
 			"title": "Agents Best Practices",
@@ -45,8 +45,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.4/artifactory-general-agent-0.5.4.tgz",
-				"sha256": "278404e295bd70040923889d38d8a7e8ae4129b5e7e39c04f32b313e74f5d29e",
-				"size": 282563
+				"sha256": "638ea3d923e0aaec583e7629703ff93949c1e2e770fc3857e1fcc3950aaaca8a",
+				"size": 289756
 			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
@@ -73,8 +73,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-system-monitor-v0.1.3/artifactory-system-monitor-0.1.3.tgz",
-				"sha256": "fba3d7580fdc70bbe72b4f72fa364d01558f4036f82e314c7db43f4df2a21002",
-				"size": 1926
+				"sha256": "4637207acea223ea9cef51e959b494e553788897f66501fffa04cfd738ed689f",
+				"size": 1945
 			},
 			"pluginId": "artifactory-system-monitor",
 			"title": "System Monitor",
@@ -100,8 +100,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-threejs-v0.1.3/artifactory-threejs-0.1.3.tgz",
-				"sha256": "145f6afd5c874fc5f69274de187b4fe41582160992c35470cdc00154902a9275",
-				"size": 1631
+				"sha256": "d2b0467973712988bcb6b5438e3dcff1da4779170c3d152ba66f0bbd252448a1",
+				"size": 1648
 			},
 			"pluginId": "artifactory-threejs",
 			"title": "Three.js",
@@ -128,8 +128,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/bluesky-v0.1.0/bluesky-0.1.0.tgz",
-				"sha256": "b4aa60386433eb88bdd1f34664c5e8d46a71e23b44c120d0cffe07d33690ddb2",
-				"size": 26964
+				"sha256": "ad86eed523e09600cac61531230ad540f0e3a4cd8ce0b1c98d050e0da51c7367",
+				"size": 27724
 			},
 			"pluginId": "bluesky",
 			"title": "Bluesky",
@@ -155,8 +155,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/brand-marks-v0.2.1/brand-marks-0.2.1.tgz",
-				"sha256": "5cf3708eeed0488889fd441112d678b8408ee35e800fbf6c9be39d8a166d8273",
-				"size": 19755
+				"sha256": "a644e1b1c6b85be2cb5fbd12a6b1008b518db52a69dbfe135b188ccfa2768734",
+				"size": 20202
 			},
 			"pluginId": "brand-marks",
 			"title": "Brand Marks",
@@ -185,8 +185,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.18/browser-0.9.18.tgz",
-				"sha256": "329901a342bf73eb6a4be8af87f41af706922c82cd887d57a676373365d501fd",
-				"size": 1927297
+				"sha256": "4f1691e28d1166948f7c8b6d3a86fcc3d50a97696df45a55bdcbaa7149e183bd",
+				"size": 1983282
 			},
 			"pluginId": "browser",
 			"title": "Browser",
@@ -214,8 +214,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/build-v0.1.9/build-0.1.9.tgz",
-				"sha256": "5533a739e268dab6f07a35a40ac9a7fe003a043378f9b621004e26aee9502a2c",
-				"size": 172324
+				"sha256": "14fe99249abf266a13723d9e37dd4ea5ab2fe4833a3c58309d37bfb17bd0249a",
+				"size": 172490
 			},
 			"pluginId": "build",
 			"title": "Build",
@@ -273,8 +273,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-v0.2.10/chat-0.2.10.tgz",
-				"sha256": "e19e8f18bbf3c2bfd0cd5c8621825d3ff042f324b1c485f3eeef203f64147899",
-				"size": 785974
+				"sha256": "18a68db147f520e7e3dfe66f65a1fb108a2ebdfee966f3dbdf7a23267868fe26",
+				"size": 786109
 			},
 			"pluginId": "chat",
 			"title": "Chat",
@@ -337,8 +337,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-rail-v0.1.9/chat-rail-0.1.9.tgz",
-				"sha256": "bba823bb98ce713fe028ae160047297e1329c568c887c7218e11f534d6b6b22c",
-				"size": 52216
+				"sha256": "371935daa7d9ec5123e09edac257b67f2ee3405da48973c1f326527e202c496e",
+				"size": 53565
 			},
 			"pluginId": "chat-rail",
 			"title": "Chat Rail",
@@ -367,8 +367,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-thread-v0.1.6/chat-thread-0.1.6.tgz",
-				"sha256": "6fb39f5910d2f61064c45c6b0f0cd97d9b58756f0eb9b7235a21c2ef449fd47b",
-				"size": 4709
+				"sha256": "d16472d379e59d869a18d2e4cf474c2f0b8941ab1a1fe1d951f7c2a7174496e3",
+				"size": 4798
 			},
 			"pluginId": "chat-thread",
 			"title": "Chat Thread",
@@ -396,8 +396,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-dock-v0.1.2/classic-dock-0.1.2.tgz",
-				"sha256": "e4589c6b5d79567cbee3e042c25c65993124296e446cb114a6569fb63fd8bb21",
-				"size": 1785
+				"sha256": "49109db05dc025e9f84fbf807c883805aff0e51afe1c5995219b4bd7ec8f1673",
+				"size": 1804
 			},
 			"pluginId": "classic-dock",
 			"title": "Classic Dock",
@@ -421,8 +421,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-environment-v0.1.2/classic-environment-0.1.2.tgz",
-				"sha256": "6f80076888afb0aedad00de2eaf182eab11e6426eea47673688ef48c52f880cf",
-				"size": 1827
+				"sha256": "a72e5aff94b383a2421fff02c1a874c468656f0ca093f31e9bf6cd894ee75dd3",
+				"size": 1836
 			},
 			"pluginId": "classic-environment",
 			"title": "Classic Environment",
@@ -446,8 +446,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-rail-v0.1.2/classic-rail-0.1.2.tgz",
-				"sha256": "34ac9d23d7d3ca069b0c4a0e83862cc6f95ac3c29af83cd27104337e41d21575",
-				"size": 1794
+				"sha256": "037624e7f3f60f8f573a85e679fc7f41adc33096964db0af03ab134fe18b9fdf",
+				"size": 1806
 			},
 			"pluginId": "classic-rail",
 			"title": "Classic Rail",
@@ -471,8 +471,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-start-v0.1.2/classic-start-0.1.2.tgz",
-				"sha256": "728a5ed40c642e6a63841aa73a3598628c18b6bbd40109285421889c138ad947",
-				"size": 1901
+				"sha256": "e01d51a9b1840586e6a7c2807d666091021e93ff5d54fb3b5044cf56e56fc9d7",
+				"size": 1922
 			},
 			"pluginId": "classic-start",
 			"title": "Classic Start",
@@ -496,8 +496,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-switcher-v0.1.2/classic-switcher-0.1.2.tgz",
-				"sha256": "6c66720eb62a328ce0dd6dfc3ddb956550210599944cf57fceb9568885a18938",
-				"size": 1755
+				"sha256": "a930a641d49eb53dec4a1b22970a14e72b4733f097942287110a354aedc999cb",
+				"size": 1764
 			},
 			"pluginId": "classic-switcher",
 			"title": "Classic Switcher",
@@ -521,8 +521,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-workspace-v0.1.2/classic-workspace-0.1.2.tgz",
-				"sha256": "a01bb248dea38cb386eaeb91cfb5f8155b8bc2f9feafbfb8819b0c8b9266308b",
-				"size": 1798
+				"sha256": "25f432ada13a469a126b6dc248a4b6b2fdf33d81ee7bbe3e2ee56ab21f1ded3c",
+				"size": 1811
 			},
 			"pluginId": "classic-workspace",
 			"title": "Classic Workspace Host",
@@ -546,8 +546,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.0/discord-0.2.0.tgz",
-				"sha256": "7335487a203d0f4a7104c856c037381817849e570ea23812928459de2c73dd6e",
-				"size": 27131
+				"sha256": "81f181b908480e7508dd2eb5518880001a1deed4165c0d9322afd228a88c6746",
+				"size": 27910
 			},
 			"pluginId": "discord",
 			"title": "Discord",
@@ -573,8 +573,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/example-agents-v0.1.5/example-agents-0.1.5.tgz",
-				"sha256": "554c25dcab81cc9ada4c0d9c674e0ba47765ceec9a72254c5e13dcafbaa8ce71",
-				"size": 1581
+				"sha256": "666b65351f766b2594326c2016b8c87e48d9b0ef67f54da212747583ad93c098",
+				"size": 1611
 			},
 			"pluginId": "example-agents",
 			"title": "Example Agents",
@@ -634,8 +634,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/face-to-face-v0.1.10/face-to-face-0.1.10.tgz",
-				"sha256": "329d92cc2c9241b3fdb6c541e8c302b620d7fb5ecf7d0a7f17a7bd7a0f0f3ca6",
-				"size": 521723
+				"sha256": "3f3ee407f98c3da8a896d95843835fce75621cc5bda6f4157fff608f483af092",
+				"size": 531271
 			},
 			"pluginId": "face-to-face",
 			"title": "Face to face",
@@ -663,8 +663,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-fal-v0.1.2/gen-fal-0.1.2.tgz",
-				"sha256": "05fc1504258d4ffe7c6268c07b296e417e5e0303904ab96061e2149ea442782b",
-				"size": 58055
+				"sha256": "84358d5ffcf1bcba3e02d34e7e866b1a4d45ded3eb82ef6a8bd8da735a2d0293",
+				"size": 59294
 			},
 			"pluginId": "gen-fal",
 			"title": "fal.ai generators",
@@ -708,8 +708,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-local-3d-v0.1.2/gen-local-3d-0.1.2.tgz",
-				"sha256": "13052ff991ae5aeff392f7fcc1812cededf2fbc6c41071fc25d4f454aae10492",
-				"size": 33615
+				"sha256": "d14b668268a2e136ccf089851e377f9dec9b9715991f7215d992efa50e1587b0",
+				"size": 34524
 			},
 			"pluginId": "gen-local-3d",
 			"title": "Local image-to-3D",
@@ -748,8 +748,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-tripo-v0.1.2/gen-tripo-0.1.2.tgz",
-				"sha256": "33e79ea053ec782824a37667a3f1e8ff7d1cff44c34657822fecaadcbecf60f8",
-				"size": 34427
+				"sha256": "78146d693c418f6e6d2639ef62e896056675a16b540a8fabe6dee3846547b898",
+				"size": 35370
 			},
 			"pluginId": "gen-tripo",
 			"title": "Tripo 3D generation",
@@ -790,8 +790,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-wavespeed-v0.1.2/gen-wavespeed-0.1.2.tgz",
-				"sha256": "04bf9a7218c08d01a96dfd4eeaffe1b257f4b56de951a4dd4468ecb71e1c89e0",
-				"size": 44054
+				"sha256": "83ddd0b7a6087a5a35d9b3cb78bbd2a47ad5cd6257e00cff1ab57ac333b70398",
+				"size": 45183
 			},
 			"pluginId": "gen-wavespeed",
 			"title": "WaveSpeed generators",
@@ -832,8 +832,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/generative-ui-v0.1.3/generative-ui-0.1.3.tgz",
-				"sha256": "3951724041110d805fb899d3e7b978989f27cab00e53aadb0c142f5a83a0896f",
-				"size": 16165
+				"sha256": "0f9399229b092c51e80f974e3afe3fedc2ec0a1293c0363f50871a4e81725c90",
+				"size": 16580
 			},
 			"pluginId": "generative-ui",
 			"title": "Generative UI",
@@ -865,8 +865,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/github-v0.1.2/github-0.1.2.tgz",
-				"sha256": "0ca473a83df94a85e64630b51a94dc0f10923de55d99c949305948f3fc24b147",
-				"size": 4544
+				"sha256": "19b6faed8e1d16652a8756160dd754244db2921a4d6e2db2fe727e3c20fc3278",
+				"size": 4628
 			},
 			"pluginId": "github",
 			"title": "GitHub",
@@ -894,8 +894,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gmail-v0.3.0/gmail-0.3.0.tgz",
-				"sha256": "45f732934c837c09d551b4788aa4e0695896b45c166fad456ad7d23f24205021",
-				"size": 41215
+				"sha256": "ef99e429b6f702cec6e7fba7248f7c4f427a719a7c4d1ca43baabaa5e2f6b1c4",
+				"size": 42338
 			},
 			"pluginId": "gmail",
 			"title": "Gmail",
@@ -922,8 +922,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/google-calendar-v0.1.6/google-calendar-0.1.6.tgz",
-				"sha256": "9a9722040dd5e16c1fb895198709d4e71bf9fbb80368a6b9def7904c69a6d627",
-				"size": 44568
+				"sha256": "e8b7091cc5050c71943762f0c712be172c174163a26fcb6dfa6931b1fe632edb",
+				"size": 43883
 			},
 			"pluginId": "google-calendar",
 			"title": "Google Calendar",
@@ -950,8 +950,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/google-drive-v0.1.5/google-drive-0.1.5.tgz",
-				"sha256": "5b6fde65b284c8cfea82a14338298c913560fd3403c08347751a3199d88a1b0f",
-				"size": 11488
+				"sha256": "120af7296c391bf31a1f5b5db3f2c45ebe1fcfc3c8878edd1233f64ac9de6564",
+				"size": 11788
 			},
 			"pluginId": "google-drive",
 			"title": "Google Drive",
@@ -977,8 +977,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/google-meet-v0.1.5/google-meet-0.1.5.tgz",
-				"sha256": "dc41b2df18dc7287b016ed60c19c78cf67356dc6b50e4b8e7690d6ab3e1d19a8",
-				"size": 26196
+				"sha256": "807b91e5360d74fdb0c822fcbc47c72fc87be99525b12db8dfa20a14cd6d5875",
+				"size": 26957
 			},
 			"pluginId": "google-meet",
 			"title": "Google Meet",
@@ -1006,8 +1006,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/google-workspace-v0.1.4/google-workspace-0.1.4.tgz",
-				"sha256": "0f84e9f7402df50ac434977a8e39ce42932929ef92ff6b268b6f09fb69f9c6f3",
-				"size": 12230
+				"sha256": "6f43a891f2eaa644876f444aaada31340683b7980d99c1f3ead6761d9927fc81",
+				"size": 12510
 			},
 			"pluginId": "google-workspace",
 			"title": "Google Workspace",
@@ -1036,8 +1036,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/hackernews-v0.1.0/hackernews-0.1.0.tgz",
-				"sha256": "0915ccfba6d49c90a8273a9de9f74ecc155cc1a5668c8372dcffe4f1da9c9c7b",
-				"size": 13818
+				"sha256": "cdbd123423912a41b41b686b52023c88169d6300fde9ddfa975e0562e0129692",
+				"size": 14172
 			},
 			"pluginId": "hackernews",
 			"title": "Hacker News",
@@ -1064,8 +1064,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/image-v0.1.1/image-0.1.1.tgz",
-				"sha256": "551ea2ab7babdbac63675d9409233e5a7910a20d2294b42ea83a376f431836f7",
-				"size": 3374
+				"sha256": "97203daa910025a3847ac41cd80d770b486d16e3a2dfcc4054d152d9e72e8821",
+				"size": 3443
 			},
 			"pluginId": "image",
 			"title": "Image",
@@ -1098,8 +1098,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/impeccable-v3.9.3/impeccable-3.9.3.tgz",
-				"sha256": "fddb5bbeffba3dbcb68fcb1f8fa71a3137e268bd0e2e2102b0d242f201c8bbe9",
-				"size": 608772
+				"sha256": "a60b12d9629696734052dc7efafff98a23be1e7e53b668ccf07f0d1988ea045a",
+				"size": 625680
 			},
 			"pluginId": "impeccable",
 			"title": "Impeccable",
@@ -1130,8 +1130,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-composer-v0.1.3/independent-composer-0.1.3.tgz",
-				"sha256": "b87ebddbc45330a07861964c77e6eea97f5614f1abf42704cfaf4227181325a5",
-				"size": 12619
+				"sha256": "1b135b749502c26daa49ae033196606558182f57886f6c3b1c47140848fce25e",
+				"size": 12983
 			},
 			"pluginId": "independent-composer",
 			"title": "Independent Composer",
@@ -1157,8 +1157,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-rail-v0.1.5/independent-rail-0.1.5.tgz",
-				"sha256": "d36e936bb04d5d25f6e680f929b6dd6e56027e65238e2ef5de3c3405699f759e",
-				"size": 5238
+				"sha256": "a692467336f316b80440608f1ada810397d84ddc180ea820f0301c313900da0a",
+				"size": 5339
 			},
 			"pluginId": "independent-rail",
 			"title": "Independent Rail",
@@ -1185,8 +1185,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-thread-v0.1.2/independent-thread-0.1.2.tgz",
-				"sha256": "d8d7143032f43ba2b3a81cd8aeea253179edbb01e226bc40f5dd620ceb0f31a3",
-				"size": 3776
+				"sha256": "b3db9e787fa21ddf4c2a7116992ca74aec5391047b11476a05fa50ed5a6e6b4f",
+				"size": 3845
 			},
 			"pluginId": "independent-thread",
 			"title": "Independent Thread",
@@ -1210,8 +1210,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/last30days-v0.2.2/last30days-0.2.2.tgz",
-				"sha256": "6cfe663a203b179317f10e0b9f82768063b9f58b391ee2c9b0059943c0a75ea5",
-				"size": 919269
+				"sha256": "61e5fbdb38532359defd1f405803d9e10555a07f74d36c86eab770bd77655cc3",
+				"size": 942468
 			},
 			"pluginId": "last30days",
 			"title": "last30days",
@@ -1242,8 +1242,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/mochi-mark-v0.1.3/mochi-mark-0.1.3.tgz",
-				"sha256": "b88b0dc865df0de43074518bb075e9e33aca9934191e7e179b0e30fcc4b76af1",
-				"size": 2991
+				"sha256": "0c32554c10bbe0fa6e608b2915a70a4aeec90b18593cc1a0e91d13980b59efab",
+				"size": 3029
 			},
 			"pluginId": "mochi-mark",
 			"title": "Mochi Mark",
@@ -1268,8 +1268,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/newsletter-v0.1.0/newsletter-0.1.0.tgz",
-				"sha256": "a9b899acc4063bb168ecfe7a2fb446b9cdcbc2b00a0ca180fd934b84611a32fb",
-				"size": 21714
+				"sha256": "984c5da3b26b82ec725c51ffbe52722c96362e18c73e1ad5342cd55996dde84d",
+				"size": 22303
 			},
 			"pluginId": "newsletter",
 			"title": "Newsletter",
@@ -1300,8 +1300,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/pr-viewer-v0.1.7/pr-viewer-0.1.7.tgz",
-				"sha256": "589b5f38317046f7dcb8c7380586ebed70f3590c9b671c0861837889ce863d10",
-				"size": 59309
+				"sha256": "9a619c7e2b27f5e4e807738505d6a5175e260ea82eca964e155757af5084a2ad",
+				"size": 60486
 			},
 			"pluginId": "pr-viewer",
 			"title": "PR Viewer",
@@ -1328,8 +1328,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/product-psychology-v0.1.4/product-psychology-0.1.4.tgz",
-				"sha256": "3a919ce83edd66721103a17fbe0627ae2efe6aa663a177222700804efeeb3d4c",
-				"size": 48930
+				"sha256": "ac0809528985200a055cb4d635ae77a57754558dfc3c22e33ca9a8ba9847051a",
+				"size": 50290
 			},
 			"pluginId": "product-psychology",
 			"title": "Product Psychology",
@@ -1360,8 +1360,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/pulse-mark-v0.1.3/pulse-mark-0.1.3.tgz",
-				"sha256": "71ad2c173aa85b612818fe8bc3b3a8742558e560126de62934877b29c8879b7b",
-				"size": 4078
+				"sha256": "3541836a55b1e79ea4400585dc03c1c5c3b133ab4ec0f317fa22c8680ee32eba",
+				"size": 4147
 			},
 			"pluginId": "pulse-mark",
 			"title": "Pulse Mark",
@@ -1386,8 +1386,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/reddit-v0.2.0/reddit-0.2.0.tgz",
-				"sha256": "a749facb0015d44e634929fea206f4aa8f2dda8f685dc6ba9a54e715ae9840bd",
-				"size": 13574
+				"sha256": "6d2dd4ec0d2eda32b23346f91c0c6c0377c977171b9bb9aabe0cfffe3cfcef8b",
+				"size": 13946
 			},
 			"pluginId": "reddit",
 			"title": "Reddit",
@@ -1413,8 +1413,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/rooms-rail-v0.1.4/rooms-rail-0.1.4.tgz",
-				"sha256": "362046d336402824c823fb64848c9191afcb44baf7a77de76406023a9e4349dd",
-				"size": 2040
+				"sha256": "6f65316e02d066ffc0c27175419e777bacbaedfc3dc283ae6381af9799d6eea7",
+				"size": 2071
 			},
 			"pluginId": "rooms-rail",
 			"title": "Rooms Rail",
@@ -1441,8 +1441,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/router-jev-v0.1.2/router-jev-0.1.2.tgz",
-				"sha256": "0eb2042bb3d0995b37c2d03e3ee945090274482bf2e3b62cef13a954c444ce32",
-				"size": 10255
+				"sha256": "4ef86bf39c1b8605509450b4d40d4ebd3884207e38d7cf5f57e263399ad545fa",
+				"size": 10531
 			},
 			"pluginId": "router-jev",
 			"title": "Jev room router",
@@ -1468,8 +1468,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.5/simulator-0.1.5.tgz",
-				"sha256": "03733d33d55476095c13c55e8bce56662aabc2ae49660589bf79e6ccf111a80c",
-				"size": 430200
+				"sha256": "df52edffd6012db12d0d54a504fb5aca2a98a6179d6cd3bfd0a35fa0ad1f7cb7",
+				"size": 444521
 			},
 			"pluginId": "simulator",
 			"title": "Simulator",
@@ -1498,8 +1498,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/slack-v0.3.2/slack-0.3.2.tgz",
-				"sha256": "e76b69deb30a95157c7cfd0377b9c238008dcbded891604f2720d33df5f71f05",
-				"size": 63353
+				"sha256": "bbb58b36123781eee758b9a20b8f89c5a11cc7e23242d9b03b0d1dfeacda3724",
+				"size": 64892
 			},
 			"pluginId": "slack",
 			"title": "Slack",
@@ -1530,8 +1530,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/social-listening-v0.1.1/social-listening-0.1.1.tgz",
-				"sha256": "63ce1722b7e6ded2628468c6a6613e4783c03fcf11af6676c4b79f27db88c77b",
-				"size": 13083
+				"sha256": "0f7e8919ac4e08510451f9c86b84130fbb2a4c1e7acda7153fdf96cc61caf56c",
+				"size": 13379
 			},
 			"pluginId": "social-listening",
 			"title": "Social Listening",
@@ -1562,8 +1562,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/speech-elevenlabs-v0.3.5/speech-elevenlabs-0.3.5.tgz",
-				"sha256": "11346f4e58b3f91d4633701b8c2d7931ef3ba79f5f00aa7d8d221a0c66a5eb81",
-				"size": 85028
+				"sha256": "fcfe230664de16bc09d8a76a27f8cd5148fbad8f1822e03760fed4200300a072",
+				"size": 87203
 			},
 			"pluginId": "speech-elevenlabs",
 			"title": "ElevenLabs voice",
@@ -1602,8 +1602,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.2/swiss-knife-0.7.2.tgz",
-				"sha256": "35218bdd505a09ccfbb8e960cfea8b586f2c2ac7ee3e52ff1da87156faee8714",
-				"size": 2176835
+				"sha256": "8237c8642261b1e2877ff1a687d201d90bb080fb79d8e5e0c750e9b5ebc799db",
+				"size": 2255331
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
@@ -1649,8 +1649,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/taste-v0.1.3/taste-0.1.3.tgz",
-				"sha256": "33c2b779713bd3d738720a05a3362f75dc8a60ad41e277901ba9c9f794ec51c5",
-				"size": 36653
+				"sha256": "5a08cde3601239d0c62f4c18f1507c3dba79bcb1e9e0ea5f83268a488339c2c3",
+				"size": 37643
 			},
 			"pluginId": "taste",
 			"title": "Taste",
@@ -1680,8 +1680,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/teams-v0.1.6/teams-0.1.6.tgz",
-				"sha256": "090597a5847c67442cbd2a319c24b6702ad567411d30745bbfe6064628901865",
-				"size": 13499
+				"sha256": "2d62b462b03b2e8cf7c27792a9aeef84ec7c4ca1d4aaeb0d5ac7bf416bd1915c",
+				"size": 13854
 			},
 			"pluginId": "teams",
 			"title": "Microsoft Teams",
@@ -1708,8 +1708,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/telegram-v0.1.6/telegram-0.1.6.tgz",
-				"sha256": "6c3d2f83ab5266f56239920a8d2af65de2adc8018380efbf3583cb8f16780abb",
-				"size": 10201
+				"sha256": "a3cdfafd0df3f02260d3f3a7f68c205fad2477d64534ef2fb9ba6ef959f5709b",
+				"size": 10439
 			},
 			"pluginId": "telegram",
 			"title": "Telegram",
@@ -1735,8 +1735,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/triage-rail-v0.1.6/triage-rail-0.1.6.tgz",
-				"sha256": "f07794a08360fc67a0a1910de4e922d4cd77fa28eab993e45331e75f4e502904",
-				"size": 28755
+				"sha256": "80ac37d4ee50307eac96db64ebf613830d1c2309110f31cb7452e4e6f40df164",
+				"size": 29587
 			},
 			"pluginId": "triage-rail",
 			"title": "Triage Rail",
@@ -1765,8 +1765,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/ui-skills-v0.1.2/ui-skills-0.1.2.tgz",
-				"sha256": "2f4d1e3b46cb5dc6e07dd6a493549c2ff25cb95778e6449b207b360a8e9bb5f2",
-				"size": 8281
+				"sha256": "42a0eb64bc54b849f010b4fdfde65b0b3f428d0a9f62f24befd4b9de98da4b0a",
+				"size": 8445
 			},
 			"pluginId": "ui-skills",
 			"title": "UI Skills",
@@ -1798,8 +1798,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/watch-v0.3.4/watch-0.3.4.tgz",
-				"sha256": "db2ce40cca9a9ca689cc6386d2d94de8b4ad79c32492888ac5fdb3062f324456",
-				"size": 69793
+				"sha256": "29bdfd6000940d500548fbb868bc895735c45e9231489b53a26270e5c7d4efa2",
+				"size": 71638
 			},
 			"pluginId": "watch",
 			"title": "Watch",
@@ -1827,8 +1827,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/whatsapp-v0.1.5/whatsapp-0.1.5.tgz",
-				"sha256": "58c7708c947ca8acace8cd2f47206b28bea8cbf61d4810732dc88f60ea473a28",
-				"size": 8687
+				"sha256": "0905812f832c668eb03767dbfe77dbadb89201bf1eaf654e501e22527e473314",
+				"size": 8865
 			},
 			"pluginId": "whatsapp",
 			"title": "WhatsApp",
@@ -1854,8 +1854,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/x-v0.3.0/x-0.3.0.tgz",
-				"sha256": "5d8a86a286a1f028fae911021f42c065ca3998e76c2c8c00b89948972d2eff66",
-				"size": 36169
+				"sha256": "6d68a2ec9a36ff2c3389ab4d1e36d089d9010e63156171f1c38d3bb5100ad75a",
+				"size": 37102
 			},
 			"pluginId": "x",
 			"title": "X",
@@ -1882,8 +1882,8 @@
 			"source": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.3.0/youtube-0.3.0.tgz",
-				"sha256": "ce15aea9d6d7554d83a0f9aefd651e2d244d69f54b8465a1006a71348af40749",
-				"size": 68958
+				"sha256": "c96f0ec94044fd89dbcbe5fb16169a2a37a0b9d9a2fd6b703a5a53cf88d8db96",
+				"size": 70935
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",

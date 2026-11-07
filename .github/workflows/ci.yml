@@ -15,6 +15,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       # @fraym/ui is a HOST-RESOLVED external, not a dependency a pack installs:
       # the portable packs (independent-*) build here with vite alone. Packs that
       # still take workspace deps run their tests inside the Dimension monorepo
@@ -46,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       - run: bun scripts/publish-pack-releases.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -118,12 +118,13 @@ sha256 and size are the ones your catalog entry pins.
   Linux. Everything sits under one top directory `<name>/`, sorted, with no
   timestamps or owners, so the same files always give the same bytes. A
   symlink or a nested repository fails the build by name.
-- **You build it by regenerating the catalog.** `bun scripts/build-index.ts`
-  builds every pack's archive in memory and writes its `sha256` and `size`
-  into the entry. The archive is compressed by the shelf's own deflate
-  (`scripts/gzip.mjs`), not the runtime's zlib, so any bun version gives the
-  bytes CI gives. To look inside your archive,
-  `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
+- **You build it by regenerating the catalog.** Run `bun install` once (it
+  installs the shelf's one dev dependency, `fflate`, pinned exactly in
+  `package.json` and `bun.lock`), then `bun scripts/build-index.ts` builds every
+  pack's archive in memory and writes its `sha256` and `size` into the entry.
+  The archive is compressed by that pinned pure-JS `fflate`, not by bun's own
+  zlib, so any bun version gives the bytes CI gives. To look inside your
+  archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
 - **Builds are never committed.** No `.tgz` belongs in this repository; the
   catalog holds only the hash and size.
 - **Every change is a new version.** A published build is never replaced. Any

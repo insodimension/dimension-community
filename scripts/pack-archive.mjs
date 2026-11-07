@@ -4,7 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deterministicGzip } from "./gzip.mjs";
+import { gzipSync } from "fflate";
 import { RELEASE_MAX_BYTES } from "./space-showcase.mjs";
 
 export const SHELF_REPO = "insodimension/dimension-community";
@@ -27,6 +27,7 @@ const TAR_BLOCK = 512;
 const TAR_NAME_MAX = 100;
 const TAR_PREFIX_MAX = 155;
 const FILE_MODES = { "100644": 0o644, "100755": 0o755 };
+const GZIP_OPTIONS = { level: 9, mem: 12, mtime: 0 };
 
 function git(root, args, options = {}) {
 	const result = spawnSync("git", args, {
@@ -185,7 +186,8 @@ export function buildPackArchives(root, names) {
 	for (const [name, entries] of byPack) {
 		if (entries.length === 0) throw new Error(`packs/${name} holds no files git would commit`);
 		entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-		const bytes = deterministicGzip(tarOf(entries));
+		const compressed = gzipSync(tarOf(entries), GZIP_OPTIONS);
+		const bytes = Buffer.from(compressed.buffer, compressed.byteOffset, compressed.byteLength);
 		if (bytes.length > RELEASE_MAX_BYTES) {
 			throw new Error(`packs/${name} builds to ${bytes.length} bytes, over the ${RELEASE_MAX_BYTES}-byte release cap`);
 		}
