@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPackArchives } from "./pack-archive.mjs";
-import { packArchiveName, packReleaseTag, packReleaseUrl, SHELF_REPO } from "./shelf-release.mjs";
-import { shelfPackDir } from "./space-showcase.mjs";
+import { packArchiveName, packDirectories, packReleaseTag, packReleaseUrl, SHELF_REPO } from "./shelf-release.mjs";
+import { isShelfPackEntry } from "./space-showcase.mjs";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const SHA256_DIGEST_PREFIX = "sha256:";
@@ -71,8 +71,9 @@ function githubClient(api, token) {
 function shelfBuilds(root, catalog) {
 	const builds = [];
 	const failures = [];
+	const shelfPacks = new Set(packDirectories(root));
 	for (const entry of catalog.plugins ?? []) {
-		if (!shelfPackDir(root, entry)) continue;
+		if (!isShelfPackEntry(shelfPacks, entry)) continue;
 		const { name, version, release } = entry;
 		if (release?.url !== packReleaseUrl(name, version)) {
 			failures.push(`${name}: the catalog points at ${release?.url}, not this shelf's release build ${packReleaseUrl(name, version)}`);

@@ -121,9 +121,10 @@ your entry's `release` pins.
   symlink or a nested repository fails the build by name.
 - **You build it by regenerating the catalog.** Run `bun install` once (it
   installs the shelf's one dev dependency, `fflate`, pinned exactly in
-  `package.json` and `bun.lock`), then `bun scripts/build-index.ts` builds every
-  pack's archive in memory and writes its `sha256` and `size` into the entry's
-  `release`.
+  `package.json` and `bun.lock`), then `bun scripts/build-index.ts` builds the
+  archive of every pack whose version has no `release` in the catalog yet and
+  writes its `sha256` and `size` into the entry's `release`. A version that
+  already has one keeps it as it is.
   The archive is compressed by that pinned pure-JS `fflate`, not by bun's own
   zlib, so any bun version gives the bytes CI gives. To look inside your
   archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
@@ -132,7 +133,8 @@ your entry's `release` pins.
 - **Every change is a new version.** A published build is never replaced. Any
   change to a file under `packs/<name>/`, tests included, needs a version bump
   (`check-version-bumps.mjs` refuses one without), which gives it a new tag
-  and a new archive.
+  and a new archive. The same check refuses a catalog whose `release` sha256
+  or size changed for a version that did not.
 - **CI publishes it after merge.** On every push to `main`, once the
   `validate` job is green, the `publish-releases` job reads the catalog and,
   for each entry whose release asset does not exist yet, builds the archive
@@ -143,14 +145,17 @@ your entry's `release` pins.
   `main` by hand (Actions, ci, Run workflow) to publish again after a failure.
 - **The window.** From the merge until that job finishes (normally a minute
   or two), the catalog on `main` already names your new version but its
-  archive is not uploaded yet, so an install in that window fails with
-  HTTP 404 and works on retry. Nothing else changes for anyone: people on the
-  previous version keep it.
+  archive is not uploaded yet. A Dimension that reads `release` gets HTTP 404
+  for it in that window, warns, and installs the pack from its
+  `./packs/<name>` source instead, so the install still works. The merge that
+  introduced release builds put all 60 packs in this window at once, until
+  its first `publish-releases` run finished; the same fallback covered it.
 - **Older Dimension.** Every entry keeps `source: "./packs/<name>"` beside
   `release`. A Dimension that does not know the `release` field ignores it and
   installs from `source` as it always has, so no version ever loses its
   Community shelf and this switch can merge at any time. A Dimension that
-  reads `release` but finds it malformed warns and installs from `source`.
+  reads `release` but finds it malformed, or cannot download or verify the
+  build, warns and installs from `source`.
 
 ## Your first space
 

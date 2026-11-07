@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, join, posix, relative } from "node:path";
 
 export const SHOWCASE_KEYS = ["tagline", "summary", "screenshots", "video", "needs", "onboarding"];
@@ -20,10 +20,8 @@ export function isReleaseSource(source) {
 	return isRecord(source) && source.source === "release";
 }
 
-export function shelfPackDir(root, plugin) {
-	if (typeof plugin.name !== "string" || !/^[a-z0-9-]+$/.test(plugin.name) || plugin.source !== `./packs/${plugin.name}`) return undefined;
-	const packDir = join(root, "packs", plugin.name);
-	return existsSync(join(packDir, "package.json")) ? packDir : undefined;
+export function isShelfPackEntry(shelfPacks, plugin) {
+	return shelfPacks.has(plugin.name) && plugin.source === `./packs/${plugin.name}`;
 }
 
 export function releaseSourceProblems(label, plugin, field = "source") {

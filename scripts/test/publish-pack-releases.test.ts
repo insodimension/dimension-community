@@ -40,7 +40,7 @@ function builtShelf(): string {
 	writeFile(root, ".dimension-plugin/marketplace.json", JSON.stringify({ name: "test-shelf", owner: { name: "Tests" }, plugins: [] }));
 	writePack(root, "alpha", "1.0.0", "# Alpha\n");
 	writePack(root, "beta", "2.1.0", "# Beta\n");
-	const built = spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" });
+	const built = spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8", windowsHide: true });
 	expect(built.status).toBe(0);
 	return root;
 }

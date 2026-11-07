@@ -40,9 +40,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildPackArchives, packDirectories } from "./pack-archive.mjs";
-import { packReleaseUrl, SHELF_REPOSITORY } from "./shelf-release.mjs";
+import { buildPackArchives } from "./pack-archive.mjs";
+import { packDirectories, packReleaseUrl, SHELF_REPOSITORY } from "./shelf-release.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifest } from "./pack-manifest.mjs";
+import { releaseSourceProblems } from "./space-showcase.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -50,14 +51,7 @@ const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
 const legacyCatalogPath = join(root, ".omp-plugin", "marketplace.json");
 const packsDir = join(root, "packs");
 
-/** Shelf-wide defaults for the two fields a pack's `package.json` usually
- *  omits because they are properties of THIS repository, not of the pack: every
- *  pack here lives in this git repo and ships under its license unless it says
- *  otherwise (vendored packs do — `impeccable` is Apache-2.0). A pack that
- *  declares either field wins. */
 const SHELF_LICENSE = "MIT";
-
-type PackArchive = { sha256: string; size: number };
 
 type Json = Record<string, unknown>;
 
@@ -246,7 +240,7 @@ function authorOf(pkg: Json): Json | undefined {
 }
 
 /** One catalog entry, in the field order the shelf publishes. */
-function entryFor(dir: string, archive: PackArchive): Json {
+function entryFor(dir: string, prior: Json | undefined): Json {
 	const packRoot = join(packsDir, dir);
 	const packDir = posix.join("packs", dir);
 	const pkg = readJson(join(packRoot, "package.json"));
@@ -263,10 +257,18 @@ function entryFor(dir: string, archive: PackArchive): Json {
 
 	const version = asString(pkg.version);
 	if (!version) throw new Error(`packs/${dir}: package.json version is required`);
+	const published = asObject(prior?.release);
+	const reuse =
+		published !== undefined &&
+		prior?.source === `./${packDir}` &&
+		prior.version === version &&
+		published.source === "release" &&
+		published.url === packReleaseUrl(dir, version) &&
+		releaseSourceProblems(dir, prior, "release").length === 0;
 	const entry: Json = {
 		name: dir,
 		source: `./${packDir}`,
-		release: { source: "release", url: packReleaseUrl(dir, version), sha256: archive.sha256, size: archive.size },
+		release: reuse ? { source: "release", url: published.url, sha256: published.sha256, size: published.size } : undefined,
 	};
 	const pluginId = asString(manifest.plugin);
 	if (pluginId) entry.pluginId = pluginId;
@@ -313,9 +315,18 @@ function entryFor(dir: string, archive: PackArchive): Json {
  *  part of this file — and every other top-level key it happens to hold. */
 export function buildIndex(seed: Json, listed: readonly Json[] = []): Json {
 	const packs = packDirectories(root);
-	const archives = buildPackArchives(root, packs) as Map<string, PackArchive>;
-	const releases = listed.filter(entry => asObject(entry.source)?.source === "release");
-	const plugins = [...packs.map(dir => entryFor(dir, archives.get(dir) as PackArchive)), ...releases].sort((a, b) => {
+	const priorByName = new Map(listed.map(entry => [entry.name, entry]));
+	const entries = packs.map(dir => entryFor(dir, priorByName.get(dir)));
+	const unpublished = entries.filter(entry => entry.release === undefined);
+	if (unpublished.length > 0) {
+		const archives = buildPackArchives(root, unpublished.map(entry => entry.name)) as Map<string, { sha256: string; size: number }>;
+		for (const entry of unpublished) {
+			const { sha256, size } = archives.get(entry.name as string) as { sha256: string; size: number };
+			entry.release = { source: "release", url: packReleaseUrl(entry.name, entry.version), sha256, size };
+		}
+	}
+	const listedWithoutCode = listed.filter(entry => asObject(entry.source)?.source === "release");
+	const plugins = [...entries, ...listedWithoutCode].sort((a, b) => {
 		const left = String(a.name);
 		const right = String(b.name);
 		return left < right ? -1 : left > right ? 1 : 0;

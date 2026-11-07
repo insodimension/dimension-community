@@ -60,6 +60,24 @@ for (const [pack, files] of changedByPack) {
 	if (before === after) failures.push(`packs/${pack}: ${files.length} shipped file(s) changed but the version is still ${after} (e.g. ${files[0]}). Bump package.json and plugin.json, then run scripts/build-index.ts.`);
 }
 
+const releasesAt = ref => {
+	let catalog;
+	try {
+		catalog = JSON.parse(git("show", `${ref}:.dimension-plugin/marketplace.json`));
+	} catch {
+		return new Map();
+	}
+	return new Map((catalog.plugins ?? []).filter(entry => entry.release).map(entry => [entry.name, entry]));
+};
+const publishedBefore = releasesAt(mergeBase);
+for (const [name, entry] of releasesAt("HEAD")) {
+	const before = publishedBefore.get(name);
+	if (!before || before.version !== entry.version || before.release.url !== entry.release.url) continue;
+	if (before.release.sha256 !== entry.release.sha256 || before.release.size !== entry.release.size) {
+		failures.push(`${name}: the release build of ${entry.version} changed (sha256 ${before.release.sha256}, ${before.release.size} bytes → sha256 ${entry.release.sha256}, ${entry.release.size} bytes) but its version did not. A published build is never replaced: bump the pack's version.`);
+	}
+}
+
 for (const warning of warnings) console.warn(`check-version-bumps: warning: ${warning}`);
 
 if (failures.length > 0) {

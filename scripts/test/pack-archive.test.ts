@@ -46,6 +46,11 @@ function makeShelf(): string {
 	return root;
 }
 
+function runScript(root: string, script: string, ...args: string[]) {
+	const result = spawnSync(process.execPath, [join(root, "scripts", script), ...args], { cwd: root, encoding: "utf8", windowsHide: true });
+	return { status: result.status, output: `${result.stdout}${result.stderr}` };
+}
+
 type TarEntry = { path: string; mode: number; bytes: Uint8Array };
 
 function readTar(tgz: Uint8Array): TarEntry[] {
@@ -98,22 +103,26 @@ describe("a pack's release build", () => {
 		expect(bytesOf("package.json").equals(readFileSync(join(root, "packs/demo/package.json")))).toBeTrue();
 	});
 
-	test("a pack file changed after the catalog was built fails the drift check until the catalog is rebuilt", () => {
+	test("a published build stays pinned when its files change, and a version bump drifts the catalog until it is rebuilt", () => {
 		const root = makeShelf();
-		const run = (...args: string[]) => spawnSync(process.execPath, [join(root, "scripts", "build-index.ts"), ...args], { cwd: root, encoding: "utf8" });
-		expect(run().status).toBe(0);
+		const check = () => runScript(root, "build-index.ts", "--check");
+		expect(runScript(root, "build-index.ts").status).toBe(0);
+		const published = readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8");
 		writeFile(root, "packs/demo/notes.md", "line one\nline two changed\n");
+		expect(check().status).toBe(0);
 
-		const stale = run("--check");
+		writeFile(root, "packs/demo/package.json", JSON.stringify({ name: "demo", version: "1.0.1", description: "A demo pack for the archive tests." }));
+		const stale = check();
 		expect(stale.status).toBe(1);
-		expect(`${stale.stdout}${stale.stderr}`).toContain('"sha256"');
-		expect(run().status).toBe(0);
-		expect(run("--check").status).toBe(0);
+		expect(stale.output).toContain("demo-v1.0.1");
+		expect(runScript(root, "build-index.ts").status).toBe(0);
+		expect(check().status).toBe(0);
+		expect(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8")).not.toBe(published);
 	});
 
 	test("a pack deleted from the shelf loses its entry on regeneration, while an external release listing stays", () => {
 		const root = makeShelf();
-		const run = () => spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" });
+		const run = () => runScript(root, "build-index.ts");
 		const catalogPath = join(root, ".dimension-plugin/marketplace.json");
 		const names = () => {
 			const listed: { plugins: { name: string }[] } = JSON.parse(readFileSync(catalogPath, "utf8"));
@@ -140,23 +149,22 @@ describe("a pack's release build", () => {
 type CatalogEntry = { name: string; source: unknown; release?: { source: string; url: string; sha256: string; size: number } };
 
 describe("the validator on a shelf of release builds", () => {
-	function shelfWithEditedDemo(edit: (demo: CatalogEntry) => void) {
+	function shelfWithEditedDemo(edit: (demo: CatalogEntry) => void, script: string, ...args: string[]) {
 		const root = makeShelf();
-		expect(spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" }).status).toBe(0);
+		expect(runScript(root, "build-index.ts").status).toBe(0);
 		const catalog: { plugins: CatalogEntry[] } = JSON.parse(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8"));
 		const demo = catalog.plugins.find(plugin => plugin.name === "demo");
 		if (!demo) throw new Error("the built catalog lists no demo pack");
 		edit(demo);
-		for (const path of [".dimension-plugin/marketplace.json", ".omp-plugin/marketplace.json"]) writeFile(root, path, JSON.stringify(catalog));
-		const result = spawnSync(process.execPath, [join(root, "scripts", "validate-marketplace.mjs")], { cwd: root, encoding: "utf8" });
-		return { status: result.status, output: `${result.stdout}${result.stderr}` };
+		for (const path of [".dimension-plugin/marketplace.json", ".omp-plugin/marketplace.json"]) writeFile(root, path, `${JSON.stringify(catalog, null, "\t")}\n`);
+		return runScript(root, script, ...args);
 	}
 
 	test("a shelf pack keeps its path source and carries its release build beside it", () => {
 		let listed: CatalogEntry | undefined;
 		const result = shelfWithEditedDemo(demo => {
 			listed = structuredClone(demo);
-		});
+		}, "validate-marketplace.mjs");
 
 		expect(result.status).toBe(0);
 		expect(listed?.source).toBe("./packs/demo");
@@ -164,13 +172,13 @@ describe("the validator on a shelf of release builds", () => {
 		expect(listed?.release?.url).toBe("https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.0.tgz");
 	});
 
-	test("refuses a shelf pack whose release url was edited by hand", () => {
+	test("the drift check refuses a shelf pack whose release url was edited by hand", () => {
 		const result = shelfWithEditedDemo(demo => {
 			if (!demo.release) throw new Error("demo carries no release build");
 			demo.release.url = "https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.1.tgz";
-		});
+		}, "build-index.ts", "--check");
 
 		expect(result.status).toBe(1);
-		expect(result.output).toContain(`plugin "demo": release.url must be this shelf's release build`);
+		expect(result.output).toContain("STALE");
 	});
 });

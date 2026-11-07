@@ -1,20 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "fflate";
-import { packArchiveName } from "./shelf-release.mjs";
+import { packArchiveName, packDirectories } from "./shelf-release.mjs";
 import { RELEASE_MAX_BYTES } from "./space-showcase.mjs";
-
-export function packDirectories(root) {
-	const packsDir = join(root, "packs");
-	if (!existsSync(packsDir)) return [];
-	return readdirSync(packsDir)
-		.filter(dir => statSync(join(packsDir, dir)).isDirectory() && existsSync(join(packsDir, dir, "package.json")))
-		.sort();
-}
 
 const TAR_BLOCK = 512;
 const TAR_NAME_MAX = 100;
