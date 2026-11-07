@@ -3838,6 +3838,55 @@ var READ_FIELD_SCRIPT = (el) => {
   const lines = children.filter((node) => node.nodeName === "P").map((p) => trimmed(p.innerText));
   return { state: "value", value: lines.join("\n") };
 };
+var EDITABLES_SCRIPT = () => {
+  const notText = ["hidden", "checkbox", "radio", "file", "submit", "button", "reset", "image", "range", "color", "date", "datetime-local", "month", "week", "time"];
+  const exemptTypes = ["email", "password", "tel", "search"];
+  const exemptAutocomplete = /(?:^|\s)(?:username|email|tel|one-time-code|current-password|new-password)(?:\s|$)/i;
+  const kindOf = (el) => {
+    if (el.tagName === "INPUT") {
+      const input = el;
+      const type = (input.type || "text").toLowerCase();
+      if (notText.includes(type)) return "none";
+      if (exemptTypes.includes(type) || exemptAutocomplete.test(input.getAttribute("autocomplete") ?? "")) return "exempt";
+      const role = (input.getAttribute("role") ?? "").toLowerCase();
+      if (role === "searchbox" || role === "combobox") return "exempt";
+      if ((input.form ?? input.closest("form"))?.querySelector('input[type="password"]')) return "exempt";
+      return "content";
+    }
+    if (el.tagName === "TEXTAREA") return "content";
+    return el.isContentEditable ? "content" : "none";
+  };
+  const shown2 = (el) => {
+    if (el.getClientRects().length === 0) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  const valueOf = (el) => {
+    if (el.tagName === "INPUT") return el.value;
+    if (el.tagName === "TEXTAREA") return el.value;
+    const html = el;
+    const trimmed = (text2) => text2.endsWith("\n") ? text2.slice(0, -1) : text2;
+    const children = Array.from(html.childNodes);
+    const paragraphs = children.some((node) => node.nodeName === "P") && children.every((node) => node.nodeName === "P" || node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === "");
+    if (!paragraphs) return trimmed(html.innerText);
+    return children.filter((node) => node.nodeName === "P").map((p) => trimmed(p.innerText)).join("\n");
+  };
+  const texts = [];
+  const visit = (root) => {
+    for (const el of Array.from(root.querySelectorAll("input, textarea, [contenteditable]"))) {
+      const kind = kindOf(el);
+      if (kind === "none") continue;
+      if (kind === "content" && el.tagName !== "INPUT" && el.tagName !== "TEXTAREA" && el.parentElement?.isContentEditable) continue;
+      if (!shown2(el)) continue;
+      const value = valueOf(el);
+      if (value.trim() !== "") texts.push({ value, exempt: kind === "exempt" });
+    }
+    for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) visit(host.shadowRoot);
+  };
+  visit(document);
+  if (document.designMode === "on" && document.body !== null && document.body.innerText.trim() !== "") texts.push({ value: document.body.innerText, exempt: false });
+  return texts;
+};
 var ELEMENT_TEXT_SCRIPT = (el, limit) => {
   if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return null;
   const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -5134,6 +5183,19 @@ var PuppeteerDriver = class {
     } finally {
       await handle.dispose().catch(() => void 0);
     }
+  }
+  async editables() {
+    const texts = [];
+    for (const frame of this.#activeTab().page.frames()) {
+      if (frame.detached) continue;
+      try {
+        texts.push(...await utilityWorld(frame).evaluate(EDITABLES_SCRIPT));
+      } catch (error) {
+        if (frame.detached) continue;
+        throw error;
+      }
+    }
+    return texts;
   }
   async readText(selector3, limit) {
     const handle = await this.#activeTab().page.$(selector3);
@@ -8380,10 +8442,24 @@ import { z as z3 } from "zod";
 var PACK_CONNECTION_REPORT_MAX_BYTES2 = 64 * 1024;
 
 // ../../../packages/sdk/src/artifactory/host-context.ts
+var ARTIFACTORY_HOST_CONTEXT_META_KEY = "ai.insodimension/host-context";
 var ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD = "notifications/ai.insodimension/host-context-ended";
 
+// src/submit-judge.ts
+var ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID2 = "ai.insodimension/submit-judge";
+var ARTIFACTORY_SUBMIT_JUDGE_METHOD2 = "ai.insodimension/submit-judge/ask";
+var SUBMIT_JUDGE_LIMITS2 = {
+  texts: 6,
+  submittingChars: 1600,
+  approvals: 6,
+  approvalTexts: 8,
+  textChars: 4e3,
+  profileChars: 64,
+  originChars: 2048
+};
+
 // src/code/host/code-host.ts
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 
 // src/code/kinds/resolve.ts
 import { homedir as homedir3 } from "node:os";
@@ -8500,12 +8576,289 @@ function describeHeadless(hidden, standing) {
   return `headless browser (${hidden ? "hidden" : "visible"})`;
 }
 
+// src/publish-approval.ts
+import { createHash as createHash4 } from "node:crypto";
+import { open, readdir as readdir2, readFile, unlink } from "node:fs/promises";
+import { join as join5 } from "node:path";
+var BINDING_DOMAIN = "publish-approval/v1";
+var FILL_DOMAIN = "approved-fill/v1";
+var MAX_APPROVAL_MS = 24 * 60 * 6e4;
+var DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+var NONCE = /^[0-9a-f]{32}$/;
+var DIGEST = /^[0-9a-f]{64}$/;
+var MAX_FILL_TEXTS = 64;
+var MAX_FILL_TEXT_CHARS = 1e5;
+function fillDigest(value) {
+  const settled = value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim();
+  return createHash4("sha256").update(JSON.stringify([FILL_DOMAIN, settled])).digest("hex");
+}
+function markerName(approval) {
+  return `${approval.draftId}.${approval.nonce}.used`;
+}
+function originCovered(origins, origin) {
+  return origins.some((allowed) => {
+    if (allowed === "*" || allowed === origin) return true;
+    const wildcard = /^(https:\/\/)\*\.(.+)$/.exec(allowed);
+    return wildcard !== null && origin.startsWith(wildcard[1]) && origin.endsWith(`.${wildcard[2]}`) && !origin.slice(wildcard[1].length).includes("/");
+  });
+}
+function bindingOf(binding) {
+  return createHash4("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
+}
+var UNTOUCHED = {
+  park: "Nothing was typed or clicked.",
+  confirm: "Nothing was clicked and the publish is still pending: cancel it with browser_publish_cancel."
+};
+var PublishApprovals = class {
+  #dir;
+  #now;
+  constructor(dir, now = Date.now) {
+    this.#dir = dir;
+    this.#now = now;
+  }
+  /** Refuse unless a live, unspent approval covers this post. Spends nothing. */
+  async require(binding, stage) {
+    const found = await this.#survey(bindingOf(binding));
+    if (found.live.length === 0) refuse(binding, found, stage);
+  }
+  async consume(binding, stage) {
+    const found = await this.#survey(bindingOf(binding));
+    for (const approval of found.live) {
+      if (!await this.#spend(approval)) {
+        found.used.push(approval);
+        continue;
+      }
+      return { draftId: approval.draftId, release: () => this.#release(approval) };
+    }
+    return refuse(binding, found, stage);
+  }
+  async #survey(binding) {
+    const live = [];
+    const used = [];
+    const expired = [];
+    const { names, spent } = await this.#listing();
+    const now = this.#now();
+    for (const name of names) {
+      const approval = readApproval(await readRecord(join5(this.#dir, name), name));
+      if (approval === null || approval.binding !== binding) continue;
+      if (spent.has(markerName(approval))) used.push(approval);
+      else if (approval.expiresAt <= now) expired.push(approval);
+      else live.push(approval);
+    }
+    return { live, used, expired };
+  }
+  async fills(profile2, origin) {
+    const live = [];
+    const { names, spent } = await this.#listing();
+    const now = this.#now();
+    for (const name of names) {
+      const approval = readFillApproval(await readRecord(join5(this.#dir, name), name));
+      if (approval === null || approval.profile !== profile2 || !originCovered(approval.origins, origin)) continue;
+      if (!spent.has(markerName(approval)) && approval.expiresAt > now) live.push(approval);
+    }
+    return live;
+  }
+  spendFill(approval) {
+    return this.#spend(approval);
+  }
+  releaseFill(approval) {
+    return this.#release(approval);
+  }
+  async #spend(approval) {
+    try {
+      await (await open(join5(this.#dir, markerName(approval)), "wx")).close();
+      return true;
+    } catch (error) {
+      if (error.code === "EEXIST") return false;
+      throw error;
+    }
+  }
+  async #release(approval) {
+    await unlink(join5(this.#dir, markerName(approval))).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+  async #listing() {
+    let names;
+    try {
+      names = await readdir2(this.#dir);
+    } catch (error) {
+      if (error.code === "ENOENT") return { names: [], spent: /* @__PURE__ */ new Set() };
+      throw error;
+    }
+    return { names: names.filter((name) => name.endsWith(".json")), spent: new Set(names.filter((name) => name.endsWith(".used"))) };
+  }
+};
+async function readRecord(path4, name) {
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(path4, "utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const fields = parsed;
+  const { draftId, nonce, approvedAt, expiresAt } = fields;
+  if (typeof draftId !== "string" || !DRAFT_ID.test(draftId) || name !== `${draftId}.json`) return null;
+  if (typeof nonce !== "string" || !NONCE.test(nonce)) return null;
+  if (typeof approvedAt !== "string" || typeof expiresAt !== "string") return null;
+  const from = Date.parse(approvedAt);
+  const until = Date.parse(expiresAt);
+  if (!Number.isFinite(from) || !Number.isFinite(until) || until <= from || until - from > MAX_APPROVAL_MS) return null;
+  return { fields, draftId, nonce, approvedAt: from, expiresAt: until };
+}
+function readApproval(record) {
+  if (record === null || record.fields.v !== 1) return null;
+  const { binding } = record.fields;
+  if (typeof binding !== "string" || !DIGEST.test(binding)) return null;
+  return { draftId: record.draftId, nonce: record.nonce, binding, approvedAt: record.approvedAt, expiresAt: record.expiresAt };
+}
+function readFillApproval(record) {
+  if (record === null || record.fields.v !== 2) return null;
+  const { profile: profile2, origins, texts } = record.fields;
+  if (typeof profile2 !== "string" || profile2 === "") return null;
+  const listed = Array.isArray(origins) && origins.length > 0 && origins.length <= MAX_FILL_TEXTS && origins.every((item) => typeof item === "string" && /^(?:\*|https?:\/\/(?:\*\.)?[^\s/*]+)$/.test(item));
+  if (!listed) return null;
+  if (!Array.isArray(texts) || texts.length === 0 || texts.length > MAX_FILL_TEXTS || !texts.every((item) => typeof item === "string" && item.trim() !== "" && item.length <= MAX_FILL_TEXT_CHARS)) return null;
+  return { draftId: record.draftId, nonce: record.nonce, profile: profile2, origins, texts, digests: new Set(texts.map(fillDigest)), expiresAt: record.expiresAt };
+}
+function refuse(binding, found, stage) {
+  const post = `site ${binding.origin}, profile ${binding.profile}, ${binding.preset === void 0 ? "a recipe, which no board approves," : `preset ${binding.preset},`} text sha256:${bindingOf(binding).slice(0, 12)}`;
+  const spent = found.used[0];
+  if (spent !== void 0) {
+    fail(
+      "publish_unapproved",
+      `publish_unapproved: the approval for draft ${spent.draftId} (${post}) was already used, so this post may already be up. Do not post it again: follow it with browser_publish_wait, then record draft_posted with its url, or unconfirmed if you cannot tell. ${UNTOUCHED[stage]}`
+    );
+  }
+  const lapsed = found.expired[0];
+  if (lapsed !== void 0) {
+    fail(
+      "publish_unapproved",
+      `publish_unapproved: the approval for draft ${lapsed.draftId} (${post}) expired at ${new Date(lapsed.expiresAt).toISOString()}. Record draft_failed with that reason; the user presses Retry on the board, which approves it again. ${UNTOUCHED[stage]}`
+    );
+  }
+  fail(
+    "publish_unapproved",
+    `publish_unapproved: no board approval covers this exact post (${post}). Post only text the user approved on the campaign board, from the profile that draft names, through the platform's preset (never a recipe you wrote), exactly as approved, character for character. ${UNTOUCHED[stage]}`
+  );
+}
+
+// src/approved-fill.ts
+var GATED_PROFILE = /^traction-/;
+var FILL_CLAIM_MS = 10 * 6e4;
+var JUDGE_CONFIDENCE_BAR = 0.8;
+var EXCERPT_CHARS = 60;
+var SUBMITTING_KEYS = { Enter: true, Space: true };
+function isGated(profile2) {
+  return profile2 !== null && GATED_PROFILE.test(profile2);
+}
+function excerpt(value) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return JSON.stringify(flat.length > EXCERPT_CHARS ? `${flat.slice(0, EXCERPT_CHARS)}\u2026` : flat);
+}
+function covers(approval, texts) {
+  return texts.every((text2) => approval.digests.has(fillDigest(text2.value)));
+}
+function judgeEvidence(live) {
+  return live.slice(0, SUBMIT_JUDGE_LIMITS2.approvals).map((approval) => ({
+    draftId: approval.draftId,
+    texts: approval.texts.slice(0, SUBMIT_JUDGE_LIMITS2.approvalTexts).map((text2) => text2.slice(0, SUBMIT_JUDGE_LIMITS2.textChars))
+  }));
+}
+function needsPerson(why) {
+  fail(
+    "submit_needs_person",
+    `submit_needs_person: ${why} Nothing was clicked. Post it with browser_submit, which asks the person first; if they decline, nothing is posted.`
+  );
+}
+var NOTHING_SPENT = { release: async () => void 0 };
+var FillGate = class {
+  #approvals;
+  #now;
+  constructor(approvals, now = Date.now) {
+    this.#approvals = approvals;
+    this.#now = now;
+  }
+  async before(browser, action, judge) {
+    const submitting = action.kind === "click" || action.kind === "press" && SUBMITTING_KEYS[action.key] === true;
+    if (!submitting) return NOTHING_SPENT;
+    const page = await this.#read(browser);
+    const claim = this.#settle(browser, page);
+    if (page.texts.length === 0 || claim !== void 0 && covers(claim.approval, page.texts)) return NOTHING_SPENT;
+    const origin = requireOrigin(page);
+    const live = await this.#approvals.fills(browser.profile, origin);
+    const spent = await this.#spendExact(browser, page, origin, live);
+    if (spent !== void 0) return spent;
+    if (judge === void 0) needsPerson("the page holds text that is not exactly an approved draft, and no judge is reachable here.");
+    const texts = page.texts.map((text2) => text2.value);
+    if (texts.length > SUBMIT_JUDGE_LIMITS2.texts || texts.reduce((sum, text2) => sum + text2.length, 0) > SUBMIT_JUDGE_LIMITS2.submittingChars) {
+      needsPerson("the page holds more text than the judge can read whole.");
+    }
+    const verdict = await judge({ profile: browser.profile, origin, texts, approvals: judgeEvidence(live) }).catch(
+      (error) => ({ verdict: "unavailable", reason: error instanceof Error ? error.message : String(error) })
+    );
+    if (verdict.verdict === "consistent" && verdict.confidence >= JUDGE_CONFIDENCE_BAR) return NOTHING_SPENT;
+    const why = "confidence" in verdict ? `the judge found the text on the page ${verdict.verdict === "consistent" ? "only weakly" : "not"} consistent with what the person approved or asked for (confidence ${verdict.confidence.toFixed(2)}).` : `the judge could not decide (${verdict.verdict}: ${verdict.reason}).`;
+    return needsPerson(`${why} The text: ${page.texts.map((text2) => excerpt(text2.value)).join(", ")}.`);
+  }
+  async after(browser) {
+    if (browser.fillClaim === void 0) return;
+    this.#settle(browser, await this.#read(browser));
+  }
+  async submit(browser, expected) {
+    const page = await this.#read(browser);
+    const claim = this.#settle(browser, page);
+    const origin = requireOrigin(page);
+    if (expected.profile !== browser.profile || expected.origin !== origin) {
+      fail("publish_mismatch", `publish_mismatch: this browser is profile ${browser.profile} on ${origin}, but the submit names profile ${expected.profile} on ${expected.origin}. Nothing was clicked.`);
+    }
+    const onPage = page.texts.map((text2) => fillDigest(text2.value)).sort();
+    const named = expected.values.map(fillDigest).sort();
+    if (onPage.length !== named.length || onPage.some((digest, index) => digest !== named[index])) {
+      fail("publish_mismatch", `publish_mismatch: the values you named are not the text on the page (${page.texts.map((text2) => excerpt(text2.value)).join(", ") || "no text"}). Pass values copied exactly from the page's fields. Nothing was clicked.`);
+    }
+    if (page.texts.length === 0 || claim !== void 0 && covers(claim.approval, page.texts)) return NOTHING_SPENT;
+    return await this.#spendExact(browser, page, origin, await this.#approvals.fills(browser.profile, origin)) ?? NOTHING_SPENT;
+  }
+  async #spendExact(browser, page, origin, live) {
+    const approval = live.find((candidate) => covers(candidate, page.texts));
+    if (approval === void 0 || !await this.#approvals.spendFill(approval)) return void 0;
+    const claim = { approval, origin, tabId: page.tabId, until: this.#now() + FILL_CLAIM_MS };
+    browser.fillClaim = claim;
+    return {
+      release: async () => {
+        if (browser.fillClaim === claim) browser.fillClaim = void 0;
+        await this.#approvals.releaseFill(approval);
+      }
+    };
+  }
+  #settle(browser, page) {
+    const claim = browser.fillClaim;
+    if (claim === void 0) return void 0;
+    const holds = claim.until > this.#now() && claim.tabId === page.tabId && claim.origin === page.origin && page.texts.some((text2) => claim.approval.digests.has(fillDigest(text2.value)));
+    if (holds) return claim;
+    browser.fillClaim = void 0;
+    return void 0;
+  }
+  async #read(browser) {
+    const state = await browser.driver.state();
+    const origin = originOf(state.url);
+    const texts = (await browser.driver.editables()).filter((text2) => !text2.exempt);
+    return { origin: origin === null || origin === "null" ? null : origin, tabId: state.activeTabId ?? null, texts };
+  }
+};
+function requireOrigin(page) {
+  if (page.origin === null) return needsPerson("the page has no site an approval or the judge can name.");
+  return page.origin;
+}
+
 // src/code/kinds/cmux/cmux-browsers.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
 
 // src/code/kinds/cmux/socket-client.ts
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile as readFile2 } from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8649,7 +9002,7 @@ var CmuxSocketClient = class {
     const authPath = path.join(os.homedir(), ".cmux", "relay", `${endpoint.port}.auth`);
     let payload;
     try {
-      payload = JSON.parse(await readFile(authPath, "utf8"));
+      payload = JSON.parse(await readFile2(authPath, "utf8"));
     } catch {
       throw new ToolError(
         `Missing cmux relay auth metadata for ${endpoint.host}:${endpoint.port}; set CMUX_RELAY_ID/CMUX_RELAY_TOKEN or restore ~/.cmux/relay/${endpoint.port}.auth`
@@ -9344,9 +9697,9 @@ function tailWindow(text2, max) {
 }
 
 // src/code/spill.ts
-import { createHash as createHash4, randomBytes as randomBytes2 } from "node:crypto";
+import { createHash as createHash5, randomBytes as randomBytes2 } from "node:crypto";
 import { closeSync as closeSync2, mkdirSync as mkdirSync5, openSync as openSync2, readdirSync as readdirSync3, rmSync as rmSync2, rmdirSync, statSync as statSync3, writeSync as writeSync2 } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var SPILL_FILES_KEPT = 20;
 var SPILL_FILE_MAX_BYTES = 16 * 1024 * 1024;
 var SPILL_SESSION_MAX_BYTES = 128 * 1024 * 1024;
@@ -9362,7 +9715,7 @@ var SPILL_NAME = /^browser-run-\d{13}-\d{6}-[0-9a-f]{8}\.txt$/;
 var SESSION_FOLDER = /^[0-9a-f]{16}$/;
 var sequence = 0;
 function sessionFolder(root, session) {
-  return join6(root, createHash4("sha256").update(session).digest("hex").slice(0, 16));
+  return join7(root, createHash5("sha256").update(session).digest("hex").slice(0, 16));
 }
 function spillNames(dir) {
   try {
@@ -9373,7 +9726,7 @@ function spillNames(dir) {
 }
 function heldIn(folder) {
   return spillNames(folder).flatMap((name) => {
-    const path4 = join6(folder, name);
+    const path4 = join7(folder, name);
     try {
       const stat = statSync3(path4);
       return [{ folder, path: path4, name, bytes: stat.size, mtimeMs: stat.mtimeMs }];
@@ -9407,9 +9760,9 @@ function enforceBounds(root, keep, reserve, now, bounds) {
   } catch {
     return;
   }
-  const keepFolder = keep === void 0 ? void 0 : join6(keep, "..");
+  const keepFolder = keep === void 0 ? void 0 : join7(keep, "..");
   const sessions = names.map((name) => {
-    const folder = join6(root, name);
+    const folder = join7(root, name);
     const files = heldIn(folder);
     return { folder, files, held: files.length };
   });
@@ -9472,10 +9825,10 @@ var SpillFile = class _SpillFile {
     try {
       mkdirSync5(dir, { recursive: true, mode: 448 });
       const now = Date.now();
-      const path4 = join6(dir, newSpillName(now));
+      const path4 = join7(dir, newSpillName(now));
       const fd = openSync2(path4, "wx", 384);
       const file = new _SpillFile(path4, fd, maxBytes);
-      enforceBounds(join6(dir, ".."), path4, maxBytes, now, bounds);
+      enforceBounds(join7(dir, ".."), path4, maxBytes, now, bounds);
       return file;
     } catch {
       return void 0;
@@ -11130,6 +11483,9 @@ var RuntimeCodeBrowsers = class {
     return { browserId: state.browserId, created: true, wsEndpoint: entry.driver.cdpEndpoint() };
   }
   async #acquireSaved(session, kind, profile2, req) {
+    if (isGated(profile2)) {
+      throw new ToolError(`${profile2} is a traction-* profile: what it posts is checked against what the person approved, so code never drives it. Use the step tools on it, or open another profile.`);
+    }
     const size = req.viewport ?? CODE_VIEWPORT;
     const lifetime = this.#lifetime(req.persist, kind);
     const state = await this.#seam.open({ profile: profile2, engine: "chromium", viewport: { width: size.width, height: size.height } }, { caller: "model", session }, lifetime);
@@ -11247,7 +11603,8 @@ var RuntimeCodeBrowsers = class {
     return entry === void 0 ? void 0 : { idleMs: performance.now() - entry.lastUsed, viewers: entry.viewers, pending: entry.pending, working: this.#seam.working(entry) };
   }
   existing(session) {
-    const entry = this.#seam.shownTo(session) ?? this.#reusable(session);
+    const shown2 = this.#seam.shownTo(session);
+    const entry = (shown2 !== void 0 && !isGated(shown2.profile) ? shown2 : void 0) ?? this.#reusable(session);
     return entry === void 0 ? void 0 : { browserId: entry.browserId, wsEndpoint: entry.driver.cdpEndpoint(), kind: entry.code?.kind ?? { kind: "headless", headless: this.#hidden } };
   }
   standing(session, browserId) {
@@ -12322,7 +12679,7 @@ function createRuntimeCodeHost(runtime, { env = process.env } = {}) {
     browsers: new RuntimeCodeBrowsers(runtime.codeSeam(), { idleMs: numberEnv(env, "DIMENSION_BROWSER_CODE_IDLE_MS", CODE_IDLE_MS, "milliseconds"), hidden: env.DIMENSION_BROWSER_HEADLESS !== "false" }),
     env,
     headless: env.DIMENSION_BROWSER_HEADLESS !== "false",
-    artifactsRoot: join9(env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
+    artifactsRoot: join10(env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
     ...screenshotDir ? { screenshotDir: screenshotDir.replace(/^~(?=$|[\\/])/, env.HOME ?? env.USERPROFILE ?? "~") } : {},
     timing: { freezeIdleMs: numberEnv(env, "DIMENSION_BROWSER_FREEZE_IDLE_MS", DEFAULT_TIMING.freezeIdleMs, "milliseconds") },
     heapMb: numberEnv(env, "DIMENSION_BROWSER_CODE_HEAP_MB", DEFAULT_HEAP_MB, "megabytes"),
@@ -12448,7 +12805,7 @@ function registerCodeTool(server2, deps) {
 // src/annotation-file.ts
 import { randomBytes as randomBytes5 } from "node:crypto";
 import { mkdirSync as mkdirSync6, readdirSync as readdirSync4, rmSync as rmSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join10, resolve as resolve7 } from "node:path";
+import { join as join11, resolve as resolve7 } from "node:path";
 var SCHEMA_PREFIX = "dimension.annotation-detail/";
 var MAX_DETAIL_BYTES = 1024 * 1024;
 var ANNOTATION_FILES_KEPT = 20;
@@ -12476,7 +12833,7 @@ var AnnotationFiles = class {
     mkdirSync6(this.dir, { recursive: true, mode: 448 });
     this.sequence += 1;
     const name = `annotation-${String(Date.now()).padStart(13, "0")}-${String(this.sequence).padStart(6, "0")}-${randomBytes5(4).toString("hex")}.json`;
-    const path4 = join10(this.dir, name);
+    const path4 = join11(this.dir, name);
     writeFileSync3(path4, json, { encoding: "utf8", mode: 384, flag: "wx" });
     this.prune();
     return path4;
@@ -12490,7 +12847,7 @@ var AnnotationFiles = class {
     }
     for (const name of names.slice(0, Math.max(0, names.length - ANNOTATION_FILES_KEPT))) {
       try {
-        rmSync3(join10(this.dir, name), { force: true });
+        rmSync3(join11(this.dir, name), { force: true });
       } catch {
       }
     }
@@ -12591,8 +12948,8 @@ function linkOffMachine(path4) {
 }
 
 // src/presets.ts
-import { readdir as readdir2, readFile as readFile2 } from "node:fs/promises";
-import { basename as basename3, extname as extname2, join as join11 } from "node:path";
+import { readdir as readdir3, readFile as readFile3 } from "node:fs/promises";
+import { basename as basename3, extname as extname2, join as join12 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/publish.ts
@@ -12942,13 +13299,13 @@ var MAX_NOTES_CHARS = 2e3;
 var PRESETS_DIR = fileURLToPath4(new URL("../recipes/", import.meta.url));
 var PRESET_KEYS = ["name", "platform", "verified", "verifiedAt", "notes", "origin", "composeUrl", "composeFrom", "signInUrl", "signedIn", "account", "fields", "submit", "receipt"];
 async function loadPresets(dir = PRESETS_DIR) {
-  const files = (await readdir2(dir)).filter((file) => extname2(file) === ".json").sort();
+  const files = (await readdir3(dir)).filter((file) => extname2(file) === ".json").sort();
   const presets = [];
   for (const file of files) {
-    const where = join11(dir, file);
+    const where = join12(dir, file);
     let raw;
     try {
-      raw = JSON.parse(await readFile2(where, "utf8"));
+      raw = JSON.parse(await readFile3(where, "utf8"));
     } catch (error) {
       throw new Error(`publish preset ${where} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -13230,7 +13587,7 @@ async function readAccount(reader, read2) {
 import { spawnSync } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes as randomBytes7, randomInt } from "node:crypto";
 import { closeSync as closeSync3, fsyncSync as fsyncSync2, linkSync, mkdirSync as mkdirSync7, openSync as openSync3, readdirSync as readdirSync5, readFileSync as readFileSync5, renameSync as renameSync3, rmSync as rmSync4, writeSync as writeSync3 } from "node:fs";
-import { basename as basename4, dirname as dirname6, join as join12 } from "node:path";
+import { basename as basename4, dirname as dirname6, join as join13 } from "node:path";
 var FILE = "credentials.json";
 var KEY_FILE = "credentials.key";
 var SEALED = /^gcm1:([A-Za-z0-9+/]{16}):([A-Za-z0-9+/]{22}==):([A-Za-z0-9+/]*={0,2})$/;
@@ -13272,7 +13629,7 @@ var CredentialKey = class {
   #key;
   constructor(rootDir) {
     this.#rootDir = rootDir;
-    this.#file = join12(rootDir, KEY_FILE);
+    this.#file = join13(rootDir, KEY_FILE);
   }
   get() {
     return this.#key ??= keyFrom(this.#load() ?? this.#create());
@@ -13345,7 +13702,7 @@ var CredentialKey = class {
    * profile this one had sealed (a rollback).
    */
   #holdsSealedStores() {
-    const profiles = join12(this.#rootDir, "profiles");
+    const profiles = join13(this.#rootDir, "profiles");
     let names;
     try {
       names = readdirSync5(profiles);
@@ -13354,7 +13711,7 @@ var CredentialKey = class {
     }
     return names.some((name) => {
       try {
-        const store = JSON.parse(readFileSync5(join12(profiles, name, FILE), "utf8"));
+        const store = JSON.parse(readFileSync5(join13(profiles, name, FILE), "utf8"));
         if (store?.version === 2) return true;
         return typeof store?.origins === "object" && store.origins !== null && Object.values(store.origins).some((value) => typeof value === "string" && SEALED.test(value));
       } catch {
@@ -13392,7 +13749,7 @@ function seal(password, origin, key) {
   const data = Buffer.concat([cipher.update(password, "utf8"), cipher.final()]);
   return `gcm1:${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${data.toString("base64")}`;
 }
-function open(sealed, origin, key) {
+function open2(sealed, origin, key) {
   const parts = SEALED.exec(sealed);
   if (parts === null) fail("credentials_unreadable", UNREADABLE);
   try {
@@ -13424,7 +13781,7 @@ function read(file, key) {
   const stored = origins;
   if (version !== 1 && version !== 2 && version !== void 0) fail("credentials_unreadable", UNREADABLE);
   const clear = {};
-  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open(value, origin, key.existing()) : value;
+  for (const [origin, value] of Object.entries(stored)) clear[origin] = version === 2 || SEALED.test(value) ? open2(value, origin, key.existing()) : value;
   if (version !== 2 && Object.keys(clear).length > 0) migrate(file, clear, key);
   return clear;
 }
@@ -13439,7 +13796,7 @@ function migrate(file, plain, key) {
   }
 }
 function readCredentials(profileDir, key) {
-  return read(join12(profileDir, FILE), key);
+  return read(join13(profileDir, FILE), key);
 }
 function savedPassword(profileDir, origin, key) {
   const origins = readCredentials(profileDir, key);
@@ -13449,13 +13806,13 @@ function savedPasswords(profileDir, key) {
   return Object.values(readCredentials(profileDir, key));
 }
 function saveCredential(profileDir, origin, password, key) {
-  const file = join12(profileDir, FILE);
+  const file = join13(profileDir, FILE);
   write(file, { ...read(file, key), [credentialOrigin(origin)]: password }, key);
 }
 function resolveCredential(profileDir, request, key) {
   if (!CREDENTIAL_MODES.includes(request.mode)) fail("bad_credential", `credential.mode must be one of: ${CREDENTIAL_MODES.join(", ")}`);
   const origin = credentialOrigin(request.origin);
-  const file = join12(profileDir, FILE);
+  const file = join13(profileDir, FILE);
   const origins = read(file, key);
   const saved = origins[origin];
   if (saved) return { origin, password: saved, created: false };
@@ -13490,127 +13847,6 @@ function createEngineDriver(engine, options) {
   assertEngineAvailable(engine);
   if (options.attach !== void 0 && engine !== "chrome-relay") fail("bad_engine", `engine ${engine} launches its own browser; an attach target belongs to chrome-relay`);
   return createPuppeteerDriver(engine === "chrome-relay" ? "chrome-relay" : "chromium", options);
-}
-
-// src/publish-approval.ts
-import { createHash as createHash5 } from "node:crypto";
-import { open as open2, readdir as readdir3, readFile as readFile3, unlink } from "node:fs/promises";
-import { join as join13 } from "node:path";
-var BINDING_DOMAIN = "publish-approval/v1";
-var MAX_APPROVAL_MS = 24 * 60 * 6e4;
-var DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
-var NONCE = /^[0-9a-f]{32}$/;
-var DIGEST = /^[0-9a-f]{64}$/;
-function bindingOf(binding) {
-  return createHash5("sha256").update(JSON.stringify([BINDING_DOMAIN, binding.origin, binding.profile, binding.preset ?? null, [...binding.values]])).digest("hex");
-}
-var UNTOUCHED = {
-  park: "Nothing was typed or clicked.",
-  confirm: "Nothing was clicked and the publish is still pending: cancel it with browser_publish_cancel."
-};
-var PublishApprovals = class {
-  #dir;
-  #now;
-  constructor(dir, now = Date.now) {
-    this.#dir = dir;
-    this.#now = now;
-  }
-  /** Refuse unless a live, unspent approval covers this post. Spends nothing. */
-  async require(binding, stage) {
-    const found = await this.#survey(bindingOf(binding));
-    if (found.live.length === 0) refuse(binding, found, stage);
-  }
-  /**
-   * Spend the approval that covers this post, or refuse. The exclusive create of
-   * its marker is the lock, so of any number of concurrent spenders exactly one
-   * wins; the rest see `used`.
-   */
-  async consume(binding, stage) {
-    const found = await this.#survey(bindingOf(binding));
-    for (const approval of found.live) {
-      const marker = join13(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
-      try {
-        await (await open2(marker, "wx")).close();
-      } catch (error) {
-        if (error.code === "EEXIST") {
-          found.used.push(approval);
-          continue;
-        }
-        throw error;
-      }
-      return {
-        draftId: approval.draftId,
-        release: async () => {
-          await unlink(marker).catch((error) => {
-            if (error.code !== "ENOENT") throw error;
-          });
-        }
-      };
-    }
-    return refuse(binding, found, stage);
-  }
-  /** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
-  async #survey(binding) {
-    const live = [];
-    const used = [];
-    const expired = [];
-    let names;
-    try {
-      names = await readdir3(this.#dir);
-    } catch (error) {
-      if (error.code === "ENOENT") return { live, used, expired };
-      throw error;
-    }
-    const spent = new Set(names.filter((name) => name.endsWith(".used")));
-    const now = this.#now();
-    for (const name of names) {
-      if (!name.endsWith(".json")) continue;
-      const approval = await readApproval(join13(this.#dir, name), name);
-      if (approval === null || approval.binding !== binding) continue;
-      if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) used.push(approval);
-      else if (approval.expiresAt <= now) expired.push(approval);
-      else live.push(approval);
-    }
-    return { live, used, expired };
-  }
-};
-async function readApproval(path4, name) {
-  let parsed;
-  try {
-    parsed = JSON.parse(await readFile3(path4, "utf8"));
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const { v, draftId, nonce, binding, approvedAt, expiresAt } = parsed;
-  if (v !== 1 || typeof draftId !== "string" || !DRAFT_ID.test(draftId) || name !== `${draftId}.json`) return null;
-  if (typeof nonce !== "string" || !NONCE.test(nonce) || typeof binding !== "string" || !DIGEST.test(binding)) return null;
-  if (typeof approvedAt !== "string" || typeof expiresAt !== "string") return null;
-  const from = Date.parse(approvedAt);
-  const until = Date.parse(expiresAt);
-  if (!Number.isFinite(from) || !Number.isFinite(until) || until <= from || until - from > MAX_APPROVAL_MS) return null;
-  return { draftId, nonce, binding, approvedAt: from, expiresAt: until };
-}
-function refuse(binding, found, stage) {
-  const post = `site ${binding.origin}, profile ${binding.profile}, ${binding.preset === void 0 ? "a recipe, which no board approves," : `preset ${binding.preset},`} text sha256:${bindingOf(binding).slice(0, 12)}`;
-  const spent = found.used[0];
-  if (spent !== void 0) {
-    fail(
-      "publish_unapproved",
-      `publish_unapproved: the approval for draft ${spent.draftId} (${post}) was already used, so this post may already be up. Do not post it again: follow it with browser_publish_wait, then record draft_posted with its url, or unconfirmed if you cannot tell. ${UNTOUCHED[stage]}`
-    );
-  }
-  const lapsed = found.expired[0];
-  if (lapsed !== void 0) {
-    fail(
-      "publish_unapproved",
-      `publish_unapproved: the approval for draft ${lapsed.draftId} (${post}) expired at ${new Date(lapsed.expiresAt).toISOString()}. Record draft_failed with that reason; the user presses Retry on the board, which approves it again. ${UNTOUCHED[stage]}`
-    );
-  }
-  fail(
-    "publish_unapproved",
-    `publish_unapproved: no board approval covers this exact post (${post}). Post only text the user approved on the campaign board, from the profile that draft names, through the platform's preset (never a recipe you wrote), exactly as approved, character for character. ${UNTOUCHED[stage]}`
-  );
 }
 
 // src/read.ts
@@ -14181,6 +14417,7 @@ var NAMED_KEYS = {
   PageDown: true,
   Space: true
 };
+var KEY_ALIASES = { " ": "Space", "\r": "Enter", "\n": "Enter" };
 var TOUCHING_KINDS = { click: true, press: true, type: true, insert: true };
 var BROWSER_WIDE_STEPS = { resize: true };
 var touchesPage = (event) => event.kind !== "wheel" && !(event.kind === "mouse" && event.type === "move");
@@ -14210,6 +14447,7 @@ function openerFor(openers, asker) {
 var BrowserRuntime = class {
   store;
   publishApprovals;
+  fillGate;
   annotationFiles;
   /** The key every profile's saved passwords are sealed under: one file in the root, beside `profiles/` (credentials.ts). */
   credentialKey;
@@ -14278,6 +14516,7 @@ var BrowserRuntime = class {
     this.annotationFiles = new AnnotationFiles(join15(this.store.rootDir, "annotations"));
     this.credentialKey = new CredentialKey(this.store.rootDir);
     this.publishApprovals = new PublishApprovals(join15(this.store.rootDir, "publish-approvals"));
+    this.fillGate = new FillGate(this.publishApprovals);
     this.store.sweepEphemeral();
   }
   // -----------------------------------------------------------------------
@@ -15558,8 +15797,8 @@ ${host}`;
       const admitted = {
         selector: requireSelector(request.selector),
         paths: requireLocalFiles(request.paths, "paths", this.store.rootDir),
-        origin: requireOrigin(request.origin, "origin"),
-        ...request.frameOrigin === void 0 ? {} : { frameOrigin: requireOrigin(request.frameOrigin, "frameOrigin") }
+        origin: requireOrigin2(request.origin, "origin"),
+        ...request.frameOrigin === void 0 ? {} : { frameOrigin: requireOrigin2(request.frameOrigin, "frameOrigin") }
       };
       let done;
       try {
@@ -15571,6 +15810,44 @@ ${host}`;
       }
       return await this.actionResult(entry, session, done);
     }, { guard });
+  }
+  async submit(browserId, request, caller, session, guard) {
+    const entry = this.require(browserId);
+    return await this.serialize(entry, async () => {
+      admitCaller(entry, caller);
+      if (caller === "app") fail("bad_action", "browser_submit is the agent's: the person presses the site's own button");
+      if (!isGated(entry.profile)) fail("bad_action", "browser_submit posts approved text on a traction-* profile; on this browser, click with browser_act");
+      const action = normalizeAction(request.action);
+      if (action.kind !== "click" && !(action.kind === "press" && (action.key === "Enter" || action.key === "Space"))) {
+        fail("bad_action", "browser_submit's action is a click, or a press of Enter or Space");
+      }
+      await this.adoptActiveTab(entry, session);
+      await this.pinTab(entry, caller, session, false, guard);
+      const gated = entry;
+      const spent = await this.fillGate.submit(gated, request.expect);
+      try {
+        if (guard !== void 0) await guard();
+        guard?.assertCurrent();
+      } catch (error) {
+        await spent.release();
+        throw error;
+      }
+      let done;
+      try {
+        const outcome = await entry.driver.perform(action, void 0, guard);
+        done = { status: "completed", ...outcome.dialogs ? { dialogs: outcome.dialogs } : {} };
+      } catch (error) {
+        if (error instanceof ActionNotDispatched) await spent.release();
+        done = notCompleted(entry, error);
+      }
+      if (done.status === "completed") await this.settleFillClaim(gated);
+      return await this.actionResult(entry, session, done);
+    }, { guard });
+  }
+  async settleFillClaim(entry) {
+    await this.fillGate.after(entry).catch(() => {
+      entry.fillClaim = void 0;
+    });
   }
   async actionResult(entry, session, done) {
     if (done.status !== "completed") {
@@ -15593,7 +15870,7 @@ ${host}`;
    * page; steps run in order until one is not `completed` or the time budget is spent (a host times a call out, and a
    * caller that never heard back would send the same submit again). The state is read once, at the end.
    */
-  async actMany(browserId, steps, caller, session, guard) {
+  async actMany(browserId, steps, caller, session, guard, judge) {
     const entry = this.require(browserId);
     if (!Array.isArray(steps) || steps.length < 1 || steps.length > MAX_BATCH_STEPS) fail("bad_action", `actions must be 1-${MAX_BATCH_STEPS} steps`);
     return await this.serialize(entry, async () => {
@@ -15624,7 +15901,7 @@ ${host}`;
           stopped = { status: "timeout", error: `the batch's time budget (${budget} ms) ran out after ${index} of ${plan.length} steps; send the remaining steps in a new call` };
           break;
         }
-        const done = await this.runStep(entry, step, caller, session, valueChars, guard, pin);
+        const done = await this.runStep(entry, step, caller, session, valueChars, guard, pin, judge);
         valueChars -= done.value?.length ?? 0;
         outcomes.push({
           kind: step.kind,
@@ -15655,7 +15932,7 @@ ${host}`;
       });
     }, { guard });
   }
-  async runStep(entry, step, caller, session, valueChars, guard, pin) {
+  async runStep(entry, step, caller, session, valueChars, guard, pin, judge) {
     if (step.kind === "tab") return await this.tabStep(entry, step, session, guard);
     if (!BROWSER_WIDE_STEPS[step.kind]) {
       try {
@@ -15670,7 +15947,7 @@ ${host}`;
       case "eval":
         return this.evalStep(entry, step, valueChars);
       default:
-        return this.dispatch(entry, step, caller, guard);
+        return this.dispatch(entry, step, caller, guard, judge);
     }
   }
   /**
@@ -15709,7 +15986,16 @@ ${host}`;
     return { kind: "eval", expression: step.expression };
   }
   /** One admitted action, dispatched once on the active tab. A failure is a status, never a throw: earlier steps of a batch stay accounted for. */
-  async dispatch(entry, action, caller, guard) {
+  async dispatch(entry, action, caller, guard, judge) {
+    const gated = caller !== "app" && isGated(entry.profile) ? entry : null;
+    let spent = { release: async () => void 0 };
+    if (gated !== null) {
+      try {
+        spent = await this.fillGate.before(gated, action, judge);
+      } catch (error) {
+        return { status: "failed", error: describe3(error) };
+      }
+    }
     const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
     const touching = pinned !== null && ((await entry.driver.state().catch(() => null))?.activeTabId ?? pinned.record.tabId) === pinned.record.tabId ? pinned : null;
     let created = false;
@@ -15733,8 +16019,11 @@ ${host}`;
       if (touching) touching.touchedWhilePending = true;
     } catch (error) {
       if (touching && !(error instanceof ActionNotDispatched)) touching.touchedWhilePending = true;
+      if (error instanceof ActionNotDispatched) await spent.release();
+      if (gated !== null) await this.settleFillClaim(gated);
       return notCompleted(entry, error);
     }
+    if (gated !== null) await this.settleFillClaim(gated);
     return {
       status: "completed",
       ...outcome.passwordOrigin ? { credential: { origin: outcome.passwordOrigin, created } } : {},
@@ -15752,6 +16041,8 @@ ${host}`;
       await this.applyTab(entry, step, session, guard);
     } catch (error) {
       return { status: error instanceof ActionNotDispatched ? "failed" : "unknown", error: describe3(error) };
+    } finally {
+      if (isGated(entry.profile)) await this.settleFillClaim(entry);
     }
     return { status: "completed" };
   }
@@ -15810,6 +16101,9 @@ ${host}`;
     const entry = this.require(browserId);
     if (entry.engine === "chrome-relay") {
       fail("task_unsupported_engine", "the task agent drives a whole browser, and chrome-relay is your own Chrome \u2014 open a chromium profile for browser_task");
+    }
+    if (isGated(entry.profile)) {
+      fail("publish_unapproved", `publish_unapproved: browser_task types whatever its task says, and ${entry.profile} is a traction-* profile, which types and posts only what the person approved on the campaign board. Drive it with browser_act (sign in with useSavedPassword or generatePassword) and post with browser_submit. Nothing was started.`);
     }
     const task = typeof request.task === "string" ? request.task.trim() : "";
     if (task.length === 0 || task.length > MAX_TASK_CHARS) fail("bad_task", `task must be 1-${MAX_TASK_CHARS} characters`);
@@ -16362,7 +16656,7 @@ function normalizeAction(action) {
       if (typeof key !== "string" || !NAMED_KEYS[key] && [...key].length !== 1) {
         fail("bad_action", `press.key must be a single character or one of: ${Object.keys(NAMED_KEYS).join(", ")}`);
       }
-      return { kind: "press", key };
+      return { kind: "press", key: KEY_ALIASES[key] ?? key };
     }
     case "resize": {
       if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
@@ -16383,7 +16677,7 @@ function notCompleted(entry, error) {
   entry.revision += 1;
   return { status: "unknown", error: `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe3(error)})` };
 }
-function requireOrigin(value, name) {
+function requireOrigin2(value, name) {
   let origin;
   try {
     origin = typeof value === "string" ? new URL(value).origin : void 0;
@@ -17027,7 +17321,7 @@ var LiveChannel = class {
 var plugin_default = {
   $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   name: "browser",
-  version: "0.9.17",
+  version: "0.9.18",
   description: "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
   keywords: [
     "browser",
@@ -17046,7 +17340,7 @@ var plugin_default = {
           mcpServer: "browser",
           label: "Browser",
           icon: "globe",
-          grants: ["dictation"],
+          grants: ["dictation", "submit:judge"],
           modelSpaces: [
             "code",
             "build",
@@ -17174,6 +17468,11 @@ var contextRefSchema = z3.object({
   sessionId: z3.string().min(1).max(1024),
   token: z3.string().regex(/^[a-f0-9]{64}$/)
 }).strict();
+var SUBMIT_JUDGE_TIMEOUT_MS = 8e3;
+var submitVerdictSchema = z3.union([
+  z3.object({ verdict: z3.enum(["consistent", "inconsistent"]), confidence: z3.number().min(0).max(1) }),
+  z3.object({ verdict: z3.enum(["unavailable", "no-evidence"]), reason: z3.string().max(2e3) })
+]);
 var PREVIEW_META_KEY = "ai.insodimension/preview";
 function failure(error) {
   return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }] };
@@ -17282,6 +17581,16 @@ async function createBrowserServer(options = {}) {
     ...process.env.DIMENSION_BROWSER_UNHELD_IDLE_MS ? { unheldIdleMs: Number(process.env.DIMENSION_BROWSER_UNHELD_IDLE_MS) } : {}
   });
   const server2 = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
+  const judgeOf = (extra) => {
+    if (options.submitJudge !== void 0) return options.submitJudge;
+    const context = contextRefSchema.safeParse(extra._meta?.[ARTIFACTORY_HOST_CONTEXT_META_KEY]);
+    if (!context.success || server2.server.getClientCapabilities()?.extensions?.[ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID2] === void 0) return void 0;
+    return async (request) => await server2.server.request(
+      { method: ARTIFACTORY_SUBMIT_JUDGE_METHOD2, params: { context: context.data, ...request } },
+      submitVerdictSchema,
+      { timeout: SUBMIT_JUDGE_TIMEOUT_MS }
+    );
+  };
   server2.server.setNotificationHandler(z3.object({
     method: z3.literal(ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD),
     params: contextRefSchema
@@ -17477,7 +17786,7 @@ async function createBrowserServer(options = {}) {
   }, async ({ browserId, actions }, extra) => {
     const answer = await respond(extra, async () => {
       await access(extra, browserId);
-      const outcome = await runtime.actMany(browserId, actions, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
+      const outcome = await runtime.actMany(browserId, actions, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId), judgeOf(extra));
       assertAccess(extra, browserId);
       return { text: actText(outcome), structured: outcome, isError: outcome.status === "failed" || outcome.status === "unknown" };
     });
@@ -17503,6 +17812,34 @@ async function createBrowserServer(options = {}) {
     const answer = await respond(extra, async () => {
       await access(extra, browserId);
       const outcome = await runtime.upload(browserId, { selector: selector3, paths, origin, ...frameOrigin === void 0 ? {} : { frameOrigin } }, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
+      assertAccess(extra, browserId);
+      return { text: uploadText(outcome), structured: outcome, isError: outcome.status !== "completed" };
+    });
+    return { ...answer, _meta: await previewResult(runtime, browserId, sessionOf(extra)) };
+  });
+  server2.registerTool("browser_submit", {
+    title: "Post with the person's answer",
+    description: "On a traction-* profile, post when browser_act refused a click, Enter or Space with submit_needs_person: the text on the page is not exactly an approved draft and the judge did not find it consistent with what the person approved or asked for. The host ALWAYS asks the person first, in every permission mode, showing the profile, the site and the text; nothing is clicked unless they allow it. Pass the click (or press) and profile, origin and values copied exactly from the page's typed fields, in any order: any difference fails publish_mismatch and nothing is clicked.",
+    inputSchema: {
+      browserId: capability,
+      action: z3.discriminatedUnion("kind", [
+        z3.object({ kind: z3.literal("click"), selector: selector2.optional(), x: coordinate.optional(), y: coordinate.optional() }).strict().refine((value) => value.selector !== void 0 ? value.x === void 0 && value.y === void 0 : value.x !== void 0 && value.y !== void 0, "Choose a selector OR both coordinates"),
+        z3.object({ kind: z3.literal("press"), key: z3.enum(["Enter", "Space"]) }).strict()
+      ]),
+      profile: z3.string().min(1).max(MAX_LABEL_CHARS),
+      origin: z3.string().min(1).max(2048),
+      values: z3.array(z3.string().max(1e5)).min(1).max(64)
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    _meta: {
+      ...TRACTION_ONLY,
+      [APPROVAL_META_KEY]: "prompt",
+      [APPROVAL_SUMMARY_META_KEY]: ["Post as {profile} on {origin}", "{values}"]
+    }
+  }, async ({ browserId, action, profile: asProfile, origin, values }, extra) => {
+    const answer = await respond(extra, async () => {
+      await access(extra, browserId);
+      const outcome = await runtime.submit(browserId, { action, expect: { profile: asProfile, origin, values } }, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
       assertAccess(extra, browserId);
       return { text: uploadText(outcome), structured: outcome, isError: outcome.status !== "completed" };
     });
