@@ -20,6 +20,7 @@ import { runCodeTool, type CodeToolDeps } from "../src/code/tool.js";
 import { SPILL_FILES_KEPT } from "../src/code/spill.js";
 import type { BrowserRuntimePort } from "../src/contracts.js";
 import { createBrowserServer, type ModelToolsMode } from "../src/server.js";
+import { SPACES_UNDER_TEST, namesOfferedToModelOf, offeredToSpace } from "./model-audience.js";
 
 const SESSION_KEY = "ai.insodimension/session";
 const clients: Client[] = [];
@@ -384,22 +385,22 @@ describe("which tools the model is shown", () => {
   const listed = async (client: Client): Promise<Map<string, Record<string, unknown> | undefined>> =>
     new Map((await client.listTools()).tools.map(tool => [tool.name, tool._meta as Record<string, unknown> | undefined]));
   const SPACES = "ai.insodimension/spaces";
+  const EXCEPT_SPACES = "ai.insodimension/exceptSpaces";
 
-  test("code: browser_run is offered with the exec approval tier to code, build, traction and video, and the step tools go to chat, labor, watch, traction and video", async () => {
+  test("code: browser_run is offered with the exec approval tier to code, build, traction and video, and every step tool is withheld from code and build alone", async () => {
     const { client } = await connect(fakeHost(() => shown()), "code");
     const tools = await listed(client);
     expect(tools.get("browser_run")).toMatchObject({ "ai.insodimension/approval": "exec", [SPACES]: ["code", "build", "traction", "video"] });
-    for (const name of STEP_TOOLS) expect(tools.get(name)?.[SPACES]).toEqual(["chat", "labor", "watch", "traction", "video"]);
+    for (const name of STEP_TOOLS) {
+      expect(tools.get(name), `${name} audience`).toMatchObject({ [EXCEPT_SPACES]: ["code", "build"] });
+      expect(tools.get(name)?.[SPACES], `${name} names no list of spaces to narrow to`).toBeUndefined();
+    }
     for (const name of VIEW_SIDE) expect(tools.has(name)).toBe(true);
-    // Everything the model of a code space sees for browsing: browser_run and the four that stay.
-    const codeSpaceTools = [...tools].filter(([, meta]) => {
-      // A tool only the View may call never reaches a model: read it from the tool's own visibility, not from a list that goes stale when one is added.
-      const visibility = (meta?.ui as { visibility?: string[] } | undefined)?.visibility;
-      const appOnly = visibility?.length === 1 && visibility[0] === "app";
-      const spaces = meta?.[SPACES];
-      return !appOnly && (!Array.isArray(spaces) || spaces.includes("code"));
-    }).map(([name]) => name).filter(name => name.startsWith("browser_") && !name.startsWith("browser_task") && !name.startsWith("browser_publish"));
-    expect(codeSpaceTools.sort()).toEqual(["browser_close", "browser_profiles", "browser_read", "browser_run", "browser_view"]);
+    const { tools: listedTools } = await client.listTools();
+    const browsing = (space: string): string[] => namesOfferedToModelOf(listedTools, space).filter(name => name.startsWith("browser_") && !name.startsWith("browser_task") && !name.startsWith("browser_publish"));
+    for (const space of ["code", "build"]) expect(browsing(space), `${space} is offered browser_run and the four that stay`).toEqual(["browser_close", "browser_profiles", "browser_read", "browser_run", "browser_view"]);
+    const stepAndViewTools = [...STEP_TOOLS, "browser_upload", ...VIEW_SIDE].sort();
+    for (const space of ["chat", "unreal", "clients"]) expect(browsing(space), `${space} is offered the step tools and the four that stay, and no browser_run`).toEqual(stepAndViewTools);
   });
 
   test("browser_run is titled 'Use the Browser' and declares the plain-words approval summary the host shows in place of the cell's code", async () => {
@@ -409,15 +410,26 @@ describe("which tools the model is shown", () => {
     expect(tool?._meta?.["ai.insodimension/approvalSummary"]).toBe("Let your agent browse the web for you");
   });
 
-  test("every space the manifest lends the pack to is offered a way to drive a page, and traction and video alone are offered both browser_run and the step tools", async () => {
+  test("the manifest lends the pack to every space, and code, build, chat, traction, video, unreal and clients are each offered a way to drive a page: traction and video alone get both browser_run and the step tools", async () => {
     const manifest = JSON.parse(await readFile(new URL("../plugin.json", import.meta.url), "utf8")) as { extensions: Record<string, { artifactories: Array<{ mcpServer: string; modelSpaces: string[] }> }> };
-    const declared = manifest.extensions["ai.insodimension.dimension"]!.artifactories.find(artifactory => artifactory.mcpServer === "browser")!.modelSpaces;
+    const lentTo = manifest.extensions["ai.insodimension.dimension"]!.artifactories.find(artifactory => artifactory.mcpServer === "browser")!.modelSpaces;
+    expect(lentTo).toEqual(["*"]);
     const { client } = await connect(fakeHost(() => shown()), "code");
-    const tools = await listed(client);
-    const withCode = tools.get("browser_run")?.[SPACES] as string[];
-    const withSteps = tools.get("browser_act")?.[SPACES] as string[];
-    expect([...new Set([...withCode, ...withSteps])].sort()).toEqual([...declared].sort());
-    expect(withCode.filter(space => withSteps.includes(space))).toEqual(["traction", "video"]);
+    const { tools } = await client.listTools();
+    const drivingOffered = Object.fromEntries(SPACES_UNDER_TEST.map(space => {
+      const offered = namesOfferedToModelOf(tools, space);
+      return [space, { browserRun: offered.includes("browser_run"), stepTools: STEP_TOOLS.filter(name => offered.includes(name)) }];
+    }));
+    const noStepTool: string[] = [];
+    expect(drivingOffered).toEqual({
+      code: { browserRun: true, stepTools: noStepTool },
+      build: { browserRun: true, stepTools: noStepTool },
+      chat: { browserRun: false, stepTools: STEP_TOOLS },
+      traction: { browserRun: true, stepTools: STEP_TOOLS },
+      video: { browserRun: true, stepTools: STEP_TOOLS },
+      unreal: { browserRun: false, stepTools: STEP_TOOLS },
+      clients: { browserRun: false, stepTools: STEP_TOOLS },
+    });
   });
 
   test("steps: the six step tools for everyone and no browser_run", async () => {
@@ -471,26 +483,29 @@ describe("which tools the model is shown", () => {
     await ended.promise;
   });
 
-  const offeredTo = async (client: Client, space: string): Promise<string[]> =>
-    (await client.listTools()).tools
-      .filter(tool => {
-        const visibility = (tool._meta?.ui as { visibility?: string[] } | undefined)?.visibility;
-        const audience = tool._meta?.[SPACES];
-        return (visibility === undefined || visibility.includes("model")) && (!Array.isArray(audience) || audience.includes(space));
-      })
-      .map(tool => tool.name)
-      .sort();
+  const offeredTo = async (client: Client, space: string): Promise<string[]> => namesOfferedToModelOf((await client.listTools()).tools, space);
   const PUBLISH_TOOLS = ["browser_publish", "browser_publish_cancel", "browser_publish_confirm", "browser_publish_presets", "browser_publish_wait"];
   const TRACTION_PUBLISHES_WITH = [...STEP_TOOLS, ...VIEW_SIDE, ...PUBLISH_TOOLS];
   const OFFERS_BROWSER_RUN: Record<ModelToolsMode, boolean> = { code: true, steps: false, both: true };
 
-  test("every mode keeps Traction's step and publish tools; code and both add browser_run for it, steps has none, and chat, labor and watch never get it", async () => {
+  test("every mode keeps Traction's step and publish tools; code and both add browser_run for it, steps has none, and chat, labor, watch, unreal and clients never get it", async () => {
     for (const mode of ["code", "steps", "both"] as const) {
       const { client } = await connect(fakeHost(() => shown()), mode);
       const traction = await offeredTo(client, "traction");
       for (const name of TRACTION_PUBLISHES_WITH) expect(traction, `${mode}: traction is offered ${name}`).toContain(name);
       expect(traction.includes("browser_run"), `${mode}: traction is offered browser_run`).toBe(OFFERS_BROWSER_RUN[mode]);
-      for (const space of ["chat", "labor", "watch"]) expect(await offeredTo(client, space), `${mode}: ${space} is not offered browser_run`).not.toContain("browser_run");
+      for (const space of ["chat", "labor", "watch", "unreal", "clients"]) expect(await offeredTo(client, space), `${mode}: ${space} is not offered browser_run`).not.toContain("browser_run");
+    }
+  });
+
+  test("every mode offers chat, unreal and clients the step tools and the four every space has, and never a publish tool: the pack reaches the spaces that had no browser", async () => {
+    for (const mode of ["code", "steps", "both"] as const) {
+      const { client } = await connect(fakeHost(() => shown()), mode);
+      for (const space of ["chat", "unreal", "clients"]) {
+        const offered = await offeredTo(client, space);
+        for (const name of [...STEP_TOOLS, ...VIEW_SIDE]) expect(offered, `${mode}: ${space} is offered ${name}`).toContain(name);
+        for (const name of PUBLISH_TOOLS) expect(offered, `${mode}: ${space} is not offered ${name}`).not.toContain(name);
+      }
     }
   });
 
@@ -498,7 +513,7 @@ describe("which tools the model is shown", () => {
     for (const mode of ["code", "both"] as const) {
       const { client } = await connect(fakeHost(() => shown()), mode);
       const tools = await listed(client);
-      for (const name of PUBLISH_TOOLS) expect(tools.get(name)?.[SPACES], `${mode}: ${name} audience`).toEqual(["traction"]);
+      for (const name of PUBLISH_TOOLS) expect(SPACES_UNDER_TEST.filter(space => offeredToSpace({ name, _meta: tools.get(name) }, space)), `${mode}: ${name} audience`).toEqual(["traction"]);
       expect(tools.get("browser_publish_confirm")?.["ai.insodimension/approval"], `${mode}: confirm approval`).toBe("prompt");
       expect(tools.get("browser_run")?.["ai.insodimension/approval"], `${mode}: browser_run approval`).toBe("exec");
     }
@@ -511,7 +526,7 @@ describe("which tools the model is shown", () => {
       const upload = tools.find(tool => tool.name === "browser_upload");
       const act = tools.find(tool => tool.name === "browser_act");
       expect(upload?._meta?.["ai.insodimension/approval"], `${mode}: upload approval`).toBe("prompt");
-      expect(upload?._meta?.[SPACES], `${mode}: upload audience`).toEqual(act?._meta?.[SPACES]);
+      for (const space of SPACES_UNDER_TEST) expect(offeredToSpace(upload!, space), `${mode}: upload offered to ${space}`).toBe(offeredToSpace(act!, space));
       expect(upload?._meta?.["ai.insodimension/approvalSummary"]).toEqual(["Send {paths, plural, one {# file} other {# files}} to {origin}", "Into a frame from {frameOrigin}", "{paths}"]);
       const paths = (upload?.inputSchema.properties as Record<string, { maxItems?: number }>).paths;
       expect(paths?.maxItems, "the host's card shows a list of at most three in full, so every path is on it").toBe(3);
@@ -519,7 +534,7 @@ describe("which tools the model is shown", () => {
     }
   });
 
-  test("the default mode, with a code host and DIMENSION_BROWSER_MODEL_TOOLS unset, gives Traction its tools and browser_run, and a code space browser_run in place of the step tools", async () => {
+  test("the default mode, with a code host and DIMENSION_BROWSER_MODEL_TOOLS unset, gives Traction its tools and browser_run, a code space browser_run in place of the step tools, and Unreal and Clients the step tools", async () => {
     const previous = process.env.DIMENSION_BROWSER_MODEL_TOOLS;
     delete process.env.DIMENSION_BROWSER_MODEL_TOOLS;
     try {
@@ -530,6 +545,11 @@ describe("which tools the model is shown", () => {
       expect(code).toContain("browser_run");
       for (const name of STEP_TOOLS) expect(code, `a code space is not offered ${name}`).not.toContain(name);
       for (const name of PUBLISH_TOOLS) expect(code, `a code space is not offered ${name}`).not.toContain(name);
+      for (const space of ["unreal", "clients"]) {
+        const offered = await offeredTo(client, space);
+        for (const name of STEP_TOOLS) expect(offered, `${space} is offered ${name}`).toContain(name);
+        expect(offered, `${space} is not offered browser_run`).not.toContain("browser_run");
+      }
     } finally {
       if (previous !== undefined) process.env.DIMENSION_BROWSER_MODEL_TOOLS = previous;
     }

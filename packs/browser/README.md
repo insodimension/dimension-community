@@ -9,12 +9,13 @@ standard MCP and MCP Apps. No host internals, no browser fork.
 
 ## What it does
 
-- **One shared browser, two tool styles.** The default `code` mode offers
-  `browser_run` in code/build/traction/video spaces and the step tools (`browser_open`,
-  `browser_state`, `browser_snapshot`, `browser_act`, etc.) in chat/labor/watch/
-  traction/video spaces, so Traction and Video have both. `DIMENSION_BROWSER_MODEL_TOOLS=steps`
-  offers step tools only; `both` offers both in code/build while keeping step
-  tools in other spaces.
+- **One shared browser, two tool styles, in every space.** The pack is lent to
+  every space (`modelSpaces: ["*"]`), so a space added later has a browser too.
+  The default `code` mode offers `browser_run` in code/build/traction/video
+  spaces and the step tools (`browser_open`, `browser_state`, `browser_snapshot`,
+  `browser_act`, etc.) in every space except code and build, so Traction and
+  Video have both. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers step tools only;
+  `both` offers both in code/build while keeping step tools in other spaces.
   The View and the agent share the browser in their session, and nothing in
   the View is sent to the model unless the human annotates.
 - **Headless by default, the View on demand.** A browser opened without a
@@ -363,13 +364,13 @@ and Traction and Video also get `browser_run` wherever the mode offers it.
 
 | Offered to | Tools |
 |---|---|
-| Every space the pack is granted (4) | `browser_view`, `browser_read`, `browser_profiles`, `browser_close` |
-| The step tools (7): chat, labor, watch, traction and video; code and build too in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` (asks the person every time) |
+| Every space (4) | `browser_view`, `browser_read`, `browser_profiles`, `browser_close` |
+| The step tools (7): every space except code and build in `code` mode (`_meta["ai.insodimension/exceptSpaces"]`); every space in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` (asks the person every time) |
 | Code, build, traction and video, in `code` and `both` mode (1) | `browser_run` |
 | Traction only (5; 8 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
 
 In the default `code` mode that is 5 tools for a code or build session (`browser_run` and the
-four every space has), 11 for chat, labor and watch, 12 for Video, and 17 for Traction (20 with jev's key).
+four every space has), 11 for any other space (chat, unreal, clients, …), 12 for Video, and 17 for Traction (20 with jev's key).
 
 Waiting, tabs and page scripts are steps of `browser_act`, and the page log is a
 field of `browser_state`: every tool is paid for by every agent on every turn, so a

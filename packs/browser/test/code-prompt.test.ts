@@ -16,6 +16,7 @@ import { BROWSER_RUN_DESCRIPTION } from "../src/code/tool.js";
 import type { BrowserRuntimePort } from "../src/contracts.js";
 import { createBrowserServer } from "../src/server.js";
 import { bridgeRequestSchema } from "../src/code/worker/dispatch.js";
+import { offeredToModelOf } from "./model-audience.js";
 
 const cell = new CodeCell({ guardRejections: true });
 afterAll(() => cell.dispose());
@@ -124,13 +125,7 @@ describe("what the model is made to read", () => {
   async function modelTools(): Promise<Array<{ name: string; tokens: number }>> {
     await connected;
     const { tools } = await client.listTools();
-    return tools
-      .filter(tool => {
-        const meta = tool._meta as { ui?: { visibility?: string[] }; "ai.insodimension/spaces"?: string[] } | undefined;
-        const appOnly = meta?.ui?.visibility?.length === 1 && meta.ui.visibility[0] === "app";
-        const spaces = meta?.["ai.insodimension/spaces"];
-        return !appOnly && (spaces === undefined || spaces.includes("code"));
-      })
+    return offeredToModelOf(tools, "code")
       .map(tool => ({ name: tool.name, tokens: countTokens(JSON.stringify({ name: tool.name, description: tool.description, input_schema: tool.inputSchema })) }));
   }
 

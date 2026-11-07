@@ -1,10 +1,10 @@
 /**
  * WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: a model is told to call a tool it does not have. The pack lends different tools to different spaces (doc 77 §7.5a): in the default mode a code or build model has
- * `browser_run`, `browser_view`, `browser_read`, `browser_profiles` and `browser_close`; chat, labor and watch have the six step tools besides the last four; Traction has the step tools, `browser_run` and its publish set; and
+ * `browser_run`, `browser_view`, `browser_read`, `browser_profiles` and `browser_close`; every other space (chat, unreal and clients among them) has the six step tools besides the last four; Traction has the step tools, `browser_run` and its publish set; and
  * `DIMENSION_BROWSER_MODEL_TOOLS` changes that for everyone. Every text a model can read that names a tool - a tool's own description, the skill, the annotation chip, the refusals a cell gets - is
- * checked here against the tools THAT model has: for every mode, with and without jev's key, for every space the manifest lends the pack to.
+ * checked here against the tools THAT model has: for every mode, with and without jev's key, for code, build, chat, traction, video, unreal and clients (the manifest lends the pack to every space, so these stand for any space).
  *
- * What a space is offered is read the way the engine reads it (`ai.insodimension/spaces` and `ui.visibility` on each tool of the real server's `tools/list`). A text that every space reads (the skill, the chip) may name
+ * What a space is offered is read the way the engine reads it (`ai.insodimension/spaces`, `ai.insodimension/exceptSpaces` and `ui.visibility` on each tool of the real server's `tools/list`). A text that every space reads (the skill, the chip) may name
  * only the tools EVERY space has; a reference file may name the tools of the set it is for, and says it applies only to a session that has them.
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -18,9 +18,9 @@ import type { CodeHostPort } from "../src/code/contracts";
 import type { BrowserRuntimePort } from "../src/contracts";
 import { createBrowserServer, type ModelToolsMode } from "../src/server";
 import { pageFact } from "../app/view/page-annotation";
+import { SPACES_UNDER_TEST, offeredToModelOf } from "./model-audience";
 
 const PACK = fileURLToPath(new URL("..", import.meta.url));
-const SPACES_KEY = "ai.insodimension/spaces";
 const MODES: readonly ModelToolsMode[] = ["code", "steps", "both"];
 const NAME = /\bbrowser_[a-z]+(?:_[a-z]+)*\b/g;
 
@@ -36,9 +36,6 @@ afterAll(async () => {
   for (const client of clients.splice(0)) await client.close().catch(() => undefined);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
-
-const manifest = JSON.parse(await readFile(join(PACK, "plugin.json"), "utf8")) as { extensions: Record<string, { artifactories: Array<{ mcpServer: string; modelSpaces: string[] }> }> };
-const SPACES = manifest.extensions["ai.insodimension.dimension"]!.artifactories.find(artifactory => artifactory.mcpServer === "browser")!.modelSpaces;
 
 const idleHost: CodeHostPort = {
   run: async () => ({ state: "running", runId: "r", outputSoFar: "" }),
@@ -60,13 +57,8 @@ async function offerOf(mode: ModelToolsMode, taskTools: boolean): Promise<Offer>
   clients.push(client);
   const { tools } = await client.listTools();
   const offer: Offer = {};
-  for (const space of SPACES) {
-    offer[space] = tools
-      .filter(tool => {
-        const visibility = (tool._meta?.ui as { visibility?: string[] } | undefined)?.visibility;
-        const audience = tool._meta?.[SPACES_KEY];
-        return (visibility === undefined || visibility.includes("model")) && (!Array.isArray(audience) || audience.includes(space));
-      })
+  for (const space of SPACES_UNDER_TEST) {
+    offer[space] = offeredToModelOf(tools, space)
       .map(tool => ({ name: tool.name, text: JSON.stringify({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }) }));
   }
   return offer;
@@ -90,11 +82,18 @@ describe("the tools each space is offered are the ones the real server lists", (
     expect(video).toEqual(expect.arrayContaining(["browser_open", "browser_state", "browser_snapshot", "browser_inspect", "browser_screenshot", "browser_act", "browser_run", "browser_view", "browser_read", "browser_profiles", "browser_close"]));
     expect(video.filter(name => name.startsWith("browser_publish") || name.startsWith("browser_task"))).toEqual([]);
   });
+
+  test("in every mode chat, unreal and clients - spaces that had no browser before - have the step tools and browser_view, browser_read, browser_profiles, browser_close, and neither browser_run, a publish tool nor a task tool", () => {
+    const stepAndViewTools = ["browser_open", "browser_state", "browser_snapshot", "browser_inspect", "browser_screenshot", "browser_act", "browser_upload", "browser_view", "browser_read", "browser_profiles", "browser_close"].sort();
+    for (const [label, offer] of offers) {
+      for (const space of ["chat", "unreal", "clients"]) expect(offer[space]!.map(tool => tool.name).sort(), `${label}, ${space}`).toEqual(stepAndViewTools);
+    }
+  });
 });
 
 describe("a tool's own text names only tools its reader has", () => {
   for (const [label, offer] of offers) {
-    for (const space of SPACES) {
+    for (const space of SPACES_UNDER_TEST) {
       test(`${label}, ${space}: every browser_ name in the description and the schema of every tool offered is a tool offered`, () => {
         const have = offer[space]!.map(tool => tool.name);
         const unreachable = offer[space]!.flatMap(tool => names(tool.text).filter(named => !have.includes(named)).map(named => `${tool.name} names ${named}`));
@@ -105,7 +104,7 @@ describe("a tool's own text names only tools its reader has", () => {
 });
 
 /** The tools every space has in every mode, with and without jev's key. */
-const EVERY_SPACE: string[] = [...offers.values()].flatMap(offer => SPACES.map(space => offer[space]!.map(tool => tool.name))).reduce((common, list) => common.filter(name => list.includes(name)));
+const EVERY_SPACE: string[] = [...offers.values()].flatMap(offer => SPACES_UNDER_TEST.map(space => offer[space]!.map(tool => tool.name))).reduce((common, list) => common.filter(name => list.includes(name)));
 
 describe("a text every space reads names only the tools every space has", () => {
   test("the tools every space has, in every mode, are browser_view, browser_read, browser_profiles and browser_close", () => {
@@ -135,7 +134,7 @@ describe("a reference file names only tools of the set it is for, and is read on
     const named = names(text);
     for (const [label, offer] of offers) {
       if (onlyWithJev && !label.endsWith("/jev")) continue;
-      for (const space of SPACES) {
+      for (const space of SPACES_UNDER_TEST) {
         const have = offer[space]!.map(tool => tool.name);
         // The file says it does not apply to a session without its marker tool; a session with it must have every tool the file names.
         if (!have.includes(marker)) continue;

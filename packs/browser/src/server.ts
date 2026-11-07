@@ -23,7 +23,6 @@ import { reapChildren } from "./reap.js";
 import { BrowserRuntime } from "./runtime.js";
 import { defaultRootDir, fail } from "./store.js";
 import { LiveChannel } from "./stream.js";
-import manifest from "../plugin.json";
 import { jevKeyConfigured } from "./task.js";
 
 export const BROWSER_VIEW_URI = "ui://browser/index.html";
@@ -90,18 +89,13 @@ const APPROVAL_META_KEY = "ai.insodimension/approval";
 const APPROVAL_SUMMARY_META_KEY = "ai.insodimension/approvalSummary";
 /** The spaces whose MODEL may see and call a tool: the host leaves it out of every other space's tool list and refuses the call. The View is never gated by it. */
 const SPACES_META_KEY = "ai.insodimension/spaces";
+const EXCEPT_SPACES_META_KEY = "ai.insodimension/exceptSpaces";
 /** Publishing and task agents are Traction's: every tool a session is shown costs it tokens on every turn, and a dev session never calls these. */
 const TRACTION_ONLY = { [SPACES_META_KEY]: ["traction"] };
 
 /** `code` and `both` offer browser_run. */
 export type ModelToolsMode = "code" | "steps" | "both";
 const MODEL_TOOLS_ENV = "DIMENSION_BROWSER_MODEL_TOOLS";
-/** The spaces the pack is lent to: plugin.json `modelSpaces`, read from the manifest itself (the bundle carries it) so a space the manifest gains is offered a way to drive a page without a second edit. */
-const MODEL_SPACES: readonly string[] = (() => {
-  const spaces = manifest.extensions["ai.insodimension.dimension"].artifactories.find(artifactory => artifactory.mcpServer === "browser")?.modelSpaces;
-  if (spaces === undefined || spaces.length === 0) throw new Error("plugin.json lends the browser server to no space (artifactories[].modelSpaces)");
-  return spaces;
-})();
 const CODE_TOOL_SPACES = ["code", "build"];
 const BROWSER_RUN_SPACES = [...CODE_TOOL_SPACES, "traction", "video"];
 
@@ -115,9 +109,7 @@ function resolveModelTools(raw: string | undefined, hasCodeHost: boolean): Model
 
 /** `_meta` of ordinary step tools: code/build keeps one model-facing browser_run, other spaces keep their ordinary tools. */
 function stepToolMeta(mode: ModelToolsMode): Record<string, unknown> | undefined {
-  if (mode !== "code") return undefined;
-  const spaces = MODEL_SPACES.filter(space => !CODE_TOOL_SPACES.includes(space));
-  return spaces.length === 0 ? APP_ONLY : { [SPACES_META_KEY]: spaces };
+  return mode === "code" ? { [EXCEPT_SPACES_META_KEY]: CODE_TOOL_SPACES } : undefined;
 }
 /** The session a call belongs to, stamped by the host from the lane the call arrived on. */
 const SESSION_META_KEY = "ai.insodimension/session";

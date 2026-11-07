@@ -4,7 +4,7 @@
  * whether or not jev's key is set. The refusal used to name `browser_act`, `browser_open` and, with the key, `browser_task`: three calls the model could not make, leaving "ask the user" as its only real route.
  *
  * The server is the real one over an in-memory transport, the runtime the pack's own with a real headless Chrome, the code worker the real one; the page is the fixture's sign-in form. What a space is offered is read
- * the way the engine reads it (`ai.insodimension/spaces` on each tool), and every tool name in the refusal must be one of those.
+ * the way the engine reads it (`ai.insodimension/spaces` and `ai.insodimension/exceptSpaces` on each tool), and every tool name in the refusal must be one of those.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createBrowserServer } from "../src/server";
 import { startPages, type Pages } from "./code-host-fixture";
 import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, teardown } from "./fixture";
+import { namesOfferedToModelOf } from "./model-audience";
 
 const clients: Client[] = [];
 const servers: Array<{ close(): Promise<void> }> = [];
@@ -40,19 +41,6 @@ afterEach(async () => {
     else process.env[name] = saved[name];
   }
 });
-
-const SPACES_KEY = "ai.insodimension/spaces";
-
-/** The tools the model of `space` is offered: the engine's `toolsVisibleTo("model", space)`. */
-async function offeredTo(client: Client, space: string): Promise<string[]> {
-  return (await client.listTools()).tools
-    .filter(tool => {
-      const visibility = (tool._meta?.ui as { visibility?: string[] } | undefined)?.visibility;
-      const audience = tool._meta?.[SPACES_KEY];
-      return (visibility === undefined || visibility.includes("model")) && (!Array.isArray(audience) || audience.includes(space));
-    })
-    .map(tool => tool.name);
-}
 
 /** What a cell is told when it types into a password field, and what each code space is offered, on a server whose task tools are on or off. */
 async function refusalWith(taskTools: boolean): Promise<{ refusal: string; offered: Record<string, string[]> }> {
@@ -83,7 +71,7 @@ async function refusalWith(taskTools: boolean): Promise<{ refusal: string; offer
   const content = (answer.content ?? []) as Array<{ type: string; text?: string }>;
   expect(answer.isError).toBe(true);
   const offered: Record<string, string[]> = {};
-  for (const space of ["code", "build"]) offered[space] = await offeredTo(client, space);
+  for (const space of ["code", "build"]) offered[space] = namesOfferedToModelOf((await client.listTools()).tools, space);
   return { refusal: content.map(part => part.text ?? "").join("\n"), offered };
 }
 
