@@ -46,7 +46,7 @@ function makeShelf(): string {
 	const root = mkdtempSync(join(tmpdir(), "catalog-providers-"));
 	shelves.push(root);
 	mkdirSync(join(root, "scripts"));
-	for (const file of ["build-index.ts", "pack-manifest.mjs", "validate-marketplace.mjs"]) {
+	for (const file of ["build-index.ts", "pack-manifest.mjs", "space-showcase.mjs", "validate-marketplace.mjs"]) {
 		cpSync(join(scriptsDir, file), join(root, "scripts", file));
 	}
 	mkdirSync(join(root, ".dimension-plugin"));

@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "example-agents",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "An example of how to share an agent: one space with a sample marketing lead that starts switched off.",
 	"author": {
 		"name": "Dimension"
@@ -29,6 +29,9 @@
 					"icon": "bot",
 					"order": 90,
 					"description": "A reference space for contributors: the Build workspace, scoped to one General Agent — the Example Hub's marketing lead.",
+					"showcase": {
+						"tagline": "A reference space for contributors: the Build workspace, scoped to one General Agent — the Example Hub's marketing lead."
+					},
 					"layout": "build",
 					"components": {
 						"ca-switcher": "classic-switcher",

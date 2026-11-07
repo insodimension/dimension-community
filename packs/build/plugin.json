@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "build",
-	"version": "0.1.8",
+	"version": "0.1.9",
 	"description": "A workspace for coding put together entirely from plugins. Install it beside Code and swap any part without touching the app.",
 	"author": {
 		"name": "Dimension"
@@ -30,12 +30,12 @@
 					"icon": "hammer",
 					"order": 31,
 					"description": "The assembled workspace — the Code space rebuilt entirely from marketplace packs: rail, thread, composer, start surface, dock, environment and switcher are all replaceable parts.",
-					"preview": {
+					"showcase": {
+						"tagline": "Every part of this workspace is a pack you can swap.",
 						"screenshots": [
 							"assets/preview/session.webp",
 							"assets/preview/start.webp"
-						],
-						"tagline": "Every part of this workspace is a pack you can swap."
+						]
 					},
 					"mark": {
 						"accent": "#f59e0b"

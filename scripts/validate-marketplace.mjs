@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { projectCatalogProviders, readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
+import { isReleaseSource, releaseSourceProblems, spaceListingProblems } from "./space-showcase.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -196,6 +197,8 @@ for (const plugin of catalog.plugins ?? []) {
 	} else if (typeof plugin.source !== "object" || plugin.source === null) {
 		errors.push(`plugin "${label}": source must be a relative path or a source object`);
 	}
+	if (isReleaseSource(plugin.source)) errors.push(...releaseSourceProblems(label, plugin));
+	errors.push(...spaceListingProblems(root, label, plugin));
 	if (typeof plugin.description !== "string" || plugin.description.length < 10) {
 		errors.push(`plugin "${label}": a real description is required`);
 	}
