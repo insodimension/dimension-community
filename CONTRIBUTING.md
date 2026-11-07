@@ -46,8 +46,8 @@ review is the taste check.** No pack merges red.
 
    | Catalog field | Comes from |
    |---|---|
-   | `name` | your pack's directory name |
-   | `source` | your pack's release build: `{ "source": "release", "url", "sha256", "size" }` (see "How your pack becomes a release build" below) |
+   | `name` · `source` | your pack's directory name (`source` is `./packs/<name>`) |
+   | `release` | your pack's release build: `{ "source": "release", "url", "sha256", "size" }` (see "How your pack becomes a release build" below) |
    | `pluginId` · `title` · `icon` · `requires` · `spaces` · `providers` | `dimension.plugin.json` |
    | `description` | `plugin.json` top-level `description`, else `package.json`'s top-level one. This is your store copy: plain words, one or two short sentences on what the pack does for the person. The Dimension monorepo's `--words` gate refuses doc numbers, tool or op names, backticks, file names, config keys and internal terms. |
    | `category` · `tags` | `package.json` → `dimension` block (`category`, `keywords`), else its top-level fields |
@@ -101,15 +101,16 @@ review is the taste check.** No pack merges red.
 
 Browsing this shelf costs ONE fetch: a client reads the index and paints every
 card from it, then downloads only the pack it installs, as that pack's own
-release build. That is why every browse fact has to live in the index — and
-why the index has to be generated.
+release build (an older client takes it from `source` instead). That is why
+every browse fact has to live in the index — and why the index has to be
+generated.
 
 ## How your pack becomes a release build
 
-Nobody installs your pack from this repository's tree. A person who installs
-it downloads one archive, `<name>-<version>.tgz`, from this repository's
-GitHub Releases (tag `<name>-v<version>`), and Dimension refuses it unless its
-sha256 and size are the ones your catalog entry pins.
+A Dimension that reads the `release` field installs your pack from one archive,
+`<name>-<version>.tgz`, on this repository's GitHub Releases (tag
+`<name>-v<version>`), and refuses it unless its sha256 and size are the ones
+your entry's `release` pins.
 
 - **What is in it.** Every file under `packs/<name>/` that git would commit:
   tracked files and new files that are not ignored. Ignored files
@@ -121,7 +122,8 @@ sha256 and size are the ones your catalog entry pins.
 - **You build it by regenerating the catalog.** Run `bun install` once (it
   installs the shelf's one dev dependency, `fflate`, pinned exactly in
   `package.json` and `bun.lock`), then `bun scripts/build-index.ts` builds every
-  pack's archive in memory and writes its `sha256` and `size` into the entry.
+  pack's archive in memory and writes its `sha256` and `size` into the entry's
+  `release`.
   The archive is compressed by that pinned pure-JS `fflate`, not by bun's own
   zlib, so any bun version gives the bytes CI gives. To look inside your
   archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
@@ -144,11 +146,11 @@ sha256 and size are the ones your catalog entry pins.
   archive is not uploaded yet, so an install in that window fails with
   HTTP 404 and works on retry. Nothing else changes for anyone: people on the
   previous version keep it.
-- **Older Dimension.** Release builds need Dimension 0.11.27 or newer. Older
-  versions skip every release entry when they read the catalog, so they see
-  an empty Community shelf: packs already installed keep working, but get no
-  update offers until the app is updated. The switch of this shelf to release
-  builds merges only after Dimension 0.11.27 is released.
+- **Older Dimension.** Every entry keeps `source: "./packs/<name>"` beside
+  `release`. A Dimension that does not know the `release` field ignores it and
+  installs from `source` as it always has, so no version ever loses its
+  Community shelf and this switch can merge at any time. A Dimension that
+  reads `release` but finds it malformed warns and installs from `source`.
 
 ## Your first space
 

@@ -90,8 +90,9 @@ This is what makes browsing cheap: a client fetches the **index only** — KBs a
 any pack count — and paints every card from it (title, icon, version, screenshots,
 the minimum Dimension the pack needs). A pack comes down only when someone
 installs or updates it, as its own release build pinned by sha256 and size in the
-index (CONTRIBUTING.md, "How your pack becomes a release build"). Nobody clones
-the mall.
+entry's `release` field (CONTRIBUTING.md, "How your pack becomes a release
+build"); a Dimension that predates that field installs from the entry's
+`./packs/<name>` source instead. Nobody clones the mall.
 
 ### `requires.dimension`
 
@@ -109,10 +110,7 @@ is any semver range; it is matched against the Dimension PRODUCT version by the
 engine and the plugin manager (`Bun.semver.satisfies`) — never by the UI. A host
 whose version is unknown is never gated. Omit the field when your pack has no
 floor; `packs/build` is the worked example (it pins the bundled `general-chat`
-companion, which first ships in Dimension 0.10.5). The generator carries your
-range as you wrote it and adds none of its own: a Dimension older than 0.11.27
-cannot read release builds at all and skips every entry on this shelf, so that
-is not a floor a pack declares.
+companion, which first ships in Dimension 0.10.5).
 
 ### `channel` — keep samples and work in progress off stable
 

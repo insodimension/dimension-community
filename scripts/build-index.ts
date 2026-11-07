@@ -41,7 +41,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPackArchives, packDirectories } from "./pack-archive.mjs";
-import { packReleaseUrl, SHELF_RELEASES_PREFIX, SHELF_REPOSITORY } from "./shelf-release.mjs";
+import { packReleaseUrl, SHELF_REPOSITORY } from "./shelf-release.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifest } from "./pack-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -314,10 +314,7 @@ function entryFor(dir: string, archive: PackArchive): Json {
 export function buildIndex(seed: Json, listed: readonly Json[] = []): Json {
 	const packs = packDirectories(root);
 	const archives = buildPackArchives(root, packs) as Map<string, PackArchive>;
-	const releases = listed.filter(entry => {
-		const source = asObject(entry.source);
-		return source?.source === "release" && !String(source.url).startsWith(SHELF_RELEASES_PREFIX);
-	});
+	const releases = listed.filter(entry => asObject(entry.source)?.source === "release");
 	const plugins = [...packs.map(dir => entryFor(dir, archives.get(dir) as PackArchive)), ...releases].sort((a, b) => {
 		const left = String(a.name);
 		const right = String(b.name);
