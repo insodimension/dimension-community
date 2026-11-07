@@ -1,6 +1,6 @@
 ---
 name: youtube-studio-upload
-description: "Upload a finished film to YouTube through Studio in the person's own signed-in browser, from a checked receipts/publish.json: attach the master, set title, description, thumbnail, audience, altered-content answer, tags and visibility, read every field back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Needs the Browser plugin (browser_run). Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
+description: "Upload a finished film to YouTube through Studio in the person's own signed-in browser, from a checked receipts/publish.json: attach the master, set title, description, thumbnail, audience, altered-content answer, tags and visibility, read every field back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Needs the Browser plugin (browser_run, or its step tools with browser_upload). Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
 ---
 
 # YouTube Studio upload
@@ -52,9 +52,15 @@ Stop, say what you saw, and ask when: Studio shows a sign-in or verification ste
 
 A thumbnail limit, or "verify your phone number" for custom thumbnails, stops the thumbnail only: press Cancel, finish the rest at the visibility they approved, record the thumbnail row as `ok: false` with what the page showed, and tell them. Verifying the phone is theirs; once it is done, the thumbnail goes on from the edit page and its row is read back again.
 
-## Without `browser_run`
+## With the step tools instead of `browser_run`
 
-A session with only the step tools (`browser_open`, `browser_snapshot`, `browser_act`) cannot attach a file: there is no file step. Open Studio with `browser_view`, ask the person to pick the master (and the thumbnail) in the upload window themselves, then do the rest with `browser_snapshot` and `browser_act` (`click` by selector from the snapshot, `insert` into the focused text box), reading back with `browser_snapshot`. Everything else above applies.
+A session with the step tools (`browser_open`, `browser_snapshot`, `browser_act`, `browser_upload`) runs the same order with them: `browser_act` for clicks (by selector from the snapshot) and `insert` into the focused text box, `browser_snapshot` to read every field back. Files go up only through `browser_upload({ browserId, selector, paths, origin: "https://studio.youtube.com" })`, one call per file, and the person allows each one on its card:
+
+- the master: `ytcp-uploads-file-picker input[type=file]`, once the upload dialog is open;
+- the thumbnail: `ytcp-thumbnail-uploader input#file-loader`;
+- the subtitles: Studio opens a system file picker, so aim `browser_upload` at the dialog's Continue button after choosing With timing; it presses it and hands the SRT to the picker.
+
+`upload_mismatch` means the tab was not on Studio's origin and nothing was sent: snapshot, then try again. Everything else above applies.
 
 ## What you leave behind
 
