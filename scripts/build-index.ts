@@ -220,10 +220,13 @@ function generalAgentListings(packRoot: string, packDir: string): Json[] | undef
 	return listings.length > 0 ? listings : undefined;
 }
 
+
 function requirements(manifest: Json): Json | undefined {
 	const requires = asObject(manifest.requires);
 	const dimension = asString(requires?.dimension);
-	return dimension ? { dimension } : undefined;
+	const plugins = asObject(requires?.plugins);
+	if (!dimension && !plugins) return undefined;
+	return { ...(dimension ? { dimension } : {}), ...(plugins ? { plugins } : {}) };
 }
 
 /** `package.json.author` in catalog shape. npm allows a string

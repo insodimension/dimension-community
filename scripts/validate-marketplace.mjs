@@ -66,6 +66,24 @@ if (!Array.isArray(catalog.plugins) || catalog.plugins.length === 0) {
 	errors.push("catalog.plugins must be a non-empty array");
 }
 
+function semverRangeProblem(range) {
+	if (typeof range !== "string" || range.length === 0) return "must be a non-empty semver range string";
+	const tokens = range.split(/\s+/).filter(token => token.length > 0 && token !== "||" && token !== "-");
+	const malformed = tokens.filter(
+		token => !/^(?:\*|[xX]|(?:[<>]=?|=|~|\^|v)?\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.test(token),
+	);
+	if (tokens.length === 0 || malformed.length > 0) {
+		return `"${range}" is not a semver range (unrecognized: ${malformed.join(", ") || "<empty>"})`;
+	}
+	if (typeof Bun === "undefined") return undefined;
+	try {
+		Bun.semver.satisfies("0.0.0", range);
+	} catch (error) {
+		return `"${range}" cannot be matched by the engine's semver (${error instanceof Error ? error.message : String(error)})`;
+	}
+	return undefined;
+}
+
 function providerProblems(label, plugin, manifest) {
 	const declared = projectCatalogProviders(manifest?.providers);
 	const listed = projectCatalogProviders(plugin.providers);
@@ -237,29 +255,21 @@ for (const plugin of catalog.plugins ?? []) {
 	if (plugin.requires !== undefined) {
 		if (typeof plugin.requires !== "object" || plugin.requires === null || Array.isArray(plugin.requires)) {
 			errors.push(`plugin "${label}": requires must be an object (e.g. { "dimension": ">=0.9.89" })`);
-		} else if (plugin.requires.dimension !== undefined) {
-			const range = plugin.requires.dimension;
-			if (typeof range !== "string" || range.length === 0) {
-				errors.push(`plugin "${label}": requires.dimension must be a non-empty semver range string`);
-			} else {
-				// A comparator set: whitespace-separated tokens, `||` alternatives,
-				// and the hyphen-range separator. Each token is an optional operator
-				// plus a full or partial version (`>=0.9.89`, `^1.2`, `1.x`, `*`).
-				const tokens = range.split(/\s+/).filter(token => token.length > 0 && token !== "||" && token !== "-");
-				const malformed = tokens.filter(
-					token => !/^(?:\*|[xX]|(?:[<>]=?|=|~|\^|v)?\d+(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.test(token),
-				);
-				if (tokens.length === 0 || malformed.length > 0) {
-					errors.push(
-						`plugin "${label}": requires.dimension "${range}" is not a semver range (unrecognized: ${malformed.join(", ") || "<empty>"})`,
-					);
-				} else if (typeof Bun !== "undefined") {
-					try {
-						Bun.semver.satisfies("0.0.0", range);
-					} catch (error) {
-						errors.push(
-							`plugin "${label}": requires.dimension "${range}" cannot be matched by the engine's semver (${error instanceof Error ? error.message : String(error)})`,
-						);
+		} else {
+			if (plugin.requires.dimension !== undefined) {
+				const problem = semverRangeProblem(plugin.requires.dimension);
+				if (problem) errors.push(`plugin "${label}": requires.dimension ${problem}`);
+			}
+			const plugins = plugin.requires.plugins;
+			if (plugins !== undefined) {
+				if (typeof plugins !== "object" || plugins === null || Array.isArray(plugins)) {
+					errors.push(`plugin "${label}": requires.plugins must map plugin ids to semver ranges (e.g. { "browser": "^0.9.13" })`);
+				} else {
+					for (const [id, range] of Object.entries(plugins)) {
+						if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)) errors.push(`plugin "${label}": requires.plugins key "${id}" is not a plugin id`);
+						if (id === plugin.name) errors.push(`plugin "${label}": requires.plugins names the pack itself`);
+						const problem = semverRangeProblem(range);
+						if (problem) errors.push(`plugin "${label}": requires.plugins.${id} ${problem}`);
 					}
 				}
 			}
