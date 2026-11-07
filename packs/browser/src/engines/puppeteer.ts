@@ -43,6 +43,7 @@ import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
 import { ActionNotDispatched, BrowserRuntimeError, fail } from "../store.js";
 import {
+	EDITABLES_SCRIPT,
 	ELEMENT_LABEL_SCRIPT,
 	ELEMENT_TEXT_SCRIPT,
 	ELEMENTS_IN_REGIONS_SCRIPT,
@@ -76,7 +77,7 @@ import { environmentLaunchArgs } from "./launch-env.js";
 import { type HeadfulIdentity, headfulIdentity, identityPerBinary, NAVIGATOR_WEBDRIVER_OFF_SWITCH, type ReportedIdentity, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
 import type { TabRef } from "../code/contracts.js";
 import { ownedPids } from "../owned-pids.js";
-import type { DialogPolicy, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
+import type { DialogPolicy, EditableText, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 /** Child frames a snapshot lists controls for, depth first. */
@@ -1091,6 +1092,20 @@ class PuppeteerDriver implements EngineDriver {
 		} finally {
 			await handle.dispose().catch(() => undefined);
 		}
+	}
+
+	async editables(): Promise<EditableText[]> {
+		const texts: EditableText[] = [];
+		for (const frame of this.#activeTab().page.frames()) {
+			if (frame.detached) continue;
+			try {
+				texts.push(...(await utilityWorld(frame).evaluate(EDITABLES_SCRIPT)));
+			} catch (error) {
+				if (frame.detached) continue;
+				throw error;
+			}
+		}
+		return texts;
 	}
 
 	async readText(selector: string, limit: number): Promise<string | null> {
@@ -2867,6 +2882,7 @@ async function killTree(proc: ChildProcess): Promise<void> {
 interface UtilityWorld {
 	adoptHandle<T extends ElementHandle<Element>>(handle: T): Promise<T>;
 	evaluateHandle<R>(fn: () => R): Promise<JSHandle<R>>;
+	evaluate<A extends unknown[], R>(fn: (...args: A) => R, ...args: A): Promise<Awaited<R>>;
 }
 function utilityWorld(frame: Frame): UtilityWorld {
 	// Reason: internal API of the pinned puppeteer-core (see UtilityWorld).

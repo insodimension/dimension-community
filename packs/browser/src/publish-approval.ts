@@ -47,11 +47,46 @@ import { fail } from "./store.js";
 
 /** The domain tag in the hash: a binding for another purpose can never collide with this one. */
 const BINDING_DOMAIN = "publish-approval/v1";
+const FILL_DOMAIN = "approved-fill/v1";
 /** The longest a writer may keep one approval live; a longer record is not an approval. */
 export const MAX_APPROVAL_MS = 24 * 60 * 60_000;
 const DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const NONCE = /^[0-9a-f]{32}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
+const MAX_FILL_TEXTS = 64;
+const MAX_FILL_TEXT_CHARS = 100_000;
+
+export function fillDigest(value: string): string {
+	const settled = value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim();
+	return createHash("sha256").update(JSON.stringify([FILL_DOMAIN, settled])).digest("hex");
+}
+
+export interface FillApproval {
+	readonly draftId: string;
+	readonly nonce: string;
+	readonly profile: string;
+	readonly origins: readonly string[];
+	readonly texts: readonly string[];
+	readonly digests: ReadonlySet<string>;
+	readonly expiresAt: number;
+}
+
+interface Marked {
+	readonly draftId: string;
+	readonly nonce: string;
+}
+
+function markerName(approval: Marked): string {
+	return `${approval.draftId}.${approval.nonce}.used`;
+}
+
+export function originCovered(origins: readonly string[], origin: string): boolean {
+	return origins.some((allowed) => {
+		if (allowed === "*" || allowed === origin) return true;
+		const wildcard = /^(https:\/\/)\*\.(.+)$/.exec(allowed);
+		return wildcard !== null && origin.startsWith(wildcard[1] as string) && origin.endsWith(`.${wildcard[2]}`) && !origin.slice((wildcard[1] as string).length).includes("/");
+	});
+}
 
 /** What an approval covers: where, as whom, through which shipped preset, and exactly what. */
 export interface PublishBinding {
@@ -104,64 +139,91 @@ export class PublishApprovals {
 		if (found.live.length === 0) refuse(binding, found, stage);
 	}
 
-	/**
-	 * Spend the approval that covers this post, or refuse. The exclusive create of
-	 * its marker is the lock, so of any number of concurrent spenders exactly one
-	 * wins; the rest see `used`.
-	 */
 	async consume(binding: PublishBinding, stage: ApprovalStage): Promise<Spend> {
 		const found = await this.#survey(bindingOf(binding));
 		for (const approval of found.live) {
-			const marker = join(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
-			try {
-				await (await open(marker, "wx")).close();
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-					found.used.push(approval);
-					continue;
-				}
-				throw error;
+			if (!(await this.#spend(approval))) {
+				found.used.push(approval);
+				continue;
 			}
-			return {
-				draftId: approval.draftId,
-				release: async () => {
-					await unlink(marker).catch((error: NodeJS.ErrnoException) => {
-						if (error.code !== "ENOENT") throw error;
-					});
-				},
-			};
+			return { draftId: approval.draftId, release: () => this.#release(approval) };
 		}
 		return refuse(binding, found, stage);
 	}
 
-	/** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
 	async #survey(binding: string): Promise<{ live: Approval[]; used: Approval[]; expired: Approval[] }> {
 		const live: Approval[] = [];
 		const used: Approval[] = [];
 		const expired: Approval[] = [];
-		let names: string[];
-		try {
-			names = await readdir(this.#dir);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "ENOENT") return { live, used, expired };
-			throw error;
-		}
-		const spent = new Set(names.filter((name) => name.endsWith(".used")));
+		const { names, spent } = await this.#listing();
 		const now = this.#now();
 		for (const name of names) {
-			if (!name.endsWith(".json")) continue;
-			const approval = await readApproval(join(this.#dir, name), name);
+			const approval = readApproval(await readRecord(join(this.#dir, name), name));
 			if (approval === null || approval.binding !== binding) continue;
-			if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) used.push(approval);
+			if (spent.has(markerName(approval))) used.push(approval);
 			else if (approval.expiresAt <= now) expired.push(approval);
 			else live.push(approval);
 		}
 		return { live, used, expired };
 	}
+
+	async fills(profile: string, origin: string): Promise<FillApproval[]> {
+		const live: FillApproval[] = [];
+		const { names, spent } = await this.#listing();
+		const now = this.#now();
+		for (const name of names) {
+			const approval = readFillApproval(await readRecord(join(this.#dir, name), name));
+			if (approval === null || approval.profile !== profile || !originCovered(approval.origins, origin)) continue;
+			if (!spent.has(markerName(approval)) && approval.expiresAt > now) live.push(approval);
+		}
+		return live;
+	}
+
+	spendFill(approval: FillApproval): Promise<boolean> {
+		return this.#spend(approval);
+	}
+
+	releaseFill(approval: FillApproval): Promise<void> {
+		return this.#release(approval);
+	}
+
+	async #spend(approval: Marked): Promise<boolean> {
+		try {
+			await (await open(join(this.#dir, markerName(approval)), "wx")).close();
+			return true;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+			throw error;
+		}
+	}
+
+	async #release(approval: Marked): Promise<void> {
+		await unlink(join(this.#dir, markerName(approval))).catch((error: NodeJS.ErrnoException) => {
+			if (error.code !== "ENOENT") throw error;
+		});
+	}
+
+	async #listing(): Promise<{ names: string[]; spent: ReadonlySet<string> }> {
+		let names: string[];
+		try {
+			names = await readdir(this.#dir);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return { names: [], spent: new Set() };
+			throw error;
+		}
+		return { names: names.filter((name) => name.endsWith(".json")), spent: new Set(names.filter((name) => name.endsWith(".used"))) };
+	}
 }
 
-/** One entry, or null for anything that is not a well-formed v1 approval named for its draft. */
-async function readApproval(path: string, name: string): Promise<Approval | null> {
+interface ApprovalRecord {
+	readonly fields: Record<string, unknown>;
+	readonly draftId: string;
+	readonly nonce: string;
+	readonly approvedAt: number;
+	readonly expiresAt: number;
+}
+
+async function readRecord(path: string, name: string): Promise<ApprovalRecord | null> {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(await readFile(path, "utf8"));
@@ -169,14 +231,32 @@ async function readApproval(path: string, name: string): Promise<Approval | null
 		return null;
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;
-	const { v, draftId, nonce, binding, approvedAt, expiresAt } = parsed as Record<string, unknown>;
-	if (v !== 1 || typeof draftId !== "string" || !DRAFT_ID.test(draftId) || name !== `${draftId}.json`) return null;
-	if (typeof nonce !== "string" || !NONCE.test(nonce) || typeof binding !== "string" || !DIGEST.test(binding)) return null;
+	const fields = parsed as Record<string, unknown>;
+	const { draftId, nonce, approvedAt, expiresAt } = fields;
+	if (typeof draftId !== "string" || !DRAFT_ID.test(draftId) || name !== `${draftId}.json`) return null;
+	if (typeof nonce !== "string" || !NONCE.test(nonce)) return null;
 	if (typeof approvedAt !== "string" || typeof expiresAt !== "string") return null;
 	const from = Date.parse(approvedAt);
 	const until = Date.parse(expiresAt);
 	if (!Number.isFinite(from) || !Number.isFinite(until) || until <= from || until - from > MAX_APPROVAL_MS) return null;
-	return { draftId, nonce, binding, approvedAt: from, expiresAt: until };
+	return { fields, draftId, nonce, approvedAt: from, expiresAt: until };
+}
+
+function readApproval(record: ApprovalRecord | null): Approval | null {
+	if (record === null || record.fields.v !== 1) return null;
+	const { binding } = record.fields;
+	if (typeof binding !== "string" || !DIGEST.test(binding)) return null;
+	return { draftId: record.draftId, nonce: record.nonce, binding, approvedAt: record.approvedAt, expiresAt: record.expiresAt };
+}
+
+function readFillApproval(record: ApprovalRecord | null): FillApproval | null {
+	if (record === null || record.fields.v !== 2) return null;
+	const { profile, origins, texts } = record.fields;
+	if (typeof profile !== "string" || profile === "") return null;
+	const listed = Array.isArray(origins) && origins.length > 0 && origins.length <= MAX_FILL_TEXTS && origins.every((item) => typeof item === "string" && /^(?:\*|https?:\/\/(?:\*\.)?[^\s/*]+)$/.test(item));
+	if (!listed) return null;
+	if (!Array.isArray(texts) || texts.length === 0 || texts.length > MAX_FILL_TEXTS || !texts.every((item) => typeof item === "string" && item.trim() !== "" && item.length <= MAX_FILL_TEXT_CHARS)) return null;
+	return { draftId: record.draftId, nonce: record.nonce, profile, origins: origins as string[], texts: texts as string[], digests: new Set((texts as string[]).map(fillDigest)), expiresAt: record.expiresAt };
 }
 
 /** The refusal, worded for the model that has to act on it: what is wrong, and the one thing to do. */
