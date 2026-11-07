@@ -1,6 +1,6 @@
 ---
 name: browser
-description: Drive a real browser — open or show a page, read it, click and type, test a local app, fill a form, log in, or "look at this page". Start here: it holds what every browser session shares and names the reference for the tools you have.
+description: 'Drive a real browser — open or show a page, read it, click and type, test a local app, fill a form, log in, or "look at this page". Start here: it holds what every browser session shares and names the reference for the tools you have.'
 ---
 
 # Browser
