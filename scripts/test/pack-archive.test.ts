@@ -111,19 +111,63 @@ describe("a pack's release build", () => {
 		expect(run("--check").status).toBe(0);
 	});
 
-	test("every release entry refuses a Dimension too old to install a release build, keeping a pack's own higher floor", () => {
+	test("a pack deleted from the shelf loses its entry on regeneration, while an external release listing stays", () => {
 		const root = makeShelf();
-		for (const [name, dimension] of [["older-floor", ">=0.11.19"], ["newer-floor", ">=0.12.0"]]) {
-			writeFile(root, `packs/${name}/package.json`, JSON.stringify({ name, version: "1.0.0", description: `The ${name} test pack.` }));
-			writeFile(root, `packs/${name}/dimension.plugin.json`, JSON.stringify({ plugin: name, contractVersion: 1, requires: { dimension } }));
-		}
-		expect(spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" }).status).toBe(0);
-
-		const catalog = JSON.parse(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8")) as { plugins: { name: string; requires?: { dimension: string } }[] };
-		expect(Object.fromEntries(catalog.plugins.map(plugin => [plugin.name, plugin.requires?.dimension]))).toEqual({
-			demo: ">=0.11.27",
-			"newer-floor": ">=0.12.0",
-			"older-floor": ">=0.11.27",
+		const run = () => spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" });
+		const catalogPath = join(root, ".dimension-plugin/marketplace.json");
+		const names = () => {
+			const listed: { plugins: { name: string }[] } = JSON.parse(readFileSync(catalogPath, "utf8"));
+			return listed.plugins.map(plugin => plugin.name);
+		};
+		writeFile(root, "packs/doomed/package.json", JSON.stringify({ name: "doomed", version: "1.0.0", description: "A pack that is about to be deleted." }));
+		expect(run().status).toBe(0);
+		const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+		catalog.plugins.push({
+			name: "lantern",
+			version: "0.2.0",
+			description: "A space built in its maker's own repository.",
+			license: "MIT",
+			source: { source: "release", url: "https://get.example.com/lantern-0.2.0.tgz", sha256: "a".repeat(64), size: 4096 },
 		});
+		writeFileSync(catalogPath, JSON.stringify(catalog));
+
+		rmSync(join(root, "packs/doomed"), { recursive: true, force: true });
+		expect(run().status).toBe(0);
+		expect(names()).toEqual(["demo", "lantern"]);
+	});
+});
+
+type CatalogEntry = { name: string; source: string | { source: string; url: string; sha256: string; size: number } };
+
+describe("the validator on a shelf of release builds", () => {
+	function shelfWithEditedDemo(edit: (demo: CatalogEntry) => void) {
+		const root = makeShelf();
+		expect(spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" }).status).toBe(0);
+		const catalog: { plugins: CatalogEntry[] } = JSON.parse(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8"));
+		const demo = catalog.plugins.find(plugin => plugin.name === "demo");
+		if (!demo) throw new Error("the built catalog lists no demo pack");
+		edit(demo);
+		for (const path of [".dimension-plugin/marketplace.json", ".omp-plugin/marketplace.json"]) writeFile(root, path, JSON.stringify(catalog));
+		const result = spawnSync(process.execPath, [join(root, "scripts", "validate-marketplace.mjs")], { cwd: root, encoding: "utf8" });
+		return { status: result.status, output: `${result.stdout}${result.stderr}` };
+	}
+
+	test("refuses a pack listed by a relative source", () => {
+		const result = shelfWithEditedDemo(demo => {
+			demo.source = "./packs/demo";
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.output).toContain('plugin "demo": a relative source is retired on this shelf');
+	});
+
+	test("refuses a shelf pack whose release url was edited by hand", () => {
+		const result = shelfWithEditedDemo(demo => {
+			if (typeof demo.source === "string") throw new Error("demo is listed by its release build");
+			demo.source.url = "https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.1.tgz";
+		});
+
+		expect(result.status).toBe(1);
+		expect(result.output).toContain(`plugin "demo": source.url must be this shelf's release build`);
 	});
 });

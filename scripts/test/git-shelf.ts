@@ -7,6 +7,7 @@ export const SHELF_SCRIPTS = [
 	"pack-archive.mjs",
 	"pack-manifest.mjs",
 	"publish-pack-releases.mjs",
+	"shelf-release.mjs",
 	"space-showcase.mjs",
 	"validate-marketplace.mjs",
 ];

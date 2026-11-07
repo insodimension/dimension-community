@@ -109,7 +109,10 @@ is any semver range; it is matched against the Dimension PRODUCT version by the
 engine and the plugin manager (`Bun.semver.satisfies`) — never by the UI. A host
 whose version is unknown is never gated. Omit the field when your pack has no
 floor; `packs/build` is the worked example (it pins the bundled `general-chat`
-companion, which first ships in Dimension 0.10.5).
+companion, which first ships in Dimension 0.10.5). The generator carries your
+range as you wrote it and adds none of its own: a Dimension older than 0.11.27
+cannot read release builds at all and skips every entry on this shelf, so that
+is not a floor a pack declares.
 
 ### `channel` — keep samples and work in progress off stable
 

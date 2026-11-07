@@ -1,20 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "fflate";
+import { packArchiveName } from "./shelf-release.mjs";
 import { RELEASE_MAX_BYTES } from "./space-showcase.mjs";
-
-export const SHELF_REPO = "insodimension/dimension-community";
-export const SHELF_REPOSITORY = `https://github.com/${SHELF_REPO}`;
-export const RELEASE_SOURCE_MIN_DIMENSION = "0.11.27";
-
-export const packReleaseTag = (name, version) => `${name}-v${version}`;
-export const packArchiveName = (name, version) => `${name}-${version}.tgz`;
-export const packReleaseUrl = (name, version) =>
-	`${SHELF_REPOSITORY}/releases/download/${packReleaseTag(name, version)}/${packArchiveName(name, version)}`;
 
 export function packDirectories(root) {
 	const packsDir = join(root, "packs");
@@ -29,12 +21,14 @@ const TAR_NAME_MAX = 100;
 const TAR_PREFIX_MAX = 155;
 const FILE_MODES = { "100644": 0o644, "100755": 0o755 };
 const GZIP_OPTIONS = { level: 9, mem: 12, mtime: 0 };
+const BLOB_HEADER_MAX = 160;
 
 function git(root, args, options = {}) {
 	const result = spawnSync("git", args, {
 		cwd: root,
 		input: options.input,
 		env: options.env ? { ...process.env, ...options.env } : process.env,
+		stdio: ["pipe", options.stdout ?? "pipe", "pipe"],
 		maxBuffer: 2 * RELEASE_MAX_BYTES,
 		windowsHide: true,
 	});
@@ -46,6 +40,7 @@ function git(root, args, options = {}) {
 const zeroSeparated = buffer => buffer.toString("utf8").split("\0").filter(Boolean);
 
 function packOf(path) {
+	if (path.includes("\n")) throw new Error(`${JSON.stringify(path)} has a line break in its name`);
 	const match = /^packs\/([^/]+)\/(.+)$/.exec(path);
 	if (!match) throw new Error(`git listed ${path} outside packs/`);
 	return { pack: match[1], rel: match[2] };
@@ -53,58 +48,72 @@ function packOf(path) {
 
 function shelfFiles(root, names) {
 	const pathspecs = names.map(name => `packs/${name}/`);
+	const dirty = new Set(zeroSeparated(git(root, ["diff-files", "--name-only", "-z", "--", ...pathspecs])));
 	const files = [];
 	for (const record of zeroSeparated(git(root, ["ls-files", "--stage", "-z", "--", ...pathspecs]))) {
 		const tab = record.indexOf("\t");
-		const [mode, , stage] = record.slice(0, tab).split(" ");
+		const [mode, id, stage] = record.slice(0, tab).split(" ");
 		const path = record.slice(tab + 1);
 		if (stage !== "0") throw new Error(`${path} has an unresolved merge conflict`);
 		if (!FILE_MODES[mode]) {
 			throw new Error(`${path} is ${mode === "120000" ? "a symlink" : mode === "160000" ? "a submodule" : `git mode ${mode}`}; a release build holds plain files only`);
 		}
 		if (!lstatSync(join(root, path), { throwIfNoEntry: false })) continue;
-		files.push({ path, mode: FILE_MODES[mode] });
+		files.push({ ...packOf(path), path, mode: FILE_MODES[mode], id: dirty.has(path) ? undefined : id });
 	}
 	for (const path of zeroSeparated(git(root, ["ls-files", "--others", "--exclude-standard", "-z", "--", ...pathspecs]))) {
 		if (path.endsWith("/")) throw new Error(`${path} is a nested git repository; a release build holds plain files only`);
 		const stat = lstatSync(join(root, path));
 		if (stat.isSymbolicLink()) throw new Error(`${path} is a symlink; a release build holds plain files only`);
 		const executable = process.platform !== "win32" && (stat.mode & 0o100) !== 0;
-		files.push({ path, mode: executable ? 0o755 : 0o644 });
-	}
-	for (const { path } of files) {
-		if (path.includes("\n")) throw new Error(`${JSON.stringify(path)} has a line break in its name`);
+		files.push({ ...packOf(path), path, mode: executable ? 0o755 : 0o644, id: undefined });
 	}
 	return files;
 }
 
-function readNormalizedBlobs(root, paths) {
-	if (paths.length === 0) return [];
-	const objects = mkdtempSync(join(tmpdir(), "pack-archive-objects-"));
+function hashChangedFiles(root, files, env) {
+	const changed = files.filter(file => file.id === undefined);
+	if (changed.length === 0) return;
+	const ids = git(root, ["hash-object", "-w", "--stdin-paths"], { input: `${changed.map(file => file.path).join("\n")}\n`, env })
+		.toString("latin1")
+		.trim()
+		.split("\n");
+	if (ids.length !== changed.length) throw new Error(`git hashed ${ids.length} of ${changed.length} files`);
+	changed.forEach((file, index) => {
+		file.id = ids[index];
+	});
+}
+
+function writeBlobBatch(root, ids, env, path) {
+	const fd = openSync(path, "w");
 	try {
-		const repoObjects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]).toString().trim();
-		const env = { GIT_OBJECT_DIRECTORY: objects, GIT_ALTERNATE_OBJECT_DIRECTORIES: repoObjects };
-		const ids = git(root, ["hash-object", "-w", "--stdin-paths"], { input: `${paths.join("\n")}\n`, env })
-			.toString("latin1")
-			.trim()
-			.split("\n");
-		if (ids.length !== paths.length) throw new Error(`git hashed ${ids.length} of ${paths.length} files`);
-		const batch = git(root, ["cat-file", "--batch"], { input: `${ids.join("\n")}\n`, env });
-		const blobs = [];
-		let cursor = 0;
-		for (const id of ids) {
-			const lineEnd = batch.indexOf(0x0a, cursor);
-			const [gotId, type, size] = batch.toString("latin1", cursor, lineEnd).split(" ");
-			if (gotId !== id || type !== "blob") throw new Error(`git returned ${gotId} ${type} for blob ${id}`);
-			const start = lineEnd + 1;
-			const end = start + Number(size);
-			blobs.push(batch.subarray(start, end));
-			cursor = end + 1;
-		}
-		return blobs;
+		git(root, ["cat-file", "--batch"], { input: `${ids.join("\n")}\n`, env, stdout: fd });
 	} finally {
-		rmSync(objects, { recursive: true, force: true });
+		closeSync(fd);
 	}
+}
+
+function readFully(fd, buffer, offset, length, position) {
+	for (let done = 0; done < length; ) {
+		const read = readSync(fd, buffer, offset + done, length - done, position + done);
+		if (read === 0) throw new Error("git's blob batch ended early");
+		done += read;
+	}
+}
+
+function blobBatchReader(fd) {
+	const header = Buffer.alloc(BLOB_HEADER_MAX);
+	let cursor = 0;
+	return id => {
+		const read = readSync(fd, header, 0, BLOB_HEADER_MAX, cursor);
+		const lineEnd = header.subarray(0, read).indexOf(0x0a);
+		if (lineEnd === -1) throw new Error(`git returned no blob for ${id}`);
+		const [gotId, type, size] = header.toString("latin1", 0, lineEnd).split(" ");
+		if (gotId !== id || type !== "blob") throw new Error(`git returned ${gotId} ${type} for blob ${id}`);
+		const at = cursor + lineEnd + 1;
+		cursor = at + Number(size) + 1;
+		return { at, size: Number(size) };
+	};
 }
 
 function writeOctal(header, offset, width, value) {
@@ -149,17 +158,18 @@ function writeHeader(tar, offset, { name, prefix, mode, size, type }) {
 
 const padded = size => Math.ceil(size / TAR_BLOCK) * TAR_BLOCK;
 
-function tarOf(entries) {
+function tarInto(scratch, entries, fd) {
 	const planned = entries.map(entry => {
 		const ustar = ustarPath(entry.path);
 		return { ...entry, ustar, pax: ustar ? undefined : paxRecords(entry.path) };
 	});
 	let total = 2 * TAR_BLOCK;
 	for (const entry of planned) {
-		total += TAR_BLOCK + padded(entry.bytes.length);
+		total += TAR_BLOCK + padded(entry.blob.size);
 		if (entry.pax) total += TAR_BLOCK + padded(entry.pax.length);
 	}
-	const tar = Buffer.alloc(total);
+	const tar = scratch.length >= total ? scratch : Buffer.alloc(Math.max(total, 2 * scratch.length));
+	tar.fill(0, 0, total);
 	let offset = 0;
 	for (const entry of planned) {
 		if (entry.pax) {
@@ -168,33 +178,60 @@ function tarOf(entries) {
 			offset += TAR_BLOCK + padded(entry.pax.length);
 		}
 		const { name, prefix } = entry.ustar ?? { name: Buffer.from(entry.path, "utf8").subarray(0, TAR_NAME_MAX), prefix: Buffer.alloc(0) };
-		writeHeader(tar, offset, { name, prefix, mode: entry.mode, size: entry.bytes.length, type: "0" });
-		entry.bytes.copy(tar, offset + TAR_BLOCK);
-		offset += TAR_BLOCK + padded(entry.bytes.length);
+		writeHeader(tar, offset, { name, prefix, mode: entry.mode, size: entry.blob.size, type: "0" });
+		readFully(fd, tar, offset + TAR_BLOCK, entry.blob.size, entry.blob.at);
+		offset += TAR_BLOCK + padded(entry.blob.size);
 	}
-	return tar;
+	return { tar, total };
 }
 
-export function buildPackArchives(root, names) {
-	const files = shelfFiles(root, names);
-	const blobs = readNormalizedBlobs(root, files.map(file => file.path));
-	const byPack = new Map(names.map(name => [name, []]));
-	files.forEach((file, index) => {
-		const { pack, rel } = packOf(file.path);
-		byPack.get(pack)?.push({ path: `${pack}/${rel}`, mode: file.mode, bytes: blobs[index] });
-	});
-	const archives = new Map();
-	for (const [name, entries] of byPack) {
-		if (entries.length === 0) throw new Error(`packs/${name} holds no files git would commit`);
-		entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-		const compressed = gzipSync(tarOf(entries), GZIP_OPTIONS);
-		const bytes = Buffer.from(compressed.buffer, compressed.byteOffset, compressed.byteLength);
-		if (bytes.length > RELEASE_MAX_BYTES) {
-			throw new Error(`packs/${name} builds to ${bytes.length} bytes, over the ${RELEASE_MAX_BYTES}-byte release cap`);
-		}
-		archives.set(name, { bytes, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length });
+function compressedArchive(name, tar) {
+	const compressed = gzipSync(tar, GZIP_OPTIONS);
+	const bytes = Buffer.from(compressed.buffer, compressed.byteOffset, compressed.byteLength);
+	if (bytes.length > RELEASE_MAX_BYTES) {
+		throw new Error(`packs/${name} builds to ${bytes.length} bytes, over the ${RELEASE_MAX_BYTES}-byte release cap`);
 	}
-	return archives;
+	return { bytes, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length };
+}
+
+const byRelativePath = (left, right) => (left.rel < right.rel ? -1 : left.rel > right.rel ? 1 : 0);
+
+export function buildPackArchives(root, names) {
+	const byPack = new Map(names.map(name => [name, []]));
+	const files = shelfFiles(root, names);
+	for (const file of files) byPack.get(file.pack)?.push(file);
+	for (const [name, packFiles] of byPack) {
+		if (packFiles.length === 0) throw new Error(`packs/${name} holds no files git would commit`);
+		packFiles.sort(byRelativePath);
+	}
+	const work = mkdtempSync(join(tmpdir(), "pack-archive-"));
+	try {
+		const objects = join(work, "objects");
+		mkdirSync(objects);
+		const repoObjects = git(root, ["rev-parse", "--path-format=absolute", "--git-path", "objects"]).toString().trim();
+		const env = { GIT_OBJECT_DIRECTORY: objects, GIT_ALTERNATE_OBJECT_DIRECTORIES: repoObjects };
+		hashChangedFiles(root, files, env);
+		const batchPath = join(work, "blobs");
+		writeBlobBatch(root, [...byPack.values()].flat().map(file => file.id), env, batchPath);
+		const fd = openSync(batchPath, "r");
+		try {
+			const nextBlob = blobBatchReader(fd);
+			const archives = new Map();
+			let scratch = Buffer.alloc(0);
+			for (const [name, packFiles] of byPack) {
+				const entries = packFiles.map(file => ({ path: `${name}/${file.rel}`, mode: file.mode, blob: nextBlob(file.id) }));
+				const { tar, total } = tarInto(scratch, entries, fd);
+				scratch = tar;
+				archives.set(name, compressedArchive(name, tar.subarray(0, total)));
+				Bun.gc(false);
+			}
+			return archives;
+		} finally {
+			closeSync(fd);
+		}
+	} finally {
+		rmSync(work, { recursive: true, force: true });
+	}
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

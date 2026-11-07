@@ -14,7 +14,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { packReleaseUrl } from "./pack-archive.mjs";
+import { packReleaseUrl } from "./shelf-release.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
 import { isReleaseSource, releaseSourceProblems, shelfPackDir, spaceListingProblems } from "./space-showcase.mjs";
 

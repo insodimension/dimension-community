@@ -94,10 +94,7 @@ review is the taste check.** No pack merges red.
    ("Requires Dimension ≥ X — update Dimension") and the engine refuses install
    and load on an older host — matched against the Dimension PRODUCT version with
    `Bun.semver.satisfies`, never parsed by the UI. Omit it when your pack has no
-   floor. Every entry on this shelf requires at least Dimension 0.11.27, the
-   first release that installs release builds (see below): the generator raises
-   a lower floor to `>=0.11.27`, keeps a higher one and any `<` upper bound, and
-   refuses any other form (write `>=X.Y.Z`, optionally with `<X.Y.Z`).
+   floor; an unparseable range fails validation.
 7. **Open the PR.** CI validates the catalog and pack layout and refuses index
    drift; the monorepo CI runs your tests; a maintainer reviews for craft
    (design-token discipline, honest empty states, reduced-motion safety).
@@ -134,23 +131,24 @@ sha256 and size are the ones your catalog entry pins.
   change to a file under `packs/<name>/`, tests included, needs a version bump
   (`check-version-bumps.mjs` refuses one without), which gives it a new tag
   and a new archive.
-- **CI publishes it after merge.** On every push to `main`, the
-  `publish-releases` job reads the catalog and, for each entry whose release
-  asset does not exist yet, builds the archive from the merged commit, checks
-  it is byte for byte the one the catalog pins, creates the release at that
-  commit and uploads it. An asset that already exists is checked, never
-  overwritten: if its bytes differ from the catalog, the job fails and names
-  the pack.
+- **CI publishes it after merge.** On every push to `main`, once the
+  `validate` job is green, the `publish-releases` job reads the catalog and,
+  for each entry whose release asset does not exist yet, builds the archive
+  from the merged commit, checks it is byte for byte the one the catalog pins,
+  creates the release at that commit and uploads it. An asset that already
+  exists is checked, never overwritten: if its bytes differ from the catalog,
+  the job fails and names the pack. A maintainer can run the workflow on
+  `main` by hand (Actions, ci, Run workflow) to publish again after a failure.
 - **The window.** From the merge until that job finishes (normally a minute
   or two), the catalog on `main` already names your new version but its
   archive is not uploaded yet, so an install in that window fails with
   HTTP 404 and works on retry. Nothing else changes for anyone: people on the
   previous version keep it.
-- **The floor.** Dimension 0.11.26 and older cannot install a release build
-  (they answer "Unknown plugin source type"), so every entry carries
-  `requires.dimension` of at least `>=0.11.27` and an older Dimension shows
-  "update Dimension" instead of a failing install. The switch of this shelf to
-  release builds merges only after Dimension 0.11.27 is released.
+- **Older Dimension.** Release builds need Dimension 0.11.27 or newer. Older
+  versions skip every release entry when they read the catalog, so they see
+  an empty Community shelf: packs already installed keep working, but get no
+  update offers until the app is updated. The switch of this shelf to release
+  builds merges only after Dimension 0.11.27 is released.
 
 ## Your first space
 
