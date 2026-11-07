@@ -5,7 +5,9 @@ import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@model
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD } from "@dimension/sdk/artifactory";
+import { ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD, ARTIFACTORY_HOST_CONTEXT_META_KEY } from "@dimension/sdk/artifactory";
+import type { SubmitJudge } from "./approved-fill.js";
+import { ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID, ARTIFACTORY_SUBMIT_JUDGE_METHOD } from "./submit-judge.js";
 import type { CodeHostPort } from "./code/contracts.js";
 import { type CodeHost, createRuntimeCodeHost } from "./code/host/code-host.js";
 import { registerCodeTool } from "./code/tool.js";
@@ -139,6 +141,11 @@ const contextRefSchema = z.object({
   sessionId: z.string().min(1).max(1024),
   token: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
+const SUBMIT_JUDGE_TIMEOUT_MS = 8_000;
+const submitVerdictSchema = z.union([
+  z.object({ verdict: z.enum(["consistent", "inconsistent"]), confidence: z.number().min(0).max(1) }),
+  z.object({ verdict: z.enum(["unavailable", "no-evidence"]), reason: z.string().max(2_000) }),
+]);
 const PREVIEW_META_KEY = "ai.insodimension/preview";
 
 function failure(error: unknown): CallToolResult {
@@ -273,6 +280,7 @@ export interface BrowserServerOptions {
   codeArtifactsDir?: string;
   /** Overrides `taskToolsOffered()`: whether the task tools are registered. */
   taskTools?: boolean;
+  submitJudge?: SubmitJudge;
 }
 
 /** The MCP server, plus the one thing its process needs when it must end now. */
@@ -299,6 +307,16 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     ...(process.env.DIMENSION_BROWSER_UNHELD_IDLE_MS ? { unheldIdleMs: Number(process.env.DIMENSION_BROWSER_UNHELD_IDLE_MS) } : {}),
   });
   const server = new McpServer({ name: "dimension-community-browser", version: "0.1.0" });
+  const judgeOf = (extra: CallExtra): SubmitJudge | undefined => {
+    if (options.submitJudge !== undefined) return options.submitJudge;
+    const context = contextRefSchema.safeParse(extra._meta?.[ARTIFACTORY_HOST_CONTEXT_META_KEY]);
+    if (!context.success || server.server.getClientCapabilities()?.extensions?.[ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID] === undefined) return undefined;
+    return async request => await server.server.request(
+      { method: ARTIFACTORY_SUBMIT_JUDGE_METHOD, params: { context: context.data, ...request } },
+      submitVerdictSchema,
+      { timeout: SUBMIT_JUDGE_TIMEOUT_MS },
+    );
+  };
   server.server.setNotificationHandler(z.object({
     method: z.literal(ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD), params: contextRefSchema,
   }), async notification => {
@@ -498,7 +516,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   }, async ({ browserId, actions }, extra) => {
     const answer = await respond(extra, async () => {
       await access(extra, browserId);
-      const outcome = await runtime.actMany(browserId, actions, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
+      const outcome = await runtime.actMany(browserId, actions, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId), judgeOf(extra));
       assertAccess(extra, browserId);
       return { text: actText(outcome), structured: outcome, isError: outcome.status === "failed" || outcome.status === "unknown" };
     });
@@ -524,6 +542,34 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
     const answer = await respond(extra, async () => {
       await access(extra, browserId);
       const outcome = await runtime.upload(browserId, { selector, paths, origin, ...(frameOrigin === undefined ? {} : { frameOrigin }) }, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
+      assertAccess(extra, browserId);
+      return { text: uploadText(outcome), structured: outcome, isError: outcome.status !== "completed" };
+    });
+    return { ...answer, _meta: await previewResult(runtime, browserId, sessionOf(extra)) };
+  });
+  server.registerTool("browser_submit", {
+    title: "Post with the person's answer",
+    description: "On a traction-* profile, post when browser_act refused a click, Enter or Space with submit_needs_person: the text on the page is not exactly an approved draft and the judge did not find it consistent with what the person approved or asked for. The host ALWAYS asks the person first, in every permission mode, showing the profile, the site and the text; nothing is clicked unless they allow it. Pass the click (or press) and profile, origin and values copied exactly from the page's typed fields, in any order: any difference fails publish_mismatch and nothing is clicked.",
+    inputSchema: {
+      browserId: capability,
+      action: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("click"), selector: selector.optional(), x: coordinate.optional(), y: coordinate.optional() }).strict().refine(value => value.selector !== undefined ? value.x === undefined && value.y === undefined : value.x !== undefined && value.y !== undefined, "Choose a selector OR both coordinates"),
+        z.object({ kind: z.literal("press"), key: z.enum(["Enter", "Space"]) }).strict(),
+      ]),
+      profile: z.string().min(1).max(MAX_LABEL_CHARS),
+      origin: z.string().min(1).max(2048),
+      values: z.array(z.string().max(100_000)).min(1).max(64),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    _meta: {
+      ...TRACTION_ONLY,
+      [APPROVAL_META_KEY]: "prompt",
+      [APPROVAL_SUMMARY_META_KEY]: ["Post as {profile} on {origin}", "{values}"],
+    },
+  }, async ({ browserId, action, profile: asProfile, origin, values }, extra) => {
+    const answer = await respond(extra, async () => {
+      await access(extra, browserId);
+      const outcome = await runtime.submit(browserId, { action, expect: { profile: asProfile, origin, values } }, callerOf(extra), sessionOf(extra), accessGuard(extra, browserId));
       assertAccess(extra, browserId);
       return { text: uploadText(outcome), structured: outcome, isError: outcome.status !== "completed" };
     });

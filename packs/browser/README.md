@@ -366,10 +366,10 @@ and Traction and Video also get `browser_run` wherever the mode offers it.
 | Every space the pack is granted (4) | `browser_view`, `browser_read`, `browser_profiles`, `browser_close` |
 | The step tools (7): chat, labor, watch, traction and video; code and build too in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` (asks the person every time) |
 | Code, build, traction and video, in `code` and `both` mode (1) | `browser_run` |
-| Traction only (5; 8 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
+| Traction only (6; 9 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, `browser_submit` (asks the person every time), and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
 
 In the default `code` mode that is 5 tools for a code or build session (`browser_run` and the
-four every space has), 11 for chat, labor and watch, 12 for Video, and 17 for Traction (20 with jev's key).
+four every space has), 11 for chat, labor and watch, 12 for Video, and 18 for Traction (21 with jev's key).
 
 Waiting, tabs and page scripts are steps of `browser_act`, and the page log is a
 field of `browser_state`: every tool is paid for by every agent on every turn, so a
@@ -885,20 +885,52 @@ approval covers this exact post, the approval expired (the agent records
 `draft_failed`; the user's Retry approves it again), or it was already used (the
 post may be up; never post it twice).
 
-Today the only writer is Traction's board, and it approves X posts through the
-`x-post` preset only: through this pack, nothing else can be posted until
-another surface writes approvals (post those yourself on the site). The binding
-does not cover the page a `needsTarget` preset posts on (`reddit-comment`), so
-no surface should approve one before it does.
+Traction's board writes these for X posts through the `x-post` preset. The
+binding does not cover the page a `needsTarget` preset posts on
+(`reddit-comment`), so no surface should approve one before it does.
+
+### Judge-gated submits on `traction-*` profiles
+
+Every other draft Traction's agents post is typed into the site's own page with
+`browser_act`. On a profile whose name starts with `traction-`, a model's
+`click`, `Enter` or `Space` (the View is never gated) first reads every visible
+editable field on the page (frames and open shadow roots included). Sign-in and
+search fields (`email`, `password`, `tel` and `search` inputs, `autocomplete`
+username, email, tel, one-time-code or password, a field in a form with a
+password, a searchbox or combobox input) are left out. With typed text on the
+page:
+
+- **Exact approval.** When one live approved-fill record for this profile and
+  the page's origin holds every text on the page, the step runs with no card and
+  spends the record. The rest of that flow's clicks (Next, Save) pass while its
+  text stays on the page.
+- **Judge.** Otherwise the pack asks the host's judge over the
+  `ai.insodimension/submit-judge` extension (method
+  `ai.insodimension/submit-judge/ask`, only when the host advertises it), with
+  the profile, the origin, the texts on the page and the live approved drafts for
+  that profile. The host adds the person's own recent messages from the session.
+  A `consistent` verdict at confidence 0.8 or more runs the step.
+- **The person.** An `inconsistent` or less confident verdict, `unavailable`,
+  `no-evidence`, an error, a timeout or a host without the extension fails the
+  step `submit_needs_person` and clicks nothing. `browser_submit` then asks the
+  person on an Allow card in every mode, showing the profile, the site and the
+  text, checks the values it names are exactly the text on the page, and clicks.
+
+Text on the page is only ever what is judged, never evidence of approval.
+`browser_task` and `browser_run` refuse a `traction-*` profile.
+
+The approved-fill record is `<draftId>.json` in the same folder:
+`{ "v": 2, "draftId", "nonce", "profile", "origins", "texts", "approvedAt",
+"expiresAt" }`. `profile` is the `traction-<platform>-<handle>` profile;
+`origins` the sites it may be posted on (`https://news.ycombinator.com`, a
+`https://*.substack.com` wildcard, or `*` for a platform with no fixed site);
+`texts` every approved field value. Texts match after NFC, `\r\n` to `\n`,
+no-break space to space and a trim. Spent with the same `<draftId>.<nonce>.used`
+marker.
 
 What this does not cover: a process that can write files as you. An agent with
 a code runner or a file writer can write an approval, so a host that lends this
-pack to such an agent gets the Allow card and nothing more. Traction's agents
-hold `bash`, `write` and `browser_run` (an owner decision, 2026-10-28), so for
-them the approval binds the publish tools only; what stops an unapproved send is
-the confirm's Allow card, `browser_run`'s exec-tier ask and the Traction rules.
-Posting with `browser_act`, `browser_run` or `browser_task` is page driving, not
-publishing: it is not gated here either.
+pack to such an agent gets the Allow cards and nothing more.
 
 ## Connection report
 
