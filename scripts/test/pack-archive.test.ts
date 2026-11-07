@@ -137,7 +137,7 @@ describe("a pack's release build", () => {
 	});
 });
 
-type CatalogEntry = { name: string; source: string | { source: string; url: string; sha256: string; size: number } };
+type CatalogEntry = { name: string; source: unknown; release?: { source: string; url: string; sha256: string; size: number } };
 
 describe("the validator on a shelf of release builds", () => {
 	function shelfWithEditedDemo(edit: (demo: CatalogEntry) => void) {
@@ -152,22 +152,25 @@ describe("the validator on a shelf of release builds", () => {
 		return { status: result.status, output: `${result.stdout}${result.stderr}` };
 	}
 
-	test("refuses a pack listed by a relative source", () => {
+	test("a shelf pack keeps its path source and carries its release build beside it", () => {
+		let listed: CatalogEntry | undefined;
 		const result = shelfWithEditedDemo(demo => {
-			demo.source = "./packs/demo";
+			listed = structuredClone(demo);
 		});
 
-		expect(result.status).toBe(1);
-		expect(result.output).toContain('plugin "demo": a relative source is retired on this shelf');
+		expect(result.status).toBe(0);
+		expect(listed?.source).toBe("./packs/demo");
+		expect(listed?.release?.source).toBe("release");
+		expect(listed?.release?.url).toBe("https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.0.tgz");
 	});
 
 	test("refuses a shelf pack whose release url was edited by hand", () => {
 		const result = shelfWithEditedDemo(demo => {
-			if (typeof demo.source === "string") throw new Error("demo is listed by its release build");
-			demo.source.url = "https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.1.tgz";
+			if (!demo.release) throw new Error("demo carries no release build");
+			demo.release.url = "https://github.com/insodimension/dimension-community/releases/download/demo-v1.0.0/demo-1.0.1.tgz";
 		});
 
 		expect(result.status).toBe(1);
-		expect(result.output).toContain(`plugin "demo": source.url must be this shelf's release build`);
+		expect(result.output).toContain(`plugin "demo": release.url must be this shelf's release build`);
 	});
 });

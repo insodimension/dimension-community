@@ -45,9 +45,9 @@ function builtShelf(): string {
 	return root;
 }
 
-function catalogSource(root: string, name: string): { url: string; sha256: string; size: number } {
+function catalogRelease(root: string, name: string): { url: string; sha256: string; size: number } {
 	const catalog = JSON.parse(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8")) as { plugins: Json[] };
-	return catalog.plugins.find(plugin => plugin.name === name)?.source as { url: string; sha256: string; size: number };
+	return catalog.plugins.find(plugin => plugin.name === name)?.release as { url: string; sha256: string; size: number };
 }
 
 const sha256Of = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -133,10 +133,10 @@ describe("publishing release builds from main", () => {
 				["beta-v2.1.0", COMMIT, ["beta-2.1.0.tgz"]],
 			]);
 			for (const [name, release] of [["alpha", github.releases[0]], ["beta", github.releases[1]]] as const) {
-				const source = catalogSource(root, name);
-				expect(source.url.endsWith(`/releases/download/${release.tag_name}/${release.assets[0].name}`)).toBeTrue();
-				expect(sha256Of(release.assets[0].bytes)).toBe(source.sha256);
-				expect(release.assets[0].size).toBe(source.size);
+				const build = catalogRelease(root, name);
+				expect(build.url.endsWith(`/releases/download/${release.tag_name}/${release.assets[0].name}`)).toBeTrue();
+				expect(sha256Of(release.assets[0].bytes)).toBe(build.sha256);
+				expect(release.assets[0].size).toBe(build.size);
 			}
 			const writesAfterFirst = github.writes.length;
 

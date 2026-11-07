@@ -84,15 +84,14 @@ for (const plugin of catalog.plugins ?? []) {
 	if (seen.has(plugin.name)) errors.push(`plugin "${label}": duplicate name`);
 	seen.add(plugin.name);
 	if (typeof plugin.source === "string") {
-		errors.push(`plugin "${label}": a relative source is retired on this shelf; every pack is listed by its release build (run scripts/build-index.ts)`);
-	} else if (typeof plugin.source !== "object" || plugin.source === null) {
-		errors.push(`plugin "${label}": source must be a source object`);
-	} else {
-		const packDir = shelfPackDir(root, plugin);
-		if (packDir) {
-			const releaseUrl = packReleaseUrl(plugin.name, plugin.version);
-			if (plugin.source.url !== releaseUrl) {
-				errors.push(`plugin "${label}": source.url must be this shelf's release build ${releaseUrl} (run scripts/build-index.ts)`);
+		if (!plugin.source.startsWith("./")) {
+			errors.push(`plugin "${label}": relative source must start with ./`);
+		} else {
+			const packDir = join(root, plugin.source);
+			if (!existsSync(packDir) || !statSync(packDir).isDirectory()) {
+				errors.push(`plugin "${label}": source directory ${plugin.source} does not exist`);
+			} else if (!existsSync(join(packDir, "package.json"))) {
+				errors.push(`plugin "${label}": ${plugin.source}/package.json is missing`);
 			}
 			// A declared bundle entry is a shipping commitment: dist/ is the ONLY
 			// delivery path (the app holds no static pack imports), so a missing
@@ -125,7 +124,7 @@ for (const plugin of catalog.plugins ?? []) {
 					} else {
 						const bundlePath = join(packDir, manifest.entry);
 						if (!existsSync(bundlePath) || !statSync(bundlePath).isFile()) {
-							errors.push(`plugin "${label}": declared entry ${manifest.entry} does not exist — run \`bun run build\` in packs/${plugin.name} and commit dist/`);
+							errors.push(`plugin "${label}": declared entry ${manifest.entry} does not exist — run \`bun run build\` in ${plugin.source} and commit dist/`);
 						} else if (statSync(bundlePath).size === 0) {
 							errors.push(`plugin "${label}": declared entry ${manifest.entry} is empty`);
 						}
@@ -196,8 +195,21 @@ for (const plugin of catalog.plugins ?? []) {
 				}
 			}
 		}
+	} else if (typeof plugin.source !== "object" || plugin.source === null) {
+		errors.push(`plugin "${label}": source must be a relative path or a source object`);
 	}
 	if (isReleaseSource(plugin.source)) errors.push(...releaseSourceProblems(label, plugin));
+	if (!shelfPackDir(root, plugin)) {
+		if (plugin.release !== undefined) errors.push(`plugin "${label}": only a pack listed by its ./packs/<name> source carries a release build`);
+	} else if (!isReleaseSource(plugin.release)) {
+		errors.push(`plugin "${label}": release must be the pack's release build { "source": "release", "url", "sha256", "size" } (run scripts/build-index.ts)`);
+	} else {
+		const releaseUrl = packReleaseUrl(plugin.name, plugin.version);
+		if (plugin.release.url !== releaseUrl) {
+			errors.push(`plugin "${label}": release.url must be this shelf's release build ${releaseUrl} (run scripts/build-index.ts)`);
+		}
+		errors.push(...releaseSourceProblems(label, plugin, "release"));
+	}
 	errors.push(...spaceListingProblems(root, label, plugin));
 	if (typeof plugin.description !== "string" || plugin.description.length < 10) {
 		errors.push(`plugin "${label}": a real description is required`);
@@ -289,11 +301,11 @@ for (const plugin of catalog.plugins ?? []) {
 // with CI green because this loop only ever walked `catalog.plugins`.
 const packsDir = join(root, "packs");
 if (existsSync(packsDir)) {
-	const listed = new Set((catalog.plugins ?? []).filter(plugin => isReleaseSource(plugin.source)).map(plugin => plugin.name));
+	const listed = new Set((catalog.plugins ?? []).map(plugin => plugin.source));
 	for (const dir of readdirSync(packsDir).sort()) {
 		const packDir = join(packsDir, dir);
 		if (!statSync(packDir).isDirectory() || !existsSync(join(packDir, "package.json"))) continue;
-		if (!listed.has(dir)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
+		if (!listed.has(`./packs/${dir}`)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
 	}
 }
 

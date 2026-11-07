@@ -73,12 +73,12 @@ function shelfBuilds(root, catalog) {
 	const failures = [];
 	for (const entry of catalog.plugins ?? []) {
 		if (!shelfPackDir(root, entry)) continue;
-		const { name, version, source } = entry;
-		if (source.url !== packReleaseUrl(name, version)) {
-			failures.push(`${name}: the catalog points at ${source.url}, not this shelf's release build ${packReleaseUrl(name, version)}`);
+		const { name, version, release } = entry;
+		if (release?.url !== packReleaseUrl(name, version)) {
+			failures.push(`${name}: the catalog points at ${release?.url}, not this shelf's release build ${packReleaseUrl(name, version)}`);
 			continue;
 		}
-		builds.push({ name, version, sha256: source.sha256, size: source.size, tag: packReleaseTag(name, version), file: packArchiveName(name, version) });
+		builds.push({ name, version, sha256: release.sha256, size: release.size, tag: packReleaseTag(name, version), file: packArchiveName(name, version) });
 	}
 	return { builds, failures };
 }

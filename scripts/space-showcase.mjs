@@ -21,29 +21,29 @@ export function isReleaseSource(source) {
 }
 
 export function shelfPackDir(root, plugin) {
-	if (!isReleaseSource(plugin.source) || typeof plugin.name !== "string" || !/^[a-z0-9-]+$/.test(plugin.name)) return undefined;
+	if (typeof plugin.name !== "string" || !/^[a-z0-9-]+$/.test(plugin.name) || plugin.source !== `./packs/${plugin.name}`) return undefined;
 	const packDir = join(root, "packs", plugin.name);
 	return existsSync(join(packDir, "package.json")) ? packDir : undefined;
 }
 
-export function releaseSourceProblems(label, plugin) {
-	const source = plugin.source;
+export function releaseSourceProblems(label, plugin, field = "source") {
+	const source = plugin[field];
 	const problems = [];
 	if (!isText(plugin.version)) problems.push(`plugin "${label}": a release entry must state its version`);
 	let url;
 	try {
 		url = new URL(String(source.url));
 	} catch {
-		problems.push(`plugin "${label}": source.url must be an absolute URL`);
+		problems.push(`plugin "${label}": ${field}.url must be an absolute URL`);
 	}
 	if (url && url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))) {
-		problems.push(`plugin "${label}": source.url must be https (http only for a loopback host)`);
+		problems.push(`plugin "${label}": ${field}.url must be https (http only for a loopback host)`);
 	}
 	if (typeof source.sha256 !== "string" || !SHA256.test(source.sha256)) {
-		problems.push(`plugin "${label}": source.sha256 must be 64 lowercase hex characters`);
+		problems.push(`plugin "${label}": ${field}.sha256 must be 64 lowercase hex characters`);
 	}
 	if (!Number.isSafeInteger(source.size) || source.size <= 0 || source.size > RELEASE_MAX_BYTES) {
-		problems.push(`plugin "${label}": source.size must be a whole number of bytes between 1 and ${RELEASE_MAX_BYTES}`);
+		problems.push(`plugin "${label}": ${field}.size must be a whole number of bytes between 1 and ${RELEASE_MAX_BYTES}`);
 	}
 	return problems;
 }
@@ -119,8 +119,8 @@ function showcaseProblems(root, where, showcase) {
 }
 
 export function spaceListingProblems(root, label, plugin) {
-	const listedWithoutCode = isReleaseSource(plugin.source) && !shelfPackDir(root, plugin);
-	if (listedWithoutCode && (!Array.isArray(plugin.spaces) || plugin.spaces.length === 0)) {
+	const release = isReleaseSource(plugin.source);
+	if (release && (!Array.isArray(plugin.spaces) || plugin.spaces.length === 0)) {
 		return [`plugin "${label}": a release entry must list the space it installs`];
 	}
 	if (plugin.spaces === undefined) return [];
@@ -136,7 +136,7 @@ export function spaceListingProblems(root, label, plugin) {
 			if (listing[field] !== undefined) problems.push(`${where} carries the retired ${field}; it lives in showcase.${field}`);
 		}
 		if (listing.showcase !== undefined) problems.push(...showcaseProblems(root, where, listing.showcase));
-		if (listedWithoutCode) {
+		if (release) {
 			const showcase = isRecord(listing.showcase) ? listing.showcase : {};
 			if (!isText(showcase.summary)) problems.push(`${where}: a release listing must carry showcase.summary`);
 			if (!Array.isArray(showcase.screenshots) || showcase.screenshots.length === 0) {

@@ -265,7 +265,8 @@ function entryFor(dir: string, archive: PackArchive): Json {
 	if (!version) throw new Error(`packs/${dir}: package.json version is required`);
 	const entry: Json = {
 		name: dir,
-		source: { source: "release", url: packReleaseUrl(dir, version), sha256: archive.sha256, size: archive.size },
+		source: `./${packDir}`,
+		release: { source: "release", url: packReleaseUrl(dir, version), sha256: archive.sha256, size: archive.size },
 	};
 	const pluginId = asString(manifest.plugin);
 	if (pluginId) entry.pluginId = pluginId;
