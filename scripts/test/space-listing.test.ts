@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -164,6 +164,46 @@ describe("space listings in the Community index", () => {
 			),
 		);
 
-		expect(run(root, "validate-marketplace.mjs").status).toBe(1);
+		const result = run(root, "validate-marketplace.mjs");
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("retired screenshots");
+	});
+
+	test("a showcase video that is a symlink is refused, even when its target is a real video", () => {
+		const root = shelfWithRelease(RELEASE_SHOWCASE);
+		const outside = mkdtempSync(join(tmpdir(), "space-listing-outside-"));
+		shelves.push(outside);
+		writeFileSync(join(outside, "secret.mp4"), "mp4");
+		try {
+			symlinkSync(join(outside, "secret.mp4"), join(root, "packs/lantern/assets/linked.mp4"), "file");
+		} catch (cause) {
+			expect((cause as NodeJS.ErrnoException).code).toBe("EPERM");
+			return;
+		}
+		writeCatalog(
+			root,
+			catalog(root).plugins.map(plugin =>
+				plugin.name === "lantern"
+					? releaseEntry({ ...RELEASE_SHOWCASE, video: { src: "packs/lantern/assets/linked.mp4" } })
+					: plugin,
+			),
+		);
+		const result = run(root, "validate-marketplace.mjs");
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("is a symlink");
+	});
+
+	test("a space with only the legacy preview block lists no showcase", () => {
+		const root = makeShelf();
+		const manifestPath = join(root, "packs/atlas/plugin.json");
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+		const [space] = manifest.extensions[DIMENSION_NAMESPACE].spaces;
+		delete space.showcase;
+		space.description = "Not a tagline.";
+		space.preview = { tagline: "Old words.", screenshots: ["assets/home.webp"] };
+		writeFileSync(manifestPath, JSON.stringify(manifest));
+
+		expect(run(root, "build-index.ts").status).toBe(0);
+		expect(catalog(root).plugins[0]?.spaces).toStrictEqual([{ id: "atlas", label: "Atlas" }]);
 	});
 });

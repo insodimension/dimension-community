@@ -1,5 +1,5 @@
-import { existsSync, statSync } from "node:fs";
-import { extname, join, posix } from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
+import { extname, isAbsolute, join, posix, relative } from "node:path";
 
 export const SHOWCASE_KEYS = ["tagline", "summary", "screenshots", "video", "needs", "onboarding"];
 export const SHOWCASE_MAX_SCREENSHOTS = 8;
@@ -57,10 +57,14 @@ function shelfFileProblem(root, path, extensions, what, maxBytes) {
 	const extension = extname(normalized).toLowerCase();
 	if (!extensions.includes(extension)) return `${what} "${path}" must be one of ${extensions.join(", ")}`;
 	const file = join(root, normalized);
-	if (!existsSync(file) || !statSync(file).isFile()) return `${what} "${path}" does not exist in the shelf`;
-	const size = statSync(file).size;
-	if (maxBytes !== undefined && size > maxBytes) {
-		return `${what} "${path}" is ${size} bytes, over the ${maxBytes}-byte cap`;
+	const entry = lstatSync(file, { throwIfNoEntry: false });
+	if (!entry) return `${what} "${path}" does not exist in the shelf`;
+	if (entry.isSymbolicLink()) return `${what} "${path}" is a symlink; commit the file itself`;
+	if (!entry.isFile()) return `${what} "${path}" does not exist in the shelf`;
+	const inShelf = relative(realpathSync(root), realpathSync(file));
+	if (inShelf === "" || inShelf.startsWith("..") || isAbsolute(inShelf)) return `${what} "${path}" leaves the shelf`;
+	if (maxBytes !== undefined && entry.size > maxBytes) {
+		return `${what} "${path}" is ${entry.size} bytes, over the ${maxBytes}-byte cap`;
 	}
 	return undefined;
 }

@@ -54,13 +54,15 @@ review is the taste check.** No pack merges red.
 
    Each space's listing carries its `showcase` (`tagline`, `summary`,
    `screenshots`, `video { src, poster? }`, `needs`, `onboarding`), copied
-   from the space's own `showcase` declaration — that block is what the
-   Spaces tab shows on the space's details page before anyone installs it.
-   `icon` and every showcase screenshot, video and poster are rewritten
-   catalog-root-relative (`assets/icon.svg` → `packs/<you>/assets/icon.svg`)
-   and must exist — a screenshot you deleted fails the generator by name.
-   Screenshots are `.png`, `.webp`, `.jpg`, `.jpeg` or `.svg` (at most 8);
-   the video is `.mp4` or `.webm` under 48 MiB. A bare glyph name
+   from the space's own `showcase` declaration and from nothing else — a
+   space's `preview` block and `description` never reach the listing. That
+   block is what the Spaces tab shows on the space's details page before
+   anyone installs it. `icon` and every showcase screenshot, video and
+   poster are rewritten catalog-root-relative (`assets/icon.svg` →
+   `packs/<you>/assets/icon.svg`) and must exist as real files in the shelf —
+   a screenshot you deleted fails the generator by name, and a symlink is
+   refused. Screenshots are `.png`, `.webp`, `.jpg`, `.jpeg` or `.svg` (at
+   most 8); the video is `.mp4` or `.webm` under 48 MiB. A bare glyph name
    (`"icon": "hammer"`) is passed through untouched.
 
    A space built in its maker's own repository is listed without code: its

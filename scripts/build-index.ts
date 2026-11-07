@@ -132,15 +132,15 @@ function spaceListing(space: Json, packDir: string): Json {
 }
 
 function showcaseListing(space: Json, packDir: string): Json | undefined {
-	const declared = asObject(space.showcase) ?? {};
-	const preview = asObject(space.preview);
+	const declared = asObject(space.showcase);
+	if (!declared) return undefined;
 	const what = `${String(space.id)}: showcase`;
 	const showcase: Json = {};
-	const tagline = asString(declared.tagline) ?? asString(preview?.tagline) ?? asString(space.description);
+	const tagline = asString(declared.tagline);
 	if (tagline) showcase.tagline = tagline;
 	const summary = asString(declared.summary);
 	if (summary) showcase.summary = summary;
-	const screenshots = asStrings(declared.screenshots) ?? asStrings(preview?.screenshots);
+	const screenshots = asStrings(declared.screenshots);
 	if (screenshots) showcase.screenshots = screenshots.map(shot => catalogAsset(shot, packDir, `${what} screenshot`));
 	const video = asObject(declared.video);
 	if (video) {
