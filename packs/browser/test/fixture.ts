@@ -564,3 +564,33 @@ export async function approvePublish(rootDir: string, post: ApprovedPost): Promi
 	);
 	return { draftId, file };
 }
+
+export interface ApprovedFill {
+	profile: string;
+	origins: readonly string[];
+	texts: readonly string[];
+	draftId?: string;
+	expiresInMs?: number;
+}
+
+export async function approveFill(rootDir: string, fill: ApprovedFill): Promise<{ draftId: string; file: string }> {
+	const draftId = fill.draftId ?? `draft-${randomBytes(6).toString("hex")}`;
+	const folder = join(rootDir, "publish-approvals");
+	const file = join(folder, `${draftId}.json`);
+	const now = Date.now();
+	await mkdir(folder, { recursive: true });
+	await writeFile(
+		file,
+		JSON.stringify({
+			v: 2,
+			draftId,
+			nonce: randomBytes(16).toString("hex"),
+			profile: fill.profile,
+			origins: fill.origins,
+			texts: fill.texts,
+			approvedAt: new Date(now).toISOString(),
+			expiresAt: new Date(now + (fill.expiresInMs ?? 60 * 60_000)).toISOString(),
+		}),
+	);
+	return { draftId, file };
+}

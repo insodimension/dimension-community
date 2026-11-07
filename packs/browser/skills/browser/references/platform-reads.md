@@ -1,5 +1,7 @@
 # Platform reads: what to open on each site, read-only
 
+If you cannot see a browser tool that opens a page, this file does not apply.
+
 As of 2026-11-06. Each page below is read in the account's own saved profile
 (`traction-<platform>-<handle>` in a Traction session; whichever profile the
 user names otherwise) with the step tools or code tools, at the pace a person

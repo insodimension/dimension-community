@@ -130,7 +130,7 @@ test("publishing and task agents are offered to Traction alone; every browsing t
 	const traction = modelTools.filter((tool) => !offeredToEverySpace(tool));
 	expect(traction.map((tool) => tool.name).sort()).toEqual([
 		"browser_publish", "browser_publish_cancel", "browser_publish_confirm", "browser_publish_presets", "browser_publish_wait",
-		"browser_task", "browser_task_cancel", "browser_task_wait",
+		"browser_submit", "browser_task", "browser_task_cancel", "browser_task_wait",
 	]);
 	expect(traction.map(spacesOf)).toEqual(traction.map(() => ["traction"]));
 });

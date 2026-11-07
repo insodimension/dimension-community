@@ -1,3 +1,4 @@
+import type { SubmitJudge } from "./approved-fill.js";
 import type { ConnectionObservations } from "./connection.js";
 import type { LiveFrame } from "./engines/types.js";
 import type { ProfileColour, ResolvedProfileMeta } from "./profile-meta.js";
@@ -65,6 +66,7 @@ export interface BrowserAction {
   clickCount?: number;
 }
 export interface UploadRequest { selector: string; paths: string[]; origin: string; frameOrigin?: string }
+export interface SubmitRequest { action: BrowserAction; expect: { profile: string; origin: string; values: string[] } }
 export interface TabInfo {
   /** Stable opaque id for the tab's lifetime. */
   id: string;
@@ -481,8 +483,9 @@ export interface BrowserRuntimePort {
    * 1..MAX_BATCH_STEPS steps under ONE lock: refused once (`task_running`, `publish_pending`, as `act`), every step
    * validated before the first runs (`bad_action`/`bad_wait`), then run in order until one is not `completed`.
    */
-  actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActManyResult>;
+  actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard, judge?: SubmitJudge): Promise<ActManyResult>;
   upload(browserId: string, request: UploadRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
+  submit(browserId: string, request: SubmitRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
   /** A picture for a model: webp, at most 1024 CSS px on its longest edge, never retained (so never annotatable). Read like `snapshot`. */
   shot(browserId: string, request?: ShotRequest, guard?: EffectGuard): Promise<ModelShot>;
   /** The active tab's log entries since the last call (which marks them read); `[]` when nothing is new. For a model's reads, never the View's. */

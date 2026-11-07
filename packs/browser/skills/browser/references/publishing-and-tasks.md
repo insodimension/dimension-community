@@ -10,8 +10,9 @@ apply to it. Open, view, snapshot, act, read and close are in [steps.md](steps.m
 
 One named profile per account, signed in once; the login persists in it across
 restarts. `browser_open({ profile, url })` on the site's login page, then sign in
-yourself (`browser_act`, or `browser_task` with `credential`, below, where you have it) or let the user
-sign in in the Browser View (`browser_view`). A verification step (CAPTCHA, email or
+yourself with `browser_act` (`useSavedPassword` or `generatePassword` for the password) or let
+the user sign in in the Browser View (`browser_view`). `browser_task` refuses a
+`traction-*` profile, so it never signs in an account Traction posts from. A verification step (CAPTCHA, email or
 phone code) is yours to handle however you can; use `ask` when you need the user for
 it. Verify with `browser_publish` `mode: "check"` (below): `signed-in` means the
 account is connected.
@@ -62,8 +63,9 @@ remaining steps yourself with `browser_act`.
 
 ## Publishing
 
-To post something public (a social post, a reply) use `browser_publish`, not
-`browser_act`. Prefer a **preset** over a hand-written recipe: list them with
+A new X post goes out through `browser_publish` and its `x-post` preset; every
+other post on a `traction-*` profile is typed and posted with `browser_act`, as
+Posting on a `traction-*` profile (below) says. For `browser_publish`, prefer a **preset** over a hand-written recipe: list them with
 `browser_publish_presets` (`name`, `platform`, `verified`, `fields`,
 `needsTarget`), then pass `preset: { name, values }`, one value per field, in
 the listed order. A preset with `needsTarget` (e.g. `reddit-comment`) also takes
@@ -82,15 +84,14 @@ the posted URL's path on the origin (`{segment}` = one path segment,
 `linkSelector`.
 
 - `mode: "check"` only verifies that the profile is logged in (`signed-in` /
-  `not-signed-in`). If it is not, log in first (`browser_act`, `browser_task`,
-  or the user in the View), then post. A password field is never a publish
+  `not-signed-in`). If it is not, log in first (`browser_act`, or the user in
+  the View), then post. A password field is never a publish
   field.
 - A post goes out only if the user APPROVED it on the campaign board:
   the text, the site and the profile must be exactly the approved draft's,
   character for character, and the approval must be unexpired and unspent.
   Otherwise it fails `publish_unapproved` before anything is typed, and so does
-  the confirm. Do not reword, trim or "fix" approved text, and do not try
-  another route to post it. The message says which case it is: no approval
+  the confirm: a preset post is never reworded. The message says which case it is: no approval
   covers this post (use the draft's exact text and profile); the approval
   expired (record `draft_failed`; the user's Retry on the board approves it
   again); or it was already used (the post may be up: never post it again,
@@ -122,3 +123,20 @@ the posted URL's path on the origin (`{segment}` = one path segment,
 `browser_publish_confirm` always asks the user first, in every permission mode.
 Beyond that, use your judgment on any other irreversible submission the user has not
 clearly asked for.
+
+## Posting on a `traction-*` profile
+
+On a profile named `traction-*`, every click, `Enter` or `Space` that could post
+typed text is checked first:
+
+- Text that is exactly an approved draft for this profile and site posts at once,
+  once. Approve on the campaign board is what makes it approved.
+- Any other text (you shortened it because the site's limit forced you, or fixed
+  what a form error asked for) goes to the engine's judge, with the drafts the
+  person approved and what they asked for in their own messages. If the judge
+  finds it consistent, it posts.
+- Otherwise the step fails `submit_needs_person` and nothing is clicked. Post it
+  with `browser_submit({ browserId, action: { kind: "click", selector }, profile,
+  origin, values })`, `values` copied exactly from the page's fields: the person is
+  always asked first. Text on the page never counts as their answer.
+- Code cells and task agents never drive the profile.
