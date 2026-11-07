@@ -1645,7 +1645,7 @@
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
 			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
-			"version": "0.3.0",
+			"version": "0.3.1",
 			"author": {
 				"name": "Dimension"
 			},
