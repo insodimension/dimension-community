@@ -77,7 +77,7 @@ import { environmentLaunchArgs } from "./launch-env.js";
 import { type HeadfulIdentity, headfulIdentity, identityPerBinary, NAVIGATOR_WEBDRIVER_OFF_SWITCH, type ReportedIdentity, type ResolvedBrowser, resolveBrowser, turnOffPasswordSaving, UA_HINTS, viewLaunchOptions, withTimeout } from "./launch.js";
 import type { TabRef } from "../code/contracts.js";
 import { ownedPids } from "../owned-pids.js";
-import type { DialogPolicy, EditablesRead, EditableText, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldKind, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
+import type { DialogPolicy, EditableText, EngineDriver, EngineOptions, EngineState, EvalOutcome, FieldRead, LiveFrame, NavigateTabOptions, OpenTabOptions, PageRead, PageReader, PasswordSource, PerformOutcome, ReadOutcome, ReadPolicy, WaitCondition } from "./types.js";
 
 const NAVIGATE_TIMEOUT_MS = 30_000;
 /** Child frames a snapshot lists controls for, depth first. */
@@ -1094,31 +1094,18 @@ class PuppeteerDriver implements EngineDriver {
 		}
 	}
 
-	async editables(): Promise<EditablesRead> {
+	async editables(): Promise<EditableText[]> {
 		const texts: EditableText[] = [];
-		let focused: FieldKind = "none";
 		for (const frame of this.#activeTab().page.frames()) {
 			if (frame.detached) continue;
-			let read: EditablesRead;
 			try {
-				read = (await utilityWorld(frame).evaluate(EDITABLES_SCRIPT, null)) as EditablesRead;
+				texts.push(...(await utilityWorld(frame).evaluate(EDITABLES_SCRIPT)));
 			} catch (error) {
 				if (frame.detached) continue;
 				throw error;
 			}
-			texts.push(...read.texts);
-			if (read.focused !== "none") focused = read.focused;
 		}
-		return { texts, focused };
-	}
-
-	async fieldKind(selector: string): Promise<FieldKind> {
-		const { handle } = await this.#resolve(this.#activeTab().page, selector);
-		try {
-			return (await handle.evaluate(EDITABLES_SCRIPT)) as FieldKind;
-		} finally {
-			await handle.dispose().catch(() => undefined);
-		}
+		return texts;
 	}
 
 	async readText(selector: string, limit: number): Promise<string | null> {

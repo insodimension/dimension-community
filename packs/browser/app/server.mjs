@@ -3838,7 +3838,7 @@ var READ_FIELD_SCRIPT = (el) => {
   const lines = children.filter((node) => node.nodeName === "P").map((p) => trimmed(p.innerText));
   return { state: "value", value: lines.join("\n") };
 };
-var EDITABLES_SCRIPT = (target) => {
+var EDITABLES_SCRIPT = () => {
   const notText = ["hidden", "checkbox", "radio", "file", "submit", "button", "reset", "image", "range", "color", "date", "datetime-local", "month", "week", "time"];
   const exemptTypes = ["email", "password", "tel", "search"];
   const exemptAutocomplete = /(?:^|\s)(?:username|email|tel|one-time-code|current-password|new-password)(?:\s|$)/i;
@@ -3856,7 +3856,6 @@ var EDITABLES_SCRIPT = (target) => {
     if (el.tagName === "TEXTAREA") return "content";
     return el.isContentEditable ? "content" : "none";
   };
-  if (target !== null) return kindOf(target);
   const shown2 = (el) => {
     if (el.getClientRects().length === 0) return false;
     const style = getComputedStyle(el);
@@ -3886,10 +3885,7 @@ var EDITABLES_SCRIPT = (target) => {
   };
   visit(document);
   if (document.designMode === "on" && document.body !== null && document.body.innerText.trim() !== "") texts.push({ value: document.body.innerText, exempt: false });
-  let focused = document.hasFocus() ? document.activeElement : null;
-  while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
-  const focusedKind = focused === null || focused === document.body || focused.tagName === "IFRAME" || focused.tagName === "FRAME" ? "none" : kindOf(focused);
-  return { texts, focused: document.designMode === "on" && focused === document.body ? "content" : focusedKind };
+  return texts;
 };
 var ELEMENT_TEXT_SCRIPT = (el, limit) => {
   if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") return null;
@@ -5190,28 +5186,16 @@ var PuppeteerDriver = class {
   }
   async editables() {
     const texts = [];
-    let focused = "none";
     for (const frame of this.#activeTab().page.frames()) {
       if (frame.detached) continue;
-      let read2;
       try {
-        read2 = await utilityWorld(frame).evaluate(EDITABLES_SCRIPT, null);
+        texts.push(...await utilityWorld(frame).evaluate(EDITABLES_SCRIPT));
       } catch (error) {
         if (frame.detached) continue;
         throw error;
       }
-      texts.push(...read2.texts);
-      if (read2.focused !== "none") focused = read2.focused;
     }
-    return { texts, focused };
-  }
-  async fieldKind(selector3) {
-    const { handle } = await this.#resolve(this.#activeTab().page, selector3);
-    try {
-      return await handle.evaluate(EDITABLES_SCRIPT);
-    } finally {
-      await handle.dispose().catch(() => void 0);
-    }
+    return texts;
   }
   async readText(selector3, limit) {
     const handle = await this.#activeTab().page.$(selector3);
@@ -8465,7 +8449,8 @@ var ARTIFACTORY_HOST_CONTEXT_ENDED_METHOD = "notifications/ai.insodimension/host
 var ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID2 = "ai.insodimension/submit-judge";
 var ARTIFACTORY_SUBMIT_JUDGE_METHOD2 = "ai.insodimension/submit-judge/ask";
 var SUBMIT_JUDGE_LIMITS2 = {
-  texts: 8,
+  texts: 6,
+  submittingChars: 1600,
   approvals: 6,
   approvalTexts: 8,
   textChars: 4e3,
@@ -8607,6 +8592,9 @@ function fillDigest(value) {
   const settled = value.normalize("NFC").replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ").trim();
   return createHash4("sha256").update(JSON.stringify([FILL_DOMAIN, settled])).digest("hex");
 }
+function markerName(approval) {
+  return `${approval.draftId}.${approval.nonce}.used`;
+}
 function originCovered(origins, origin) {
   return origins.some((allowed) => {
     if (allowed === "*" || allowed === origin) return true;
@@ -8633,36 +8621,17 @@ var PublishApprovals = class {
     const found = await this.#survey(bindingOf(binding));
     if (found.live.length === 0) refuse(binding, found, stage);
   }
-  /**
-   * Spend the approval that covers this post, or refuse. The exclusive create of
-   * its marker is the lock, so of any number of concurrent spenders exactly one
-   * wins; the rest see `used`.
-   */
   async consume(binding, stage) {
     const found = await this.#survey(bindingOf(binding));
     for (const approval of found.live) {
-      const marker = join5(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
-      try {
-        await (await open(marker, "wx")).close();
-      } catch (error) {
-        if (error.code === "EEXIST") {
-          found.used.push(approval);
-          continue;
-        }
-        throw error;
+      if (!await this.#spend(approval)) {
+        found.used.push(approval);
+        continue;
       }
-      return {
-        draftId: approval.draftId,
-        release: async () => {
-          await unlink(marker).catch((error) => {
-            if (error.code !== "ENOENT") throw error;
-          });
-        }
-      };
+      return { draftId: approval.draftId, release: () => this.#release(approval) };
     }
     return refuse(binding, found, stage);
   }
-  /** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
   async #survey(binding) {
     const live = [];
     const used = [];
@@ -8672,36 +8641,40 @@ var PublishApprovals = class {
     for (const name of names) {
       const approval = readApproval(await readRecord(join5(this.#dir, name), name));
       if (approval === null || approval.binding !== binding) continue;
-      if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) used.push(approval);
+      if (spent.has(markerName(approval))) used.push(approval);
       else if (approval.expiresAt <= now) expired.push(approval);
       else live.push(approval);
     }
     return { live, used, expired };
   }
   async fills(profile2, origin) {
-    const survey = { live: [], used: [], expired: [] };
+    const live = [];
     const { names, spent } = await this.#listing();
     const now = this.#now();
     for (const name of names) {
       const approval = readFillApproval(await readRecord(join5(this.#dir, name), name));
       if (approval === null || approval.profile !== profile2 || !originCovered(approval.origins, origin)) continue;
-      if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) survey.used.push(approval);
-      else if (approval.expiresAt <= now) survey.expired.push(approval);
-      else survey.live.push(approval);
+      if (!spent.has(markerName(approval)) && approval.expiresAt > now) live.push(approval);
     }
-    return survey;
+    return live;
   }
-  async spendFill(approval) {
+  spendFill(approval) {
+    return this.#spend(approval);
+  }
+  releaseFill(approval) {
+    return this.#release(approval);
+  }
+  async #spend(approval) {
     try {
-      await (await open(join5(this.#dir, `${approval.draftId}.${approval.nonce}.used`), "wx")).close();
+      await (await open(join5(this.#dir, markerName(approval)), "wx")).close();
       return true;
     } catch (error) {
       if (error.code === "EEXIST") return false;
       throw error;
     }
   }
-  async releaseFill(approval) {
-    await unlink(join5(this.#dir, `${approval.draftId}.${approval.nonce}.used`)).catch((error) => {
+  async #release(approval) {
+    await unlink(join5(this.#dir, markerName(approval))).catch((error) => {
       if (error.code !== "ENOENT") throw error;
     });
   }
@@ -8799,6 +8772,7 @@ function needsPerson(why) {
     `submit_needs_person: ${why} Nothing was clicked. Post it with browser_submit, which asks the person first; if they decline, nothing is posted.`
   );
 }
+var NOTHING_SPENT = { release: async () => void 0 };
 var FillGate = class {
   #approvals;
   #now;
@@ -8808,75 +8782,76 @@ var FillGate = class {
   }
   async before(browser, action, judge) {
     const submitting = action.kind === "click" || action.kind === "press" && SUBMITTING_KEYS[action.key] === true;
-    if (!submitting) return;
-    await this.after(browser);
-    const texts = await this.#contentTexts(browser);
-    if (texts.length === 0) return;
-    const claim = browser.fillClaim;
-    if (claim !== void 0 && covers(claim.approval, texts)) return;
-    const origin = await this.#origin(browser);
-    const survey = await this.#approvals.fills(browser.profile, origin);
-    const approval = survey.live.find((candidate) => covers(candidate, texts));
-    if (approval !== void 0 && await this.#approvals.spendFill(approval)) {
-      browser.fillClaim = { approval, until: this.#now() + FILL_CLAIM_MS };
-      return;
-    }
+    if (!submitting) return NOTHING_SPENT;
+    const page = await this.#read(browser);
+    const claim = this.#settle(browser, page);
+    if (page.texts.length === 0 || claim !== void 0 && covers(claim.approval, page.texts)) return NOTHING_SPENT;
+    const origin = requireOrigin(page);
+    const live = await this.#approvals.fills(browser.profile, origin);
+    const spent = await this.#spendExact(browser, page, origin, live);
+    if (spent !== void 0) return spent;
     if (judge === void 0) needsPerson("the page holds text that is not exactly an approved draft, and no judge is reachable here.");
-    if (texts.length > SUBMIT_JUDGE_LIMITS2.texts || texts.some((text2) => text2.value.length > SUBMIT_JUDGE_LIMITS2.textChars)) {
+    const texts = page.texts.map((text2) => text2.value);
+    if (texts.length > SUBMIT_JUDGE_LIMITS2.texts || texts.reduce((sum, text2) => sum + text2.length, 0) > SUBMIT_JUDGE_LIMITS2.submittingChars) {
       needsPerson("the page holds more text than the judge can read whole.");
     }
-    const verdict = await judge({ profile: browser.profile, origin, texts: texts.map((text2) => text2.value), approvals: judgeEvidence(survey.live) }).catch(
+    const verdict = await judge({ profile: browser.profile, origin, texts, approvals: judgeEvidence(live) }).catch(
       (error) => ({ verdict: "unavailable", reason: error instanceof Error ? error.message : String(error) })
     );
-    if (verdict.verdict === "consistent" && verdict.confidence >= JUDGE_CONFIDENCE_BAR) return;
+    if (verdict.verdict === "consistent" && verdict.confidence >= JUDGE_CONFIDENCE_BAR) return NOTHING_SPENT;
     const why = "confidence" in verdict ? `the judge found the text on the page ${verdict.verdict === "consistent" ? "only weakly" : "not"} consistent with what the person approved or asked for (confidence ${verdict.confidence.toFixed(2)}).` : `the judge could not decide (${verdict.verdict}: ${verdict.reason}).`;
-    needsPerson(`${why} The text: ${texts.map((text2) => excerpt(text2.value)).join(", ")}.`);
+    return needsPerson(`${why} The text: ${page.texts.map((text2) => excerpt(text2.value)).join(", ")}.`);
   }
   async after(browser) {
-    const claim = browser.fillClaim;
-    if (claim === void 0) return;
-    if (claim.until <= this.#now()) {
-      browser.fillClaim = void 0;
-      return;
-    }
-    const texts = await this.#contentTexts(browser);
-    if (!texts.some((text2) => claim.approval.digests.has(fillDigest(text2.value)))) browser.fillClaim = void 0;
+    if (browser.fillClaim === void 0) return;
+    this.#settle(browser, await this.#read(browser));
   }
   async submit(browser, expected) {
-    await this.after(browser);
-    const origin = await this.#origin(browser);
+    const page = await this.#read(browser);
+    const claim = this.#settle(browser, page);
+    const origin = requireOrigin(page);
     if (expected.profile !== browser.profile || expected.origin !== origin) {
       fail("publish_mismatch", `publish_mismatch: this browser is profile ${browser.profile} on ${origin}, but the submit names profile ${expected.profile} on ${expected.origin}. Nothing was clicked.`);
     }
-    const texts = await this.#contentTexts(browser);
-    const onPage = texts.map((text2) => fillDigest(text2.value)).sort();
+    const onPage = page.texts.map((text2) => fillDigest(text2.value)).sort();
     const named = expected.values.map(fillDigest).sort();
     if (onPage.length !== named.length || onPage.some((digest, index) => digest !== named[index])) {
-      fail("publish_mismatch", `publish_mismatch: the values you named are not the text on the page (${texts.map((text2) => excerpt(text2.value)).join(", ") || "no text"}). Pass values copied exactly from the page's fields. Nothing was clicked.`);
+      fail("publish_mismatch", `publish_mismatch: the values you named are not the text on the page (${page.texts.map((text2) => excerpt(text2.value)).join(", ") || "no text"}). Pass values copied exactly from the page's fields. Nothing was clicked.`);
     }
-    const claim = browser.fillClaim;
-    const nothingToSpend = { release: async () => void 0 };
-    if (texts.length === 0 || claim !== void 0 && covers(claim.approval, texts)) return nothingToSpend;
-    const approval = (await this.#approvals.fills(browser.profile, origin)).live.find((candidate) => covers(candidate, texts));
-    if (approval === void 0 || !await this.#approvals.spendFill(approval)) return nothingToSpend;
-    browser.fillClaim = { approval, until: this.#now() + FILL_CLAIM_MS };
+    if (page.texts.length === 0 || claim !== void 0 && covers(claim.approval, page.texts)) return NOTHING_SPENT;
+    return await this.#spendExact(browser, page, origin, await this.#approvals.fills(browser.profile, origin)) ?? NOTHING_SPENT;
+  }
+  async #spendExact(browser, page, origin, live) {
+    const approval = live.find((candidate) => covers(candidate, page.texts));
+    if (approval === void 0 || !await this.#approvals.spendFill(approval)) return void 0;
+    const claim = { approval, origin, tabId: page.tabId, until: this.#now() + FILL_CLAIM_MS };
+    browser.fillClaim = claim;
     return {
       release: async () => {
-        browser.fillClaim = void 0;
+        if (browser.fillClaim === claim) browser.fillClaim = void 0;
         await this.#approvals.releaseFill(approval);
       }
     };
   }
-  async #contentTexts(browser) {
-    return (await browser.driver.editables()).texts.filter((text2) => !text2.exempt);
+  #settle(browser, page) {
+    const claim = browser.fillClaim;
+    if (claim === void 0) return void 0;
+    const holds = claim.until > this.#now() && claim.tabId === page.tabId && claim.origin === page.origin && page.texts.some((text2) => claim.approval.digests.has(fillDigest(text2.value)));
+    if (holds) return claim;
+    browser.fillClaim = void 0;
+    return void 0;
   }
-  async #origin(browser) {
-    const url = (await browser.driver.state()).url;
-    const origin = originOf(url);
-    if (origin === null || origin === "null") needsPerson(`the page ${excerpt(url)} has no site an approval or the judge can name.`);
-    return origin;
+  async #read(browser) {
+    const state = await browser.driver.state();
+    const origin = originOf(state.url);
+    const texts = (await browser.driver.editables()).filter((text2) => !text2.exempt);
+    return { origin: origin === null || origin === "null" ? null : origin, tabId: state.activeTabId ?? null, texts };
   }
 };
+function requireOrigin(page) {
+  if (page.origin === null) return needsPerson("the page has no site an approval or the judge can name.");
+  return page.origin;
+}
 
 // src/code/kinds/cmux/cmux-browsers.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
@@ -14442,6 +14417,7 @@ var NAMED_KEYS = {
   PageDown: true,
   Space: true
 };
+var KEY_ALIASES = { " ": "Space", "\r": "Enter", "\n": "Enter" };
 var TOUCHING_KINDS = { click: true, press: true, type: true, insert: true };
 var BROWSER_WIDE_STEPS = { resize: true };
 var touchesPage = (event) => event.kind !== "wheel" && !(event.kind === "mouse" && event.type === "move");
@@ -15821,8 +15797,8 @@ ${host}`;
       const admitted = {
         selector: requireSelector(request.selector),
         paths: requireLocalFiles(request.paths, "paths", this.store.rootDir),
-        origin: requireOrigin(request.origin, "origin"),
-        ...request.frameOrigin === void 0 ? {} : { frameOrigin: requireOrigin(request.frameOrigin, "frameOrigin") }
+        origin: requireOrigin2(request.origin, "origin"),
+        ...request.frameOrigin === void 0 ? {} : { frameOrigin: requireOrigin2(request.frameOrigin, "frameOrigin") }
       };
       let done;
       try {
@@ -16012,9 +15988,10 @@ ${host}`;
   /** One admitted action, dispatched once on the active tab. A failure is a status, never a throw: earlier steps of a batch stay accounted for. */
   async dispatch(entry, action, caller, guard, judge) {
     const gated = caller !== "app" && isGated(entry.profile) ? entry : null;
+    let spent = { release: async () => void 0 };
     if (gated !== null) {
       try {
-        await this.fillGate.before(gated, action, judge);
+        spent = await this.fillGate.before(gated, action, judge);
       } catch (error) {
         return { status: "failed", error: describe3(error) };
       }
@@ -16042,6 +16019,7 @@ ${host}`;
       if (touching) touching.touchedWhilePending = true;
     } catch (error) {
       if (touching && !(error instanceof ActionNotDispatched)) touching.touchedWhilePending = true;
+      if (error instanceof ActionNotDispatched) await spent.release();
       if (gated !== null) await this.settleFillClaim(gated);
       return notCompleted(entry, error);
     }
@@ -16063,6 +16041,8 @@ ${host}`;
       await this.applyTab(entry, step, session, guard);
     } catch (error) {
       return { status: error instanceof ActionNotDispatched ? "failed" : "unknown", error: describe3(error) };
+    } finally {
+      if (isGated(entry.profile)) await this.settleFillClaim(entry);
     }
     return { status: "completed" };
   }
@@ -16676,7 +16656,7 @@ function normalizeAction(action) {
       if (typeof key !== "string" || !NAMED_KEYS[key] && [...key].length !== 1) {
         fail("bad_action", `press.key must be a single character or one of: ${Object.keys(NAMED_KEYS).join(", ")}`);
       }
-      return { kind: "press", key };
+      return { kind: "press", key: KEY_ALIASES[key] ?? key };
     }
     case "resize": {
       if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");
@@ -16697,7 +16677,7 @@ function notCompleted(entry, error) {
   entry.revision += 1;
   return { status: "unknown", error: `The action was sent to the page, then failed; it may or may not have taken effect. Check the page before retrying. (${describe3(error)})` };
 }
-function requireOrigin(value, name) {
+function requireOrigin2(value, name) {
   let origin;
   try {
     origin = typeof value === "string" ? new URL(value).origin : void 0;
@@ -17360,7 +17340,7 @@ var plugin_default = {
           mcpServer: "browser",
           label: "Browser",
           icon: "globe",
-          grants: ["dictation"],
+          grants: ["dictation", "submit:judge"],
           modelSpaces: [
             "code",
             "build",

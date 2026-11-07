@@ -71,10 +71,13 @@ export interface FillApproval {
 	readonly expiresAt: number;
 }
 
-export interface FillSurvey {
-	readonly live: FillApproval[];
-	readonly used: FillApproval[];
-	readonly expired: FillApproval[];
+interface Marked {
+	readonly draftId: string;
+	readonly nonce: string;
+}
+
+function markerName(approval: Marked): string {
+	return `${approval.draftId}.${approval.nonce}.used`;
 }
 
 export function originCovered(origins: readonly string[], origin: string): boolean {
@@ -136,37 +139,18 @@ export class PublishApprovals {
 		if (found.live.length === 0) refuse(binding, found, stage);
 	}
 
-	/**
-	 * Spend the approval that covers this post, or refuse. The exclusive create of
-	 * its marker is the lock, so of any number of concurrent spenders exactly one
-	 * wins; the rest see `used`.
-	 */
 	async consume(binding: PublishBinding, stage: ApprovalStage): Promise<Spend> {
 		const found = await this.#survey(bindingOf(binding));
 		for (const approval of found.live) {
-			const marker = join(this.#dir, `${approval.draftId}.${approval.nonce}.used`);
-			try {
-				await (await open(marker, "wx")).close();
-			} catch (error) {
-				if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-					found.used.push(approval);
-					continue;
-				}
-				throw error;
+			if (!(await this.#spend(approval))) {
+				found.used.push(approval);
+				continue;
 			}
-			return {
-				draftId: approval.draftId,
-				release: async () => {
-					await unlink(marker).catch((error: NodeJS.ErrnoException) => {
-						if (error.code !== "ENOENT") throw error;
-					});
-				},
-			};
+			return { draftId: approval.draftId, release: () => this.#release(approval) };
 		}
 		return refuse(binding, found, stage);
 	}
 
-	/** Every approval for this binding, sorted into the states a refusal tells apart. Unreadable or malformed entries are not approvals. */
 	async #survey(binding: string): Promise<{ live: Approval[]; used: Approval[]; expired: Approval[] }> {
 		const live: Approval[] = [];
 		const used: Approval[] = [];
@@ -176,30 +160,36 @@ export class PublishApprovals {
 		for (const name of names) {
 			const approval = readApproval(await readRecord(join(this.#dir, name), name));
 			if (approval === null || approval.binding !== binding) continue;
-			if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) used.push(approval);
+			if (spent.has(markerName(approval))) used.push(approval);
 			else if (approval.expiresAt <= now) expired.push(approval);
 			else live.push(approval);
 		}
 		return { live, used, expired };
 	}
 
-	async fills(profile: string, origin: string): Promise<FillSurvey> {
-		const survey: FillSurvey = { live: [], used: [], expired: [] };
+	async fills(profile: string, origin: string): Promise<FillApproval[]> {
+		const live: FillApproval[] = [];
 		const { names, spent } = await this.#listing();
 		const now = this.#now();
 		for (const name of names) {
 			const approval = readFillApproval(await readRecord(join(this.#dir, name), name));
 			if (approval === null || approval.profile !== profile || !originCovered(approval.origins, origin)) continue;
-			if (spent.has(`${approval.draftId}.${approval.nonce}.used`)) survey.used.push(approval);
-			else if (approval.expiresAt <= now) survey.expired.push(approval);
-			else survey.live.push(approval);
+			if (!spent.has(markerName(approval)) && approval.expiresAt > now) live.push(approval);
 		}
-		return survey;
+		return live;
 	}
 
-	async spendFill(approval: FillApproval): Promise<boolean> {
+	spendFill(approval: FillApproval): Promise<boolean> {
+		return this.#spend(approval);
+	}
+
+	releaseFill(approval: FillApproval): Promise<void> {
+		return this.#release(approval);
+	}
+
+	async #spend(approval: Marked): Promise<boolean> {
 		try {
-			await (await open(join(this.#dir, `${approval.draftId}.${approval.nonce}.used`), "wx")).close();
+			await (await open(join(this.#dir, markerName(approval)), "wx")).close();
 			return true;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -207,8 +197,8 @@ export class PublishApprovals {
 		}
 	}
 
-	async releaseFill(approval: FillApproval): Promise<void> {
-		await unlink(join(this.#dir, `${approval.draftId}.${approval.nonce}.used`)).catch((error: NodeJS.ErrnoException) => {
+	async #release(approval: Marked): Promise<void> {
+		await unlink(join(this.#dir, markerName(approval))).catch((error: NodeJS.ErrnoException) => {
 			if (error.code !== "ENOENT") throw error;
 		});
 	}

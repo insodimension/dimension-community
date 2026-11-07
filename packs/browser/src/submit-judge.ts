@@ -1,12 +1,9 @@
-/**
- * Mirrors `ARTIFACTORY_SUBMIT_JUDGE_*` and the submit-judge types from `@dimension/sdk/artifactory`
- * (not yet published); keep the two identical.
- */
 export const ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID = "ai.insodimension/submit-judge";
 export const ARTIFACTORY_SUBMIT_JUDGE_METHOD = "ai.insodimension/submit-judge/ask";
 
 export const SUBMIT_JUDGE_LIMITS = {
-	texts: 8,
+	texts: 6,
+	submittingChars: 1_600,
 	approvals: 6,
 	approvalTexts: 8,
 	textChars: 4_000,

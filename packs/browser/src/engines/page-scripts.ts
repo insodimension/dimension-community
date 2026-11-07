@@ -1,6 +1,6 @@
 import type { BrowserRegion, ElementInspection, PageElement, PageElements, PageScroll } from "../contracts.js";
 import type { ReportedIdentity } from "./launch.js";
-import type { EditablesRead, FieldKind, FieldRead, PageRead } from "./types.js";
+import type { EditableText, FieldKind, FieldRead, PageRead } from "./types.js";
 /**
  * The page's text and interactive controls, each with a selector for
  * browser_act and its center in main-viewport pixels. Run in a child frame,
@@ -324,7 +324,7 @@ const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	const lines = children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText));
 	return { state: "value", value: lines.join("\n") };
 };
-const EDITABLES_SCRIPT = (target: Element | null): EditablesRead | FieldKind => {
+const EDITABLES_SCRIPT = (): EditableText[] => {
 	const notText = ["hidden", "checkbox", "radio", "file", "submit", "button", "reset", "image", "range", "color", "date", "datetime-local", "month", "week", "time"];
 	const exemptTypes = ["email", "password", "tel", "search"];
 	const exemptAutocomplete = /(?:^|\s)(?:username|email|tel|one-time-code|current-password|new-password)(?:\s|$)/i;
@@ -342,7 +342,6 @@ const EDITABLES_SCRIPT = (target: Element | null): EditablesRead | FieldKind => 
 		if (el.tagName === "TEXTAREA") return "content";
 		return (el as HTMLElement).isContentEditable ? "content" : "none";
 	};
-	if (target !== null) return kindOf(target);
 	const shown = (el: Element): boolean => {
 		if (el.getClientRects().length === 0) return false;
 		const style = getComputedStyle(el);
@@ -360,7 +359,7 @@ const EDITABLES_SCRIPT = (target: Element | null): EditablesRead | FieldKind => 
 		if (!paragraphs) return trimmed(html.innerText);
 		return children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText)).join("\n");
 	};
-	const texts: EditablesRead["texts"] = [];
+	const texts: EditableText[] = [];
 	const visit = (root: Document | ShadowRoot): void => {
 		for (const el of Array.from(root.querySelectorAll("input, textarea, [contenteditable]"))) {
 			const kind = kindOf(el);
@@ -374,10 +373,7 @@ const EDITABLES_SCRIPT = (target: Element | null): EditablesRead | FieldKind => 
 	};
 	visit(document);
 	if (document.designMode === "on" && document.body !== null && document.body.innerText.trim() !== "") texts.push({ value: document.body.innerText, exempt: false });
-	let focused: Element | null = document.hasFocus() ? document.activeElement : null;
-	while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
-	const focusedKind = focused === null || focused === document.body || focused.tagName === "IFRAME" || focused.tagName === "FRAME" ? "none" : kindOf(focused);
-	return { texts, focused: document.designMode === "on" && focused === document.body ? "content" : focusedKind };
+	return texts;
 };
 /**
  * The text an element shows, at most `limit` characters; null for a form

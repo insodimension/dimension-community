@@ -36,7 +36,6 @@ export type FieldRead = { state: "absent" | "password" | "not-editable" } | { st
 
 export type FieldKind = "exempt" | "content" | "none";
 export interface EditableText { value: string; exempt: boolean }
-export interface EditablesRead { texts: EditableText[]; focused: FieldKind }
 
 /** What one read navigation saw: the status and final URL from the browser, the rest from the fixed read script. */
 export interface PageRead {
@@ -184,8 +183,7 @@ export interface EngineDriver {
   /** Publish reads on the active tab; none writes to the page. Selectors resolve like actions' (CSS or `pierce/`). */
   hasElement(selector: string): Promise<boolean>;
   readField(selector: string): Promise<FieldRead>;
-  editables(): Promise<EditablesRead>;
-  fieldKind(selector: string): Promise<FieldKind>;
+  editables(): Promise<EditableText[]>;
   /** The text of the first element matching `selector`, at most `limit` characters; null when absent or a form control (never read). */
   readText(selector: string, limit: number): Promise<string | null>;
   /**

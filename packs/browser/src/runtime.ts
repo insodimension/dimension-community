@@ -107,7 +107,7 @@ import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, Pas
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
-import { type FillClaim, FillGate, type GatedBrowser, isGated, type SubmitJudge } from "./approved-fill.js";
+import { type FillClaim, FillGate, type FillSpend, type GatedBrowser, isGated, type SubmitJudge } from "./approved-fill.js";
 import { PublishApprovals } from "./publish-approval.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
@@ -205,6 +205,7 @@ const NAMED_KEYS: Record<string, true> = {
 	PageDown: true,
 	Space: true,
 };
+const KEY_ALIASES: Readonly<Record<string, string>> = { " ": "Space", "\r": "Enter", "\n": "Enter" };
 /** View input that can press the site's own submit; scroll, hover and navigation cannot. */
 const TOUCHING_KINDS: Partial<Record<BrowserAction["kind"], true>> = { click: true, press: true, type: true, insert: true };
 const BROWSER_WIDE_STEPS: Partial<Record<BatchStep["kind"], true>> = { resize: true };
@@ -2111,9 +2112,10 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** One admitted action, dispatched once on the active tab. A failure is a status, never a throw: earlier steps of a batch stay accounted for. */
 	private async dispatch(entry: Entry, action: BrowserAction, caller: ToolCaller | undefined, guard?: EffectGuard, judge?: SubmitJudge): Promise<Dispatched> {
 		const gated = caller !== "app" && isGated(entry.profile) ? (entry as Entry & GatedBrowser) : null;
+		let spent: FillSpend = { release: async () => undefined };
 		if (gated !== null) {
 			try {
-				await this.fillGate.before(gated, action, judge);
+				spent = await this.fillGate.before(gated, action, judge);
 			} catch (error) {
 				return { status: "failed", error: describe(error) };
 			}
@@ -2146,6 +2148,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (touching) touching.touchedWhilePending = true;
 		} catch (error) {
 			if (touching && !(error instanceof ActionNotDispatched)) touching.touchedWhilePending = true;
+			if (error instanceof ActionNotDispatched) await spent.release();
 			if (gated !== null) await this.settleFillClaim(gated);
 			return notCompleted(entry, error);
 		}
@@ -2169,6 +2172,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			await this.applyTab(entry, step, session, guard);
 		} catch (error) {
 			return { status: error instanceof ActionNotDispatched ? "failed" : "unknown", error: describe(error) };
+		} finally {
+			if (isGated(entry.profile)) await this.settleFillClaim(entry as Entry & GatedBrowser);
 		}
 		return { status: "completed" };
 	}
@@ -2841,7 +2846,7 @@ function normalizeAction(action: BrowserAction): BrowserAction {
 			if (typeof key !== "string" || (!NAMED_KEYS[key] && [...key].length !== 1)) {
 				fail("bad_action", `press.key must be a single character or one of: ${Object.keys(NAMED_KEYS).join(", ")}`);
 			}
-			return { kind: "press", key };
+			return { kind: "press", key: KEY_ALIASES[key] ?? key };
 		}
 		case "resize": {
 			if (typeof action.width !== "number" || typeof action.height !== "number") fail("bad_action", "resize needs a numeric width and height");

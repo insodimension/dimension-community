@@ -15,6 +15,8 @@ export type SubmitJudge = (request: SubmitJudgeRequest) => Promise<SubmitJudgeVe
 
 export interface FillClaim {
 	readonly approval: FillApproval;
+	readonly origin: string;
+	readonly tabId: string | null;
 	readonly until: number;
 }
 
@@ -57,6 +59,18 @@ function needsPerson(why: string): never {
 	);
 }
 
+interface PageNow {
+	readonly origin: string | null;
+	readonly tabId: string | null;
+	readonly texts: EditableText[];
+}
+
+export interface FillSpend {
+	release(): Promise<void>;
+}
+
+const NOTHING_SPENT: FillSpend = { release: async () => undefined };
+
 export class FillGate {
 	readonly #approvals: PublishApprovals;
 	readonly #now: () => number;
@@ -66,81 +80,88 @@ export class FillGate {
 		this.#now = now;
 	}
 
-	async before(browser: GatedBrowser, action: BrowserAction, judge: SubmitJudge | undefined): Promise<void> {
+	async before(browser: GatedBrowser, action: BrowserAction, judge: SubmitJudge | undefined): Promise<FillSpend> {
 		const submitting = action.kind === "click" || (action.kind === "press" && SUBMITTING_KEYS[action.key as string] === true);
-		if (!submitting) return;
-		await this.after(browser);
-		const texts = await this.#contentTexts(browser);
-		if (texts.length === 0) return;
-		const claim = browser.fillClaim;
-		if (claim !== undefined && covers(claim.approval, texts)) return;
-		const origin = await this.#origin(browser);
-		const survey = await this.#approvals.fills(browser.profile, origin);
-		const approval = survey.live.find((candidate) => covers(candidate, texts));
-		if (approval !== undefined && (await this.#approvals.spendFill(approval))) {
-			browser.fillClaim = { approval, until: this.#now() + FILL_CLAIM_MS };
-			return;
-		}
+		if (!submitting) return NOTHING_SPENT;
+		const page = await this.#read(browser);
+		const claim = this.#settle(browser, page);
+		if (page.texts.length === 0 || (claim !== undefined && covers(claim.approval, page.texts))) return NOTHING_SPENT;
+		const origin = requireOrigin(page);
+		const live = await this.#approvals.fills(browser.profile, origin);
+		const spent = await this.#spendExact(browser, page, origin, live);
+		if (spent !== undefined) return spent;
 		if (judge === undefined) needsPerson("the page holds text that is not exactly an approved draft, and no judge is reachable here.");
-		if (texts.length > SUBMIT_JUDGE_LIMITS.texts || texts.some((text) => text.value.length > SUBMIT_JUDGE_LIMITS.textChars)) {
+		const texts = page.texts.map((text) => text.value);
+		if (texts.length > SUBMIT_JUDGE_LIMITS.texts || texts.reduce((sum, text) => sum + text.length, 0) > SUBMIT_JUDGE_LIMITS.submittingChars) {
 			needsPerson("the page holds more text than the judge can read whole.");
 		}
-		const verdict = await judge({ profile: browser.profile, origin, texts: texts.map((text) => text.value), approvals: judgeEvidence(survey.live) }).catch(
+		const verdict = await judge({ profile: browser.profile, origin, texts, approvals: judgeEvidence(live) }).catch(
 			(error: unknown): SubmitJudgeVerdict => ({ verdict: "unavailable", reason: error instanceof Error ? error.message : String(error) }),
 		);
-		if (verdict.verdict === "consistent" && verdict.confidence >= JUDGE_CONFIDENCE_BAR) return;
+		if (verdict.verdict === "consistent" && verdict.confidence >= JUDGE_CONFIDENCE_BAR) return NOTHING_SPENT;
 		const why =
 			"confidence" in verdict
 				? `the judge found the text on the page ${verdict.verdict === "consistent" ? "only weakly" : "not"} consistent with what the person approved or asked for (confidence ${verdict.confidence.toFixed(2)}).`
 				: `the judge could not decide (${verdict.verdict}: ${verdict.reason}).`;
-		needsPerson(`${why} The text: ${texts.map((text) => excerpt(text.value)).join(", ")}.`);
+		return needsPerson(`${why} The text: ${page.texts.map((text) => excerpt(text.value)).join(", ")}.`);
 	}
 
 	async after(browser: GatedBrowser): Promise<void> {
-		const claim = browser.fillClaim;
-		if (claim === undefined) return;
-		if (claim.until <= this.#now()) {
-			browser.fillClaim = undefined;
-			return;
-		}
-		const texts = await this.#contentTexts(browser);
-		if (!texts.some((text) => claim.approval.digests.has(fillDigest(text.value)))) browser.fillClaim = undefined;
+		if (browser.fillClaim === undefined) return;
+		this.#settle(browser, await this.#read(browser));
 	}
 
-	async submit(browser: GatedBrowser, expected: SubmitExpectation): Promise<{ release(): Promise<void> }> {
-		await this.after(browser);
-		const origin = await this.#origin(browser);
+	async submit(browser: GatedBrowser, expected: SubmitExpectation): Promise<FillSpend> {
+		const page = await this.#read(browser);
+		const claim = this.#settle(browser, page);
+		const origin = requireOrigin(page);
 		if (expected.profile !== browser.profile || expected.origin !== origin) {
 			fail("publish_mismatch", `publish_mismatch: this browser is profile ${browser.profile} on ${origin}, but the submit names profile ${expected.profile} on ${expected.origin}. Nothing was clicked.`);
 		}
-		const texts = await this.#contentTexts(browser);
-		const onPage = texts.map((text) => fillDigest(text.value)).sort();
+		const onPage = page.texts.map((text) => fillDigest(text.value)).sort();
 		const named = expected.values.map(fillDigest).sort();
 		if (onPage.length !== named.length || onPage.some((digest, index) => digest !== named[index])) {
-			fail("publish_mismatch", `publish_mismatch: the values you named are not the text on the page (${texts.map((text) => excerpt(text.value)).join(", ") || "no text"}). Pass values copied exactly from the page's fields. Nothing was clicked.`);
+			fail("publish_mismatch", `publish_mismatch: the values you named are not the text on the page (${page.texts.map((text) => excerpt(text.value)).join(", ") || "no text"}). Pass values copied exactly from the page's fields. Nothing was clicked.`);
 		}
-		const claim = browser.fillClaim;
-		const nothingToSpend = { release: async () => undefined };
-		if (texts.length === 0 || (claim !== undefined && covers(claim.approval, texts))) return nothingToSpend;
-		const approval = (await this.#approvals.fills(browser.profile, origin)).live.find((candidate) => covers(candidate, texts));
-		if (approval === undefined || !(await this.#approvals.spendFill(approval))) return nothingToSpend;
-		browser.fillClaim = { approval, until: this.#now() + FILL_CLAIM_MS };
+		if (page.texts.length === 0 || (claim !== undefined && covers(claim.approval, page.texts))) return NOTHING_SPENT;
+		return (await this.#spendExact(browser, page, origin, await this.#approvals.fills(browser.profile, origin))) ?? NOTHING_SPENT;
+	}
+
+	async #spendExact(browser: GatedBrowser, page: PageNow, origin: string, live: readonly FillApproval[]): Promise<FillSpend | undefined> {
+		const approval = live.find((candidate) => covers(candidate, page.texts));
+		if (approval === undefined || !(await this.#approvals.spendFill(approval))) return undefined;
+		const claim: FillClaim = { approval, origin, tabId: page.tabId, until: this.#now() + FILL_CLAIM_MS };
+		browser.fillClaim = claim;
 		return {
 			release: async () => {
-				browser.fillClaim = undefined;
+				if (browser.fillClaim === claim) browser.fillClaim = undefined;
 				await this.#approvals.releaseFill(approval);
 			},
 		};
 	}
 
-	async #contentTexts(browser: GatedBrowser): Promise<EditableText[]> {
-		return (await browser.driver.editables()).texts.filter((text) => !text.exempt);
+	#settle(browser: GatedBrowser, page: PageNow): FillClaim | undefined {
+		const claim = browser.fillClaim;
+		if (claim === undefined) return undefined;
+		const holds =
+			claim.until > this.#now() &&
+			claim.tabId === page.tabId &&
+			claim.origin === page.origin &&
+			page.texts.some((text) => claim.approval.digests.has(fillDigest(text.value)));
+		if (holds) return claim;
+		browser.fillClaim = undefined;
+		return undefined;
 	}
 
-	async #origin(browser: GatedBrowser): Promise<string> {
-		const url = (await browser.driver.state()).url;
-		const origin = originOf(url);
-		if (origin === null || origin === "null") needsPerson(`the page ${excerpt(url)} has no site an approval or the judge can name.`);
-		return origin;
+	async #read(browser: GatedBrowser): Promise<PageNow> {
+		const state = await browser.driver.state();
+		const origin = originOf(state.url);
+		const texts = (await browser.driver.editables()).filter((text) => !text.exempt);
+		return { origin: origin === null || origin === "null" ? null : origin, tabId: state.activeTabId ?? null, texts };
 	}
+}
+
+function requireOrigin(page: PageNow): string {
+	if (page.origin === null) return needsPerson("the page has no site an approval or the judge can name.");
+	return page.origin;
 }
