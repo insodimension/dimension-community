@@ -191,9 +191,9 @@
 			"source": "./packs/browser",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.18/browser-0.9.18.tgz",
-				"sha256": "4f1691e28d1166948f7c8b6d3a86fcc3d50a97696df45a55bdcbaa7149e183bd",
-				"size": 1983282
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.19/browser-0.9.19.tgz",
+				"sha256": "adcfa5b917367b116152dfc1a8680257437d11d808150a58279ea7a801279dcb",
+				"size": 1999547
 			},
 			"pluginId": "browser",
 			"title": "Browser",
@@ -1997,9 +1997,9 @@
 			"source": "./packs/youtube",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.3.0/youtube-0.3.0.tgz",
-				"sha256": "c96f0ec94044fd89dbcbe5fb16169a2a37a0b9d9a2fd6b703a5a53cf88d8db96",
-				"size": 70935
+				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.3.1/youtube-0.3.1.tgz",
+				"sha256": "2eeeda5d6c038fbf90bec2fce06d82317d3f05e41585b14dba84a39fa0836500",
+				"size": 71105
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
