@@ -20,12 +20,12 @@ import { BrowserClient } from "../app/view/browser-client";
 import { type ConnectionReport } from "../src/connection";
 import { createBrowserServer } from "../src/server";
 import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, teardown, waitUntil } from "./fixture";
+import { SPACES_UNDER_TEST, namesOfferedToModelOf, offeredToSpace } from "./model-audience";
 import { ProfileStore } from "../src/store";
 
 const textOf = (result: ToolResult): string => result.content.map((block) => block.text ?? "").join("");
 const CALLER = "ai.insodimension/caller";
 const SESSION = "ai.insodimension/session";
-const SPACES = "ai.insodimension/spaces";
 const REPORT = "notifications/ai.insodimension/connection";
 const NOW = Date.now();
 const clients: Client[] = [];
@@ -65,8 +65,7 @@ const ViewList = z.object({
 	),
 });
 const listOf = (result: ToolResult) => Listing.parse(JSON.parse(textOf(result)));
-/** The markers a host reads off a tool: which spaces may see it, and whether only the View may call it. */
-const ToolMeta = z.object({ ui: z.object({ visibility: z.array(z.string()).optional() }).optional(), [SPACES]: z.array(z.string()).optional() });
+const ToolMeta = z.object({ ui: z.object({ visibility: z.array(z.string()).optional() }).optional() });
 interface Who {
 	caller: "model" | "app";
 	session?: string;
@@ -117,11 +116,11 @@ describe("browser_profiles, as a host offers it", () => {
 		const profiles = tools.get("browser_profiles");
 		expect(profiles).toBeDefined();
 		expect(profiles?.annotations?.readOnlyHint).toBe(true);
-		// The host leaves a tool out of a space only by this marker, and out of a model's list only by `visibility: ["app"]`.
 		const meta = ToolMeta.parse(profiles?._meta ?? {});
-		expect(meta[SPACES]).toBeUndefined();
 		expect(meta.ui?.visibility).toBeUndefined();
-		expect(ToolMeta.parse(tools.get("browser_publish")?._meta)[SPACES]).toEqual(["traction"]);
+		const listed = [...tools.values()];
+		for (const space of SPACES_UNDER_TEST) expect(namesOfferedToModelOf(listed, space), `${space} is offered browser_profiles`).toContain("browser_profiles");
+		expect(SPACES_UNDER_TEST.filter((space) => offeredToSpace(tools.get("browser_publish")!, space))).toEqual(["traction"]);
 		expect(ToolMeta.parse(tools.get("browser_frame")?._meta).ui?.visibility).toEqual(["app"]);
 	});
 

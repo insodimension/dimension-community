@@ -17023,70 +17023,6 @@ var LiveChannel = class {
   }
 };
 
-// plugin.json
-var plugin_default = {
-  $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  name: "browser",
-  version: "0.9.17",
-  description: "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-  keywords: [
-    "browser",
-    "mcp-apps",
-    "profiles",
-    "annotations"
-  ],
-  extensions: {
-    "ai.insodimension.dimension": {
-      contractVersion: 1,
-      requires: { dimension: ">=0.11.1" },
-      title: "Browser",
-      icon: "globe",
-      artifactories: [
-        {
-          mcpServer: "browser",
-          label: "Browser",
-          icon: "globe",
-          grants: ["dictation"],
-          modelSpaces: [
-            "code",
-            "build",
-            "chat",
-            "labor",
-            "watch",
-            "traction",
-            "video"
-          ]
-        }
-      ],
-      type: "component",
-      components: [
-        {
-          id: "browser",
-          slot: "dock",
-          label: "Browser",
-          icon: "globe",
-          grants: [
-            "artifactory:open"
-          ],
-          launch: { tool: "browser_view", args: { profile: "default" } },
-          order: 10
-        }
-      ],
-      toolRenderer: [
-        { match: "browser_run", use: "livePreview" },
-        { match: "browser_open", use: "livePreview" },
-        { match: "browser_act", use: "livePreview" },
-        { match: "browser_state", use: "livePreview" },
-        { match: "browser_snapshot", use: "livePreview" },
-        { match: "browser_inspect", use: "livePreview" },
-        { match: "browser_screenshot", use: "livePreview" },
-        { match: "browser_task", use: "livePreview" },
-        { match: "browser_task_wait", use: "livePreview" }
-      ]
-    }
-  }
-};
-
 // src/server.ts
 var BROWSER_VIEW_URI = "ui://browser/index.html";
 var VIEW_CSP = { connectDomains: ["http://127.0.0.1:*"] };
@@ -17139,13 +17075,9 @@ var CALLER_META_KEY = "ai.insodimension/caller";
 var APPROVAL_META_KEY = "ai.insodimension/approval";
 var APPROVAL_SUMMARY_META_KEY = "ai.insodimension/approvalSummary";
 var SPACES_META_KEY = "ai.insodimension/spaces";
+var EXCEPT_SPACES_META_KEY = "ai.insodimension/exceptSpaces";
 var TRACTION_ONLY = { [SPACES_META_KEY]: ["traction"] };
 var MODEL_TOOLS_ENV = "DIMENSION_BROWSER_MODEL_TOOLS";
-var MODEL_SPACES = (() => {
-  const spaces = plugin_default.extensions["ai.insodimension.dimension"].artifactories.find((artifactory) => artifactory.mcpServer === "browser")?.modelSpaces;
-  if (spaces === void 0 || spaces.length === 0) throw new Error("plugin.json lends the browser server to no space (artifactories[].modelSpaces)");
-  return spaces;
-})();
 var CODE_TOOL_SPACES = ["code", "build"];
 var BROWSER_RUN_SPACES = [...CODE_TOOL_SPACES, "traction", "video"];
 function resolveModelTools(raw, hasCodeHost) {
@@ -17156,9 +17088,7 @@ function resolveModelTools(raw, hasCodeHost) {
   return asked;
 }
 function stepToolMeta(mode) {
-  if (mode !== "code") return void 0;
-  const spaces = MODEL_SPACES.filter((space) => !CODE_TOOL_SPACES.includes(space));
-  return spaces.length === 0 ? APP_ONLY : { [SPACES_META_KEY]: spaces };
+  return mode === "code" ? { [EXCEPT_SPACES_META_KEY]: CODE_TOOL_SPACES } : void 0;
 }
 var SESSION_META_KEY = "ai.insodimension/session";
 function callerOf(extra) {

@@ -20,6 +20,7 @@ import { BROWSER_VIEW_URI, createBrowserServer } from "../src/server";
 import { BrowserRuntimeError } from "../src/store";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createRoot, teardown } from "./fixture";
+import { SPACES_UNDER_TEST, offeredToSpace } from "./model-audience";
 
 const clients: Client[] = [];
 
@@ -118,19 +119,20 @@ test("only browser_view and browser_publish mount the View: browser_open is head
 test("publishing and task agents are offered to Traction alone; every browsing tool names no audience", async () => {
 	const { client } = await connect("jev-key");
 	const modelTools = (await client.listTools()).tools.filter((tool) => uiOf(tool).visibility === undefined);
-	const audienceOf = (tool: { _meta?: Record<string, unknown> }) => tool._meta?.["ai.insodimension/spaces"];
+	const spacesOf = (tool: { name: string; _meta?: Record<string, unknown> }) => SPACES_UNDER_TEST.filter((space) => offeredToSpace(tool, space));
+	const offeredToEverySpace = (tool: { name: string; _meta?: Record<string, unknown> }) => spacesOf(tool).length === SPACES_UNDER_TEST.length;
 
 	// A dev session is listed these eleven and nothing else; a new tool must choose a side to get past this list.
-	expect(modelTools.filter((tool) => audienceOf(tool) === undefined).map((tool) => tool.name).sort()).toEqual([
+	expect(modelTools.filter(offeredToEverySpace).map((tool) => tool.name).sort()).toEqual([
 		"browser_act", "browser_close", "browser_inspect", "browser_open", "browser_profiles", "browser_read",
 		"browser_screenshot", "browser_snapshot", "browser_state", "browser_upload", "browser_view",
 	]);
-	const traction = modelTools.filter((tool) => audienceOf(tool) !== undefined);
+	const traction = modelTools.filter((tool) => !offeredToEverySpace(tool));
 	expect(traction.map((tool) => tool.name).sort()).toEqual([
 		"browser_publish", "browser_publish_cancel", "browser_publish_confirm", "browser_publish_presets", "browser_publish_wait",
 		"browser_task", "browser_task_cancel", "browser_task_wait",
 	]);
-	expect(traction.map(audienceOf)).toEqual(traction.map(() => ["traction"]));
+	expect(traction.map(spacesOf)).toEqual(traction.map(() => ["traction"]));
 });
 
 test("without jev's key a session is offered no browser_task tool; with it, those three and nothing else are added", async () => {
