@@ -9,6 +9,7 @@ import { RELEASE_MAX_BYTES } from "./space-showcase.mjs";
 
 export const SHELF_REPO = "insodimension/dimension-community";
 export const SHELF_REPOSITORY = `https://github.com/${SHELF_REPO}`;
+export const RELEASE_SOURCE_MIN_DIMENSION = "0.11.27";
 
 export const packReleaseTag = (name, version) => `${name}-v${version}`;
 export const packArchiveName = (name, version) => `${name}-${version}.tgz`;

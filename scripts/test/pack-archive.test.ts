@@ -110,4 +110,20 @@ describe("a pack's release build", () => {
 		expect(run().status).toBe(0);
 		expect(run("--check").status).toBe(0);
 	});
+
+	test("every release entry refuses a Dimension too old to install a release build, keeping a pack's own higher floor", () => {
+		const root = makeShelf();
+		for (const [name, dimension] of [["older-floor", ">=0.11.19"], ["newer-floor", ">=0.12.0"]]) {
+			writeFile(root, `packs/${name}/package.json`, JSON.stringify({ name, version: "1.0.0", description: `The ${name} test pack.` }));
+			writeFile(root, `packs/${name}/dimension.plugin.json`, JSON.stringify({ plugin: name, contractVersion: 1, requires: { dimension } }));
+		}
+		expect(spawnSync(process.execPath, [join(root, "scripts", "build-index.ts")], { cwd: root, encoding: "utf8" }).status).toBe(0);
+
+		const catalog = JSON.parse(readFileSync(join(root, ".dimension-plugin/marketplace.json"), "utf8")) as { plugins: { name: string; requires?: { dimension: string } }[] };
+		expect(Object.fromEntries(catalog.plugins.map(plugin => [plugin.name, plugin.requires?.dimension]))).toEqual({
+			demo: ">=0.11.27",
+			"newer-floor": ">=0.12.0",
+			"older-floor": ">=0.11.27",
+		});
+	});
 });

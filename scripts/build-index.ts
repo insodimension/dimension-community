@@ -43,7 +43,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildPackArchives, packDirectories, packReleaseUrl, SHELF_REPOSITORY } from "./pack-archive.mjs";
+import { buildPackArchives, packDirectories, packReleaseUrl, RELEASE_SOURCE_MIN_DIMENSION, SHELF_REPOSITORY } from "./pack-archive.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifest } from "./pack-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -228,15 +228,36 @@ function generalAgentListings(packRoot: string, packDir: string): Json[] | undef
 	return listings.length > 0 ? listings : undefined;
 }
 
-/** `{ dimension: "<semver range>" }` off a manifest, or undefined. The RANGE is
- *  not parsed here: the engine and the OMP manager are the two places that
- *  match it (`Bun.semver.satisfies`), and the validator is what refuses an
- *  unparseable one — a generator that threw on it would leave a contributor
- *  unable to regenerate the file the error tells them to regenerate. */
-function requirements(manifest: Json): Json | undefined {
-	const requires = asObject(manifest.requires);
-	const dimension = asString(requires?.dimension);
-	return dimension ? { dimension } : undefined;
+const BOUND_TOKEN = /^(>=|>|<=|<)(\d+)(?:\.(\d+))?(?:\.(\d+))?$/;
+
+type Bound = { token: string; operator: string; version: string };
+
+function releaseRequirements(manifest: Json, dir: string): Json {
+	const floor = `>=${RELEASE_SOURCE_MIN_DIMENSION}`;
+	const declared = asString(asObject(manifest.requires)?.dimension)?.trim();
+	if (!declared) return { dimension: floor };
+	const bounds: Bound[] = declared.split(/\s+/).map(token => {
+		const match = BOUND_TOKEN.exec(token);
+		if (!match) {
+			throw new Error(
+				`packs/${dir}: requires.dimension "${declared}" cannot be combined with the release-source floor ${floor}; write it as >=X.Y.Z, optionally with <X.Y.Z`,
+			);
+		}
+		return { token, operator: match[1], version: `${match[2]}.${match[3] ?? "0"}.${match[4] ?? "0"}` };
+	});
+	const belowFloor = (bound: Bound) => Bun.semver.order(bound.version, RELEASE_SOURCE_MIN_DIMENSION) < 0;
+	const lowers = bounds.filter(bound => bound.operator.startsWith(">"));
+	const uppers = bounds.filter(bound => bound.operator.startsWith("<"));
+	const unreachable = uppers.find(bound => {
+		const order = Bun.semver.order(bound.version, RELEASE_SOURCE_MIN_DIMENSION);
+		return order < 0 || (order === 0 && bound.operator === "<");
+	});
+	if (unreachable) {
+		throw new Error(`packs/${dir}: requires.dimension "${declared}" excludes ${RELEASE_SOURCE_MIN_DIMENSION}, the first Dimension that installs release builds`);
+	}
+	const keptLowers = lowers.filter(bound => !belowFloor(bound));
+	if (lowers.length > 0 && keptLowers.length === lowers.length) return { dimension: declared };
+	return { dimension: [...(keptLowers.length > 0 ? keptLowers.map(bound => bound.token) : [floor]), ...uppers.map(bound => bound.token)].join(" ") };
 }
 
 /** `package.json.author` in catalog shape. npm allows a string
@@ -292,8 +313,7 @@ function entryFor(dir: string, archive: PackArchive): Json {
 	if (category) entry.category = category;
 	const tags = asStrings(block.keywords) ?? asStrings(pkg.keywords);
 	if (tags) entry.tags = tags;
-	const requires = requirements(manifest);
-	if (requires) entry.requires = requires;
+	entry.requires = releaseRequirements(manifest, dir);
 	// The RELEASE RING a pack restricts itself to. It must ride the INDEX, not
 	// just the pack: a stable-ring client filters what it BROWSES, and it browses
 	// this one file. Carried verbatim (the engine's `release-ring.ts` owns the

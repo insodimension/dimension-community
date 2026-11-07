@@ -38,7 +38,10 @@
 				"memory",
 				"compaction",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "artifactory-general-agent",
@@ -65,7 +68,7 @@
 				"component"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -93,6 +96,9 @@
 				"system",
 				"example"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"channel": "canary"
 		},
 		{
@@ -121,6 +127,9 @@
 				"3d",
 				"example"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"channel": "canary"
 		},
 		{
@@ -148,7 +157,10 @@
 				"social",
 				"research",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "brand-marks",
@@ -177,7 +189,7 @@
 				"brand"
 			],
 			"requires": {
-				"dimension": ">=0.10.22"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -234,7 +246,7 @@
 				"build"
 			],
 			"requires": {
-				"dimension": ">=0.10.5"
+				"dimension": ">=0.11.27"
 			},
 			"channel": "canary",
 			"spaces": [
@@ -294,7 +306,7 @@
 				"chat"
 			],
 			"requires": {
-				"dimension": ">=0.11.23"
+				"dimension": ">=0.11.27"
 			},
 			"spaces": [
 				{
@@ -359,7 +371,7 @@
 				"chat"
 			],
 			"requires": {
-				"dimension": ">=0.11.23"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -388,7 +400,7 @@
 				"chat"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -414,7 +426,10 @@
 				"component",
 				"dock",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "classic-environment",
@@ -439,7 +454,10 @@
 				"component",
 				"workspace-surface",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "classic-rail",
@@ -464,7 +482,10 @@
 				"component",
 				"rail",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "classic-start",
@@ -489,7 +510,10 @@
 				"component",
 				"start",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "classic-switcher",
@@ -514,7 +538,10 @@
 				"component",
 				"switcher",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "classic-workspace",
@@ -539,7 +566,10 @@
 				"component",
 				"workspace",
 				"classic"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "discord",
@@ -566,7 +596,10 @@
 				"bot",
 				"messaging",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "example-agents",
@@ -592,7 +625,7 @@
 				"example"
 			],
 			"requires": {
-				"dimension": ">=0.10.5"
+				"dimension": ">=0.11.27"
 			},
 			"channel": "canary",
 			"spaces": [
@@ -655,7 +688,7 @@
 				"face to face"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -689,6 +722,9 @@
 				"tripo",
 				"provider"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"providers": {
 				"generation": [
 					{
@@ -731,6 +767,9 @@
 				"local",
 				"provider"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"providers": {
 				"generation": [
 					{
@@ -770,6 +809,9 @@
 				"retopology",
 				"provider"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"providers": {
 				"generation": [
 					{
@@ -815,6 +857,9 @@
 				"hunyuan",
 				"provider"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"providers": {
 				"generation": [
 					{
@@ -857,7 +902,7 @@
 				"tools"
 			],
 			"requires": {
-				"dimension": ">=0.11.19"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -887,7 +932,10 @@
 				"pull-requests",
 				"releases",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "gmail",
@@ -915,7 +963,10 @@
 				"smtp",
 				"himalaya",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "google-calendar",
@@ -943,7 +994,10 @@
 				"daily-brief",
 				"scheduling",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "google-drive",
@@ -970,7 +1024,10 @@
 				"oauth",
 				"files",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "google-meet",
@@ -999,7 +1056,10 @@
 				"conference-records",
 				"recordings",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "google-workspace",
@@ -1029,7 +1089,10 @@
 				"oauth",
 				"connector",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "hackernews",
@@ -1057,7 +1120,10 @@
 				"launch",
 				"research",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "image",
@@ -1090,7 +1156,7 @@
 				"flux"
 			],
 			"requires": {
-				"dimension": ">=0.11.13"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1123,7 +1189,10 @@
 				"ui",
 				"skill",
 				"detector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "independent-composer",
@@ -1149,7 +1218,7 @@
 				"independent"
 			],
 			"requires": {
-				"dimension": ">=0.11.1"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1177,7 +1246,7 @@
 				"independent"
 			],
 			"requires": {
-				"dimension": ">=0.11.5"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1203,7 +1272,10 @@
 				"component",
 				"thread",
 				"independent"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "last30days",
@@ -1235,7 +1307,10 @@
 				"news",
 				"social",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "mochi-mark",
@@ -1261,6 +1336,9 @@
 				"demo",
 				"assembly"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"channel": "canary"
 		},
 		{
@@ -1292,7 +1370,7 @@
 				"connector"
 			],
 			"requires": {
-				"dimension": ">=0.11.17"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1321,6 +1399,9 @@
 				"pull-request",
 				"store"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"standalone": true
 		},
 		{
@@ -1353,7 +1434,10 @@
 				"empathy",
 				"design",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "pulse-mark",
@@ -1379,6 +1463,9 @@
 				"demo",
 				"store"
 			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
 			"channel": "canary"
 		},
 		{
@@ -1406,7 +1493,10 @@
 				"forum",
 				"news",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "rooms-rail",
@@ -1433,7 +1523,7 @@
 				"rooms"
 			],
 			"requires": {
-				"dimension": ">=0.11.12"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1461,7 +1551,10 @@
 				"typesafe",
 				"jev",
 				"provider"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "simulator",
@@ -1490,7 +1583,7 @@
 				"mobile"
 			],
 			"requires": {
-				"dimension": ">=0.11.3"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1522,7 +1615,7 @@
 				"oauth"
 			],
 			"requires": {
-				"dimension": ">=0.11.17"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1555,7 +1648,10 @@
 				"creators",
 				"voice-of-customer",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "speech-elevenlabs",
@@ -1584,7 +1680,7 @@
 				"provider"
 			],
 			"requires": {
-				"dimension": ">=0.11.4"
+				"dimension": ">=0.11.27"
 			},
 			"providers": {
 				"speech": [
@@ -1641,7 +1737,7 @@
 				"tools"
 			],
 			"requires": {
-				"dimension": ">=0.10.24"
+				"dimension": ">=0.11.27"
 			}
 		},
 		{
@@ -1673,7 +1769,10 @@
 				"redesign",
 				"ui",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "teams",
@@ -1701,7 +1800,10 @@
 				"azure",
 				"channel",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "telegram",
@@ -1728,7 +1830,10 @@
 				"messaging",
 				"chat",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "triage-rail",
@@ -1756,7 +1861,7 @@
 				"community"
 			],
 			"requires": {
-				"dimension": ">=0.11.1"
+				"dimension": ">=0.11.27"
 			},
 			"standalone": true
 		},
@@ -1791,7 +1896,10 @@
 				"tailwind",
 				"polish",
 				"skill"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "watch",
@@ -1820,7 +1928,10 @@
 				"ffmpeg",
 				"yt-dlp",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "whatsapp",
@@ -1847,7 +1958,10 @@
 				"messaging",
 				"cloud-api",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "x",
@@ -1875,7 +1989,10 @@
 				"posts",
 				"mentions",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		},
 		{
 			"name": "youtube",
@@ -1903,7 +2020,10 @@
 				"playlist",
 				"comments",
 				"media"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			}
 		}
 	]
 }
