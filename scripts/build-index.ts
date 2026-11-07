@@ -8,7 +8,6 @@
 // the drift only ever shows up as a wrong card in a shipped store.
 //
 // The pack files are the source of truth, per pack directory `packs/<name>/`:
-//   name / source / pluginId  ← the directory name + the manifest's plugin id
 //   title / icon / requires / channel / spaces  ← the pack MANIFEST
 //   generalAgents  ← `general-agents/<name>/agent.md` frontmatter
 //   version / author / license / repository  ← `package.json`
@@ -38,13 +37,13 @@
 //
 // `--check` regenerates in memory and fails on any difference: CI refuses drift
 // so the shelf a client fetches always describes the packs that are committed.
-//
-// No dependencies — runs on bun (`bun scripts/build-index.ts`), like its
-// sibling validator.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildPackArchives } from "./pack-archive.mjs";
+import { packDirectories, packReleaseUrl, SHELF_REPOSITORY } from "./shelf-release.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifest } from "./pack-manifest.mjs";
+import { releaseSourceProblems } from "./space-showcase.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -52,12 +51,6 @@ const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
 const legacyCatalogPath = join(root, ".omp-plugin", "marketplace.json");
 const packsDir = join(root, "packs");
 
-/** Shelf-wide defaults for the two fields a pack's `package.json` usually
- *  omits because they are properties of THIS repository, not of the pack: every
- *  pack here lives in this git repo and ships under its license unless it says
- *  otherwise (vendored packs do — `impeccable` is Apache-2.0). A pack that
- *  declares either field wins. */
-const SHELF_REPOSITORY = "https://github.com/insodimension/dimension-community";
 const SHELF_LICENSE = "MIT";
 
 type Json = Record<string, unknown>;
@@ -227,11 +220,6 @@ function generalAgentListings(packRoot: string, packDir: string): Json[] | undef
 	return listings.length > 0 ? listings : undefined;
 }
 
-/** `{ dimension: "<semver range>" }` off a manifest, or undefined. The RANGE is
- *  not parsed here: the engine and the OMP manager are the two places that
- *  match it (`Bun.semver.satisfies`), and the validator is what refuses an
- *  unparseable one — a generator that threw on it would leave a contributor
- *  unable to regenerate the file the error tells them to regenerate. */
 function requirements(manifest: Json): Json | undefined {
 	const requires = asObject(manifest.requires);
 	const dimension = asString(requires?.dimension);
@@ -252,7 +240,7 @@ function authorOf(pkg: Json): Json | undefined {
 }
 
 /** One catalog entry, in the field order the shelf publishes. */
-function entryFor(dir: string): Json {
+function entryFor(dir: string, prior: Json | undefined): Json {
 	const packRoot = join(packsDir, dir);
 	const packDir = posix.join("packs", dir);
 	const pkg = readJson(join(packRoot, "package.json"));
@@ -267,7 +255,21 @@ function entryFor(dir: string): Json {
 	const description = asString(block.description) ?? asString(pkg.description);
 	if (!description) throw new Error(`packs/${dir}: a description is required (plugin.json description)`);
 
-	const entry: Json = { name: dir, source: `./${packDir}` };
+	const version = asString(pkg.version);
+	if (!version) throw new Error(`packs/${dir}: package.json version is required`);
+	const published = asObject(prior?.release);
+	const reuse =
+		published !== undefined &&
+		prior?.source === `./${packDir}` &&
+		prior.version === version &&
+		published.source === "release" &&
+		published.url === packReleaseUrl(dir, version) &&
+		releaseSourceProblems(dir, prior, "release").length === 0;
+	const entry: Json = {
+		name: dir,
+		source: `./${packDir}`,
+		release: reuse ? { source: "release", url: published.url, sha256: published.sha256, size: published.size } : undefined,
+	};
 	const pluginId = asString(manifest.plugin);
 	if (pluginId) entry.pluginId = pluginId;
 	const title = asString(manifest.title);
@@ -275,8 +277,6 @@ function entryFor(dir: string): Json {
 	const icon = asString(manifest.icon);
 	if (icon) entry.icon = catalogIcon(icon, packDir, dir);
 	entry.description = description;
-	const version = asString(pkg.version);
-	if (!version) throw new Error(`packs/${dir}: package.json version is required`);
 	entry.version = version;
 	const author = authorOf(pkg);
 	if (author) entry.author = author;
@@ -310,24 +310,23 @@ function entryFor(dir: string): Json {
 	return entry;
 }
 
-/** Every pack directory that ships a `package.json`, sorted by name — the order
- *  the catalog publishes, so a no-change run is a no-diff run. */
-export function packDirectories(): string[] {
-	if (!existsSync(packsDir)) return [];
-	return readdirSync(packsDir)
-		.filter(dir => {
-			const path = join(packsDir, dir);
-			return statSync(path).isDirectory() && existsSync(join(path, "package.json"));
-		})
-		.sort();
-}
-
 /** The index as it SHOULD be, given the packs on disk. `seed` carries the
  *  shelf's own identity (`name`, `owner`, `metadata`) — the only hand-authored
  *  part of this file — and every other top-level key it happens to hold. */
 export function buildIndex(seed: Json, listed: readonly Json[] = []): Json {
-	const releases = listed.filter(entry => asObject(entry.source)?.source === "release");
-	const plugins = [...packDirectories().map(entryFor), ...releases].sort((a, b) => {
+	const packs = packDirectories(root);
+	const priorByName = new Map(listed.map(entry => [entry.name, entry]));
+	const entries = packs.map(dir => entryFor(dir, priorByName.get(dir)));
+	const unpublished = entries.filter(entry => entry.release === undefined);
+	if (unpublished.length > 0) {
+		const archives = buildPackArchives(root, unpublished.map(entry => entry.name)) as Map<string, { sha256: string; size: number }>;
+		for (const entry of unpublished) {
+			const { sha256, size } = archives.get(entry.name as string) as { sha256: string; size: number };
+			entry.release = { source: "release", url: packReleaseUrl(entry.name, entry.version), sha256, size };
+		}
+	}
+	const listedWithoutCode = listed.filter(entry => asObject(entry.source)?.source === "release");
+	const plugins = [...entries, ...listedWithoutCode].sort((a, b) => {
 		const left = String(a.name);
 		const right = String(b.name);
 		return left < right ? -1 : left > right ? 1 : 0;
@@ -379,7 +378,7 @@ try {
 
 const current = readFileSync(catalogPath, "utf8");
 const legacyCurrent = existsSync(legacyCatalogPath) ? readFileSync(legacyCatalogPath, "utf8") : undefined;
-const packCount = packDirectories().length;
+const packCount = packDirectories(root).length;
 
 if (process.argv.includes("--check")) {
 	let drifted = false;

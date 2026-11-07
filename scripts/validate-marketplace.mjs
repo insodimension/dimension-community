@@ -10,12 +10,13 @@
 // disagree about a pack. It reads the Agent Plugins spec `plugin.json` first
 // and falls back to the legacy `dimension.plugin.json` a pre-spec third-party
 // pack still ships.
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { packDirectories } from "./shelf-release.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
-import { isReleaseSource, releaseSourceProblems, spaceListingProblems } from "./space-showcase.mjs";
+import { isReleaseSource, isShelfPackEntry, releaseSourceProblems, spaceListingProblems } from "./space-showcase.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, ".dimension-plugin", "marketplace.json");
@@ -46,9 +47,13 @@ if (process.argv.includes("--check")) {
 	// Spawn bun BY NAME, never process.execPath: under node that is node, which
 	// cannot run a .ts file, and the resulting non-zero exit read as "DRIFTED" —
 	// a false failure naming the wrong cause. No bun on PATH is its own error.
-	const check = spawnSync("bun", [join(root, "scripts", "build-index.ts"), "--check"], { stdio: "inherit" });
-	if (check.error) errors.push(`--check needs bun on PATH to run scripts/build-index.ts (${check.error.message})`);
-	else if (check.status !== 0) errors.push("the catalog has DRIFTED from the packs on disk (run scripts/build-index.ts)");
+	if (!existsSync(join(root, "node_modules", "fflate", "package.json"))) {
+		errors.push("--check builds every pack's release archive, which needs the shelf's dev dependencies: run `bun install`");
+	} else {
+		const check = spawnSync("bun", [join(root, "scripts", "build-index.ts"), "--check"], { stdio: "inherit", windowsHide: true });
+		if (check.error) errors.push(`--check needs bun on PATH to run scripts/build-index.ts (${check.error.message})`);
+		else if (check.status !== 0) errors.push("the catalog has DRIFTED from the packs on disk (run scripts/build-index.ts)");
+	}
 }
 
 if (typeof catalog.name !== "string" || !/^[a-z0-9-]+$/.test(catalog.name)) {
@@ -74,6 +79,7 @@ function providerProblems(label, plugin, manifest) {
 	return problems;
 }
 
+const shelfPacks = new Set(packDirectories(root));
 const seen = new Set();
 for (const plugin of catalog.plugins ?? []) {
 	const label = plugin?.name ?? "<unnamed>";
@@ -198,6 +204,9 @@ for (const plugin of catalog.plugins ?? []) {
 		errors.push(`plugin "${label}": source must be a relative path or a source object`);
 	}
 	if (isReleaseSource(plugin.source)) errors.push(...releaseSourceProblems(label, plugin));
+	if (plugin.release !== undefined && !isShelfPackEntry(shelfPacks, plugin)) {
+		errors.push(`plugin "${label}": only a pack listed by its ./packs/<name> source carries a release build`);
+	}
 	errors.push(...spaceListingProblems(root, label, plugin));
 	if (typeof plugin.description !== "string" || plugin.description.length < 10) {
 		errors.push(`plugin "${label}": a real description is required`);
@@ -287,14 +296,9 @@ for (const plugin of catalog.plugins ?? []) {
 // ever be dev-linked, and the engine's provenance (`<name>@<marketplace>`) is
 // never minted for it. Two artifactory pilots shipped that way (review of #32),
 // with CI green because this loop only ever walked `catalog.plugins`.
-const packsDir = join(root, "packs");
-if (existsSync(packsDir)) {
-	const listed = new Set((catalog.plugins ?? []).map(plugin => plugin.source));
-	for (const dir of readdirSync(packsDir).sort()) {
-		const packDir = join(packsDir, dir);
-		if (!statSync(packDir).isDirectory() || !existsSync(join(packDir, "package.json"))) continue;
-		if (!listed.has(`./packs/${dir}`)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
-	}
+const listed = new Set((catalog.plugins ?? []).map(plugin => plugin.source));
+for (const dir of shelfPacks) {
+	if (!listed.has(`./packs/${dir}`)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
 }
 
 if (errors.length > 0) {

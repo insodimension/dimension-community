@@ -1,0 +1,7 @@
+{
+	"name": "dimension-community",
+	"private": true,
+	"devDependencies": {
+		"fflate": "0.8.3"
+	}
+}

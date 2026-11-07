@@ -46,7 +46,8 @@ review is the taste check.** No pack merges red.
 
    | Catalog field | Comes from |
    |---|---|
-   | `name` · `source` | your pack's directory name |
+   | `name` · `source` | your pack's directory name (`source` is `./packs/<name>`) |
+   | `release` | your pack's release build: `{ "source": "release", "url", "sha256", "size" }` (see "How your pack becomes a release build" below) |
    | `pluginId` · `title` · `icon` · `requires` · `spaces` · `providers` | `dimension.plugin.json` |
    | `description` | `plugin.json` top-level `description`, else `package.json`'s top-level one. This is your store copy: plain words, one or two short sentences on what the pack does for the person. The Dimension monorepo's `--words` gate refuses doc numbers, tool or op names, backticks, file names, config keys and internal terms. |
    | `category` · `tags` | `package.json` → `dimension` block (`category`, `keywords`), else its top-level fields |
@@ -99,8 +100,62 @@ review is the taste check.** No pack merges red.
    (design-token discipline, honest empty states, reduced-motion safety).
 
 Browsing this shelf costs ONE fetch: a client reads the index and paints every
-card from it, then downloads only the pack it installs. That is why every browse
-fact has to live in the index — and why the index has to be generated.
+card from it, then downloads only the pack it installs, as that pack's own
+release build (an older client takes it from `source` instead). That is why
+every browse fact has to live in the index — and why the index has to be
+generated.
+
+## How your pack becomes a release build
+
+A Dimension that reads the `release` field installs your pack from one archive,
+`<name>-<version>.tgz`, on this repository's GitHub Releases (tag
+`<name>-v<version>`), and refuses it unless its sha256 and size are the ones
+your entry's `release` pins.
+
+- **What is in it.** Every file under `packs/<name>/` that git would commit:
+  tracked files and new files that are not ignored. Ignored files
+  (`node_modules/`, `.venv/`, caches) never ship. Text files carry the line
+  endings git stores (LF), so the archive is the same on Windows, macOS and
+  Linux. Everything sits under one top directory `<name>/`, sorted, with no
+  timestamps or owners, so the same files always give the same bytes. A
+  symlink or a nested repository fails the build by name.
+- **You build it by regenerating the catalog.** Run `bun install` once (it
+  installs the shelf's one dev dependency, `fflate`, pinned exactly in
+  `package.json` and `bun.lock`), then `bun scripts/build-index.ts` builds the
+  archive of every pack whose version has no `release` in the catalog yet and
+  writes its `sha256` and `size` into the entry's `release`. A version that
+  already has one keeps it as it is.
+  The archive is compressed by that pinned pure-JS `fflate`, not by bun's own
+  zlib, so any bun version gives the bytes CI gives. To look inside your
+  archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to disk.
+- **Builds are never committed.** No `.tgz` belongs in this repository; the
+  catalog holds only the hash and size.
+- **Every change is a new version.** A published build is never replaced. Any
+  change to a file under `packs/<name>/`, tests included, needs a version bump
+  (`check-version-bumps.mjs` refuses one without), which gives it a new tag
+  and a new archive. The same check refuses a catalog whose `release` sha256
+  or size changed for a version that did not.
+- **CI publishes it after merge.** On every push to `main`, once the
+  `validate` job is green, the `publish-releases` job reads the catalog and,
+  for each entry whose release asset does not exist yet, builds the archive
+  from the merged commit, checks it is byte for byte the one the catalog pins,
+  creates the release at that commit and uploads it. An asset that already
+  exists is checked, never overwritten: if its bytes differ from the catalog,
+  the job fails and names the pack. A maintainer can run the workflow on
+  `main` by hand (Actions, ci, Run workflow) to publish again after a failure.
+- **The window.** From the merge until that job finishes (normally a minute
+  or two), the catalog on `main` already names your new version but its
+  archive is not uploaded yet. A Dimension that reads `release` gets HTTP 404
+  for it in that window, warns, and installs the pack from its
+  `./packs/<name>` source instead, so the install still works. The merge that
+  introduced release builds put all 60 packs in this window at once, until
+  its first `publish-releases` run finished; the same fallback covered it.
+- **Older Dimension.** Every entry keeps `source: "./packs/<name>"` beside
+  `release`. A Dimension that does not know the `release` field ignores it and
+  installs from `source` as it always has, so no version ever loses its
+  Community shelf and this switch can merge at any time. A Dimension that
+  reads `release` but finds it malformed, or cannot download or verify the
+  build, warns and installs from `source`.
 
 ## Your first space
 

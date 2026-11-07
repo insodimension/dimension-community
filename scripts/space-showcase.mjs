@@ -20,24 +20,28 @@ export function isReleaseSource(source) {
 	return isRecord(source) && source.source === "release";
 }
 
-export function releaseSourceProblems(label, plugin) {
-	const source = plugin.source;
+export function isShelfPackEntry(shelfPacks, plugin) {
+	return shelfPacks.has(plugin.name) && plugin.source === `./packs/${plugin.name}`;
+}
+
+export function releaseSourceProblems(label, plugin, field = "source") {
+	const source = plugin[field];
 	const problems = [];
 	if (!isText(plugin.version)) problems.push(`plugin "${label}": a release entry must state its version`);
 	let url;
 	try {
 		url = new URL(String(source.url));
 	} catch {
-		problems.push(`plugin "${label}": source.url must be an absolute URL`);
+		problems.push(`plugin "${label}": ${field}.url must be an absolute URL`);
 	}
 	if (url && url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))) {
-		problems.push(`plugin "${label}": source.url must be https (http only for a loopback host)`);
+		problems.push(`plugin "${label}": ${field}.url must be https (http only for a loopback host)`);
 	}
 	if (typeof source.sha256 !== "string" || !SHA256.test(source.sha256)) {
-		problems.push(`plugin "${label}": source.sha256 must be 64 lowercase hex characters`);
+		problems.push(`plugin "${label}": ${field}.sha256 must be 64 lowercase hex characters`);
 	}
 	if (!Number.isSafeInteger(source.size) || source.size <= 0 || source.size > RELEASE_MAX_BYTES) {
-		problems.push(`plugin "${label}": source.size must be a whole number of bytes between 1 and ${RELEASE_MAX_BYTES}`);
+		problems.push(`plugin "${label}": ${field}.size must be a whole number of bytes between 1 and ${RELEASE_MAX_BYTES}`);
 	}
 	return problems;
 }

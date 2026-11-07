@@ -7,7 +7,7 @@
 // pack kept the old app/server.mjs after dimension-community#119 until they
 // uninstalled and reinstalled (Traction Night friction #63). This check compares
 // every pack against the base it will merge into and refuses a changed pack whose
-// package.json version is unchanged. Tests are not shipped, so test/ is exempt.
+// package.json version is unchanged.
 //
 // The same walk holds the README rule (docs/plugins/authoring.md, "Document it:
 // README.md", in the Dimension repository): the details page in Capabilities shows
@@ -19,7 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+const git = (...args) => execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
 const base = process.argv[2] ?? process.env.BASE_REF ?? "origin/main";
 const mergeBase = git("merge-base", base, "HEAD");
 
@@ -28,7 +28,6 @@ for (const file of git("diff", "--name-only", `${mergeBase}...HEAD`, "--", "pack
 	const match = /^packs\/([^/]+)\/(.+)$/.exec(file);
 	if (!match) continue;
 	const [, pack, rest] = match;
-	if (rest.startsWith("test/")) continue;
 	changedByPack.set(pack, [...(changedByPack.get(pack) ?? []), rest]);
 }
 
@@ -59,6 +58,24 @@ for (const [pack, files] of changedByPack) {
 	}
 	if (before === undefined) continue; // added pack
 	if (before === after) failures.push(`packs/${pack}: ${files.length} shipped file(s) changed but the version is still ${after} (e.g. ${files[0]}). Bump package.json and plugin.json, then run scripts/build-index.ts.`);
+}
+
+const releasesAt = ref => {
+	let catalog;
+	try {
+		catalog = JSON.parse(git("show", `${ref}:.dimension-plugin/marketplace.json`));
+	} catch {
+		return new Map();
+	}
+	return new Map((catalog.plugins ?? []).filter(entry => entry.release).map(entry => [entry.name, entry]));
+};
+const publishedBefore = releasesAt(mergeBase);
+for (const [name, entry] of releasesAt("HEAD")) {
+	const before = publishedBefore.get(name);
+	if (!before || before.version !== entry.version || before.release.url !== entry.release.url) continue;
+	if (before.release.sha256 !== entry.release.sha256 || before.release.size !== entry.release.size) {
+		failures.push(`${name}: the release build of ${entry.version} changed (sha256 ${before.release.sha256}, ${before.release.size} bytes → sha256 ${entry.release.sha256}, ${entry.release.size} bytes) but its version did not. A published build is never replaced: bump the pack's version.`);
+	}
 }
 
 for (const warning of warnings) console.warn(`check-version-bumps: warning: ${warning}`);

@@ -1,10 +1,13 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
 
 type Json = Record<string, unknown>;
+
+setDefaultTimeout(30_000);
 
 const scriptsDir = resolve(import.meta.dir, "..");
 const DIMENSION_NAMESPACE = "ai.insodimension.dimension";
@@ -45,8 +48,9 @@ function run(root: string, script: string, ...args: string[]) {
 function makeShelf(): string {
 	const root = mkdtempSync(join(tmpdir(), "catalog-providers-"));
 	shelves.push(root);
+	initGitShelf(root);
 	mkdirSync(join(root, "scripts"));
-	for (const file of ["build-index.ts", "pack-manifest.mjs", "space-showcase.mjs", "validate-marketplace.mjs"]) {
+	for (const file of SHELF_SCRIPTS) {
 		cpSync(join(scriptsDir, file), join(root, "scripts", file));
 	}
 	mkdirSync(join(root, ".dimension-plugin"));
