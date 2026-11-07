@@ -3,12 +3,12 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
 
 type Json = Record<string, unknown>;
 
 const scriptsDir = resolve(import.meta.dir, "..");
 const DIMENSION_NAMESPACE = "ai.insodimension.dimension";
-const SCRIPTS = ["build-index.ts", "pack-manifest.mjs", "space-showcase.mjs", "validate-marketplace.mjs"];
 const shelves: string[] = [];
 
 afterAll(() => {
@@ -29,7 +29,8 @@ function writeFile(root: string, path: string, bytes: string | Uint8Array) {
 function makeShelf(): string {
 	const root = mkdtempSync(join(tmpdir(), "space-listing-"));
 	shelves.push(root);
-	for (const file of SCRIPTS) writeFile(root, join("scripts", file), readFileSync(join(scriptsDir, file)));
+	initGitShelf(root);
+	for (const file of SHELF_SCRIPTS) writeFile(root, join("scripts", file), readFileSync(join(scriptsDir, file)));
 	writeFile(
 		root,
 		".dimension-plugin/marketplace.json",

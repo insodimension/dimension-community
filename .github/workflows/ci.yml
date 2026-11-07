@@ -4,6 +4,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -12,6 +15,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # @fraym/ui is a HOST-RESOLVED external, not a dependency a pack installs:
       # the portable packs (independent-*) build here with vite alone. Packs that
       # still take workspace deps run their tests inside the Dimension monorepo
@@ -32,3 +37,19 @@ jobs:
       # never re-fetch one they hold (friction #63). A PR compares against its
       # base; a push to main against the commit it replaced.
       - run: bun scripts/check-version-bumps.mjs ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+  publish-releases:
+    if: github.event_name == 'push' && github.repository == 'insodimension/dimension-community'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: pack-releases
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun scripts/publish-pack-releases.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

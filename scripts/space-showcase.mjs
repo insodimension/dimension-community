@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, join, posix, relative } from "node:path";
 
 export const SHOWCASE_KEYS = ["tagline", "summary", "screenshots", "video", "needs", "onboarding"];
@@ -18,6 +18,12 @@ const isText = value => typeof value === "string" && value.trim().length > 0;
 
 export function isReleaseSource(source) {
 	return isRecord(source) && source.source === "release";
+}
+
+export function shelfPackDir(root, plugin) {
+	if (!isReleaseSource(plugin.source) || typeof plugin.name !== "string" || !/^[a-z0-9-]+$/.test(plugin.name)) return undefined;
+	const packDir = join(root, "packs", plugin.name);
+	return existsSync(join(packDir, "package.json")) ? packDir : undefined;
 }
 
 export function releaseSourceProblems(label, plugin) {
@@ -113,8 +119,8 @@ function showcaseProblems(root, where, showcase) {
 }
 
 export function spaceListingProblems(root, label, plugin) {
-	const release = isReleaseSource(plugin.source);
-	if (release && (!Array.isArray(plugin.spaces) || plugin.spaces.length === 0)) {
+	const listedWithoutCode = isReleaseSource(plugin.source) && !shelfPackDir(root, plugin);
+	if (listedWithoutCode && (!Array.isArray(plugin.spaces) || plugin.spaces.length === 0)) {
 		return [`plugin "${label}": a release entry must list the space it installs`];
 	}
 	if (plugin.spaces === undefined) return [];
@@ -130,7 +136,7 @@ export function spaceListingProblems(root, label, plugin) {
 			if (listing[field] !== undefined) problems.push(`${where} carries the retired ${field}; it lives in showcase.${field}`);
 		}
 		if (listing.showcase !== undefined) problems.push(...showcaseProblems(root, where, listing.showcase));
-		if (release) {
+		if (listedWithoutCode) {
 			const showcase = isRecord(listing.showcase) ? listing.showcase : {};
 			if (!isText(showcase.summary)) problems.push(`${where}: a release listing must carry showcase.summary`);
 			if (!Array.isArray(showcase.screenshots) || showcase.screenshots.length === 0) {

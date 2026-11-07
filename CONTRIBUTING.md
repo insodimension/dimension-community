@@ -46,7 +46,8 @@ review is the taste check.** No pack merges red.
 
    | Catalog field | Comes from |
    |---|---|
-   | `name` · `source` | your pack's directory name |
+   | `name` | your pack's directory name |
+   | `source` | your pack's release build: `{ "source": "release", "url", "sha256", "size" }` (see "How your pack becomes a release build" below) |
    | `pluginId` · `title` · `icon` · `requires` · `spaces` · `providers` | `dimension.plugin.json` |
    | `description` | `plugin.json` top-level `description`, else `package.json`'s top-level one. This is your store copy: plain words, one or two short sentences on what the pack does for the person. The Dimension monorepo's `--words` gate refuses doc numbers, tool or op names, backticks, file names, config keys and internal terms. |
    | `category` · `tags` | `package.json` → `dimension` block (`category`, `keywords`), else its top-level fields |
@@ -99,8 +100,48 @@ review is the taste check.** No pack merges red.
    (design-token discipline, honest empty states, reduced-motion safety).
 
 Browsing this shelf costs ONE fetch: a client reads the index and paints every
-card from it, then downloads only the pack it installs. That is why every browse
-fact has to live in the index — and why the index has to be generated.
+card from it, then downloads only the pack it installs, as that pack's own
+release build. That is why every browse fact has to live in the index — and
+why the index has to be generated.
+
+## How your pack becomes a release build
+
+Nobody installs your pack from this repository's tree. A person who installs
+it downloads one archive, `<name>-<version>.tgz`, from this repository's
+GitHub Releases (tag `<name>-v<version>`), and Dimension refuses it unless its
+sha256 and size are the ones your catalog entry pins.
+
+- **What is in it.** Every file under `packs/<name>/` that git would commit:
+  tracked files and new files that are not ignored. Ignored files
+  (`node_modules/`, `.venv/`, caches) never ship. Text files carry the line
+  endings git stores (LF), so the archive is the same on Windows, macOS and
+  Linux. Everything sits under one top directory `<name>/`, sorted, with no
+  timestamps or owners, so the same files always give the same bytes. A
+  symlink or a nested repository fails the build by name.
+- **You build it by regenerating the catalog.** `bun scripts/build-index.ts`
+  builds every pack's archive in memory and writes its `sha256` and `size`
+  into the entry. Run it with the bun version in `.bun-version`: the archive
+  is compressed by bun's zlib, and CI builds with that version. To look inside
+  your archive, `bun scripts/pack-archive.mjs <out-dir> <name>` writes it to
+  disk.
+- **Builds are never committed.** No `.tgz` belongs in this repository; the
+  catalog holds only the hash and size.
+- **Every change is a new version.** A published build is never replaced. Any
+  change to a file under `packs/<name>/`, tests included, needs a version bump
+  (`check-version-bumps.mjs` refuses one without), which gives it a new tag
+  and a new archive.
+- **CI publishes it after merge.** On every push to `main`, the
+  `publish-releases` job reads the catalog and, for each entry whose release
+  asset does not exist yet, builds the archive from the merged commit, checks
+  it is byte for byte the one the catalog pins, creates the release at that
+  commit and uploads it. An asset that already exists is checked, never
+  overwritten: if its bytes differ from the catalog, the job fails and names
+  the pack.
+- **The window.** From the merge until that job finishes (normally a minute
+  or two), the catalog on `main` already names your new version but its
+  archive is not uploaded yet, so an install in that window fails with
+  HTTP 404 and works on retry. Nothing else changes for anyone: people on the
+  previous version keep it.
 
 ## Your first space
 

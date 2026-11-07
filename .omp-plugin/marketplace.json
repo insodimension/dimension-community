@@ -10,7 +10,12 @@
 	"plugins": [
 		{
 			"name": "agents-best-practices",
-			"source": "./packs/agents-best-practices",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/agents-best-practices-v0.1.2/agents-best-practices-0.1.2.tgz",
+				"sha256": "2f3bcefd5820539d95b1b33cc7d67c295bd8c67bc270330a8225b037fd33655f",
+				"size": 39509
+			},
 			"pluginId": "agents-best-practices",
 			"title": "Agents Best Practices",
 			"icon": "packs/agents-best-practices/assets/icon.svg",
@@ -37,7 +42,12 @@
 		},
 		{
 			"name": "artifactory-general-agent",
-			"source": "./packs/artifactory-general-agent",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.4/artifactory-general-agent-0.5.4.tgz",
+				"sha256": "ac230d0e252bfdd630ced30f5903f2b3cda0f67d35653634ce8f6f18a11795f2",
+				"size": 282395
+			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
 			"icon": "bot",
@@ -60,7 +70,12 @@
 		},
 		{
 			"name": "artifactory-system-monitor",
-			"source": "./packs/artifactory-system-monitor",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-system-monitor-v0.1.3/artifactory-system-monitor-0.1.3.tgz",
+				"sha256": "ce0d4de2fe47bea40d17977757c747f88dfc28fb03f647fa6601e0c07bd9d6f5",
+				"size": 1920
+			},
 			"pluginId": "artifactory-system-monitor",
 			"title": "System Monitor",
 			"icon": "monitor",
@@ -82,7 +97,12 @@
 		},
 		{
 			"name": "artifactory-threejs",
-			"source": "./packs/artifactory-threejs",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-threejs-v0.1.3/artifactory-threejs-0.1.3.tgz",
+				"sha256": "fa14f990820e70bb558e90281e46722d2ece202b7e3c09d14cfc08118c6e6c98",
+				"size": 1626
+			},
 			"pluginId": "artifactory-threejs",
 			"title": "Three.js",
 			"icon": "box",
@@ -105,7 +125,12 @@
 		},
 		{
 			"name": "bluesky",
-			"source": "./packs/bluesky",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/bluesky-v0.1.0/bluesky-0.1.0.tgz",
+				"sha256": "dedbe114bb887a7400a52bbbc2d69daee0bd5fab46080837b764af47049bfb11",
+				"size": 26991
+			},
 			"pluginId": "bluesky",
 			"title": "Bluesky",
 			"icon": "packs/bluesky/assets/icon.svg",
@@ -127,7 +152,12 @@
 		},
 		{
 			"name": "brand-marks",
-			"source": "./packs/brand-marks",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/brand-marks-v0.2.1/brand-marks-0.2.1.tgz",
+				"sha256": "630dabe9fd797ed2e7894f82514423205953a9ce93f77d4cbae40a994a5fbce2",
+				"size": 19817
+			},
 			"pluginId": "brand-marks",
 			"title": "Brand Marks",
 			"icon": "packs/brand-marks/assets/icon.svg",
@@ -152,7 +182,12 @@
 		},
 		{
 			"name": "browser",
-			"source": "./packs/browser",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.18/browser-0.9.18.tgz",
+				"sha256": "7f6359528cc32b2df8706c5619f6ecbb8732221d828d868c936dece62132fa0f",
+				"size": 1928486
+			},
 			"pluginId": "browser",
 			"title": "Browser",
 			"icon": "globe",
@@ -176,7 +211,12 @@
 		},
 		{
 			"name": "build",
-			"source": "./packs/build",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/build-v0.1.9/build-0.1.9.tgz",
+				"sha256": "1e6c83a668c312cd97e60eb5a95932e4cc67333c652973f2e240790484a9aab8",
+				"size": 172323
+			},
 			"pluginId": "build",
 			"title": "Build",
 			"description": "A workspace for coding put together entirely from plugins. Install it beside Code and swap any part without touching the app.",
@@ -230,7 +270,12 @@
 		},
 		{
 			"name": "chat",
-			"source": "./packs/chat",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-v0.2.10/chat-0.2.10.tgz",
+				"sha256": "76c2154aac9116b14f1b12b6ae58501bd91d685d73c9e9cf11e404857da32589",
+				"size": 786112
+			},
 			"pluginId": "chat",
 			"title": "Chat",
 			"description": "A calm space for talking to Aether, with no code or branches in sight, your past sessions listed and a viewer for the documents, slides and images it makes.",
@@ -289,7 +334,12 @@
 		},
 		{
 			"name": "chat-rail",
-			"source": "./packs/chat-rail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-rail-v0.1.9/chat-rail-0.1.9.tgz",
+				"sha256": "de79e4a27b4c80e1c7be0b86aa2dc8734cc49a074fbf9016edbed05b024f0436",
+				"size": 52264
+			},
 			"pluginId": "chat-rail",
 			"title": "Chat Rail",
 			"icon": "panel",
@@ -314,7 +364,12 @@
 		},
 		{
 			"name": "chat-thread",
-			"source": "./packs/chat-thread",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/chat-thread-v0.1.6/chat-thread-0.1.6.tgz",
+				"sha256": "9826dec044f7b50bfdd9984c67724d490fa5c21366cc64af5448953c44d8afe3",
+				"size": 4695
+			},
 			"pluginId": "chat-thread",
 			"title": "Chat Thread",
 			"icon": "messageSquare",
@@ -338,7 +393,12 @@
 		},
 		{
 			"name": "classic-dock",
-			"source": "./packs/classic-dock",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-dock-v0.1.2/classic-dock-0.1.2.tgz",
+				"sha256": "8e880fe3b43440a8548f9958897d21540bcba7daf36d7ce9c3f3437b6a211aa2",
+				"size": 1780
+			},
 			"pluginId": "classic-dock",
 			"title": "Classic Dock",
 			"icon": "layers",
@@ -358,7 +418,12 @@
 		},
 		{
 			"name": "classic-environment",
-			"source": "./packs/classic-environment",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-environment-v0.1.2/classic-environment-0.1.2.tgz",
+				"sha256": "86df37ec9159859caa6bc77b4a43caa0fb6574152f907cfe6808ec7bc91a62a3",
+				"size": 1824
+			},
 			"pluginId": "classic-environment",
 			"title": "Classic Environment",
 			"icon": "layers",
@@ -378,7 +443,12 @@
 		},
 		{
 			"name": "classic-rail",
-			"source": "./packs/classic-rail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-rail-v0.1.2/classic-rail-0.1.2.tgz",
+				"sha256": "39157f23097f043859dfc539775428b75d82f19641c6e352af92501c6220ceaa",
+				"size": 1786
+			},
 			"pluginId": "classic-rail",
 			"title": "Classic Rail",
 			"icon": "list",
@@ -398,7 +468,12 @@
 		},
 		{
 			"name": "classic-start",
-			"source": "./packs/classic-start",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-start-v0.1.2/classic-start-0.1.2.tgz",
+				"sha256": "ac0707b02d89db48062a27c65561c81b4a7bef5c42022c3f09979be1306d8948",
+				"size": 1893
+			},
 			"pluginId": "classic-start",
 			"title": "Classic Start",
 			"icon": "plus",
@@ -418,7 +493,12 @@
 		},
 		{
 			"name": "classic-switcher",
-			"source": "./packs/classic-switcher",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-switcher-v0.1.2/classic-switcher-0.1.2.tgz",
+				"sha256": "4a1577c3d4d5bb66b62fffa39c513d15185cb737374cfb32273c76d7e196347a",
+				"size": 1746
+			},
 			"pluginId": "classic-switcher",
 			"title": "Classic Switcher",
 			"icon": "layers",
@@ -438,7 +518,12 @@
 		},
 		{
 			"name": "classic-workspace",
-			"source": "./packs/classic-workspace",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/classic-workspace-v0.1.2/classic-workspace-0.1.2.tgz",
+				"sha256": "82ca79888d484f5caaf15f90fd50024b5440b57b95a0883e45510355e48422ca",
+				"size": 1788
+			},
 			"pluginId": "classic-workspace",
 			"title": "Classic Workspace Host",
 			"icon": "columns",
@@ -458,7 +543,12 @@
 		},
 		{
 			"name": "discord",
-			"source": "./packs/discord",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.0/discord-0.2.0.tgz",
+				"sha256": "872bee38c762c1eb287ddd99d9fcf81b7be5f6b18d31e6b4381c256a0ce80a16",
+				"size": 27188
+			},
 			"pluginId": "discord",
 			"title": "Discord",
 			"icon": "packs/discord/assets/icon.svg",
@@ -480,7 +570,12 @@
 		},
 		{
 			"name": "example-agents",
-			"source": "./packs/example-agents",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/example-agents-v0.1.5/example-agents-0.1.5.tgz",
+				"sha256": "c43c6be4b2cb5940e8c6dfe6397fbad5a512c4581034b7844c8f989ab4d26e1e",
+				"size": 1578
+			},
 			"pluginId": "example-agents",
 			"title": "Example Agents",
 			"description": "An example of how to share an agent: one space with a sample marketing lead that starts switched off.",
@@ -536,7 +631,12 @@
 		},
 		{
 			"name": "face-to-face",
-			"source": "./packs/face-to-face",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/face-to-face-v0.1.10/face-to-face-0.1.10.tgz",
+				"sha256": "5679154e7dbf30f3eda11945b0d2c28504cb8fa64d51fd510c1775a5e7b47a64",
+				"size": 524561
+			},
 			"pluginId": "face-to-face",
 			"title": "Face to face",
 			"icon": "waveform",
@@ -560,7 +660,12 @@
 		},
 		{
 			"name": "gen-fal",
-			"source": "./packs/gen-fal",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-fal-v0.1.2/gen-fal-0.1.2.tgz",
+				"sha256": "9eac0db764a6381c115b4eed360629e1cf7be4bd3fcb75ade9062e111ca4378e",
+				"size": 57663
+			},
 			"pluginId": "gen-fal",
 			"title": "fal.ai generators",
 			"icon": "packs/gen-fal/assets/icon.svg",
@@ -600,7 +705,12 @@
 		},
 		{
 			"name": "gen-local-3d",
-			"source": "./packs/gen-local-3d",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-local-3d-v0.1.2/gen-local-3d-0.1.2.tgz",
+				"sha256": "7e5dae307933a7a418cd9cdcf146cce77881d0c59d664f12674877987277daf3",
+				"size": 33627
+			},
 			"pluginId": "gen-local-3d",
 			"title": "Local image-to-3D",
 			"icon": "packs/gen-local-3d/assets/icon.svg",
@@ -635,7 +745,12 @@
 		},
 		{
 			"name": "gen-tripo",
-			"source": "./packs/gen-tripo",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-tripo-v0.1.2/gen-tripo-0.1.2.tgz",
+				"sha256": "d8cd52096aabd7770d5e463efd1570db0837f91cb01bee1a2b84277ef8adbd63",
+				"size": 34447
+			},
 			"pluginId": "gen-tripo",
 			"title": "Tripo 3D generation",
 			"icon": "packs/gen-tripo/assets/icon.svg",
@@ -672,7 +787,12 @@
 		},
 		{
 			"name": "gen-wavespeed",
-			"source": "./packs/gen-wavespeed",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/gen-wavespeed-v0.1.2/gen-wavespeed-0.1.2.tgz",
+				"sha256": "641e60a57bf3cbd63c94b2011dc15421f297ed66a568219dc365a726472a8f8f",
+				"size": 44020
+			},
 			"pluginId": "gen-wavespeed",
 			"title": "WaveSpeed generators",
 			"icon": "packs/gen-wavespeed/assets/icon.svg",
@@ -709,7 +829,12 @@
 		},
 		{
 			"name": "generative-ui",
-			"source": "./packs/generative-ui",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/generative-ui-v0.1.3/generative-ui-0.1.3.tgz",
+				"sha256": "93043b838864e1a5466bf01d7987204054b105c16ddc6defc4d68d382e3cda9b",
+				"size": 16247
+			},
 			"pluginId": "generative-ui",
 			"title": "Generative UI",
 			"icon": "grid",
@@ -737,7 +862,12 @@
 		},
 		{
 			"name": "github",
-			"source": "./packs/github",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/github-v0.1.2/github-0.1.2.tgz",
+				"sha256": "f93b81b8564a93db1da400e78a7aa56647d9e831d3a3319a30f61f709e84da32",
+				"size": 4541
+			},
 			"pluginId": "github",
 			"title": "GitHub",
 			"icon": "packs/github/assets/icon.svg",
@@ -761,7 +891,12 @@
 		},
 		{
 			"name": "gmail",
-			"source": "./packs/gmail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/gmail-v0.3.0/gmail-0.3.0.tgz",
+				"sha256": "6377c2a588531916fd835ff4d7ddff1d001703262ede2b3391cb28403665aa93",
+				"size": 41215
+			},
 			"pluginId": "gmail",
 			"title": "Gmail",
 			"icon": "packs/gmail/assets/icon.svg",
@@ -784,7 +919,12 @@
 		},
 		{
 			"name": "google-calendar",
-			"source": "./packs/google-calendar",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-calendar-v0.1.6/google-calendar-0.1.6.tgz",
+				"sha256": "bec69ddbf4049a59e6d89afb47841ea7d78f0d114e279ad488b541db180c31f4",
+				"size": 44559
+			},
 			"pluginId": "google-calendar",
 			"title": "Google Calendar",
 			"icon": "packs/google-calendar/assets/icon.png",
@@ -807,7 +947,12 @@
 		},
 		{
 			"name": "google-drive",
-			"source": "./packs/google-drive",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-drive-v0.1.5/google-drive-0.1.5.tgz",
+				"sha256": "b0182d9678c3a8ecdaea69b313c44a7972c94bc5b776aa77b0f8fada400edb47",
+				"size": 11512
+			},
 			"pluginId": "google-drive",
 			"title": "Google Drive",
 			"icon": "packs/google-drive/assets/icon.svg",
@@ -829,7 +974,12 @@
 		},
 		{
 			"name": "google-meet",
-			"source": "./packs/google-meet",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-meet-v0.1.5/google-meet-0.1.5.tgz",
+				"sha256": "bfebd2e629ae8efb760ae4b6c4a7c407109171c9497f5fd0351dad0c49bce9a2",
+				"size": 26228
+			},
 			"pluginId": "google-meet",
 			"title": "Google Meet",
 			"icon": "packs/google-meet/assets/icon.svg",
@@ -853,7 +1003,12 @@
 		},
 		{
 			"name": "google-workspace",
-			"source": "./packs/google-workspace",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-workspace-v0.1.4/google-workspace-0.1.4.tgz",
+				"sha256": "0f86e81d8fa32ba039231e5ad5e45fc30a506e151c8022ee13999ee627a89356",
+				"size": 12248
+			},
 			"pluginId": "google-workspace",
 			"title": "Google Workspace",
 			"icon": "packs/google-workspace/assets/icon.svg",
@@ -878,7 +1033,12 @@
 		},
 		{
 			"name": "hackernews",
-			"source": "./packs/hackernews",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/hackernews-v0.1.0/hackernews-0.1.0.tgz",
+				"sha256": "919a46a97e2c5a089814d80bda664579a87a396b38f6e66f9e463eb05cb994cf",
+				"size": 13845
+			},
 			"pluginId": "hackernews",
 			"title": "Hacker News",
 			"icon": "packs/hackernews/assets/icon.svg",
@@ -901,7 +1061,12 @@
 		},
 		{
 			"name": "image",
-			"source": "./packs/image",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/image-v0.1.1/image-0.1.1.tgz",
+				"sha256": "a6fdda5019f1cbfd769979e7e86768f74cb27a5ee5f188de39b6f427138ffb85",
+				"size": 3373
+			},
 			"pluginId": "image",
 			"title": "Image",
 			"icon": "packs/image/assets/icon.svg",
@@ -930,7 +1095,12 @@
 		},
 		{
 			"name": "impeccable",
-			"source": "./packs/impeccable",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/impeccable-v3.9.3/impeccable-3.9.3.tgz",
+				"sha256": "83d98a3f6cb493e04cce40afd7ea3ba6b8391b695ca0ab3691f66175c97820d5",
+				"size": 608863
+			},
 			"pluginId": "impeccable",
 			"title": "Impeccable",
 			"icon": "packs/impeccable/assets/icon.svg",
@@ -957,7 +1127,12 @@
 		},
 		{
 			"name": "independent-composer",
-			"source": "./packs/independent-composer",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-composer-v0.1.3/independent-composer-0.1.3.tgz",
+				"sha256": "2a6bf26563161ae63830dfd0c99c64aeb06257ca8aaf34475f53f4b51c9660cf",
+				"size": 12651
+			},
 			"pluginId": "independent-composer",
 			"title": "Independent Composer",
 			"description": "An example message box built only from the public UI parts, to show how to build your own.",
@@ -979,7 +1154,12 @@
 		},
 		{
 			"name": "independent-rail",
-			"source": "./packs/independent-rail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-rail-v0.1.5/independent-rail-0.1.5.tgz",
+				"sha256": "6f5115406c2e172849b1383c12892dbec39cd0f8d300ac3f7726dd8bc18c642b",
+				"size": 5240
+			},
 			"pluginId": "independent-rail",
 			"title": "Independent Rail",
 			"icon": "panel",
@@ -1002,7 +1182,12 @@
 		},
 		{
 			"name": "independent-thread",
-			"source": "./packs/independent-thread",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/independent-thread-v0.1.2/independent-thread-0.1.2.tgz",
+				"sha256": "ccf739c69911cea1095a7f7d76af8b3d04eb0a4a4a8e6a38a990bee12e27d5e5",
+				"size": 3772
+			},
 			"pluginId": "independent-thread",
 			"title": "Independent Thread",
 			"icon": "messageSquare",
@@ -1022,7 +1207,12 @@
 		},
 		{
 			"name": "last30days",
-			"source": "./packs/last30days",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/last30days-v0.2.2/last30days-0.2.2.tgz",
+				"sha256": "16bb28dc0c70565e6b33f10c31f648b2d702db2b6bc7023e39407f81c5e7676b",
+				"size": 917324
+			},
 			"pluginId": "last30days",
 			"title": "last30days",
 			"icon": "packs/last30days/assets/icon.svg",
@@ -1049,7 +1239,12 @@
 		},
 		{
 			"name": "mochi-mark",
-			"source": "./packs/mochi-mark",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/mochi-mark-v0.1.3/mochi-mark-0.1.3.tgz",
+				"sha256": "81ecd3a3c11bbd6f2e37602af2057d2d4081d9acb3f437f152440d56b834fc12",
+				"size": 2979
+			},
 			"pluginId": "mochi-mark",
 			"title": "Mochi Mark",
 			"description": "A tiny example icon that shows how a plugin draws in the space switcher.",
@@ -1070,7 +1265,12 @@
 		},
 		{
 			"name": "newsletter",
-			"source": "./packs/newsletter",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/newsletter-v0.1.0/newsletter-0.1.0.tgz",
+				"sha256": "242f564201a7d0366decae7c3b5e032d46c7163e792707a9039190511eb42da2",
+				"size": 21728
+			},
 			"pluginId": "newsletter",
 			"title": "Newsletter",
 			"icon": "packs/newsletter/assets/icon.svg",
@@ -1097,7 +1297,12 @@
 		},
 		{
 			"name": "pr-viewer",
-			"source": "./packs/pr-viewer",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/pr-viewer-v0.1.7/pr-viewer-0.1.7.tgz",
+				"sha256": "6a08f6cb27b83ee34a050f24299ec7e83ad8e7f12d71dbaad39ffa79395ce17e",
+				"size": 59298
+			},
 			"pluginId": "pr-viewer",
 			"title": "PR Viewer",
 			"icon": "packs/pr-viewer/assets/icon.webp",
@@ -1120,7 +1325,12 @@
 		},
 		{
 			"name": "product-psychology",
-			"source": "./packs/product-psychology",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/product-psychology-v0.1.4/product-psychology-0.1.4.tgz",
+				"sha256": "326c1ad064316c23b577ce6f1caccbf085f34d4cdcd827444f623ca712c6811e",
+				"size": 48912
+			},
 			"pluginId": "product-psychology",
 			"title": "Product Psychology",
 			"icon": "packs/product-psychology/assets/icon.svg",
@@ -1147,7 +1357,12 @@
 		},
 		{
 			"name": "pulse-mark",
-			"source": "./packs/pulse-mark",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/pulse-mark-v0.1.3/pulse-mark-0.1.3.tgz",
+				"sha256": "6d303f90ec101eb22990209ed127bf91acb386c49f2e6f67ecce73acc40fce42",
+				"size": 4067
+			},
 			"pluginId": "pulse-mark",
 			"title": "Pulse Mark",
 			"description": "An example icon that lights up when any session is busy, to show how a plugin can read live session data.",
@@ -1168,7 +1383,12 @@
 		},
 		{
 			"name": "reddit",
-			"source": "./packs/reddit",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/reddit-v0.2.0/reddit-0.2.0.tgz",
+				"sha256": "e430fdb8da697f78c5a5f410f0881bc27e0ad8aec61564bebc845d5b51ed224d",
+				"size": 13587
+			},
 			"pluginId": "reddit",
 			"title": "Reddit",
 			"icon": "packs/reddit/assets/icon.svg",
@@ -1190,7 +1410,12 @@
 		},
 		{
 			"name": "rooms-rail",
-			"source": "./packs/rooms-rail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/rooms-rail-v0.1.4/rooms-rail-0.1.4.tgz",
+				"sha256": "c2d631f8f2de28de94868a5075592db51b3a99aef5c76b13620d99a52ccb63ea",
+				"size": 2028
+			},
 			"pluginId": "rooms-rail",
 			"title": "Rooms Rail",
 			"icon": "chat",
@@ -1213,7 +1438,12 @@
 		},
 		{
 			"name": "router-jev",
-			"source": "./packs/router-jev",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/router-jev-v0.1.2/router-jev-0.1.2.tgz",
+				"sha256": "52ee2d7142b3e2f11937cfee9b8943dc9f31153e86e704530b57c7f70a9b412f",
+				"size": 10177
+			},
 			"pluginId": "router-jev",
 			"title": "Jev room router",
 			"icon": "packs/router-jev/assets/icon.svg",
@@ -1235,7 +1465,12 @@
 		},
 		{
 			"name": "simulator",
-			"source": "./packs/simulator",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.5/simulator-0.1.5.tgz",
+				"sha256": "8630e6e0fd83802a23180fc3bea6d5ad32230310e13591f727c7c8a57a987a60",
+				"size": 431285
+			},
 			"pluginId": "simulator",
 			"title": "Simulator",
 			"icon": "phone",
@@ -1260,7 +1495,12 @@
 		},
 		{
 			"name": "slack",
-			"source": "./packs/slack",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/slack-v0.3.2/slack-0.3.2.tgz",
+				"sha256": "6d049239b238cc5dfafcea8c7397c8fa001c88ab4dc8f4d70013e45a7bc28bc6",
+				"size": 63307
+			},
 			"pluginId": "slack",
 			"title": "Slack",
 			"icon": "packs/slack/assets/icon.svg",
@@ -1287,7 +1527,12 @@
 		},
 		{
 			"name": "social-listening",
-			"source": "./packs/social-listening",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/social-listening-v0.1.1/social-listening-0.1.1.tgz",
+				"sha256": "144dff26faa1379173c735a7c38075bb217a6e57b4e344ecd5e4cf4d27e2d705",
+				"size": 13073
+			},
 			"pluginId": "social-listening",
 			"title": "Social Listening",
 			"icon": "packs/social-listening/assets/icon.svg",
@@ -1314,7 +1559,12 @@
 		},
 		{
 			"name": "speech-elevenlabs",
-			"source": "./packs/speech-elevenlabs",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/speech-elevenlabs-v0.3.5/speech-elevenlabs-0.3.5.tgz",
+				"sha256": "b2c99e6c7eda3ac130c4da93a795be21044a7f7d31758dc0d8af61df882ddca6",
+				"size": 84989
+			},
 			"pluginId": "speech-elevenlabs",
 			"title": "ElevenLabs voice",
 			"icon": "packs/speech-elevenlabs/assets/icon.svg",
@@ -1349,7 +1599,12 @@
 		},
 		{
 			"name": "swiss-knife",
-			"source": "./packs/swiss-knife",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.2/swiss-knife-0.7.2.tgz",
+				"sha256": "ddac2eebf030b1d217d114aed8a3a2cbfceefe2ccedd0249bf71bf462a912bd6",
+				"size": 2181769
+			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
 			"icon": "packs/swiss-knife/assets/icon.webp",
@@ -1391,7 +1646,12 @@
 		},
 		{
 			"name": "taste",
-			"source": "./packs/taste",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/taste-v0.1.3/taste-0.1.3.tgz",
+				"sha256": "587e34e2c093b474a7d70361027ec711d2bd7f2c26e9d51d1bf06bd57130b885",
+				"size": 36663
+			},
 			"pluginId": "taste",
 			"title": "Taste",
 			"icon": "packs/taste/assets/icon.svg",
@@ -1417,7 +1677,12 @@
 		},
 		{
 			"name": "teams",
-			"source": "./packs/teams",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/teams-v0.1.6/teams-0.1.6.tgz",
+				"sha256": "1e11b2ee7346cc3b27cfb4331dafea35f19bf89689402120f7860e6859fd1f27",
+				"size": 13518
+			},
 			"pluginId": "teams",
 			"title": "Microsoft Teams",
 			"icon": "packs/teams/assets/icon.svg",
@@ -1440,7 +1705,12 @@
 		},
 		{
 			"name": "telegram",
-			"source": "./packs/telegram",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/telegram-v0.1.6/telegram-0.1.6.tgz",
+				"sha256": "df42eae86258a03dc700f599a73b8bbb20a5efeed06a9af91f2513705cca7bf7",
+				"size": 10203
+			},
 			"pluginId": "telegram",
 			"title": "Telegram",
 			"icon": "packs/telegram/assets/icon.svg",
@@ -1462,7 +1732,12 @@
 		},
 		{
 			"name": "triage-rail",
-			"source": "./packs/triage-rail",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/triage-rail-v0.1.6/triage-rail-0.1.6.tgz",
+				"sha256": "b08a044d3b02909ccc34a6748e9c970129f00040e247ce2d2dce6bc9b3e9b5e0",
+				"size": 28759
+			},
 			"pluginId": "triage-rail",
 			"title": "Triage Rail",
 			"icon": "bolt",
@@ -1487,7 +1762,12 @@
 		},
 		{
 			"name": "ui-skills",
-			"source": "./packs/ui-skills",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/ui-skills-v0.1.2/ui-skills-0.1.2.tgz",
+				"sha256": "410eb2f35c4fa4e09a0e807dd1781cba821e4e848ecabab6b307bf5dc12ff2da",
+				"size": 8270
+			},
 			"pluginId": "ui-skills",
 			"title": "UI Skills",
 			"icon": "packs/ui-skills/assets/icon.svg",
@@ -1515,7 +1795,12 @@
 		},
 		{
 			"name": "watch",
-			"source": "./packs/watch",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/watch-v0.3.4/watch-0.3.4.tgz",
+				"sha256": "d9015cefc4ef7110424346bbf3231b0ce0d0c9d67ef793b9ea8f814dab38da5f",
+				"size": 69694
+			},
 			"pluginId": "watch",
 			"title": "Watch",
 			"icon": "packs/watch/assets/icon.svg",
@@ -1539,7 +1824,12 @@
 		},
 		{
 			"name": "whatsapp",
-			"source": "./packs/whatsapp",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/whatsapp-v0.1.5/whatsapp-0.1.5.tgz",
+				"sha256": "21b1cf8a3285581b7a4f7cfecb4100cdcb59afb1195dbd3cee904a0be9de0753",
+				"size": 8680
+			},
 			"pluginId": "whatsapp",
 			"title": "WhatsApp",
 			"icon": "packs/whatsapp/assets/icon.svg",
@@ -1561,7 +1851,12 @@
 		},
 		{
 			"name": "x",
-			"source": "./packs/x",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/x-v0.3.0/x-0.3.0.tgz",
+				"sha256": "a5bc76997dae7b3832a15af1755e69fff34285552f1488c947f299768764cdf1",
+				"size": 36172
+			},
 			"pluginId": "x",
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
@@ -1584,7 +1879,12 @@
 		},
 		{
 			"name": "youtube",
-			"source": "./packs/youtube",
+			"source": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.3.0/youtube-0.3.0.tgz",
+				"sha256": "cd7655a733e288ca0fee3ce81d6a39d3a4e8bd6a1bc50e88451eba385cd81452",
+				"size": 68939
+			},
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",

@@ -88,8 +88,10 @@ copy? Edit the pack, not the index.
 
 This is what makes browsing cheap: a client fetches the **index only** — KBs at
 any pack count — and paints every card from it (title, icon, version, screenshots,
-the minimum Dimension the pack needs). The pack tree is fetched only for the one
-pack someone installs. Nobody clones the mall.
+the minimum Dimension the pack needs). A pack comes down only when someone
+installs or updates it, as its own release build pinned by sha256 and size in the
+index (CONTRIBUTING.md, "How your pack becomes a release build"). Nobody clones
+the mall.
 
 ### `requires.dimension`
 

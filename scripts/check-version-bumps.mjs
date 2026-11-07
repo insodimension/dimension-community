@@ -7,7 +7,7 @@
 // pack kept the old app/server.mjs after dimension-community#119 until they
 // uninstalled and reinstalled (Traction Night friction #63). This check compares
 // every pack against the base it will merge into and refuses a changed pack whose
-// package.json version is unchanged. Tests are not shipped, so test/ is exempt.
+// package.json version is unchanged.
 //
 // The same walk holds the README rule (docs/plugins/authoring.md, "Document it:
 // README.md", in the Dimension repository): the details page in Capabilities shows
@@ -19,7 +19,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+const git = (...args) => execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
 const base = process.argv[2] ?? process.env.BASE_REF ?? "origin/main";
 const mergeBase = git("merge-base", base, "HEAD");
 
@@ -28,7 +28,6 @@ for (const file of git("diff", "--name-only", `${mergeBase}...HEAD`, "--", "pack
 	const match = /^packs\/([^/]+)\/(.+)$/.exec(file);
 	if (!match) continue;
 	const [, pack, rest] = match;
-	if (rest.startsWith("test/")) continue;
 	changedByPack.set(pack, [...(changedByPack.get(pack) ?? []), rest]);
 }
 
