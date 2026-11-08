@@ -1,6 +1,7 @@
-import { readdir, rm } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { removeDurableFile } from "../../../../../lib/durable-file.mjs";
 import { hasCode } from "../../../src/library/errors";
 import { readJsonFile, StoredFileError, writePrivateJsonFile } from "./fs-json";
 
@@ -52,7 +53,7 @@ export class P2pStore {
 	}
 
 	removeShare(id: string): Promise<void> {
-		return rm(this.#sharePath(id), { force: true });
+		return removeDurableFile(this.#sharePath(id));
 	}
 
 	async shareIds(): Promise<readonly string[]> {
@@ -78,6 +79,6 @@ export class P2pStore {
 	}
 
 	clearTunnel(): Promise<void> {
-		return rm(this.#tunnelPath, { force: true });
+		return removeDurableFile(this.#tunnelPath);
 	}
 }

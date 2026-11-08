@@ -22,8 +22,7 @@
 //               started since is never mistaken for ours.
 //   exit        `shutdown()` stops what the pack booted.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { parseJsonBytes, readDurableFileSync, writeFileAtomicSync } from "../../../lib/durable-file.mjs";
 import type { BootHandle, BootObserver, DeviceBackend, StopOptions, StopOutcome } from "./backend";
 import { type BootRequest, type DeviceInfo, fail } from "./contracts";
 import type { SimulatorSettings } from "./settings";
@@ -50,33 +49,37 @@ export interface OwnershipStore {
 export function fileOwnershipStore(path: string): OwnershipStore {
   return {
     read: () => {
+      let parsed: unknown;
       try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(
-          (entry): entry is OwnedRecord =>
-            typeof entry === "object" &&
-            entry !== null &&
-            (entry.serial === null || typeof entry.serial === "string") &&
-            typeof entry.avd === "string" &&
-            isEmulatorPid(entry.pid) &&
-            Number.isFinite(entry.startedAt) &&
-            Number.isFinite(entry.bootedAt) &&
-            Number.isSafeInteger(entry.ownerPid) &&
-            entry.ownerPid > 0 &&
-            Number.isFinite(entry.ownerStartedAt),
-        );
+        const stored = readDurableFileSync(path, parseRecordList);
+        if (stored.state === "absent") return [];
+        parsed = stored.value;
       } catch {
         return [];
       }
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (entry): entry is OwnedRecord =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry.serial === null || typeof entry.serial === "string") &&
+          typeof entry.avd === "string" &&
+          isEmulatorPid(entry.pid) &&
+          Number.isFinite(entry.startedAt) &&
+          Number.isFinite(entry.bootedAt) &&
+          Number.isSafeInteger(entry.ownerPid) &&
+          entry.ownerPid > 0 &&
+          Number.isFinite(entry.ownerStartedAt),
+      );
     },
-    write: records => {
-      mkdirSync(dirname(path), { recursive: true });
-      const temp = `${path}.${process.pid}.tmp`;
-      writeFileSync(temp, JSON.stringify(records, null, 2));
-      renameSync(temp, path);
-    },
+    write: records => writeFileAtomicSync(path, JSON.stringify(records, null, 2), { backup: { isIntact: bytes => parseRecordList(bytes) !== undefined } }),
   };
+}
+
+function parseRecordList(bytes: Buffer): unknown[] {
+  const parsed = parseJsonBytes(bytes);
+  if (!Array.isArray(parsed)) throw new Error("the ownership record is not a list");
+  return parsed;
 }
 
 export interface Timer {

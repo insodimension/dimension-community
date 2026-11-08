@@ -1,43 +1,34 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { randomBytes } from "node:crypto";
-import { hasCode } from "../../../src/library/errors";
 import type { z } from "zod";
+import { type DurableRead, DurableFileUnreadableError, parseJsonBytes, readDurableFile, writeFileAtomic } from "../../../../../lib/durable-file.mjs";
 
 export class StoredFileError extends Error {
 	override readonly name = "StoredFileError";
 }
 
 export async function readJsonFile<S extends z.ZodType>(path: string, schema: S): Promise<z.infer<S> | undefined> {
-	let text: string;
+	let stored: DurableRead<z.infer<S>>;
 	try {
-		text = await readFile(path, "utf8");
+		stored = await readDurableFile(path, bytes => {
+			let parsed: unknown;
+			try {
+				parsed = parseJsonBytes(bytes);
+			} catch {
+				throw new StoredFileError(`${path} is not valid JSON`);
+			}
+			const checked = schema.safeParse(parsed);
+			if (!checked.success) {
+				const issue = checked.error.issues[0];
+				throw new StoredFileError(`${path} is not valid: ${issue?.path.join(".") || "(root)"} ${issue?.message ?? ""}`.trim());
+			}
+			return checked.data;
+		});
 	} catch (error) {
-		if (hasCode(error, "ENOENT")) return undefined;
+		if (error instanceof DurableFileUnreadableError) throw new StoredFileError(error.message);
 		throw error;
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		throw new StoredFileError(`${path} is not valid JSON`);
-	}
-	const checked = schema.safeParse(parsed);
-	if (!checked.success) {
-		const issue = checked.error.issues[0];
-		throw new StoredFileError(`${path} is not valid: ${issue?.path.join(".") || "(root)"} ${issue?.message ?? ""}`.trim());
-	}
-	return checked.data;
+	return stored.state === "ok" ? stored.value : undefined;
 }
 
-export async function writePrivateJsonFile(path: string, value: unknown): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const staged = `${path}.${randomBytes(6).toString("hex")}.tmp`;
-	try {
-		await writeFile(staged, `${JSON.stringify(value, null, "\t")}\n`, { mode: 0o600 });
-		await rename(staged, path);
-	} catch (error) {
-		await rm(staged, { force: true });
-		throw error;
-	}
+export function writePrivateJsonFile(path: string, value: unknown): Promise<void> {
+	return writeFileAtomic(path, `${JSON.stringify(value, null, "\t")}\n`, { mode: 0o600, backup: true });
 }

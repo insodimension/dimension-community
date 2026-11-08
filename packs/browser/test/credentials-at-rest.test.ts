@@ -609,3 +609,25 @@ describe("the sealed store, as it is written", () => {
 		expect(onDisk(rootDir, "Kept-Plain_1#fixture")).toBe(false);
 	});
 });
+
+describe("a torn store", () => {
+	test("is read from the sealed copy the last write kept, and a plain-text store never becomes that copy", async () => {
+		const { rootDir, profileDir, file, key } = await fresh();
+		writeFileSync(file, `${JSON.stringify({ version: 1, origins: { [SHOP]: "Plain-Old_1#fixture" } })}\n`);
+		savedPasswords(profileDir, key);
+		expect(existsSync(`${file}.bak`)).toBe(false);
+		const minted = resolveCredential(profileDir, { origin: BANK, mode: "signup" }, key).password;
+		expect(onDisk(rootDir, "Plain-Old_1#fixture")).toBe(false);
+		expect(JSON.parse(readFileSync(`${file}.bak`, "utf8")).version).toBe(2);
+
+		writeFileSync(file, readFileSync(file, "utf8").slice(0, 40));
+		const saying = spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			expect(readCredentials(profileDir, key)).toEqual({ [SHOP]: "Plain-Old_1#fixture" });
+			expect(saying.mock.calls.some(([message]) => String(message).includes("read from its backup"))).toBe(true);
+			expect(saying.mock.calls.some(([message]) => String(message).includes("Plain-Old_1#fixture") || String(message).includes(minted))).toBe(false);
+		} finally {
+			saying.mockRestore();
+		}
+	});
+});

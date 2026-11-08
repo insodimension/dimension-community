@@ -17,10 +17,11 @@
  *      profiles: no lock, no listing, no observations.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir, uptime } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { parseJsonBytes, readDurableFileSync, writeFileAtomicSync } from "../../../lib/durable-file.mjs";
 import { type ConnectionObservations, keepFirst, type SiteObservation, type SiteObservations } from "./connection.js";
 import { PROFILE_NAME, profileSlug } from "./profile-name.js";
 import { cleanAvatar, cleanLabel, isProfileColour, type StoredProfileMeta } from "./profile-meta.js";
@@ -279,16 +280,17 @@ export class ProfileStore {
 		return lock !== undefined && lockOwnerAlive(lock);
 	}
 
-	/** This profile's persisted sign-in observations; none when it was never observed or the file is unreadable. */
 	connections(slug: string): SiteObservations {
-		let parsed: unknown;
 		try {
-			parsed = JSON.parse(readFileSync(join(this.profileDir(slug), CONNECTIONS_FILE), "utf8"));
+			return this.storedConnections(slug);
 		} catch {
 			return {};
 		}
+	}
+
+	private storedConnections(slug: string): SiteObservations {
+		const stored = (readJsonState(join(this.profileDir(slug), CONNECTIONS_FILE)) as { sites?: unknown } | null | undefined)?.sites;
 		const sites: SiteObservations = {};
-		const stored = (parsed as { sites?: unknown } | null)?.sites;
 		if (typeof stored !== "object" || stored === null) return sites;
 		for (const [host, value] of Object.entries(stored as Record<string, unknown>)) {
 			const site = value as Partial<SiteObservation> | null;
@@ -306,7 +308,7 @@ export class ProfileStore {
 	 * profile is full: it never pushes out a site that was actually checked.
 	 */
 	recordConnection(slug: string, host: string, observation: SiteObservation): void {
-		const sites = { ...this.connections(slug), [host]: observation };
+		const sites = { ...this.storedConnections(slug), [host]: observation };
 		const kept = Object.entries(sites).sort(([, a], [, b]) => keepFirst(a, b)).slice(0, MAX_SITES_PER_PROFILE);
 		writeJsonAtomic(this.ensureProfile(slug), CONNECTIONS_FILE, { sites: Object.fromEntries(kept) });
 	}
@@ -321,16 +323,18 @@ export class ProfileStore {
 		return all;
 	}
 
-	/** This profile's metadata: only the fields the rules allow; `{}` when there is no file or it is unreadable. */
 	meta(slug: string): StoredProfileMeta {
-		let parsed: Record<string, unknown>;
 		try {
-			const value: unknown = JSON.parse(readFileSync(join(this.profileDir(slug), PROFILE_FILE), "utf8"));
-			if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-			parsed = value as Record<string, unknown>;
+			return this.storedMeta(slug);
 		} catch {
 			return {};
 		}
+	}
+
+	private storedMeta(slug: string): StoredProfileMeta {
+		const value = readJsonState(join(this.profileDir(slug), PROFILE_FILE));
+		if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+		const parsed = value as Record<string, unknown>;
 		const meta: StoredProfileMeta = {};
 		const label = cleanLabel(parsed.label);
 		if (label !== undefined) meta.label = label;
@@ -342,36 +346,18 @@ export class ProfileStore {
 		return meta;
 	}
 
-	/**
-	 * Change some of a profile's metadata, keeping the fields the patch does not
-	 * name. Atomic like the observations. Never renames or moves the folder.
-	 */
 	saveMeta(slug: string, patch: StoredProfileMeta): void {
-		writeJsonAtomic(this.ensureProfile(slug), PROFILE_FILE, { ...this.meta(slug), ...patch });
+		writeJsonAtomic(this.ensureProfile(slug), PROFILE_FILE, { ...this.storedMeta(slug), ...patch });
 	}
 }
 
-/**
- * Write `value` as `<dir>/<file>`. Atomic and durable: the staging file is
- * fsynced before the rename, so a crash or power loss leaves the old file or
- * the new one; a failure at any step removes the staging file.
- */
-export function writeJsonAtomic(dir: string, file: string, value: unknown): void {
-	const path = join(dir, file);
-	const staging = `${path}.${randomBytes(6).toString("hex")}.tmp`;
-	let fd: number | undefined;
-	try {
-		fd = openSync(staging, "w", 0o600);
-		writeSync(fd, `${JSON.stringify(value)}\n`);
-		fsyncSync(fd);
-		closeSync(fd);
-		fd = undefined;
-		renameSync(staging, path);
-	} catch (error) {
-		if (fd !== undefined) try { closeSync(fd); } catch { /* already closed */ }
-		try { unlinkSync(staging); } catch { /* never created, or already gone */ }
-		throw error;
-	}
+function readJsonState(path: string): unknown {
+	const read = readDurableFileSync(path, parseJsonBytes);
+	return read.state === "ok" ? read.value : undefined;
+}
+
+function writeJsonAtomic(dir: string, file: string, value: unknown): void {
+	writeFileAtomicSync(join(dir, file), `${JSON.stringify(value)}\n`, { mode: 0o600, backup: { isIntact: bytes => parseJsonBytes(bytes) !== undefined } });
 }
 
 function readLock(path: string): { pid?: number; token?: string; at?: string } | undefined {

@@ -436,12 +436,12 @@ var PALETTE = {
       ),
       rows: items({ k: "list", of: { k: "cell" }, min: 0, max: L.maxTableColumns }, L.maxTableRows)
     },
-    check(node, path, issue2) {
+    check(node, path2, issue2) {
       const columns = Array.isArray(node.columns) ? node.columns.length : 0;
       const rows = Array.isArray(node.rows) ? node.rows : [];
       rows.forEach((row, index) => {
         if (Array.isArray(row) && row.length > columns) {
-          issue2(`${path}.rows[${index}]`, `has ${row.length} cells but there are only ${columns} columns`);
+          issue2(`${path2}.rows[${index}]`, `has ${row.length} cells but there are only ${columns} columns`);
         }
       });
     }
@@ -502,15 +502,15 @@ var PALETTE = {
       ),
       "unit?": label(16)
     },
-    check(node, path, issue2) {
+    check(node, path2, issue2) {
       const labels = Array.isArray(node.labels) ? node.labels.length : 0;
       const series = Array.isArray(node.series) ? node.series : [];
       if (String(node.kind).trim().toLowerCase() === "donut" && series.length > 1)
-        issue2(`${path}.series`, "a donut takes exactly one series");
+        issue2(`${path2}.series`, "a donut takes exactly one series");
       series.forEach((entry, index) => {
         const values = isRecord2(entry) && Array.isArray(entry.values) ? entry.values.length : labels;
         if (values !== labels)
-          issue2(`${path}.series[${index}].values`, `has ${values} values but there are ${labels} labels`);
+          issue2(`${path2}.series[${index}].values`, `has ${values} values but there are ${labels} labels`);
       });
     }
   },
@@ -607,7 +607,7 @@ import { basename, resolve } from "node:path";
 var PACK_CONNECTION_REPORT_MAX_BYTES = 64 * 1024;
 
 // viewer/src/fence.ts
-var segmentsOf = (path) => path.toLowerCase().split(/[\\/]+/).filter((part) => part !== "");
+var segmentsOf = (path2) => path2.toLowerCase().split(/[\\/]+/).filter((part) => part !== "");
 var SECRET_DIRECTORIES = {
   ".ssh": true,
   ".gnupg": true,
@@ -668,9 +668,11 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-function denyReason(path) {
-  const segments = segmentsOf(path);
-  const base = segments[segments.length - 1] ?? "";
+var DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+function denyReason(path2) {
+  const segments = segmentsOf(path2);
+  const named = segments[segments.length - 1] ?? "";
+  const base = named.replace(DURABLE_COPY_SUFFIX, "");
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -686,7 +688,7 @@ function denyReason(path) {
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
-    if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
+    if (DATABASE_FILE.test(named) || DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
 }
@@ -841,12 +843,12 @@ async function presentPaths(input, options) {
     seen: /* @__PURE__ */ new Set()
   };
   let thumbBytes = 0;
-  for (const path of requested) {
+  for (const path2 of requested) {
     options.signal?.throwIfAborted();
-    const outcome = await presentOne(path, run2, MAX_RESULT_THUMB_BYTES - thumbBytes);
+    const outcome = await presentOne(path2, run2, MAX_RESULT_THUMB_BYTES - thumbBytes);
     if (outcome === void 0) continue;
     if ("refused" in outcome) {
-      const shown = oneLine(String(path), MAX_ECHO).trim() || "(empty path)";
+      const shown = oneLine(String(path2), MAX_ECHO).trim() || "(empty path)";
       lines.push(`Could not present ${shown}: ${outcome.refused}.`);
       continue;
     }
@@ -1078,8 +1080,8 @@ async function stampPresented(library, details, session) {
 import { homedir } from "node:os";
 
 // src/library/library.ts
-import { constants as constants2, statSync as statSync2 } from "node:fs";
-import { chmod as chmod2, mkdir as mkdir2, open as open3, realpath as realpath3, stat as stat2 } from "node:fs/promises";
+import { constants as constants2, statSync as statSync3 } from "node:fs";
+import { chmod as chmod2, mkdir, open as open3, realpath as realpath3, stat as stat2 } from "node:fs/promises";
 import { basename as basename4, isAbsolute, join as join4, resolve as resolve5 } from "node:path";
 
 // src/library/cursor.ts
@@ -1124,14 +1126,35 @@ function adapt(db) {
 }
 var PRIVATE_FILE_MODE = 384;
 var DATABASE_FILE_SUFFIXES = ["", "-wal", "-shm"];
+var BUSY_TIMEOUT_MS = 2e3;
 async function openDriver(file2) {
   if (process.platform !== "win32") await (await open2(file2, "a", PRIVATE_FILE_MODE)).close();
+  let db;
   if (typeof Bun !== "undefined") {
     const { Database } = await import("bun:sqlite");
-    return adapt(new Database(file2, { create: true }));
+    db = adapt(new Database(file2, { create: true }));
+  } else {
+    const { DatabaseSync } = await import("node:sqlite");
+    db = adapt(new DatabaseSync(file2));
   }
-  const { DatabaseSync } = await import("node:sqlite");
-  return adapt(new DatabaseSync(file2));
+  try {
+    configureConnection(db);
+  } catch (error51) {
+    db.close();
+    throw error51;
+  }
+  return db;
+}
+function configureConnection(db) {
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA foreign_keys = ON;`);
+  const journal = db.prepare("PRAGMA journal_mode = WAL");
+  let journalMode;
+  try {
+    journalMode = journal.get()?.journal_mode;
+  } finally {
+    journal.finalize();
+  }
+  db.exec(`PRAGMA synchronous = ${journalMode === "wal" ? "NORMAL" : "FULL"}`);
 }
 async function restrictDatabaseFiles(file2) {
   if (process.platform === "win32") return;
@@ -1151,8 +1174,8 @@ function engineHome(env, userHome) {
   if (explicit) return resolve3(explicit);
   return resolve3(userHome, env.PI_CONFIG_DIR?.trim() || ".inso");
 }
-function pathKey(path, platform = process.platform) {
-  const slashed = platform === "win32" ? path.replaceAll("\\", "/") : path;
+function pathKey(path2, platform = process.platform) {
+  const slashed = platform === "win32" ? path2.replaceAll("\\", "/") : path2;
   return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
 }
 
@@ -1380,12 +1403,6 @@ function commentFromRecord(record2) {
 // src/library/schema.ts
 var SCHEMA_VERSION = 3;
 var DISCARDED_RETENTION_MS = 30 * 24 * 60 * 60 * 1e3;
-var CONNECTION = `
-PRAGMA busy_timeout = 2000;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-`;
 var SCHEMA = `
 CREATE TABLE artifacts(
   id TEXT PRIMARY KEY,
@@ -1477,7 +1494,6 @@ function upgrade(db, workspaceOf) {
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 function prepareDatabase(db, now, workspaceOf) {
-  db.exec(CONNECTION);
   if (readVersion(db) < SCHEMA_VERSION) {
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -1531,20 +1547,20 @@ var WINDOWS_RECYCLE = [
   "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"
 ].join("\n");
 var MACOS_FINDER = ["on run argv", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', "end run"];
-function commandFor(path, platform) {
+function commandFor(path2, platform) {
   if (platform === "win32") {
     const encoded = Buffer.from(WINDOWS_RECYCLE, "utf16le").toString("base64");
     return {
       program: "powershell.exe",
       args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-      env: { [PATH_VARIABLE]: path },
+      env: { [PATH_VARIABLE]: path2 },
       tool: "PowerShell"
     };
   }
   if (platform === "darwin") {
-    return { program: "osascript", args: [...MACOS_FINDER.flatMap((line) => ["-e", line]), path], tool: "Finder" };
+    return { program: "osascript", args: [...MACOS_FINDER.flatMap((line) => ["-e", line]), path2], tool: "Finder" };
   }
-  return { program: "gio", args: ["trash", "--", path], tool: "gio" };
+  return { program: "gio", args: ["trash", "--", path2], tool: "gio" };
 }
 async function run(program, args, options) {
   try {
@@ -1562,8 +1578,8 @@ async function run(program, args, options) {
     throw error51;
   }
 }
-async function moveToTrash(path, platform = process.platform) {
-  const command = commandFor(path, platform);
+async function moveToTrash(path2, platform = process.platform) {
+  const command = commandFor(path2, platform);
   let outcome;
   try {
     outcome = await run(command.program, command.args, { timeout: TRASH_TIMEOUT_MS, ...command.env === void 0 ? {} : { env: command.env } });
@@ -1577,9 +1593,129 @@ async function moveToTrash(path, platform = process.platform) {
 }
 
 // src/library/thumbs.ts
-import { randomBytes } from "node:crypto";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join as join2 } from "node:path";
+
+// ../../lib/durable-file.mjs
+import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+var BACKUP_SUFFIX = ".bak";
+var RENAME_RETRY_CODES = { EPERM: true, EBUSY: true, EACCES: true };
+var RENAME_BACKOFF_MS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256];
+var syncSleepCell = new Int32Array(new SharedArrayBuffer(4));
+var foldersHaveNoFsync = process.platform === "win32";
+var filesHaveNoModes = process.platform === "win32";
+function backupPathOf(filePath) {
+  return `${filePath}${BACKUP_SUFFIX}`;
+}
+var codeOf = (error51) => typeof error51 === "object" && error51 !== null ? error51.code : void 0;
+var isMissing = (error51) => codeOf(error51) === "ENOENT";
+var isHeldByAnotherProcess = (error51) => Object.hasOwn(RENAME_RETRY_CODES, codeOf(error51));
+var stagingPathOf = (filePath) => `${filePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+var toBuffer = (data) => typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+function defectOf(bytes) {
+  if (bytes.length === 0) return "zero-length";
+  for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
+  return "NUL-filled";
+}
+function isIntactPrevious(bytes, isIntact) {
+  if (defectOf(bytes) !== void 0) return false;
+  if (isIntact === void 0) return true;
+  try {
+    return isIntact(bytes);
+  } catch {
+    return false;
+  }
+}
+var permissionsOf = (stats) => stats === void 0 || filesHaveNoModes ? void 0 : stats.mode & 511;
+async function existingMode(filePath) {
+  if (filesHaveNoModes) return void 0;
+  try {
+    return permissionsOf(await fs.promises.stat(filePath));
+  } catch (error51) {
+    if (isMissing(error51)) return void 0;
+    throw error51;
+  }
+}
+var narrowerMode = (left, right) => left === void 0 ? right : right === void 0 ? left : left & right;
+async function fsyncDirectory(directory) {
+  if (foldersHaveNoFsync) return;
+  let handle;
+  try {
+    handle = await fs.promises.open(directory, "r");
+    await handle.sync();
+  } catch {
+    return;
+  } finally {
+    await handle?.close();
+  }
+}
+async function stage(stagedPath, bytes, mode) {
+  const handle = await fs.promises.open(stagedPath, "wx", mode);
+  try {
+    if (mode !== void 0 && !filesHaveNoModes) await handle.chmod(mode);
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function renameOverHeldTarget(from, to) {
+  for (const backoffMs of RENAME_BACKOFF_MS) {
+    try {
+      await fs.promises.rename(from, to);
+      return;
+    } catch (error51) {
+      if (!isHeldByAnotherProcess(error51)) throw error51;
+    }
+    await new Promise((resolve6) => setTimeout(resolve6, backoffMs));
+  }
+  await fs.promises.rename(from, to);
+}
+async function publish(targetPath, bytes, mode) {
+  const stagedPath = stagingPathOf(targetPath);
+  try {
+    await stage(stagedPath, bytes, mode);
+    await renameOverHeldTarget(stagedPath, targetPath);
+  } catch (error51) {
+    await fs.promises.rm(stagedPath, { force: true });
+    throw error51;
+  }
+}
+async function readPrevious(filePath) {
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, "r");
+  } catch (error51) {
+    if (isMissing(error51)) return void 0;
+    throw error51;
+  }
+  try {
+    return { mode: permissionsOf(await handle.stat()), bytes: await handle.readFile() };
+  } finally {
+    await handle.close();
+  }
+}
+var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
+async function writeFileAtomic(filePath, data, options = {}) {
+  const directory = path.dirname(filePath);
+  await fs.promises.mkdir(directory, { recursive: true });
+  const bytes = toBuffer(data);
+  const backup = backupOptionsOf(options);
+  if (backup === void 0) {
+    await publish(filePath, bytes, options.mode ?? await existingMode(filePath));
+  } else {
+    const previous = await readPrevious(filePath);
+    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+      await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
+    }
+    await publish(filePath, bytes, options.mode ?? previous?.mode);
+  }
+  await fsyncDirectory(directory);
+}
+
+// src/library/thumbs.ts
 var EXTENSIONS = { "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg" };
 var THUMB_FILE_NAME = /^[A-Za-z0-9]{8,40}\.(webp|png|jpg)$/;
 function matchesMime(bytes, mime) {
@@ -1592,16 +1728,8 @@ async function writeThumb(directory, id, bytes, mime) {
     throw new LibraryError(`a thumbnail is 1 byte to ${MAX_THUMB_BYTES} bytes; this one is ${bytes.length}`);
   }
   if (!matchesMime(bytes, mime)) throw new LibraryError(`the thumbnail bytes are not ${mime}`);
-  await mkdir(directory, { recursive: true });
   const name = `${id}.${EXTENSIONS[mime]}`;
-  const staging = join2(directory, `${name}.${randomBytes(6).toString("hex")}.tmp`);
-  try {
-    await writeFile(staging, bytes);
-    await rename(staging, join2(directory, name));
-  } catch (error51) {
-    await rm(staging, { force: true });
-    throw error51;
-  }
+  await writeFileAtomic(join2(directory, name), bytes);
   await removeThumbs(directory, id, name);
   return name;
 }
@@ -1618,8 +1746,8 @@ async function removeThumbs(directory, id, keep) {
 }
 
 // src/library/workspace-root.ts
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename as basename3, dirname as dirname2, join as join3, relative, resolve as resolve4 } from "node:path";
+import { existsSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
+import { basename as basename3, dirname as dirname3, join as join3, relative, resolve as resolve4 } from "node:path";
 
 // ../../../node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -2387,15 +2515,15 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path) {
-  if (!path)
+function getElementAtPath(obj, path2) {
+  if (!path2)
     return obj;
-  return path.reduce((acc, key) => acc?.[key], obj);
+  return path2.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
-  const promises = keys.map((key) => promisesObj[key]);
-  return Promise.all(promises).then((results) => {
+  const promises2 = keys.map((key) => promisesObj[key]);
+  return Promise.all(promises2).then((results) => {
     const resolvedObj = {};
     for (let i = 0; i < keys.length; i++) {
       resolvedObj[keys[i]] = results[i];
@@ -2799,11 +2927,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path, issues) {
+function prefixIssues(path2, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path);
+    iss.path.unshift(path2);
     return iss;
   });
 }
@@ -2950,16 +3078,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path = []) => {
+  const processError = (error52, path2 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else {
-        const fullpath = [...path, ...issue2.path];
+        const fullpath = [...path2, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -2986,17 +3114,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path = []) => {
+  const processError = (error52, path2 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
       } else {
-        const fullpath = [...path, ...issue2.path];
+        const fullpath = [...path2, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -3028,8 +3156,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path) {
+  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path2) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -15720,13 +15848,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path = ref.slice(1).split("/").filter(Boolean);
-  if (path.length === 0) {
+  const path2 = ref.slice(1).split("/").filter(Boolean);
+  if (path2.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path[0] === defsKey) {
-    const key = path[1];
+  if (path2[0] === defsKey) {
+    const key = path2[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -16218,7 +16346,7 @@ function linkedWorktreeOf(cwd) {
       const linked = readLinkedWorktree(dir, dotGit);
       if (linked !== "not-linked") return linked;
     }
-    const parent = dirname2(dir);
+    const parent = dirname3(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -16231,7 +16359,7 @@ function readLinkedWorktree(root, dotGit) {
   if (!commonRef) return "not-linked";
   const commonDir = resolve4(gitDir, commonRef);
   const configured = coreWorktree(readText(join3(commonDir, "config")));
-  const mainCheckout = configured ? resolve4(commonDir, configured) : basename3(commonDir) === ".git" ? dirname2(commonDir) : void 0;
+  const mainCheckout = configured ? resolve4(commonDir, configured) : basename3(commonDir) === ".git" ? dirname3(commonDir) : void 0;
   return mainCheckout ? { root, gitDir, mainCheckout } : void 0;
 }
 function coreWorktree(config2) {
@@ -16252,7 +16380,7 @@ function coreWorktree(config2) {
 function readRoots(file2) {
   const parsed = ProjectsFile.safeParse(readJson(file2));
   if (!parsed.success) return [];
-  return parsed.data.projects.map(({ path }) => ({ path: resolve4(path), base: comparable(path) })).sort((left, right) => right.base.length - left.base.length);
+  return parsed.data.projects.map(({ path: path2 }) => ({ path: resolve4(path2), base: comparable(path2) })).sort((left, right) => right.base.length - left.base.length);
 }
 function readOwners(file2) {
   const parsed = OwnersFile.safeParse(readJson(file2));
@@ -16266,9 +16394,9 @@ function comparable(value) {
 function within(inner, outer) {
   return inner === outer || inner.startsWith(`${outer}/`);
 }
-function entryAt(path) {
+function entryAt(path2) {
   try {
-    const entry = statSync(path, { throwIfNoEntry: false });
+    const entry = statSync2(path2, { throwIfNoEntry: false });
     return entry?.isDirectory() ? "directory" : entry ? "file" : void 0;
   } catch {
     return void 0;
@@ -16276,7 +16404,7 @@ function entryAt(path) {
 }
 function fileStamp(file2) {
   try {
-    const stat3 = statSync(file2);
+    const stat3 = statSync2(file2);
     return `${stat3.mtimeMs}:${stat3.size}`;
   } catch {
     return "";
@@ -16284,14 +16412,14 @@ function fileStamp(file2) {
 }
 function readJson(file2) {
   try {
-    return JSON.parse(readFileSync(file2, "utf8"));
+    return JSON.parse(readFileSync2(file2, "utf8"));
   } catch {
     return void 0;
   }
 }
 function readText(file2) {
   try {
-    return readFileSync(file2, "utf8");
+    return readFileSync2(file2, "utf8");
   } catch {
     return void 0;
   }
@@ -16391,10 +16519,10 @@ async function createLibrary(options) {
   const now = options.now ?? Date.now;
   const platform = options.platform ?? process.platform;
   const revokeRemote2 = options.revokeRemote ?? revokeRemote;
-  const trashFile = options.trash ?? ((path) => moveToTrash(path, platform));
+  const trashFile = options.trash ?? ((path2) => moveToTrash(path2, platform));
   const directory = join4(options.home, "artifacts");
   const thumbsDirectory = join4(directory, "thumbs");
-  await mkdir2(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  await mkdir(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
   if (process.platform !== "win32") await chmod2(directory, PRIVATE_DIRECTORY_MODE);
   const databaseFile = join4(directory, "library.db");
   const workspaceOf = createWorkspaceResolver({ home: options.home, ...options.projectsFile === void 0 ? {} : { projectsFile: options.projectsFile } });
@@ -16776,7 +16904,7 @@ async function createLibrary(options) {
   function restore(id) {
     const row = requireRow(id);
     if (row.state !== "discarded") return itemOf(row);
-    const present = statSync2(row.path, { throwIfNoEntry: false })?.isFile() === true;
+    const present = statSync3(row.path, { throwIfNoEntry: false })?.isFile() === true;
     sql("UPDATE artifacts SET state = ?, discarded_at = NULL WHERE id = ?").run(present ? "live" : "missing", id);
     return itemOf(requireRow(id));
   }

@@ -7,8 +7,8 @@
  *  emulators are found again at the next start only when they are provably the
  *  ones it spawned.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnedProcess, StopOptions, StopOutcome } from "../src/backend";
@@ -735,6 +735,22 @@ describe("fileOwnershipStore", () => {
     expect(fileOwnershipStore(join(dir, "corrupt.json")).read()).toEqual([]);
     writeFileSync(join(dir, "object.json"), JSON.stringify({ pid: 1 }));
     expect(fileOwnershipStore(join(dir, "object.json")).read()).toEqual([]);
+  });
+
+  test("a torn file is read from the copy the last write kept, so a crash mid-write never forgets an emulator the pack booted", () => {
+    const path = join(dir, "owned.json");
+    const store = fileOwnershipStore(path);
+    const starting: OwnedRecord = { ...valid, serial: null, pid: 4200 };
+    store.write([valid]);
+    store.write([valid, starting]);
+    writeFileSync(path, '[{"serial":');
+    const stderr = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(store.read()).toEqual([valid]);
+    } finally {
+      stderr.mockRestore();
+    }
+    expect(readdirSync(dir).filter(name => name.startsWith("owned.json.corrupt-"))).toHaveLength(1);
   });
 
   test("a record from before ownership was by process (no pid or start time) cannot be verified, so it is not read", () => {

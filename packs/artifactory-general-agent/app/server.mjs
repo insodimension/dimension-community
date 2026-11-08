@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 // src/server.ts
 import { randomUUID } from "node:crypto";
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync as statSync2 } from "node:fs";
 import { isAbsolute, join as join4, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -176,9 +176,9 @@ function manifestDocument(draft, homeId) {
   if (draft.extra.split("\n").some((line2) => /^(---|\.\.\.)/.test(line2))) problems.push("Other settings cannot hold a document separator (---).");
   const byKey = new Map(parsed.blocks.map((block) => [block.key, block]));
   const held = extraPaths(parsed.blocks);
-  const fixed = [...held].filter((path) => FIXED_PATHS[path] !== void 0);
-  for (const path of fixed) problems.push(`\`${path}\` is set on the profile itself (identity, lineage or charter). Remove it from Other settings.`);
-  const yields = (path) => held.has(path) && FIXED_PATHS[path] === void 0;
+  const fixed = [...held].filter((path2) => FIXED_PATHS[path2] !== void 0);
+  for (const path2 of fixed) problems.push(`\`${path2}\` is set on the profile itself (identity, lineage or charter). Remove it from Other settings.`);
+  const yields = (path2) => held.has(path2) && FIXED_PATHS[path2] === void 0;
   const line = (field, text) => ({ field, text });
   const units = [
     { key: "name", lines: [line("name", `name: ${scalar(draft.name || "unnamed")}`)] },
@@ -188,7 +188,7 @@ function manifestDocument(draft, homeId) {
     { key: "specVersion", lines: [line("specVersion", "specVersion: 1")] }
   ];
   if (draft.lineage.length > 0) units.push({ key: "extends", lines: [line("extends", `extends: ${list(draft.lineage)}`)] });
-  const child = (path, text) => ({ key: path.split(".")[1] ?? path, lines: [line(path, text)] });
+  const child = (path2, text) => ({ key: path2.split(".")[1] ?? path2, lines: [line(path2, text)] });
   const section = (key, children) => units.push({ key, children });
   section("identity", [
     ...draft.personality !== "default" ? [child("identity.personality", `  personality: ${draft.personality}`)] : [],
@@ -269,17 +269,135 @@ function toAgentMd(draft, homeId) {
 }
 
 // src/home.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
-import { mkdir as mkdir2, readFile as readFile2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
-import { basename as basename2, dirname, join as join2 } from "node:path";
+import { readFile as readFile2, stat } from "node:fs/promises";
+import { dirname as dirname2, join as join2 } from "node:path";
+
+// ../../lib/durable-file.mjs
+import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+var BACKUP_SUFFIX = ".bak";
+var RENAME_RETRY_CODES = { EPERM: true, EBUSY: true, EACCES: true };
+var RENAME_BACKOFF_MS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256];
+var syncSleepCell = new Int32Array(new SharedArrayBuffer(4));
+var foldersHaveNoFsync = process.platform === "win32";
+var filesHaveNoModes = process.platform === "win32";
+function backupPathOf(filePath) {
+  return `${filePath}${BACKUP_SUFFIX}`;
+}
+var codeOf = (error) => typeof error === "object" && error !== null ? error.code : void 0;
+var isMissing = (error) => codeOf(error) === "ENOENT";
+var isHeldByAnotherProcess = (error) => Object.hasOwn(RENAME_RETRY_CODES, codeOf(error));
+var stagingPathOf = (filePath) => `${filePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+var toBuffer = (data) => typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+function defectOf(bytes) {
+  if (bytes.length === 0) return "zero-length";
+  for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
+  return "NUL-filled";
+}
+function isIntactPrevious(bytes, isIntact) {
+  if (defectOf(bytes) !== void 0) return false;
+  if (isIntact === void 0) return true;
+  try {
+    return isIntact(bytes);
+  } catch {
+    return false;
+  }
+}
+var permissionsOf = (stats) => stats === void 0 || filesHaveNoModes ? void 0 : stats.mode & 511;
+async function existingMode(filePath) {
+  if (filesHaveNoModes) return void 0;
+  try {
+    return permissionsOf(await fs.promises.stat(filePath));
+  } catch (error) {
+    if (isMissing(error)) return void 0;
+    throw error;
+  }
+}
+var narrowerMode = (left, right) => left === void 0 ? right : right === void 0 ? left : left & right;
+async function fsyncDirectory(directory) {
+  if (foldersHaveNoFsync) return;
+  let handle;
+  try {
+    handle = await fs.promises.open(directory, "r");
+    await handle.sync();
+  } catch {
+    return;
+  } finally {
+    await handle?.close();
+  }
+}
+async function stage(stagedPath, bytes, mode) {
+  const handle = await fs.promises.open(stagedPath, "wx", mode);
+  try {
+    if (mode !== void 0 && !filesHaveNoModes) await handle.chmod(mode);
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function renameOverHeldTarget(from, to) {
+  for (const backoffMs of RENAME_BACKOFF_MS) {
+    try {
+      await fs.promises.rename(from, to);
+      return;
+    } catch (error) {
+      if (!isHeldByAnotherProcess(error)) throw error;
+    }
+    await new Promise((resolve2) => setTimeout(resolve2, backoffMs));
+  }
+  await fs.promises.rename(from, to);
+}
+async function publish(targetPath, bytes, mode) {
+  const stagedPath = stagingPathOf(targetPath);
+  try {
+    await stage(stagedPath, bytes, mode);
+    await renameOverHeldTarget(stagedPath, targetPath);
+  } catch (error) {
+    await fs.promises.rm(stagedPath, { force: true });
+    throw error;
+  }
+}
+async function readPrevious(filePath) {
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, "r");
+  } catch (error) {
+    if (isMissing(error)) return void 0;
+    throw error;
+  }
+  try {
+    return { mode: permissionsOf(await handle.stat()), bytes: await handle.readFile() };
+  } finally {
+    await handle.close();
+  }
+}
+var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
+async function writeFileAtomic(filePath, data, options = {}) {
+  const directory = path.dirname(filePath);
+  await fs.promises.mkdir(directory, { recursive: true });
+  const bytes = toBuffer(data);
+  const backup = backupOptionsOf(options);
+  if (backup === void 0) {
+    await publish(filePath, bytes, options.mode ?? await existingMode(filePath));
+  } else {
+    const previous = await readPrevious(filePath);
+    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+      await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
+    }
+    await publish(filePath, bytes, options.mode ?? previous?.mode);
+  }
+  await fsyncDirectory(directory);
+}
 
 // ../../../omp/packages/omptype/src/errors.ts
 function format(override, context, fallback2) {
   return typeof override === "function" ? override(context) : override ?? fallback2;
 }
 var OmpError = class {
-  constructor(path, expected, data, config) {
-    this.path = path;
+  constructor(path2, expected, data, config) {
+    this.path = path2;
     this.data = data;
     this.#rawExpected = expected;
     this.#config = config;
@@ -416,9 +534,9 @@ function describeExpectation(expected) {
   }
   return { description: expected.replace(/^(?:an?|the) /, "") };
 }
-function formatPath(path) {
+function formatPath(path2) {
   let out = "";
-  for (const key of path) {
+  for (const key of path2) {
     if (typeof key === "number") out += `[${key}]`;
     else if (typeof key === "symbol") out += `[${String(key)}]`;
     else out += out.length === 0 ? key : `.${key}`;
@@ -471,8 +589,8 @@ var OmpErrors = class _OmpErrors {
   #entries;
   #config;
   #separator = "\n";
-  constructor(path, expected, data, config) {
-    this.#path = path;
+  constructor(path2, expected, data, config) {
+    this.#path = path2;
     this.#expected = expected;
     this.#data = data;
     this.#config = config;
@@ -483,13 +601,13 @@ var OmpErrors = class _OmpErrors {
   get 0() {
     return this.#entries?.[0] ?? this.#getEntry();
   }
-  static single(path, expected, data, config) {
-    return new _OmpErrors(path, expected, data, config);
+  static single(path2, expected, data, config) {
+    return new _OmpErrors(path2, expected, data, config);
   }
   #getEntry() {
     if (this.#entry) return this.#entry;
-    const path = this.#path === void 0 ? [] : Array.isArray(this.#path) ? [...this.#path] : [this.#path];
-    const entry2 = new OmpError(path, this.#expected, this.#data, this.#config);
+    const path2 = this.#path === void 0 ? [] : Array.isArray(this.#path) ? [...this.#path] : [this.#path];
+    const entry2 = new OmpError(path2, this.#expected, this.#data, this.#config);
     this.#entry = entry2;
     return entry2;
   }
@@ -505,8 +623,8 @@ var OmpErrors = class _OmpErrors {
     if (this.#entries) {
       for (const entry2 of this.#entries) entry2.prefix(key);
     } else {
-      const path = this.#path;
-      this.#path = path === void 0 ? [key] : Array.isArray(path) ? [key, ...path] : [key, path];
+      const path2 = this.#path;
+      this.#path = path2 === void 0 ? [key] : Array.isArray(path2) ? [key, ...path2] : [key, path2];
       this.#entry = void 0;
     }
     return this;
@@ -2366,20 +2484,20 @@ function materializeDefault(payload) {
 }
 var activeVisits;
 var activeChecks;
-function walk(ir, value, path = []) {
+function walk(ir, value, path2 = []) {
   const previousVisits = activeVisits;
   const previousChecks = activeChecks;
   activeVisits = void 0;
   activeChecks = void 0;
   try {
-    return visit(ir, value, path);
+    return visit(ir, value, path2);
   } finally {
     activeVisits = previousVisits;
     activeChecks = previousChecks;
   }
 }
-function fail(path, expected, data) {
-  const storedPath = path.length === 0 ? void 0 : path.length === 1 ? path[0] : [...path];
+function fail(path2, expected, data) {
+  const storedPath = path2.length === 0 ? void 0 : path2.length === 1 ? path2[0] : [...path2];
   return new OmpErrors(storedPath, expected, data);
 }
 function checks(ir, v) {
@@ -2512,8 +2630,8 @@ function checkNode(ir, v) {
       return !(ir.schema.run(v) instanceof OmpErrors);
   }
 }
-function visit(ir, v, path) {
-  if (typeof v !== "object" || v === null || !hasAlias(ir)) return visitFinish(ir, v, path);
+function visit(ir, v, path2) {
+  if (typeof v !== "object" || v === null || !hasAlias(ir)) return visitFinish(ir, v, path2);
   activeVisits ??= /* @__PURE__ */ new WeakMap();
   const visits = activeVisits;
   let visited = visits.get(v);
@@ -2524,57 +2642,57 @@ function visit(ir, v, path) {
   }
   visited.add(ir);
   try {
-    return visitFinish(ir, v, path);
+    return visitFinish(ir, v, path2);
   } finally {
     visited.delete(ir);
   }
 }
-function visitFinish(ir, v, path) {
-  const out = visitNode(ir, v, path);
+function visitFinish(ir, v, path2) {
+  const out = visitNode(ir, v, path2);
   if (!(out instanceof OmpErrors) || ir.cfg === void 0) return out;
   for (const error of out) {
-    if (error.path.length !== path.length) return out;
+    if (error.path.length !== path2.length) return out;
   }
   return out.configure(ir.cfg);
 }
-function visitNode(ir, v, path) {
+function visitNode(ir, v, path2) {
   switch (ir.k) {
     case "alias":
-      return visit(ir.resolve(), v, path);
+      return visit(ir.resolve(), v, path2);
     case "refine": {
-      const base = visit(ir.base, v, path);
+      const base = visit(ir.base, v, path2);
       if (base instanceof OmpErrors) return base;
       try {
         const result = ir.pred(base);
-        if (result instanceof OmpErrors) return path.length === 0 ? result : prefixAll(result, path);
-        return result ? base : fail(path, ir.expected, base);
+        if (result instanceof OmpErrors) return path2.length === 0 ? result : prefixAll(result, path2);
+        return result ? base : fail(path2, ir.expected, base);
       } catch {
-        return fail(path, ir.expected, base);
+        return fail(path2, ir.expected, base);
       }
     }
     case "morph": {
-      const input = visit(ir.input, v, path);
+      const input = visit(ir.input, v, path2);
       if (input instanceof OmpErrors) return input;
       const context = {
-        error: (expected, data = input) => fail(path, expected, data),
-        reject: (problem, data = input) => fail(path, problem, data)
+        error: (expected, data = input) => fail(path2, expected, data),
+        reject: (problem, data = input) => fail(path2, problem, data)
       };
       const output = ir.fn(input, context);
       if (output instanceof OmpErrors) return output;
-      return ir.out === void 0 ? output : visit(ir.out, output, path);
+      return ir.out === void 0 ? output : visit(ir.out, output, path2);
     }
     case "intersection": {
       let output = v;
       for (const member of ir.members) {
-        output = visit(member, output, path);
+        output = visit(member, output, path2);
         if (output instanceof OmpErrors) return output;
       }
       return output;
     }
     case "sub": {
-      const out = ir.schema.run(v, path);
+      const out = ir.schema.run(v, path2);
       if (out instanceof OmpErrors) {
-        return path.length === 0 ? out : prefixAll(out, path);
+        return path2.length === 0 ? out : prefixAll(out, path2);
       }
       return out;
     }
@@ -2589,7 +2707,7 @@ function visitNode(ir, v, path) {
       let targetCount = 0;
       for (const member of ir.members) {
         if (member.k === "sub" || hasMorph(member)) {
-          const out = visit(member, v, path);
+          const out = visit(member, v, path2);
           if (!(out instanceof OmpErrors)) return out;
           if (kindMatches(unwrapBase(member), v)) {
             targetCount++;
@@ -2598,19 +2716,19 @@ function visitNode(ir, v, path) {
         }
       }
       if (targetCount === 1 && targeted !== void 0) return targeted;
-      return ir.members.some(canRefineUnionFailure) ? unionFail(ir, v, path) : fail(path, expectedOf(ir), v);
+      return ir.members.some(canRefineUnionFailure) ? unionFail(ir, v, path2) : fail(path2, expectedOf(ir), v);
     }
     case "array": {
-      if (!Array.isArray(v)) return fail(path, "an array", v);
-      if (ir.min !== void 0 && v.length < ir.min) return fail(path, `at least length ${ir.min}`, v.length);
-      if (ir.max !== void 0 && v.length > ir.max) return fail(path, `at most length ${ir.max}`, v.length);
+      if (!Array.isArray(v)) return fail(path2, "an array", v);
+      if (ir.min !== void 0 && v.length < ir.min) return fail(path2, `at least length ${ir.min}`, v.length);
+      if (ir.max !== void 0 && v.length > ir.max) return fail(path2, `at most length ${ir.max}`, v.length);
       const morph2 = hasMorph(ir.el);
       const out = morph2 ? new Array(v.length) : v;
       let errors;
       for (let index = 0; index < v.length; index++) {
-        path.push(index);
-        const element = visit(ir.el, v[index], path);
-        path.pop();
+        path2.push(index);
+        const element = visit(ir.el, v[index], path2);
+        path2.pop();
         if (element instanceof OmpErrors) {
           if (errors) errors.append(element);
           else errors = element;
@@ -2621,13 +2739,13 @@ function visitNode(ir, v, path) {
       return errors ?? out;
     }
     case "tuple": {
-      if (!Array.isArray(v)) return fail(path, "an array", v);
+      if (!Array.isArray(v)) return fail(path2, "an array", v);
       let required = ir.postfix.length;
       for (const item of ir.prefix) if (!item.opt && !item.hasDefault) required++;
-      if (v.length < required) return fail(path, `an array of at least length ${required}`, v);
+      if (v.length < required) return fail(path2, `an array of at least length ${required}`, v);
       const maximum = ir.prefix.length + ir.postfix.length;
       if (ir.variadic === void 0 && v.length > maximum) {
-        return fail(path, `an array of at most length ${maximum}`, v);
+        return fail(path2, `an array of at most length ${maximum}`, v);
       }
       const postfixStart = v.length - ir.postfix.length;
       const prefixCount = Math.min(ir.prefix.length, postfixStart);
@@ -2635,9 +2753,9 @@ function visitNode(ir, v, path) {
       const output = morph2 ? [...v] : v;
       let errors;
       for (let index = 0; index < prefixCount; index++) {
-        path.push(index);
-        const item = visit(ir.prefix[index].val, v[index], path);
-        path.pop();
+        path2.push(index);
+        const item = visit(ir.prefix[index].val, v[index], path2);
+        path2.pop();
         if (item instanceof OmpErrors) {
           if (errors) errors.append(item);
           else errors = item;
@@ -2650,9 +2768,9 @@ function visitNode(ir, v, path) {
         if (item.hasDefault && morph2) {
           const payload = item.def;
           if (item.defFactory && typeof payload === "function") {
-            path.push(index);
-            const resolved = visit(item.val, payload(), path);
-            path.pop();
+            path2.push(index);
+            const resolved = visit(item.val, payload(), path2);
+            path2.pop();
             if (resolved instanceof OmpErrors) {
               if (errors) errors.append(resolved);
               else errors = resolved;
@@ -2663,18 +2781,18 @@ function visitNode(ir, v, path) {
             output[index] = materializeDefault(payload);
           }
         } else if (!item.opt) {
-          path.push(index);
-          const error = fail(path, expectedOf(item.val), MISSING);
-          path.pop();
+          path2.push(index);
+          const error = fail(path2, expectedOf(item.val), MISSING);
+          path2.pop();
           if (errors) errors.append(error);
           else errors = error;
         }
       }
       if (ir.variadic !== void 0) {
         for (let index = prefixCount; index < postfixStart; index++) {
-          path.push(index);
-          const item = visit(ir.variadic, v[index], path);
-          path.pop();
+          path2.push(index);
+          const item = visit(ir.variadic, v[index], path2);
+          path2.pop();
           if (item instanceof OmpErrors) {
             if (errors) errors.append(item);
             else errors = item;
@@ -2685,9 +2803,9 @@ function visitNode(ir, v, path) {
       }
       for (let index = 0; index < ir.postfix.length; index++) {
         const inputIndex = postfixStart + index;
-        path.push(inputIndex);
-        const item = visit(ir.postfix[index], v[inputIndex], path);
-        path.pop();
+        path2.push(inputIndex);
+        const item = visit(ir.postfix[index], v[inputIndex], path2);
+        path2.pop();
         if (item instanceof OmpErrors) {
           if (errors) errors.append(item);
           else errors = item;
@@ -2698,7 +2816,7 @@ function visitNode(ir, v, path) {
       return errors ?? output;
     }
     case "object": {
-      if (typeof v !== "object" || v === null) return fail(path, "an object", v);
+      if (typeof v !== "object" || v === null) return fail(path2, "an object", v);
       const rec = v;
       const morph2 = hasMorph(ir);
       let out;
@@ -2715,9 +2833,9 @@ function visitNode(ir, v, path) {
           if (p.hasDefault && out) {
             const payload = p.def;
             if (p.defFactory && typeof payload === "function") {
-              path.push(p.key);
-              const resolved = visit(p.val, payload(), path);
-              path.pop();
+              path2.push(p.key);
+              const resolved = visit(p.val, payload(), path2);
+              path2.pop();
               if (resolved instanceof OmpErrors) {
                 if (errors) errors.append(resolved);
                 else errors = resolved;
@@ -2730,16 +2848,16 @@ function visitNode(ir, v, path) {
             continue;
           }
           if (p.opt || p.hasDefault) continue;
-          path.push(p.key);
-          const error = fail(path, expectedOf(p.val), MISSING);
-          path.pop();
+          path2.push(p.key);
+          const error = fail(path2, expectedOf(p.val), MISSING);
+          path2.pop();
           if (errors) errors.append(error);
           else errors = error;
           continue;
         }
-        path.push(p.key);
-        const result = visit(p.val, rec[p.key], path);
-        path.pop();
+        path2.push(p.key);
+        const result = visit(p.val, rec[p.key], path2);
+        path2.pop();
         if (result instanceof OmpErrors) {
           if (errors) errors.append(result);
           else errors = result;
@@ -2752,9 +2870,9 @@ function visitNode(ir, v, path) {
         let indexed = false;
         if (ir.index !== void 0) {
           indexed = true;
-          path.push(key);
-          const result = visit(ir.index, rec[key], path);
-          path.pop();
+          path2.push(key);
+          const result = visit(ir.index, rec[key], path2);
+          path2.pop();
           if (result instanceof OmpErrors) {
             if (errors) errors.append(result);
             else errors = result;
@@ -2766,9 +2884,9 @@ function visitNode(ir, v, path) {
           for (const pattern2 of ir.patternIndexes) {
             if (!checks(pattern2.key, key)) continue;
             indexed = true;
-            path.push(key);
-            const result = visit(pattern2.val, rec[key], path);
-            path.pop();
+            path2.push(key);
+            const result = visit(pattern2.val, rec[key], path2);
+            path2.pop();
             if (result instanceof OmpErrors) {
               if (errors) errors.append(result);
               else errors = result;
@@ -2778,9 +2896,9 @@ function visitNode(ir, v, path) {
           }
         }
         if (ir.extras === "reject" && !indexed && !ir.props.some((prop) => prop.key === key)) {
-          path.push(key);
-          const error = fail(path, "removed", rec[key]);
-          path.pop();
+          path2.push(key);
+          const error = fail(path2, "removed", rec[key]);
+          path2.pop();
           if (errors) errors.append(error);
           else errors = error;
         }
@@ -2788,9 +2906,9 @@ function visitNode(ir, v, path) {
       for (const key of Object.getOwnPropertySymbols(rec)) {
         if (!Object.prototype.propertyIsEnumerable.call(rec, key)) continue;
         if (ir.symbolIndex !== void 0) {
-          path.push(key);
-          const result = visit(ir.symbolIndex, rec[key], path);
-          path.pop();
+          path2.push(key);
+          const result = visit(ir.symbolIndex, rec[key], path2);
+          path2.pop();
           if (result instanceof OmpErrors) {
             if (errors) errors.append(result);
             else errors = result;
@@ -2798,9 +2916,9 @@ function visitNode(ir, v, path) {
             out[key] = result;
           }
         } else if (ir.extras === "reject" && !ir.props.some((prop) => prop.key === key)) {
-          path.push(key);
-          const error = fail(path, "removed", rec[key]);
-          path.pop();
+          path2.push(key);
+          const error = fail(path2, "removed", rec[key]);
+          path2.pop();
           if (errors) errors.append(error);
           else errors = error;
         }
@@ -2808,17 +2926,17 @@ function visitNode(ir, v, path) {
       return errors ?? out ?? v;
     }
     case "string": {
-      if (typeof v !== "string") return fail(path, "a string", v);
-      if (ir.min !== void 0 && v.length < ir.min) return fail(path, `at least length ${ir.min}`, v.length);
-      if (ir.max !== void 0 && v.length > ir.max) return fail(path, `at most length ${ir.max}`, v.length);
-      if (ir.url && !URL.canParse(v)) return fail(path, "a URL string", v);
+      if (typeof v !== "string") return fail(path2, "a string", v);
+      if (ir.min !== void 0 && v.length < ir.min) return fail(path2, `at least length ${ir.min}`, v.length);
+      if (ir.max !== void 0 && v.length > ir.max) return fail(path2, `at most length ${ir.max}`, v.length);
+      if (ir.url && !URL.canParse(v)) return fail(path2, "a URL string", v);
       return v;
     }
     case "number": {
-      if (typeof v !== "number" || !Number.isFinite(v)) return fail(path, ir.int ? "an integer" : "a number", v);
+      if (typeof v !== "number" || !Number.isFinite(v)) return fail(path2, ir.int ? "an integer" : "a number", v);
       let errors;
       const add = (expected) => {
-        const error = fail(path, expected, v);
+        const error = fail(path2, expected, v);
         if (errors) errors.append(error);
         else errors = error;
       };
@@ -2850,16 +2968,16 @@ function visitNode(ir, v, path) {
           }
         } catch {
         }
-        return fail(path, expected, v);
+        return fail(path2, expected, v);
       }
-      return fail(path, expectedOf(ir), v);
+      return fail(path2, expectedOf(ir), v);
     }
     default:
-      return checks(ir, v) ? v : fail(path, expectedOf(ir), v);
+      return checks(ir, v) ? v : fail(path2, expectedOf(ir), v);
   }
 }
-function prefixAll(errs, path) {
-  for (let i = path.length - 1; i >= 0; i--) errs.prefix(path[i]);
+function prefixAll(errs, path2) {
+  for (let i = path2.length - 1; i >= 0; i--) errs.prefix(path2[i]);
   return errs;
 }
 function canRefineUnionFailure(member) {
@@ -2868,7 +2986,7 @@ function canRefineUnionFailure(member) {
   if (base.k === "string") return base.min !== void 0 || base.max !== void 0 || base.url === true;
   return base.k === "number" && (base.int === true || base.min !== void 0 || base.max !== void 0);
 }
-function unionFail(ir, v, path, expected) {
+function unionFail(ir, v, path2, expected) {
   let best;
   for (const member of ir.members) {
     const base = unwrapBase(member);
@@ -2880,16 +2998,16 @@ function unionFail(ir, v, path, expected) {
     best = member;
   }
   if (best === void 0) {
-    const discriminated = discriminateFailure(ir.members, v, path);
+    const discriminated = discriminateFailure(ir.members, v, path2);
     if (discriminated !== void 0) return discriminated;
   }
   if (best !== void 0) {
-    const out = visit(best, v, path);
+    const out = visit(best, v, path2);
     if (out instanceof OmpErrors) return out;
   }
   if (ir.members.every((member) => unwrapBase(member).k === "object")) {
     const branches = ir.members.flatMap((member) => {
-      const result = visit(member, v, path);
+      const result = visit(member, v, path2);
       return result instanceof OmpErrors ? [[...result]] : [];
     });
     if (branches.length !== 0) {
@@ -2930,7 +3048,7 @@ function unionFail(ir, v, path, expected) {
       return alternatives.length === 1 ? combined : combined.asAlternatives();
     }
   }
-  return fail(path, expected ?? expectedOf(ir), v);
+  return fail(path2, expected ?? expectedOf(ir), v);
 }
 function unwrapBase(member, seen = /* @__PURE__ */ new Set()) {
   if (seen.has(member)) return member;
@@ -2959,9 +3077,9 @@ function collectDiscriminants(member, prefix = [], seen = /* @__PURE__ */ new Se
 function pathsEqual(left, right) {
   return left.length === right.length && left.every((key, index) => key === right[index]);
 }
-function valueAtPath(value, path) {
+function valueAtPath(value, path2) {
   let cursor = value;
-  for (const key of path) {
+  for (const key of path2) {
     if (typeof cursor !== "object" && typeof cursor !== "function" || cursor === null || !(key in cursor)) {
       return { present: false };
     }
@@ -2969,7 +3087,7 @@ function valueAtPath(value, path) {
   }
   return { present: true, value: cursor };
 }
-function discriminateFailure(members, value, path) {
+function discriminateFailure(members, value, path2) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return void 0;
   const byMember = members.map((member) => collectDiscriminants(member));
   const candidates = [];
@@ -3004,19 +3122,19 @@ function discriminateFailure(members, value, path) {
     }
     if (!actual.present) {
       if (defaults.length !== 0 && defaults.length < members.length) {
-        return discriminateFailure(defaults, value, path);
+        return discriminateFailure(defaults, value, path2);
       }
-      return fail([...path, ...candidate.path], expectedOf({ k: "union", members: expectedMembers }), void 0);
+      return fail([...path2, ...candidate.path], expectedOf({ k: "union", members: expectedMembers }), void 0);
     }
     if (exact.length === 0) {
-      if (defaults.length !== 0) return discriminateFailure(defaults, value, path);
-      return fail([...path, ...candidate.path], expectedOf({ k: "union", members: expectedMembers }), actual.value);
+      if (defaults.length !== 0) return discriminateFailure(defaults, value, path2);
+      return fail([...path2, ...candidate.path], expectedOf({ k: "union", members: expectedMembers }), actual.value);
     }
     if (exact.length === 1) {
-      const result = visit(exact[0], value, path);
+      const result = visit(exact[0], value, path2);
       return result instanceof OmpErrors ? result : void 0;
     }
-    const nested = discriminateFailure(exact, value, path);
+    const nested = discriminateFailure(exact, value, path2);
     if (nested !== void 0) return nested;
   }
   return void 0;
@@ -3080,8 +3198,8 @@ function rejectsUndefined(node) {
 var CompiledMorphContext = class {
   #path;
   #data;
-  constructor(path, data) {
-    this.#path = path;
+  constructor(path2, data) {
+    this.#path = path2;
     this.#data = data;
   }
   error(expectation) {
@@ -3996,7 +4114,7 @@ function boundWalk(node) {
   const tagged = node;
   let fn = tagged[kWalk];
   if (!fn) {
-    fn = (value, path) => walk(node, value, path);
+    fn = (value, path2) => walk(node, value, path2);
     tagged[kWalk] = fn;
   }
   return fn;
@@ -4378,9 +4496,9 @@ var Ctx = class {
   errors;
   path;
   #data;
-  constructor(data, path = []) {
+  constructor(data, path2 = []) {
     this.#data = data;
-    this.path = path.map((key) => typeof key === "symbol" ? String(key) : key);
+    this.path = path2.map((key) => typeof key === "symbol" ? String(key) : key);
   }
   error(input) {
     const detail = typeof input === "string" ? { expected: input } : input;
@@ -4681,10 +4799,10 @@ var typeMethods = {
   keyof() {
     return makeType(keyOf(this.ir), [], {});
   },
-  get(...path) {
-    if (path.length === 0) return this;
+  get(...path2) {
+    if (path2.length === 0) return this;
     let result = this.ir;
-    for (const key of path) result = getPathIR(result, key);
+    for (const key of path2) result = getPathIR(result, key);
     return makeType(result, [], {});
   },
   pick(...keys) {
@@ -4967,8 +5085,8 @@ function makeType(ir, steps, meta) {
   let callable = validate;
   if (needsClone && clone !== void 0) {
     if (clone === false) {
-      callable = (data, path) => {
-        const out = validate(data, path);
+      callable = (data, path2) => {
+        const out = validate(data, path2);
         if (out instanceof OmpErrors || out === data || typeof data !== "object" || data === null || typeof out !== "object" || out === null) {
           return out;
         }
@@ -4985,16 +5103,16 @@ function makeType(ir, steps, meta) {
         return data;
       };
     } else {
-      callable = (data, path) => validate(clone(data), path);
+      callable = (data, path2) => validate(clone(data), path2);
     }
   }
   if (meta.hasDefault === true) {
     const inner = callable;
     const value = meta.defaultValue;
-    callable = (data, path) => {
-      if (data !== void 0) return inner(data, path);
+    callable = (data, path2) => {
+      if (data !== void 0) return inner(data, path2);
       if (meta.hasDefaultOutput === true) return meta.defaultOutput;
-      return inner(typeof value === "function" ? value() : value, path);
+      return inner(typeof value === "function" ? value() : value, path2);
     };
   }
   const self = callable;
@@ -6884,8 +7002,8 @@ function buildScope(aliases, options) {
     }
     return current;
   };
-  const resolve2 = (path) => {
-    const [name, ...parts] = path.split(".");
+  const resolve2 = (path2) => {
+    const [name, ...parts] = path2.split(".");
     const entry2 = entries.get(name);
     if (entry2 === void 0 || entry2.genericParameters !== void 0) return void 0;
     const definition = materialize(entry2);
@@ -7008,9 +7126,9 @@ function buildScope(aliases, options) {
       const add = (prefix, module) => {
         for (const name of Object.keys(module)) {
           const value = module[name];
-          const path = prefix === "" ? name : `${prefix}.${name}`;
-          if (isRuntimeModule(value)) add(path, value);
-          else json2[path] = Reflect.get(value, "json");
+          const path2 = prefix === "" ? name : `${prefix}.${name}`;
+          if (isRuntimeModule(value)) add(path2, value);
+          else json2[path2] = Reflect.get(value, "json");
         }
       };
       add("", bindModule([...entries.values()].filter((entry2) => !entry2.private).map((entry2) => entry2.name)));
@@ -7595,9 +7713,9 @@ function parseGeneralAgent(content, filePath, dirName) {
 }
 
 // src/store.ts
-import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { parse as parseYaml2, stringify as stringifyYaml } from "yaml";
 var LEGACY_AGENTS_DIR = "agents";
 var WRITE_DIR = process.env.PI_CONFIG_DIR?.trim() || ".inso";
@@ -7715,13 +7833,13 @@ function draftFromFile(decl, content, key) {
       if (held.has("voice")) pieces.push(...block.lines);
     } else if (drawn !== void 0) {
       const kept = sectionChildren(block).filter((child) => {
-        const path = `${block.key}.${child.key}`;
-        return RETIRED_PATHS[path] === void 0 && (!drawn.includes(child.key) || held.has(path));
+        const path2 = `${block.key}.${child.key}`;
+        return RETIRED_PATHS[path2] === void 0 && (!drawn.includes(child.key) || held.has(path2));
       });
       if (kept.length > 0) pieces.push(`${block.key}:`, ...kept.flatMap((child) => child.lines));
     } else if (!["name", "description", "specVersion", "extends"].includes(block.key)) pieces.push(...block.lines);
   }
-  const drawnOr = (path, value, fallback2) => held.has(path) || value === void 0 ? fallback2 : value;
+  const drawnOr = (path2, value, fallback2) => held.has(path2) || value === void 0 ? fallback2 : value;
   const backend = manifest.memory?.backend;
   const memory = drawnOr("memory.backend", backend, "inherit");
   const reach = manifest.workspace?.reach;
@@ -7761,16 +7879,16 @@ async function scanAgents(dir, notices) {
   const found = [];
   for (const name of await listDirs(dir)) {
     if (name.startsWith(".")) continue;
-    const path = join(dir, name, GENERAL_AGENT_FILE);
+    const path2 = join(dir, name, GENERAL_AGENT_FILE);
     let content;
     try {
-      content = await readFile(path, "utf8");
+      content = await readFile(path2, "utf8");
     } catch {
       continue;
     }
-    const parsed = parseGeneralAgent(content, path, name);
-    if (parsed.ok) found.push({ name, path, content, decl: parsed.decl });
-    else if (parsed.reason === "invalid") notices.push(`${path} is not a valid General Agent: ${parsed.errors.join("; ")}`);
+    const parsed = parseGeneralAgent(content, path2, name);
+    if (parsed.ok) found.push({ name, path: path2, content, decl: parsed.decl });
+    else if (parsed.reason === "invalid") notices.push(`${path2} is not a valid General Agent: ${parsed.errors.join("; ")}`);
   }
   return found;
 }
@@ -7867,15 +7985,15 @@ async function listAgents(roots) {
 var SaveRefused = class extends Error {
   name = "SaveRefused";
 };
-function renderDraft(draft, path) {
+function renderDraft(draft, path2) {
   const problems = draftProblems(draft);
   if (problems.length > 0) return { problems };
   const content = toAgentMd(draft, agentHomeWorkspaceId(draft.name));
-  const parsed = parseGeneralAgent(content, path, draft.name);
+  const parsed = parseGeneralAgent(content, path2, draft.name);
   if (!parsed.ok) return { problems: [`The agent.md would not load as a General Agent (${parsed.reason}): ${parsed.errors.join("; ")}`] };
   return { content };
 }
-var slash = (path) => path.replaceAll("\\", "/");
+var slash = (path2) => path2.replaceAll("\\", "/");
 async function saveAgent(options) {
   const { roots, draft, target } = options;
   const paths = pathsOf(roots.home);
@@ -7888,8 +8006,8 @@ async function saveAgent(options) {
     );
   }
   const dir = join(agentsDir, draft.name);
-  const path = join(dir, GENERAL_AGENT_FILE);
-  const rendered = renderDraft(draft, path);
+  const path2 = join(dir, GENERAL_AGENT_FILE);
+  const rendered = renderDraft(draft, path2);
   if ("problems" in rendered) throw new SaveRefused(rendered.problems.join(" "));
   const { content } = rendered;
   if (target.create) {
@@ -7907,11 +8025,11 @@ async function saveAgent(options) {
   } else {
     let existing;
     try {
-      existing = await readFile(path, "utf8");
+      existing = await readFile(path2, "utf8");
     } catch {
-      throw new SaveRefused(`There is no ${slash(relative(tierRoot, path))} to update. Create it as a new agent.`);
+      throw new SaveRefused(`There is no ${slash(relative(tierRoot, path2))} to update. Create it as a new agent.`);
     }
-    const current = parseGeneralAgent(existing, path, draft.name);
+    const current = parseGeneralAgent(existing, path2, draft.name);
     if (!current.ok) {
       throw new SaveRefused(
         current.reason === "loop" ? `${draft.name} is a Loop, not a General Agent, and a Loop is never rewritten here.` : `${draft.name}'s agent.md does not parse (${current.errors.join("; ")}); fix it by hand first.`
@@ -7921,46 +8039,43 @@ async function saveAgent(options) {
       throw new SaveRefused(`${draft.name}'s agent.md changed on disk since it was opened here; reopen it so nothing written since is lost.`);
     }
   }
-  const temp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
   try {
-    await writeFile(temp, content, { encoding: "utf8", flag: "wx" });
-    await rename(temp, path);
+    await writeFileAtomic(path2, content);
   } catch (error) {
-    await rm(temp, { force: true });
     if (target.create) await rm(dir, { recursive: true, force: true });
     throw error;
   }
-  return { path, relativePath: slash(relative(tierRoot, path)), created: target.create, tier };
+  return { path: path2, relativePath: slash(relative(tierRoot, path2)), created: target.create, tier };
 }
 
 // src/home.ts
 var AGENTS_MD = "AGENTS.md";
 var INSTRUCTIONS_MAX_BYTES = 2e5;
-async function statFile(path) {
+async function statFile(path2) {
   try {
-    const info = await stat(path);
+    const info = await stat(path2);
     return { exists: info.isFile(), bytes: info.isFile() ? info.size : 0 };
   } catch {
     return { exists: false, bytes: 0 };
   }
 }
-async function isDirectory(path) {
+async function isDirectory(path2) {
   try {
-    return (await stat(path)).isDirectory();
+    return (await stat(path2)).isDirectory();
   } catch {
     return false;
   }
 }
-async function contentOf(path) {
+async function contentOf(path2) {
   try {
-    return await readFile2(path, "utf8");
+    return await readFile2(path2, "utf8");
   } catch (error) {
     if (error.code === "ENOENT") return "";
     throw error;
   }
 }
 function candidatesFor(roots, source, name, agentFile) {
-  const sibling = { kind: source === "pack" ? "pack" : "agent-dir", path: join2(dirname(agentFile), AGENTS_MD) };
+  const sibling = { kind: source === "pack" ? "pack" : "agent-dir", path: join2(dirname2(agentFile), AGENTS_MD) };
   if (source === "workspace") return [sibling];
   const homes = pathsOf(roots.home)?.homes;
   const home = homes === void 0 ? [] : [{ kind: "home", path: join2(homes, agentHomeWorkspaceId(name), AGENTS_MD) }];
@@ -8010,7 +8125,7 @@ async function describeHome(roots, name) {
   else if (paths === null) homeNote = `Its home is ${homeId}; where that lives is unknown, as the engine did not say where its home is.`;
   else homeNote = folderExists ? `Its home is ${homeId}; the folder exists.` : `Its home is ${homeId}; the engine creates the folder the first time the agent is opened, seeding it from the AGENTS.md beside agent.md.`;
   const editable = listed === void 0 ? false : listed.editable;
-  const targetFile = listed === void 0 || !listed.editable ? null : source === "user" && folderExists ? { path: join2(folder ?? "", AGENTS_MD), kind: "home" } : { path: join2(dirname(listed.path), AGENTS_MD), kind: "agent-dir" };
+  const targetFile = listed === void 0 || !listed.editable ? null : source === "user" && folderExists ? { path: join2(folder ?? "", AGENTS_MD), kind: "home" } : { path: join2(dirname2(listed.path), AGENTS_MD), kind: "agent-dir" };
   let target = null;
   if (targetFile !== null) {
     const current = targetFile.path === files.find((file) => file.wins)?.path ? text : await contentOf(targetFile.path);
@@ -8039,16 +8154,8 @@ async function saveInstructions(roots, name, text, revision) {
   if (target.revision !== revision) {
     throw new SaveRefused(`${name}'s standing instructions changed since they were opened here: the file was edited elsewhere, or its home was set up since, so a save would land somewhere else. Reopen them so nothing written since is lost.`);
   }
-  const temp = join2(dirname(target.path), `.${basename2(target.path)}.${process.pid}.${randomBytes2(6).toString("hex")}.tmp`);
-  try {
-    await mkdir2(dirname(target.path), { recursive: true });
-    await writeFile2(temp, text === "" || text.endsWith("\n") ? text : `${text}
-`, { encoding: "utf8", flag: "wx" });
-    await rename2(temp, target.path);
-  } catch (error) {
-    await rm2(temp, { force: true });
-    throw error;
-  }
+  await writeFileAtomic(target.path, text === "" || text.endsWith("\n") ? text : `${text}
+`);
   return { path: target.path, kind: target.kind };
 }
 
@@ -8202,18 +8309,18 @@ function json(structuredContent, text) {
 function fail2(text) {
   return { content: [{ type: "text", text }], isError: true };
 }
-function isDirectory2(path) {
+function isDirectory2(path2) {
   try {
-    return statSync(path).isDirectory();
+    return statSync2(path2).isDirectory();
   } catch {
     return false;
   }
 }
-function canonicalDir(path) {
+function canonicalDir(path2) {
   try {
-    return realpathSync.native(path);
+    return realpathSync.native(path2);
   } catch {
-    return resolve(path);
+    return resolve(path2);
   }
 }
 function sameWorkspace(a, b) {

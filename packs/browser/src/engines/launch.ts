@@ -16,9 +16,10 @@
  *  - `--enable-automation`, puppeteer's "controlled by automated test
  *    software" switch, is dropped.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { writeFileAtomicSync } from "../../../../lib/durable-file.mjs";
 import { Browser as CachedBrowser, type BrowserPlatform, detectBrowserPlatform, getInstalledBrowsers } from "@puppeteer/browsers";
 import { BROWSER_PROTOCOL_TIMEOUT_MS } from "./attach.js";
 import type { LaunchOptions, Protocol } from "puppeteer-core";
@@ -328,5 +329,5 @@ export function turnOffPasswordSaving(userDataDir: string): void {
 	const profile = prefs.profile && typeof prefs.profile === "object" ? (prefs.profile as Record<string, unknown>) : {};
 	if (prefs.credentials_enable_service === false && profile.password_manager_enabled === false) return;
 	mkdirSync(join(userDataDir, "Default"), { recursive: true, mode: 0o700 });
-	writeFileSync(path, JSON.stringify({ ...prefs, credentials_enable_service: false, profile: { ...profile, password_manager_enabled: false } }), { mode: 0o600 });
+	writeFileAtomicSync(path, JSON.stringify({ ...prefs, credentials_enable_service: false, profile: { ...profile, password_manager_enabled: false } }), { mode: 0o600 });
 }

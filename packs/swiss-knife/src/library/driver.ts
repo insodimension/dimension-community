@@ -55,15 +55,37 @@ function adapt(db: NativeDatabase): SqlDriver {
 
 const PRIVATE_FILE_MODE = 0o600;
 const DATABASE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
+const BUSY_TIMEOUT_MS = 2_000;
 
 export async function openDriver(file: string): Promise<SqlDriver> {
 	if (process.platform !== "win32") await (await open(file, "a", PRIVATE_FILE_MODE)).close();
+	let db: SqlDriver;
 	if (typeof Bun !== "undefined") {
 		const { Database } = await import("bun:sqlite");
-		return adapt(new Database(file, { create: true }));
+		db = adapt(new Database(file, { create: true }));
+	} else {
+		const { DatabaseSync } = await import("node:sqlite");
+		db = adapt(new DatabaseSync(file));
 	}
-	const { DatabaseSync } = await import("node:sqlite");
-	return adapt(new DatabaseSync(file));
+	try {
+		configureConnection(db);
+	} catch (error) {
+		db.close();
+		throw error;
+	}
+	return db;
+}
+
+function configureConnection(db: SqlDriver): void {
+	db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA foreign_keys = ON;`);
+	const journal = db.prepare("PRAGMA journal_mode = WAL");
+	let journalMode: string | undefined;
+	try {
+		journalMode = journal.get<{ readonly journal_mode: string }>()?.journal_mode;
+	} finally {
+		journal.finalize();
+	}
+	db.exec(`PRAGMA synchronous = ${journalMode === "wal" ? "NORMAL" : "FULL"}`);
 }
 
 export async function restrictDatabaseFiles(file: string): Promise<void> {

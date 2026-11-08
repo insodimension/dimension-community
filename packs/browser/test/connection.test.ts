@@ -93,6 +93,37 @@ describe("connection report", () => {
 		expect(await readFile(join(dir, "connections.json"), "utf8")).toBe(before);
 	});
 
+	test("a torn connections.json is kept as a .corrupt copy and read from its backup; the next observation builds on the backup", async () => {
+		const store = await storeAt();
+		store.recordConnection("acme", "x.com", { signedIn: true, account: "@acme", observedAt: T });
+		store.recordConnection("acme", "reddit.com", { signedIn: false, observedAt: T + 1 });
+		const dir = store.profileDir("acme");
+		const stderr = spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			await writeFile(join(dir, "connections.json"), '{"sites":{"x.com"');
+			expect(store.connections("acme")).toEqual({ "x.com": { signedIn: true, account: "@acme", observedAt: T } });
+			expect((await readdir(dir)).filter((name) => name.startsWith("connections.json.corrupt-"))).toHaveLength(1);
+			store.recordConnection("acme", "bsky.app", { signedIn: true, observedAt: T + 2 });
+		} finally {
+			stderr.mockRestore();
+		}
+		expect(Object.keys(store.connections("acme")).sort()).toEqual(["bsky.app", "x.com"]);
+	});
+
+	test("a torn connections.json with no readable backup is shown as no observations, and an observation is refused instead of replacing it", async () => {
+		const store = await storeAt();
+		const dir = store.ensureProfile("acme");
+		await writeFile(join(dir, "connections.json"), '{"sites":{"x.com"');
+		const stderr = spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			expect(store.connections("acme")).toEqual({});
+			expect(() => store.recordConnection("acme", "x.com", { signedIn: true, observedAt: T })).toThrow("has no readable backup");
+		} finally {
+			stderr.mockRestore();
+		}
+		expect(await readFile(join(dir, "connections.json"), "utf8")).toBe('{"sites":{"x.com"');
+	});
+
 	test("failed lock initialization releases only its own file so the same profile can be acquired and released again", async () => {
 		const store = await storeAt();
 		const slug = "lock-init-failure";

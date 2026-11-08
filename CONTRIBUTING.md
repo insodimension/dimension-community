@@ -255,6 +255,18 @@ Users enable and disable General Agents in **Capabilities → General Agents**.
 - Honest states: empty, loading and failure are part of the component.
 - `prefers-reduced-motion` is not optional.
 - No second copy of anything the platform already renders.
+- State a pack keeps across restarts is written crash-safe. A pack that runs as
+  its own Node process imports `lib/durable-file.mjs` by relative path and its
+  build inlines it: `writeFileAtomic`/`writeFileAtomicSync` stage the bytes
+  beside the file, fsync, rename and fsync the folder, and with `backup` keep
+  the previous whole file as `<file>.bak`; `readDurableFile`/`readDurableFileSync`
+  copy a damaged file to `<file>.corrupt-<stamp>`, answer from the `.bak`, and
+  throw rather than hand back a default that would overwrite it. A pack that
+  runs inside the engine uses the host's `@oh-my-pi/pi-utils` equivalent once
+  Dimension 0.12.0 ships. `bun scripts/check-durable-writes.ts` (in CI) counts
+  every raw `writeFile`/`rename` in pack runtime source against
+  `scripts/durable-writes.allow.json`, where each remaining one says why it is
+  not state.
 
 ## Licensing
 
