@@ -98,6 +98,11 @@ const DENIED: Record<string, string[]> = {
 		"/home/me/.inso/vault/locker/audit.log",
 		"D:\\Brain\\LOCKER\\anything.txt",
 		"/backups/vault-2026/_locker.json",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.corrupt-1787117067954",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-2026-11-09t00-00-00-000z.bak",
+		"/home/me/.inso/vault/notes.db.corrupt-k3x9",
 	],
 };
 
@@ -126,6 +131,8 @@ const ALLOWED = [
 	"/home/me/docs/envelope.png",
 	"/home/me/agent/photo.png",
 	"C:\\Work\\reports\\a.png",
+	"/home/me/docs/activation.json.md",
+	"/home/me/docs/notes.txt.bak",
 ];
 
 describe("denyReason refuses credentials, keys and engine state", () => {
