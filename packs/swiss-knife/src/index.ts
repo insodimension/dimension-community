@@ -1,10 +1,21 @@
-import type { AgentToolResult, ExtensionAPI } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
+import type { BlobRef } from "@dimension/sdk/presentation";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { registerArtifactsTool } from "./artifacts";
 import { errorMessage } from "./library/errors";
 import { stampPresented } from "./library/present-stamp";
 import { sharedLibrary } from "./library/shared";
 import type { Library } from "./library/types";
-import { type PresentDetails, presentPaths } from "./present";
+import { type KeepSnapshot, type PresentDetails, presentPaths } from "./present";
+
+function blobSnapshots(ctx: ExtensionContext): KeepSnapshot {
+	return async (bytes, extension) => {
+		const blob = await ctx.sessionManager.putBlob(
+			Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+			extension === undefined ? undefined : { extension },
+		);
+		return { path: blob.displayPath, ref: blob.ref as BlobRef };
+	};
+}
 
 export interface SwissKnifeDeps {
 	readonly library: () => Promise<Library>;
@@ -25,7 +36,7 @@ export default function swissKnife(pi: ExtensionAPI, deps: SwissKnifeDeps = { li
 				.describe("Absolute file path, or an array of up to 12 paths."),
 		}),
 		async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<AgentToolResult<PresentDetails>> {
-			const { text, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal });
+			const { text, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal, snapshot: blobSnapshots(ctx) });
 			try {
 				await stampPresented(await deps.library(), details, { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() });
 			} catch (error) {

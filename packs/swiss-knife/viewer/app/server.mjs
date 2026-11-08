@@ -32154,6 +32154,11 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
+var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function isBlobSidecar(segments, blobsAt) {
+  const base = segments[segments.length - 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(base) && !DATABASE_FILE.test(base);
+}
 function denyReason(path2) {
   const segments = segmentsOf(path2);
   const base = segments[segments.length - 1] ?? "";
@@ -32170,6 +32175,7 @@ function denyReason(path2) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
+      if (isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";

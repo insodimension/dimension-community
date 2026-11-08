@@ -149,6 +149,43 @@ describe("denyReason leaves ordinary files alone", () => {
 	for (const path of ALLOWED) test(`allows ${path}`, () => expect(denyReason(path)).toBeUndefined());
 });
 
+const BLOB = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+describe("denyReason and the copy a card opens, which lives in the engine's blob store", () => {
+	const OPENABLE = [
+		`/home/me/.inso/agent/blobs/${BLOB}.png`,
+		`/home/me/.inso/profiles/p1/agent/blobs/${BLOB}.jpg`,
+		`/home/me/.inso-dev/agent/blobs/${BLOB}.pdf`,
+		`/home/me/.omp/agent/blobs/${BLOB}.md`,
+		`C:\\Users\\Me\\.inso\\agent\\blobs\\${BLOB}.png`,
+		`C:\\Users\\Me\\.INSO-DEV\\PROFILES\\p1\\AGENT\\BLOBS\\${BLOB.toUpperCase()}.PNG`,
+		`/home/me/.inso/agent/blobs/${BLOB}.tar.gz`,
+		`/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(32)}`,
+	];
+	for (const path of OPENABLE) test(`opens ${path}`, () => expect(denyReason(path)).toBeUndefined());
+
+	const REFUSED: { name: string; path: string; category: RegExp }[] = [
+		{ name: "the same blob with no extension", path: `/home/me/.inso/agent/blobs/${BLOB}`, category: /agent state/ },
+		{ name: "a copy nested below the blobs folder", path: `/home/me/.inso/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "a copy nested below a profile's blobs folder", path: `/home/me/.inso/profiles/p1/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "the blobs folder itself", path: "/home/me/.inso/agent/blobs", category: /agent state/ },
+		{ name: "another file of the agent", path: "/home/me/.inso/agent/agent.db", category: /agent state/ },
+		{ name: "a hash-shaped name outside the blobs folder", path: `/home/me/.inso/agent/sessions/${BLOB}.png`, category: /agent state/ },
+		{ name: "a name one digit short of a hash", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}.png`, category: /agent state/ },
+		{ name: "a name one digit over a hash", path: `/home/me/.inso/agent/blobs/${BLOB}0.png`, category: /agent state/ },
+		{ name: "a name that is not hex", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}g.png`, category: /agent state/ },
+		{ name: "a database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db`, category: /agent state/ },
+		{ name: "a sqlite database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.sqlite`, category: /agent state/ },
+		{ name: "a database journal under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db-wal`, category: /agent state/ },
+		{ name: "an extension over 32 characters", path: `/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(33)}`, category: /agent state/ },
+		{ name: "an extension that starts with a dot", path: `/home/me/.inso/agent/blobs/${BLOB}..png`, category: /agent state/ },
+		{ name: "a private key under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.pem`, category: /private key/ },
+		{ name: "an environment file under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.env`, category: /environment file/ },
+		{ name: "a blob inside a credentials folder", path: `/home/me/.ssh/.inso/agent/blobs/${BLOB}.png`, category: /credentials folder/ },
+	];
+	for (const { name, path, category } of REFUSED) test(`still refuses ${name}`, () => expect(denyReason(path), path).toMatch(category));
+});
+
 describe("every entry of the deny tables refuses the thing it names", () => {
 	// The category in the refusal tells which rule fired, so another rule cannot make a dead entry look alive.
 	const tables = [

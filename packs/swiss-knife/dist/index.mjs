@@ -601,7 +601,7 @@ function hasCode(error51, ...codes) {
 // src/present.ts
 import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 // ../../../packages/sdk/src/artifactory/artifactory-decl.ts
 var PACK_CONNECTION_REPORT_MAX_BYTES = 64 * 1024;
@@ -668,6 +668,11 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
+var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function isBlobSidecar(segments, blobsAt) {
+  const base = segments[segments.length - 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(base) && !DATABASE_FILE.test(base);
+}
 function denyReason(path) {
   const segments = segmentsOf(path);
   const base = segments[segments.length - 1] ?? "";
@@ -684,6 +689,7 @@ function denyReason(path) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
+      if (isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
@@ -736,12 +742,26 @@ async function imageFacts(source, maxBytes) {
 // src/present.ts
 var HEAD_BYTES = 512;
 var MAX_RESULT_THUMB_BYTES = 600 * 1024;
+var MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
+var MAX_RESULT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
+var SNAPSHOT_EXTENSION = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 var MAX_ECHO = 200;
 var SVG = "image/svg+xml";
 function textRefusal2(requested, platform) {
   if (requested.trim() === "") return "the path is empty";
   if (requested.includes("\0")) return "the path contains a NUL byte";
   return textRefusal(requested, platform, "presentable");
+}
+function snapshotExtension(fileName) {
+  const extension = extname(fileName).slice(1).toLowerCase();
+  return SNAPSHOT_EXTENSION.test(extension) ? extension : void 0;
+}
+async function keepSnapshot(keep, bytes, fileName) {
+  try {
+    return { snapshot: await keep(bytes, snapshotExtension(fileName)) };
+  } catch (error51) {
+    return { snapshotFailure: error51 instanceof Error && error51.message !== "" ? error51.message : String(error51) };
+  }
 }
 var UNSAFE_IN_A_LINE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
 function oneLine(text2, max) {
@@ -779,7 +799,7 @@ async function readWhole(handle, size) {
   }
   return buffer.subarray(0, filled);
 }
-async function presentOne(requested, run2, thumbBudget) {
+async function presentOne(requested, run2, budget) {
   if (typeof requested !== "string") return { refused: "it is not a path" };
   const textual = textRefusal2(requested, run2.platform);
   if (textual !== void 0) return { refused: textual };
@@ -820,10 +840,16 @@ async function presentOne(requested, run2, thumbBudget) {
     run2.seen.add(real);
     const name = oneLine(fileName, MAX_ECHO);
     const base = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-    if (kind !== "image" || mime === SVG || opened.size > MAX_THUMB_SOURCE_BYTES) return { item: base };
-    const facts = await imageFacts(await readWhole(handle, opened.size), Math.min(MAX_THUMB_BYTES, thumbBudget));
-    if (facts === void 0) return { item: base };
-    return { item: { ...base, width: facts.width, height: facts.height }, thumb: facts.thumb };
+    const snapshots = run2.snapshot !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes);
+    const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
+    if (!snapshots && !thumbnails) return { item: base };
+    const bytes = await readWhole(handle, opened.size);
+    const kept = snapshots && run2.snapshot !== void 0 ? await keepSnapshot(run2.snapshot, bytes, fileName) : void 0;
+    const item = kept !== void 0 && "snapshot" in kept ? { ...base, snapshot: kept.snapshot } : base;
+    const snapshotFailure = kept !== void 0 && "snapshotFailure" in kept ? { snapshotFailure: kept.snapshotFailure } : {};
+    const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : void 0;
+    if (facts === void 0) return { item, ...snapshotFailure };
+    return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, ...snapshotFailure };
   } finally {
     await handle.close();
   }
@@ -838,25 +864,33 @@ async function presentPaths(input, options) {
     cwd: options.cwd,
     platform: options.platform ?? process.platform,
     open: options.open ?? open,
-    seen: /* @__PURE__ */ new Set()
+    seen: /* @__PURE__ */ new Set(),
+    snapshot: options.snapshot
   };
   let thumbBytes = 0;
+  let snapshotBytes = 0;
   for (const path of requested) {
     options.signal?.throwIfAborted();
-    const outcome = await presentOne(path, run2, MAX_RESULT_THUMB_BYTES - thumbBytes);
+    const outcome = await presentOne(path, run2, {
+      thumbBytes: MAX_RESULT_THUMB_BYTES - thumbBytes,
+      snapshotBytes: MAX_RESULT_SNAPSHOT_BYTES - snapshotBytes
+    });
     if (outcome === void 0) continue;
     if ("refused" in outcome) {
       const shown = oneLine(String(path), MAX_ECHO).trim() || "(empty path)";
       lines.push(`Could not present ${shown}: ${outcome.refused}.`);
       continue;
     }
-    const { item, thumb } = outcome;
+    const { item, thumb, snapshotFailure } = outcome;
+    if (item.snapshot !== void 0) snapshotBytes += item.size;
     if (thumb !== void 0) {
       thumbBytes += thumb.bytes;
       images.push({ data: thumb.data, mimeType: thumb.mimeType });
     }
     items2.push(thumb === void 0 ? item : { ...item, thumb: images.length - 1 });
-    lines.push(`Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).`);
+    lines.push(
+      snapshotFailure === void 0 ? `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).` : `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}); no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`
+    );
   }
   if (all.length > requested.length) {
     lines.push(`Only the first ${requested.length} of ${all.length} paths were presented.`);
@@ -16877,6 +16911,15 @@ function sharedLibrary() {
 }
 
 // src/index.ts
+function blobSnapshots(ctx) {
+  return async (bytes, extension) => {
+    const blob = await ctx.sessionManager.putBlob(
+      Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      extension === void 0 ? void 0 : { extension }
+    );
+    return { path: blob.displayPath, ref: blob.ref };
+  };
+}
 function swissKnife(pi, deps = { library: sharedLibrary }) {
   const z2 = pi.zod;
   pi.registerTool({
@@ -16888,7 +16931,7 @@ function swissKnife(pi, deps = { library: sharedLibrary }) {
       path: z2.union([z2.string(), z2.array(z2.string())]).describe("Absolute file path, or an array of up to 12 paths.")
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { text: text2, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal });
+      const { text: text2, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal, snapshot: blobSnapshots(ctx) });
       try {
         await stampPresented(await deps.library(), details, { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() });
       } catch (error51) {

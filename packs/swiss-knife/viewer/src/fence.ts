@@ -153,6 +153,17 @@ export const OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.back
 export const DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 /** `.inso`, `.inso-dev`, `.omp` and their suffixed variants. */
 export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
+const BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+
+function isBlobSidecar(segments: readonly string[], blobsAt: number): boolean {
+	const base = segments[segments.length - 1] ?? "";
+	return (
+		segments[blobsAt] === "blobs" &&
+		segments.length === blobsAt + 2 &&
+		BLOB_SIDECAR.test(base) &&
+		!DATABASE_FILE.test(base)
+	);
+}
 
 /**
  * Why `path` must never be opened, or `undefined` when nothing on it is
@@ -176,6 +187,7 @@ export function denyReason(path: string): string | undefined {
 		if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
 		const next = segments[at + 1];
 		if (next === "agent" || (next === "profiles" && segments[at + 3] === "agent")) {
+			if (isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
 			return "it is the engine's agent state (credentials, sessions and databases)";
 		}
 		if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";

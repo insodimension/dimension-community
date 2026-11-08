@@ -54,12 +54,16 @@ a `present` card or an Open button, and the Viewer is not a tool the model calls
 
 ## Limits and risks
 
-- **`present` never writes.** Its approval class is `read`. It refuses secrets (credential folders such
+- **`present` writes only a copy, into the engine's blob store.** Its approval class is `read`. It refuses secrets (credential folders such
   as `.ssh`, `.aws`, `.git` and any folder named `locker`, `.env` files, private keys, token and cookie
   stores, the engine's own state; on Windows also network, device and alternate-data-stream paths), on
   the path as written and on its real path, naming a category and never content. The Viewer uses the
   same table, `viewer/src/fence.ts`. Regular files only; paths past the first 12 are reported, not
   presented; an image is read whole only up to 25 MiB and 25 megapixels.
+- **A card opens the file as it was presented.** Each file of at most 25 MiB (100 MiB per call) is copied
+  into the session blob store (`<agent>/blobs/<sha256>.<ext>`), so an agent that later overwrites the path
+  does not change what an older card opens. A larger file, or one whose copy failed, opens as it is when
+  clicked. `omp gc` removes a copy once no session refers to it.
 - **The Viewer reads only what it is lent**: the vault, folders in `VIEWER_ROOTS`, and the one file a
   person clicks Open on. Recordings play through fenced loopback HTTP ranges without a file-size cap or whole-file download before playback. An HTML page is never run; picking an
   element runs a second frame under a CSP that admits one script. Pick is in hand from the first frame
