@@ -81,7 +81,7 @@ export interface PresentResult {
 
 /** The call that opens a file for reading: `fs.promises.open`. */
 export type OpenFile = (path: string, flags: number) => Promise<FileHandle>;
-export type KeepSnapshot = (bytes: Buffer, extension: string | undefined) => Promise<PresentedSnapshot>;
+export type KeepSnapshot = (bytes: Buffer, extension: string) => Promise<PresentedSnapshot>;
 
 export interface PresentOptions {
 	/** The session's working directory: where a relative path is resolved. */
@@ -124,8 +124,11 @@ function snapshotExtension(fileName: string): string | undefined {
 }
 
 async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, fileName: string): Promise<SnapshotOutcome> {
+	const extension = snapshotExtension(fileName);
+	if (extension === undefined) return {};
 	try {
-		return { snapshot: await keep(bytes, snapshotExtension(fileName)) };
+		const snapshot = await keep(bytes, extension);
+		return denyReason(snapshot.path) === undefined ? { snapshot } : {};
 	} catch (error) {
 		return { snapshotFailure: error instanceof Error && error.message !== "" ? error.message : String(error) };
 	}

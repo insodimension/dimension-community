@@ -62,8 +62,8 @@ a `present` card or an Open button, and the Viewer is not a tool the model calls
   presented; an image is read whole only up to 25 MiB and 25 megapixels.
 - **A card opens the file as it was presented.** Each file of at most 25 MiB (100 MiB per call) is copied
   into the session blob store (`<agent>/blobs/<sha256>.<ext>`), so an agent that later overwrites the path
-  does not change what an older card opens. A larger file, or one whose copy failed, opens as it is when
-  clicked. `omp gc` removes a copy once no session refers to it.
+  does not change what an older card opens. A larger file, a file with no extension, or one whose copy failed,
+  opens as it is when clicked. `omp gc` removes a copy once no session refers to it.
 - **The Viewer reads only what it is lent**: the vault, folders in `VIEWER_ROOTS`, and the one file a
   person clicks Open on. Recordings play through fenced loopback HTTP ranges without a file-size cap or whole-file download before playback. An HTML page is never run; picking an
   element runs a second frame under a CSP that admits one script. Pick is in hand from the first frame

@@ -757,8 +757,11 @@ function snapshotExtension(fileName) {
   return SNAPSHOT_EXTENSION.test(extension) ? extension : void 0;
 }
 async function keepSnapshot(keep, bytes, fileName) {
+  const extension = snapshotExtension(fileName);
+  if (extension === void 0) return {};
   try {
-    return { snapshot: await keep(bytes, snapshotExtension(fileName)) };
+    const snapshot = await keep(bytes, extension);
+    return denyReason(snapshot.path) === void 0 ? { snapshot } : {};
   } catch (error51) {
     return { snapshotFailure: error51 instanceof Error && error51.message !== "" ? error51.message : String(error51) };
   }

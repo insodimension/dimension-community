@@ -528,20 +528,39 @@ describe("present: the copy a card opens is the file as it was presented", () =>
 		{ file: `too-long.${"a".repeat(33)}`, extension: undefined },
 	];
 	for (const { file, extension } of EXTENSIONS) {
-		test(`the copy of ${file} asks the store for ${extension === undefined ? "no extension" : `.${extension}`}`, async () => {
+		test(`${file} ${extension === undefined ? "is presented without a copy, so its card opens the file itself" : `is copied as .${extension}`}`, async () => {
 			await inFolder("extensions", async folder => {
 				await writeFile(join(folder, file), "x");
 				const { copies, keep } = copier();
 
-				await presentPaths(join(folder, file), { cwd: base, snapshot: keep });
+				const result = await presentPaths(join(folder, file), { cwd: base, snapshot: keep });
 
-				expect(copies).toEqual([{ sha256: sha256(Buffer.from("x")), length: 1, extension }]);
-				if (extension !== undefined) {
-					expect(denyReason(`/home/me/.inso/agent/blobs/${copies[0]?.sha256}.${extension}`), "the viewer's fence opens it").toBeUndefined();
+				if (extension === undefined) {
+					expect(copies).toEqual([]);
+					expect(one(result).snapshot).toBeUndefined();
+					return;
 				}
+				expect(copies).toEqual([{ sha256: sha256(Buffer.from("x")), length: 1, extension }]);
+				expect(denyReason(`/home/me/.inso/agent/blobs/${copies[0]?.sha256}.${extension}`), "the viewer's fence opens it").toBeUndefined();
 			});
 		});
 	}
+
+	test("a copy the viewer's fence would refuse (a database name in the engine home) is not kept", async () => {
+		await inFolder("refused-copy", async folder => {
+			await writeFile(join(folder, "data.db"), "x");
+			const digest = sha256(Buffer.from("x"));
+			const keep: KeepSnapshot = async () => ({
+				path: join(folder, ".inso", "agent", "blobs", `${digest}.db`),
+				ref: `blob:sha256:${digest}`,
+			});
+
+			const result = await presentPaths(join(folder, "data.db"), { cwd: base, snapshot: keep });
+
+			expect(one(result).snapshot).toBeUndefined();
+			expect(result.text).not.toContain("no copy was kept");
+		});
+	});
 
 	test("a file over the per-file cap is presented without a copy, and the files around it keep theirs", async () => {
 		await inFolder("over-cap", async folder => {
