@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
 
 type Json = Record<string, unknown>;
 
@@ -17,8 +18,9 @@ afterAll(() => {
 function shelfWith(requires: Json): string {
 	const root = mkdtempSync(join(tmpdir(), "pack-requires-"));
 	shelves.push(root);
+	initGitShelf(root);
 	mkdirSync(join(root, "scripts"));
-	for (const file of ["build-index.ts", "pack-manifest.mjs", "space-showcase.mjs", "validate-marketplace.mjs"]) {
+	for (const file of SHELF_SCRIPTS) {
 		cpSync(join(scriptsDir, file), join(root, "scripts", file));
 	}
 	mkdirSync(join(root, ".dimension-plugin"));
