@@ -45,20 +45,10 @@ export interface OwnershipStore {
   write(records: readonly OwnedRecord[]): void;
 }
 
-/** A JSON file, written atomically. A missing or corrupt file reads as "nothing owned": never a reason to refuse a boot. A record from before ownership was by process (no pid or start time) cannot be verified, so it reads as nothing too. */
 export function fileOwnershipStore(path: string): OwnershipStore {
   return {
-    read: () => {
-      let parsed: unknown;
-      try {
-        const stored = readDurableFileSync(path, parseRecordList);
-        if (stored.state === "absent") return [];
-        parsed = stored.value;
-      } catch {
-        return [];
-      }
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(
+    read: () =>
+      (readDurableFileSync(path, parseRecordList) ?? []).filter(
         (entry): entry is OwnedRecord =>
           typeof entry === "object" &&
           entry !== null &&
@@ -68,15 +58,14 @@ export function fileOwnershipStore(path: string): OwnershipStore {
           Number.isFinite(entry.startedAt) &&
           Number.isFinite(entry.bootedAt) &&
           Number.isSafeInteger(entry.ownerPid) &&
-          entry.ownerPid > 0 &&
+          (entry.ownerPid as number) > 0 &&
           Number.isFinite(entry.ownerStartedAt),
-      );
-    },
-    write: records => writeFileAtomicSync(path, JSON.stringify(records, null, 2), { backup: { isIntact: bytes => parseRecordList(bytes) !== undefined } }),
+      ),
+    write: records => writeFileAtomicSync(path, JSON.stringify(records, null, 2), { backup: { parse: parseRecordList } }),
   };
 }
 
-function parseRecordList(bytes: Buffer): unknown[] {
+function parseRecordList(bytes: Buffer): Array<{ readonly [field in keyof OwnedRecord]?: unknown } | null> {
   const parsed = parseJsonBytes(bytes);
   if (!Array.isArray(parsed)) throw new Error("the ownership record is not a list");
   return parsed;

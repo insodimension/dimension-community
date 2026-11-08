@@ -247,7 +247,7 @@ function open(sealed: string, origin: string, key: Buffer): string {
 function write(file: string, origins: Record<string, string>, key: CredentialKey): void {
   const sealed: Record<string, string> = {};
   for (const [origin, password] of Object.entries(origins)) sealed[origin] = seal(password, origin, key.get());
-  writeFileAtomicSync(file, `${JSON.stringify({ version: 2, origins: sealed })}\n`, { mode: 0o600, backup: { isIntact: (bytes) => parseStore(bytes).version === 2 } });
+  writeFileAtomicSync(file, `${JSON.stringify({ version: 2, origins: sealed })}\n`, { mode: 0o600, backup: { parse: parseSealedStore } });
 }
 
 interface StoredCredentials {
@@ -255,23 +255,36 @@ interface StoredCredentials {
   readonly origins: Record<string, string>;
 }
 
-function parseStore(bytes: Buffer): StoredCredentials {
-  let parsed: unknown;
+function parseJsonDocument(bytes: Buffer): unknown {
   try {
-    parsed = JSON.parse(bytes.toString("utf8"));
+    return JSON.parse(bytes.toString("utf8"));
   } catch {
     throw new Error("not JSON");
   }
+}
+
+function storeShape(parsed: unknown): StoredCredentials {
   const version = (parsed as { version?: unknown } | null)?.version;
   const origins = (parsed as { origins?: unknown } | null)?.origins;
-  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) throw new Error("not a saved-password store");
-  if (version !== 1 && version !== 2 && version !== undefined) throw new Error(`saved-password store version ${String(version)} is not one this browser reads`);
+  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) fail("credentials_unreadable", UNREADABLE);
+  if (version !== 1 && version !== 2 && version !== undefined) fail("credentials_unreadable", UNREADABLE);
   return { version, origins: origins as Record<string, string> };
 }
 
+function parseSealedStore(bytes: Buffer): StoredCredentials {
+  const store = storeShape(parseJsonDocument(bytes));
+  if (store.version !== 2) throw new Error("not a sealed store");
+  return store;
+}
+
 function readStore(file: string): StoredCredentials | undefined {
-  const read = readDurableFileSync(file, parseStore);
-  return read.state === "ok" ? read.value : undefined;
+  let parsed: unknown;
+  try {
+    parsed = readDurableFileSync(file, parseJsonDocument, { keepDamagedCopy: false });
+  } catch {
+    fail("credentials_unreadable", UNREADABLE);
+  }
+  return parsed === undefined ? undefined : storeShape(parsed);
 }
 
 /** Plain-text stores already said to be unencryptable, by file: said once, not at every read. */
@@ -283,12 +296,7 @@ const unmigrated = new Set<string>();
  * next read tries again.
  */
 function read(file: string, key: CredentialKey): Record<string, string> {
-  let store: StoredCredentials | undefined;
-  try {
-    store = readStore(file);
-  } catch {
-    fail("credentials_unreadable", UNREADABLE);
-  }
+  const store = readStore(file);
   if (store === undefined) return {};
   const { version, origins: stored } = store;
   // Version 1 is plain text, but a value in one that is sealed is opened, never taken for the password: a server from before this one

@@ -1,15 +1,15 @@
 export interface DurableBackupOptions {
-	readonly isIntact?: (bytes: Buffer) => boolean;
+	readonly parse: (bytes: Buffer) => unknown;
 }
 
 export interface DurableWriteOptions {
 	readonly mode?: number;
-	readonly backup?: boolean | DurableBackupOptions;
+	readonly backup?: DurableBackupOptions;
 }
 
-export type DurableRead<T> =
-	| { readonly state: "absent" }
-	| { readonly state: "ok"; readonly value: T; readonly source: "primary" | "backup" };
+export interface DurableReadOptions {
+	readonly keepDamagedCopy?: boolean;
+}
 
 export declare class DurableFileUnreadableError extends Error {
 	readonly filePath: string;
@@ -23,6 +23,6 @@ export declare function parseJsonBytes(bytes: Buffer): unknown;
 export declare function fsyncDirectorySync(directory: string): void;
 export declare function writeFileAtomicSync(filePath: string, data: string | Uint8Array, options?: DurableWriteOptions): void;
 export declare function writeFileAtomic(filePath: string, data: string | Uint8Array, options?: DurableWriteOptions): Promise<void>;
-export declare function readDurableFileSync<T>(filePath: string, parse: (bytes: Buffer) => T): DurableRead<T>;
-export declare function readDurableFile<T>(filePath: string, parse: (bytes: Buffer) => T): Promise<DurableRead<T>>;
+export declare function readDurableFileSync<T>(filePath: string, parse: (bytes: Buffer) => T, options?: DurableReadOptions): T | undefined;
+export declare function readDurableFile<T>(filePath: string, parse: (bytes: Buffer) => T, options?: DurableReadOptions): Promise<T | undefined>;
 export declare function removeDurableFile(filePath: string): Promise<void>;

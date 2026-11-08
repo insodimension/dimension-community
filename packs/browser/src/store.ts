@@ -289,7 +289,7 @@ export class ProfileStore {
 	}
 
 	private storedConnections(slug: string): SiteObservations {
-		const stored = (readJsonState(join(this.profileDir(slug), CONNECTIONS_FILE)) as { sites?: unknown } | null | undefined)?.sites;
+		const stored = readDurableFileSync(join(this.profileDir(slug), CONNECTIONS_FILE), parseJsonObject)?.sites;
 		const sites: SiteObservations = {};
 		if (typeof stored !== "object" || stored === null) return sites;
 		for (const [host, value] of Object.entries(stored as Record<string, unknown>)) {
@@ -332,9 +332,8 @@ export class ProfileStore {
 	}
 
 	private storedMeta(slug: string): StoredProfileMeta {
-		const value = readJsonState(join(this.profileDir(slug), PROFILE_FILE));
-		if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-		const parsed = value as Record<string, unknown>;
+		const parsed = readDurableFileSync(join(this.profileDir(slug), PROFILE_FILE), parseJsonObject);
+		if (parsed === undefined) return {};
 		const meta: StoredProfileMeta = {};
 		const label = cleanLabel(parsed.label);
 		if (label !== undefined) meta.label = label;
@@ -351,13 +350,14 @@ export class ProfileStore {
 	}
 }
 
-function readJsonState(path: string): unknown {
-	const read = readDurableFileSync(path, parseJsonBytes);
-	return read.state === "ok" ? read.value : undefined;
+function parseJsonObject(bytes: Buffer): Record<string, unknown> {
+	const value = parseJsonBytes(bytes);
+	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("not a JSON object");
+	return value as Record<string, unknown>;
 }
 
 function writeJsonAtomic(dir: string, file: string, value: unknown): void {
-	writeFileAtomicSync(join(dir, file), `${JSON.stringify(value)}\n`, { mode: 0o600, backup: { isIntact: bytes => parseJsonBytes(bytes) !== undefined } });
+	writeFileAtomicSync(join(dir, file), `${JSON.stringify(value)}\n`, { mode: 0o600, backup: { parse: parseJsonObject } });
 }
 
 function readLock(path: string): { pid?: number; token?: string; at?: string } | undefined {
