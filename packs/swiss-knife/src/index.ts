@@ -9,10 +9,7 @@ import { type KeepSnapshot, type PresentDetails, presentPaths } from "./present"
 
 function blobSnapshots(ctx: ExtensionContext): KeepSnapshot {
 	return async (bytes, extension) => {
-		const blob = await ctx.sessionManager.putBlob(
-			Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-			extension === undefined ? undefined : { extension },
-		);
+		const blob = await ctx.sessionManager.putBlob(bytes, { extension });
 		return { path: blob.displayPath, ref: blob.ref as BlobRef };
 	};
 }

@@ -81,7 +81,7 @@ export interface PresentResult {
 
 /** The call that opens a file for reading: `fs.promises.open`. */
 export type OpenFile = (path: string, flags: number) => Promise<FileHandle>;
-export type KeepSnapshot = (bytes: Uint8Array, extension: string | undefined) => Promise<PresentedSnapshot>;
+export type KeepSnapshot = (bytes: Buffer, extension: string | undefined) => Promise<PresentedSnapshot>;
 
 export interface PresentOptions {
 	/** The session's working directory: where a relative path is resolved. */
@@ -116,14 +116,14 @@ interface Budget {
 	readonly snapshotBytes: number;
 }
 
-type SnapshotOutcome = { readonly snapshot: PresentedSnapshot } | { readonly snapshotFailure: string };
+type SnapshotOutcome = { readonly snapshot?: PresentedSnapshot; readonly snapshotFailure?: string };
 
 function snapshotExtension(fileName: string): string | undefined {
 	const extension = extname(fileName).slice(1).toLowerCase();
 	return SNAPSHOT_EXTENSION.test(extension) ? extension : undefined;
 }
 
-async function keepSnapshot(keep: KeepSnapshot, bytes: Uint8Array, fileName: string): Promise<SnapshotOutcome> {
+async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, fileName: string): Promise<SnapshotOutcome> {
 	try {
 		return { snapshot: await keep(bytes, snapshotExtension(fileName)) };
 	} catch (error) {
@@ -179,7 +179,7 @@ function unresolvedReason(error: unknown): string {
 }
 
 /** Fill `size` bytes from the start of an open file; fewer if it shrank underneath us. */
-async function readWhole(handle: FileHandle, size: number): Promise<Uint8Array> {
+async function readWhole(handle: FileHandle, size: number): Promise<Buffer> {
 	const buffer = Buffer.allocUnsafe(size);
 	let filled = 0;
 	while (filled < size) {
@@ -248,16 +248,15 @@ async function presentOne(requested: unknown, run: Run, budget: Budget): Promise
 
 		const name = oneLine(fileName, MAX_ECHO);
 		const base: PresentedItem = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-		const snapshots = run.snapshot !== undefined && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes);
+		const keep = run.snapshot !== undefined && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? run.snapshot : undefined;
 		const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
-		if (!snapshots && !thumbnails) return { item: base };
+		if (keep === undefined && !thumbnails) return { item: base };
 		const bytes = await readWhole(handle, opened.size);
-		const kept = snapshots && run.snapshot !== undefined ? await keepSnapshot(run.snapshot, bytes, fileName) : undefined;
-		const item = kept !== undefined && "snapshot" in kept ? { ...base, snapshot: kept.snapshot } : base;
-		const snapshotFailure = kept !== undefined && "snapshotFailure" in kept ? { snapshotFailure: kept.snapshotFailure } : {};
+		const kept: SnapshotOutcome = keep === undefined ? {} : await keepSnapshot(keep, bytes, fileName);
+		const item = kept.snapshot === undefined ? base : { ...base, snapshot: kept.snapshot };
 		const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : undefined;
-		if (facts === undefined) return { item, ...snapshotFailure };
-		return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, ...snapshotFailure };
+		if (facts === undefined) return { item, snapshotFailure: kept.snapshotFailure };
+		return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, snapshotFailure: kept.snapshotFailure };
 	} finally {
 		await handle.close();
 	}
@@ -304,10 +303,11 @@ export async function presentPaths(input: string | readonly string[], options: P
 			images.push({ data: thumb.data, mimeType: thumb.mimeType });
 		}
 		items.push(thumb === undefined ? item : { ...item, thumb: images.length - 1 });
+		const presented = `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)})`;
 		lines.push(
 			snapshotFailure === undefined
-				? `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).`
-				: `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}); no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`,
+				? `${presented}.`
+				: `${presented}; no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`,
 		);
 	}
 	if (all.length > requested.length) {

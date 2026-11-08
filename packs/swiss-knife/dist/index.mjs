@@ -670,8 +670,8 @@ var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
 var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
 function isBlobSidecar(segments, blobsAt) {
-  const base = segments[segments.length - 1] ?? "";
-  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(base) && !DATABASE_FILE.test(base);
+  const name = segments[blobsAt + 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DATABASE_FILE.test(name);
 }
 function denyReason(path) {
   const segments = segmentsOf(path);
@@ -840,16 +840,15 @@ async function presentOne(requested, run2, budget) {
     run2.seen.add(real);
     const name = oneLine(fileName, MAX_ECHO);
     const base = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-    const snapshots = run2.snapshot !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes);
+    const keep = run2.snapshot !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? run2.snapshot : void 0;
     const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
-    if (!snapshots && !thumbnails) return { item: base };
+    if (keep === void 0 && !thumbnails) return { item: base };
     const bytes = await readWhole(handle, opened.size);
-    const kept = snapshots && run2.snapshot !== void 0 ? await keepSnapshot(run2.snapshot, bytes, fileName) : void 0;
-    const item = kept !== void 0 && "snapshot" in kept ? { ...base, snapshot: kept.snapshot } : base;
-    const snapshotFailure = kept !== void 0 && "snapshotFailure" in kept ? { snapshotFailure: kept.snapshotFailure } : {};
+    const kept = keep === void 0 ? {} : await keepSnapshot(keep, bytes, fileName);
+    const item = kept.snapshot === void 0 ? base : { ...base, snapshot: kept.snapshot };
     const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : void 0;
-    if (facts === void 0) return { item, ...snapshotFailure };
-    return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, ...snapshotFailure };
+    if (facts === void 0) return { item, snapshotFailure: kept.snapshotFailure };
+    return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, snapshotFailure: kept.snapshotFailure };
   } finally {
     await handle.close();
   }
@@ -888,8 +887,9 @@ async function presentPaths(input, options) {
       images.push({ data: thumb.data, mimeType: thumb.mimeType });
     }
     items2.push(thumb === void 0 ? item : { ...item, thumb: images.length - 1 });
+    const presented = `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)})`;
     lines.push(
-      snapshotFailure === void 0 ? `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).` : `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}); no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`
+      snapshotFailure === void 0 ? `${presented}.` : `${presented}; no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`
     );
   }
   if (all.length > requested.length) {
@@ -16913,10 +16913,7 @@ function sharedLibrary() {
 // src/index.ts
 function blobSnapshots(ctx) {
   return async (bytes, extension) => {
-    const blob = await ctx.sessionManager.putBlob(
-      Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      extension === void 0 ? void 0 : { extension }
-    );
+    const blob = await ctx.sessionManager.putBlob(bytes, { extension });
     return { path: blob.displayPath, ref: blob.ref };
   };
 }

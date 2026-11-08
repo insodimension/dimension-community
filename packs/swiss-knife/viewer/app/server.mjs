@@ -32156,8 +32156,8 @@ var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
 var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
 function isBlobSidecar(segments, blobsAt) {
-  const base = segments[segments.length - 1] ?? "";
-  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(base) && !DATABASE_FILE.test(base);
+  const name = segments[blobsAt + 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DATABASE_FILE.test(name);
 }
 function denyReason(path2) {
   const segments = segmentsOf(path2);
