@@ -112,6 +112,22 @@ whose version is unknown is never gated. Omit the field when your pack has no
 floor; `packs/build` is the worked example (it pins the bundled `general-chat`
 companion, which first ships in Dimension 0.10.5).
 
+### `requires.plugins`
+
+A pack that calls another pack's tools declares the range of that pack it was
+built against, next to `requires.dimension`:
+
+```json
+{ "requires": { "plugins": { "browser@dimension-community": "^0.9.13", "traction-assets": "^0.2.13" } } }
+```
+
+A key is `name` (a pack on the same shelf as yours) or `name@marketplace`. A
+requirement resolves only in that one marketplace, never from another shelf the
+person added. Install and update move the set together and list every pack they
+moved; a pack whose requirement is not met is not loaded, and the Store says
+which one. The range follows the engine's `isSemverRange` (at most 128
+characters, at most 32 entries). Declare only packs yours cannot work without.
+
 ### `channel` — keep samples and work in progress off stable
 
 A pack that is not a user feature on its own declares `"channel": "canary"` in its
