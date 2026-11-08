@@ -153,7 +153,7 @@ export const OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.back
 export const DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 /** `.inso`, `.inso-dev`, `.omp` and their suffixed variants. */
 export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-export const DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+const DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
 
 /**
  * Why `path` must never be opened, or `undefined` when nothing on it is
