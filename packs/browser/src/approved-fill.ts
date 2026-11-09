@@ -9,7 +9,7 @@ import { type FillApproval, fillDigest, type PublishApprovals } from "./publish-
 import { fail } from "./store.js";
 import { SUBMIT_JUDGE_LIMITS, type SubmitJudgeApproval, type SubmitJudgeRequest, type SubmitJudgeVerdict } from "./submit-judge.js";
 
-export const TRACTION_PROFILE = /^traction-/;
+const TRACTION_PROFILE = /^traction-/;
 export const PUBLISH_PROFILES_FILE = "publish-profiles.json";
 export const FILL_CLAIM_MS = 10 * 60_000;
 export const JUDGE_CONFIDENCE_BAR = 0.8;
