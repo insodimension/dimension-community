@@ -3,7 +3,6 @@
 import type { Size } from "./shared/pointer";
 
 export type DevicePlatform = "android";
-/** `physical` is somebody's own phone: never driven without the explicit two-key opt-in in device-safety.ts. */
 export type DeviceKind = "emulator" | "physical";
 export type DeviceState = "online" | "booting" | "offline" | "unauthorized";
 

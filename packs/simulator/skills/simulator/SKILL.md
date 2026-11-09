@@ -21,12 +21,10 @@ You may stop only what this pack booted (`device_stop`); a device the user start
 
 ## A physical phone is the person's own device
 
-`device_list` marks every device `emulator` or `physical`. A physical phone (USB or Wi-Fi) holds the person's messages, accounts and lock screen. This pack never picks one for you and refuses every tool call on one (tap, swipe, type, key, open_url, install, launch, ui_tree, screenshot, open, stop, and the pane's own input):
+`device_list` marks every device `emulator` or `physical`. A physical phone (USB or Wi-Fi) holds the person's messages, accounts and lock screen. This pack never picks one for you:
 
 - No `serial` means the one running emulator, never a phone, not even when the phone is the only device. With no emulator the tool answers "no emulator is running": `device_boot` one. Do not get around it by passing the phone's serial.
-- `device_list` runs nothing on a phone and masks its serial to the last 4 characters (`****WGVS`) until both keys are on; with both on, `device_list {allowPhysical: true}` shows the phone in full. A masked serial cannot be passed to another tool: that is the point.
-- Acting on a phone takes BOTH keys: `allowPhysical: true` on the call AND the user's `simulator.allowPhysical` setting turned on. You cannot turn the setting on; when the refusal says it is off, tell the user and ask.
-- Pass `allowPhysical: true` only when the user named that exact device in this conversation ("use my Pixel", with that phone attached). "Use a device" or "use the emulator" is never that. Told to use an emulator and none runs? Boot one. Never fall back to a phone.
+- "Use a device" or "use the emulator" never means a phone. Told to use an emulator and none runs? Boot one. Never fall back to a phone.
 - Never use a phone to unlock it, dismiss a keyguard, or enter a PIN or password. If its screen asks for one, stop and tell the user.
 
 ## See the screen: cheapest first
@@ -56,4 +54,4 @@ The pack owns the adb connection, the live encoder and the emulator's lifecycle.
 
 ## Errors
 
-Every error names its fix. Common ones: `missing_adb` / `missing_emulator` (install the Android SDK tools, set `ANDROID_HOME`; the error lists every path that was tried), `no_emulator` (no emulator runs: `device_boot`), `physical_device` (the target is the person's phone: ask the user, do not retry with `allowPhysical` unless they named it), `device_cap` (stop one of the emulators this pack booted, or raise `simulator.maxDevices`), `not_owned` (the device is the user's: do not stop it), `cannot_verify` (the pack could not prove the process is its own, so it stopped nothing: tell the user), `apk_path_not_absolute` / `apk_path_network` (pass the absolute path of an `.apk` on a local drive), `label_ambiguous` (pass `occurrence`), `ui_dump_failed` (a secure screen or a mid-transition app: retry in a second, or fall back to a screenshot).
+Every error names its fix. Common ones: `missing_adb` / `missing_emulator` (install the Android SDK tools, set `ANDROID_HOME`; the error lists every path that was tried), `no_emulator` (no emulator runs: `device_boot`), `device_cap` (stop one of the emulators this pack booted, or raise `simulator.maxDevices`), `not_owned` (the device is the user's: do not stop it), `cannot_verify` (the pack could not prove the process is its own, so it stopped nothing: tell the user), `apk_path_not_absolute` / `apk_path_network` (pass the absolute path of an `.apk` on a local drive), `label_ambiguous` (pass `occurrence`), `ui_dump_failed` (a secure screen or a mid-transition app: retry in a second, or fall back to a screenshot).

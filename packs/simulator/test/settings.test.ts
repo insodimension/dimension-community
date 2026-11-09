@@ -1,6 +1,5 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: the person's own switches stop
- *  meaning what they set. `simulator.allowPhysical` is the safety key for the
- *  owner's phone, so a typo must leave it OFF; `simulator.gpu` goes straight
+ *  meaning what they set. `simulator.gpu` goes straight
  *  onto the emulator's command line, where an unknown word stops the emulator
  *  starting at all. The pack's server reads the same config file the engine
  *  does, in either of the shapes `omp config set` leaves.
@@ -11,32 +10,6 @@ import { agentConfigPath, GPU_MODES, readGroupScalars, readSettings, type Settin
 function source(yaml: string | null, env: Record<string, string> = {}): SettingsSource {
   return { env, home: "/home/me", readFile: () => yaml };
 }
-
-describe("simulator.allowPhysical fails closed", () => {
-  const on = ["true", "TRUE", "on", "On", "yes", "1", '"true"', "true # the owner said so"];
-  for (const value of on) {
-    test(`${value} turns it on`, () => {
-      expect(readSettings(source(`simulator:\n  allowPhysical: ${value}\n`)).allowPhysical).toBe(true);
-    });
-  }
-
-  const off = ["false", "off", "no", "0", "ture", "enabled", "2", "", "truee", '"yes please"'];
-  for (const value of off) {
-    test(`${JSON.stringify(value)} leaves it off`, () => {
-      expect(readSettings(source(`simulator:\n  allowPhysical: ${value}\n`)).allowPhysical).toBe(false);
-    });
-  }
-
-  test("a file with no mention of it leaves it off", () => {
-    expect(readSettings(source("simulator:\n  maxDevices: 3\n")).allowPhysical).toBe(false);
-    expect(readSettings(source(null)).allowPhysical).toBe(false);
-  });
-
-  test("the environment overrides the file, in both directions", () => {
-    expect(readSettings(source("simulator:\n  allowPhysical: false\n", { SIMULATOR_ALLOW_PHYSICAL: "true" })).allowPhysical).toBe(true);
-    expect(readSettings(source("simulator:\n  allowPhysical: true\n", { SIMULATOR_ALLOW_PHYSICAL: "false" })).allowPhysical).toBe(false);
-  });
-});
 
 describe("simulator.gpu is always a mode the emulator knows", () => {
   for (const mode of GPU_MODES) {
@@ -80,12 +53,12 @@ describe("numeric settings", () => {
 
 describe("where the values come from", () => {
   test("both shapes omp config set can leave: a nested block and dotted keys", () => {
-    expect(readGroupScalars("simulator:\n  gpu: host\n  allowPhysical: true\n", "simulator")).toEqual({ gpu: "host", allowPhysical: "true" });
-    expect(readGroupScalars("simulator.gpu: host\nsimulator.allowPhysical: true\n", "simulator")).toEqual({ gpu: "host", allowPhysical: "true" });
+    expect(readGroupScalars("simulator:\n  gpu: host\n  maxDevices: 3\n", "simulator")).toEqual({ gpu: "host", maxDevices: "3" });
+    expect(readGroupScalars("simulator.gpu: host\nsimulator.maxDevices: 3\n", "simulator")).toEqual({ gpu: "host", maxDevices: "3" });
   });
 
   test("another group's keys, comments and quoting are not this group's", () => {
-    const yaml = ["# settings", "browser:", "  gpu: angle_indirect", "simulator:", '  gpu: "host"  # trailing', "other:", "  allowPhysical: true"].join("\n");
+    const yaml = ["# settings", "browser:", "  gpu: angle_indirect", "simulator:", '  gpu: "host"  # trailing', "other:", "  maxDevices: 3"].join("\n");
     expect(readGroupScalars(yaml, "simulator")).toEqual({ gpu: "host" });
   });
 

@@ -87,7 +87,7 @@ reaches it.
 
 | Tool | Does |
 | --- | --- |
-| `device_list {allowPhysical?}` | Running devices (each with `kind`: `emulator` or `physical`), bootable AVDs, missing prerequisites with fixes and every path tried. A phone is described by adb's own listing only unless both keys are on (see **Physical phones**). |
+| `device_list` | Running devices (each with `kind`: `emulator` or `physical`), bootable AVDs, missing prerequisites with fixes and every path tried. |
 | `device_boot {avd?, headless?, cold?, readOnly?, waitSeconds?}` | Boot an emulator. Returns within 25 s; call again with the same `avd` to wait. An AVD that already runs (even one you started) is returned as `online`/`booting`, not duplicated and not owned. `readOnly: true` starts a second, throwaway instance (`-read-only`; the result says so). If the emulator process was suspended by the system, it is resumed and the result says so. If the host GPU never answers, the boot is stopped and relaunched once with software graphics, and the result says so. A failed boot's error ends with the last 15 lines of the emulator's log. |
 | `device_stop {serial}` | Stop an emulator this pack booted (refused for any other), by the process the pack spawned. |
 | `device_screenshot {serial?, maxEdge?}` | PNG, at most `maxEdge` px on the long edge (default 1024); the text gives the scale to device pixels. |
@@ -99,9 +99,11 @@ reaches it.
 | `device_open {serial?, avd?, boot?}` | Show the pane beside the conversation. |
 | `device_stream` (app only) | The View's door to the frames lane: a loopback WebSocket address with a single-use token (valid for one socket; ask again to reconnect). |
 
-Every tool that acts on a device takes `allowPhysical` (see **Physical phones**).
-`serial` may be left out only when exactly one *emulator* runs (or the pane holds
-one in this session). With several, name it.
+`device_tap`, `device_swipe`, `device_type`, `device_key`, `device_open_url`,
+`device_install` and `device_launch` drive a device, including a physical phone,
+so they declare the `exec` tier; your permission mode decides whether you are
+asked. `serial` may be left out only when exactly one *emulator* runs (or the
+pane holds one in this session). With several, name it.
 
 ## Physical phones
 
@@ -115,38 +117,9 @@ because it was the only device listed. So:
 - Leaving `serial` out selects only an *emulator*, never a phone, even when it is
   the only device (the tool then says no emulator is running and to call
   `device_boot`).
-- Every tool that acts on a device (tap, swipe, type, key, open_url, install,
-  launch, ui_tree, screenshot, open, stop) and the pane's frames lane refuse a
-  physical device unless the call passes `allowPhysical: true` **and** the user's
-  `simulator.allowPhysical` setting is on. The refusal names both and says to ask
-  the user. The skill tells the agent to pass the flag only for a phone the user
-  named in the conversation, and never to unlock it or enter a PIN.
-- What `device_list` shows of a phone is gated by the same two keys. Without both
-  (`allowPhysical: true` on the call and `simulator.allowPhysical` on), the pack
-  runs no shell on a device whose serial does not start `emulator-`: it is listed
-  from adb's own `devices -l` fields (state, model), classed `physical`, and its
-  serial is masked to `****` plus its last four characters in everything the
-  model reads. With both keys on, the pack reads its details and shows the full
-  serial. The pane reads the structured listing, which keeps the full serial (the
-  model never receives it) but is gathered under the same two keys, so a phone in
-  the picker shows adb's model and state only. A network-attached emulator whose
-  serial is not `emulator-*` therefore also needs both keys to be recognised.
-- Turning `simulator.allowPhysical` off ends a pane that is already streaming a
-  phone: within about two seconds, with no input needed, the socket closes with
-  the reason and the encoder stops. While no physical viewer is attached nothing
-  polls the setting.
-- The pane lists emulators only. **Show physical devices** (off by default,
-  disabled while the setting is off) adds phones to the device menu, each marked "physical";
-  it never picks one for you, and an agent's `device_open` on a phone does not
-  switch the pane to it.
-- **What this gate is, and is not.** It stops an agent reaching your phone by
-  mistake, which is the failure that happened. It is not a sandbox against an
-  agent that can write your files or run a shell: `simulator.allowPhysical` lives
-  in your agent config and the pack's ownership record (`owned.json`, which says
-  which emulators it may stop) lives in your Dimension data folder, both ordinary
-  files. Give an agent file-write or shell permission only as you would give it to
-  a person at your keyboard, and keep `simulator.allowPhysical` off unless you are
-  using a phone on purpose.
+- The pane lists emulators only. **Show physical devices** (off by default) adds
+  phones to the device menu, each marked "physical"; it never picks one for you,
+  and an agent's `device_open` on a phone does not switch the pane to it.
 
 ## Prerequisites
 
@@ -315,14 +288,12 @@ emulator ── adb ── scrcpy-server (H.264 encoder, control socket)
 ## Settings
 
 `simulator.maxDevices` (2), `simulator.idleMinutes` (15), `simulator.sdkPath`
-(empty), `simulator.allowPhysical` (false: the user's key to a physical phone),
-`simulator.gpu` (`auto`; `host`, `swiftshader_indirect` or `angle_indirect`: the
+(empty), `simulator.gpu` (`auto`; `host`, `swiftshader_indirect` or `angle_indirect`: the
 emulator's `-gpu` mode). The engine does not hand a pack's MCP server its settings, so
 the server reads the same user config the engine does (`$PI_CODING_AGENT_DIR` or
 `~/<$PI_CONFIG_DIR | .omp>/agent/config.yml`) when it needs a value; the environment
 variables `SIMULATOR_MAX_DEVICES`, `SIMULATOR_IDLE_MINUTES`, `SIMULATOR_SDK_PATH`,
-`SIMULATOR_ALLOW_PHYSICAL`, `SIMULATOR_GPU` override it. Anything but an unambiguous
-`true`/`on`/`yes`/`1` reads as off for `allowPhysical`; an unknown `gpu` reads as `auto`.
+`SIMULATOR_GPU` override it. An unknown `gpu` reads as `auto`.
 
 `mcp.json` sets an `env` block on purpose: a server entry with an `env` is
 launched with the engine's full environment (so `ANDROID_HOME` and `PATH` are
@@ -358,7 +329,7 @@ visible), one without gets only the SDK's minimal default.
   (30 s on the desktop); `device_list` shows whether it landed.
 - `adb forward` carries scrcpy's video and control sockets on a loopback port that
   any local process can connect to while the pack connects (up to 10 s), bypassing
-  the token and the physical gate; adb's own port 5037 has the same boundary. A
+  the token; adb's own port 5037 has the same boundary. A
   reverse tunnel (the device connects to a listener the pack owns and accepts exactly
   two connections) would remove it and is not done. The pushed `inso-sim-scrcpy.jar`
   stays in `/data/local/tmp` on the device.

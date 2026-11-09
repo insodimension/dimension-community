@@ -71,10 +71,6 @@ export interface RunningEmulator {
 
 export type StopOutcome = "stopped" | "already-exited";
 
-export interface ListOptions {
-  readonly probePhysical?: boolean;
-}
-
 export interface StopOptions {
   readonly avd: string;
   readonly graceMs?: number;
@@ -84,8 +80,8 @@ export interface StopOptions {
 export interface DeviceBackend {
   readonly platform: "android";
 
-  list(options?: ListOptions): Promise<DeviceInfo[]>;
-  kindOf(serial: string, probeShell?: boolean): Promise<DeviceKind>;
+  list(): Promise<DeviceInfo[]>;
+  kindOf(serial: string): Promise<DeviceKind>;
   /** Bootable virtual devices (AVD names). */
   avds(): Promise<string[]>;
   /** Start a virtual device. Does not wait for it to finish booting: see `BootHandle.ready`. */

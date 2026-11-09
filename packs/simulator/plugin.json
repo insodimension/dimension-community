@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "simulator",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "An Android phone emulator beside your chat that your agent can drive while you watch: tap, type, install and open apps.",
 	"keywords": [
 		"simulator",
@@ -107,12 +107,6 @@
 						"default": "",
 						"label": "Android SDK folder",
 						"description": "Where adb and the emulator live, when ANDROID_HOME is not set. Empty = ANDROID_HOME, then the default SDK location."
-					},
-					"allowPhysical": {
-						"type": "boolean",
-						"default": false,
-						"label": "Allow driving a physical phone",
-						"description": "Off (default): the agent and the pane never drive or read a phone. A USB or Wi-Fi phone still shows up in the device list, from adb's own listing only (state and model, serial masked to its last 4 characters); nothing is run on it. On: a phone becomes drivable, and readable in full, but only when the agent is also told to (allowPhysical on the call) after you named that exact phone. A phone is your own device; keep this off unless you want an agent to touch it."
 					},
 					"gpu": {
 						"type": "enum",

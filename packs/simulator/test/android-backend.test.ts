@@ -509,7 +509,7 @@ describe("which devices are phones", () => {
   for (const row of kinds) {
     test(`kindOf ${row.serial}: ${row.kind} (${row.why})`, async () => {
       const { backend } = rig(world);
-      expect(await backend.kindOf(row.serial, true)).toBe(row.kind);
+      expect(await backend.kindOf(row.serial)).toBe(row.kind);
     });
   }
 
@@ -526,7 +526,7 @@ describe("which devices are phones", () => {
 
   test("the device list carries the same verdicts, and the owner's phone is never called an emulator", async () => {
     const { backend } = rig(world);
-    const listed = await backend.list({ probePhysical: true });
+    const listed = await backend.list();
     expect(Object.fromEntries(listed.map(device => [device.serial, device.kind]))).toEqual({
       [PHONE]: "physical",
       "emulator-5554": "emulator",
@@ -535,31 +535,6 @@ describe("which devices are phones", () => {
       "10.0.0.9:5555": "emulator",
       "NETPHONE:5555": "physical",
     });
-  });
-
-  test("a list without probing runs no shell on anything that is not an emulator, and builds the phone's entry from adb's own fields", async () => {
-    const { backend } = rig(world);
-    const listed = await backend.list();
-
-    const shelled = new Set(tools.calls().filter(call => call.args[0] === "shell").map(call => call.serial));
-    expect([...shelled]).toEqual(["emulator-5554"]);
-    expect(listed.find(device => device.serial === PHONE)).toMatchObject({ kind: "physical", state: "online", name: "IV2201", androidVersion: null, display: null, density: null });
-    expect(Object.fromEntries(listed.map(device => [device.serial, device.kind]))).toEqual({
-      [PHONE]: "physical",
-      "emulator-5554": "emulator",
-      ZX1PROBEFAIL: "physical",
-      UNAUTH0001: "physical",
-      "10.0.0.9:5555": "physical",
-      "NETPHONE:5555": "physical",
-    });
-  });
-
-  test("a kind asked for without probing runs no shell, so an emulator on the network is a phone until both keys are on", async () => {
-    const { backend } = rig(world);
-    expect(await backend.kindOf("10.0.0.9:5555")).toBe("physical");
-    expect(await backend.kindOf(PHONE)).toBe("physical");
-    expect(tools.calls().filter(call => call.args[0] === "shell")).toEqual([]);
-    expect(await backend.kindOf("10.0.0.9:5555", true)).toBe("emulator");
   });
 });
 

@@ -147,7 +147,7 @@ export function createShell(root: HTMLElement, handlers: ShellHandlers): Shell {
           ];
           if (screen.missing.length > 0) body.push(missingList(screen.missing));
           else if (avds.length === 0) body.push(el("p", "sim-missing-fix", {}, "Create one in Android Studio → Device Manager (or with avdmanager), then check again."));
-          if (screen.hiddenPhones > 0) body.push(el("p", "sim-missing-fix", {}, `${screen.hiddenPhones === 1 ? "A physical phone is attached and is" : `${screen.hiddenPhones} physical phones are attached and are`} not shown: the pane lists emulators only, unless Show physical devices is on and allowed in settings.`));
+          if (screen.hiddenPhones > 0) body.push(el("p", "sim-missing-fix", {}, `${screen.hiddenPhones === 1 ? "A physical phone is attached and is" : `${screen.hiddenPhones} physical phones are attached and are`} not shown: the pane lists emulators only, unless Show physical devices is on.`));
           if (screen.listedPhones > 0) body.push(el("p", "sim-missing-fix", {}, "Pick your physical phone from the device list to open it here. The pane never opens one for you."));
           showPanel("No device running", body, [...actions, button("Check again", "sim-btn-quiet", () => handlers.refresh())]);
           break;

@@ -17,15 +17,13 @@ export interface ListState {
   readonly avds: readonly { readonly name: string; readonly running: boolean }[];
   readonly toolchain: { readonly adb: string | null; readonly emulator: string | null; readonly scrcpyServer: string | null; readonly missing: readonly MissingTool[] };
   readonly live: boolean;
-  /** The user's `simulator.allowPhysical` setting: without it the pane never lists a phone. */
-  readonly allowPhysical: boolean;
 }
 
 export type Screen =
   | { readonly kind: "loading" }
   | { readonly kind: "unavailable"; readonly reason: string }
   | { readonly kind: "missing-adb"; readonly missing: readonly MissingTool[] }
-  /** `hiddenPhones`: attached phones the pane is not listing (emulators only, unless the person asks and the setting allows). `listedPhones`: phones in the picker that nobody picked. */
+  /** `hiddenPhones`: attached phones the pane is not listing (emulators only, unless the person asks). `listedPhones`: phones in the picker that nobody picked. */
   | { readonly kind: "no-device"; readonly avds: readonly string[]; readonly missing: readonly MissingTool[]; readonly hiddenPhones: number; readonly listedPhones: number }
   /** `notes`: what the boot said about itself (fell back to software graphics, ...). */
   | { readonly kind: "booting"; readonly avd: string; readonly notes: readonly string[] }
@@ -43,13 +41,12 @@ export interface Selection {
 
 /**
  * Online or starting devices the pane may offer: every emulator, and a physical
- * phone only while the person asked to see phones AND the setting allows driving one.
+ * phone only while the person asked to see phones.
  * An emulator adb lists as `offline` is one that is still starting (it has a console
  * before adb has a transport): it is shown as booting, not as "no device".
  */
 export function usableDevices(list: ListState, showPhysical: boolean): DeviceInfo[] {
-  const phones = showPhysical && list.allowPhysical;
-  return list.devices.filter(device => (device.state === "online" || device.state === "booting" || (device.state === "offline" && device.kind === "emulator")) && (device.kind === "emulator" || phones));
+  return list.devices.filter(device => (device.state === "online" || device.state === "booting" || (device.state === "offline" && device.kind === "emulator")) && (device.kind === "emulator" || showPhysical));
 }
 
 export function deriveScreen(list: ListState | null, selection: Selection, failure: string | null, showPhysical: boolean): Screen {
@@ -117,8 +114,6 @@ export function deviceControls(screen: Screen, list: ListState | null, selectedA
         : screen.kind === "booting"
           ? { value: `avd:${screen.avd}`, name: screen.avd, serial: null, dot: "starting", physical: false }
           : null;
-  const allowed = list?.allowPhysical === true;
-  const on = allowed && showPhysical;
   const owned = device?.owned === true ? device.serial : null;
   return {
     current,
@@ -132,9 +127,9 @@ export function deviceControls(screen: Screen, list: ListState | null, selectedA
     },
     refreshDisabled: busy,
     physical: {
-      on,
-      disabled: list === null || !allowed || busy,
-      label: !allowed ? "Show physical devices: off in settings (Simulator, Allow driving a physical phone)" : on ? "Hide physical devices" : "Show physical devices",
+      on: showPhysical,
+      disabled: list === null || busy,
+      label: showPhysical ? "Hide physical devices" : "Show physical devices",
     },
   };
 }
