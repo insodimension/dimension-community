@@ -14,7 +14,8 @@ const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-const { default: youtubeExtension, commentRefusal, videoIdOf } = await import("../index.ts?youtube-connector");
+const { default: youtubeExtension, commentRefusal } = await import("../index.ts?youtube-connector");
+const { videoIdOf } = await import("../api.ts?youtube-connector");
 if (priorHome === undefined) delete process.env.HOME;
 else process.env.HOME = priorHome;
 if (priorUserProfile === undefined) delete process.env.USERPROFILE;
@@ -26,7 +27,7 @@ interface Tool {
 }
 
 const tools = new Map<string, Tool>();
-youtubeExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool) } as never);
+youtubeExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool), on: () => undefined } as never);
 
 function tool(name: string): Tool {
 	const found = tools.get(name);

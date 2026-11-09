@@ -7,12 +7,18 @@ You have access to the **youtube** skill — native tools over the connected
 Google account's YouTube: `youtube_search`, `youtube_get_videos`,
 `youtube_list_playlists`, `youtube_list_playlist_items`, `youtube_playlist_add`,
 `youtube_list_comments`, `youtube_post_comment`, `youtube_get_captions`,
-`youtube_channel_stats`.
+`youtube_channel_stats`, `youtube_video_analytics`, `youtube_reach_report`,
+`youtube_update_video`.
 
 - **Confirm before writing.** `youtube_playlist_add` and `youtube_post_comment`
   are mutating. A comment is **public** under the channel's name: state the
   exact target and the full text and get the user's go-ahead. The tool refuses
   a sixth comment in a UTC day and any text that repeats an earlier comment.
+- **Video changes go through the board.** `youtube_update_video` changes a
+  posted video's title or thumbnail only with an approved Traction
+  `youtube-update` draft: pass its draft id and exactly the approved value. A
+  `publish_unapproved` refusal means nothing changed; one saying the approval
+  was used means the change may be live, so never send it again.
 - **Resolve ids, don't guess.** Turn titles and names into ids with
   `youtube_search`, `youtube_list_playlists` or `youtube_channel_stats`
   (by `@handle`) before acting.
@@ -27,10 +33,13 @@ Google account's YouTube: `youtube_search`, `youtube_get_videos`,
   `UU…`) with `youtube_list_playlist_items`, then up to 50 ids per
   `youtube_get_videos` call. `quotaExceeded` means the project is out for
   the day.
-- **Numbers.** Public views count from the first frame since 2026-08-24. Watch
-  time, average view duration, retention, impressions and CTR are read in
-  YouTube Studio through the Browser, not here; name each number's source and
-  the time it was read.
+- **Numbers.** Public views count from the first frame since 2026-08-24. For the
+  connected channel's own videos, `youtube_video_analytics` reads watch time,
+  average view duration and percentage, traffic sources and retention, and
+  `youtube_reach_report` reads thumbnail impressions and CTR. Both trail by
+  about two days: a video's first 48 hours, and any other channel, are read in
+  YouTube Studio through the Browser. Name each number's source and the time it
+  was read.
 - If a call errors "isn't connected yet" or the token is rejected, point the
   user at **Plugins → YouTube → Reconnect**. A connection that dies every week
   means the Google OAuth consent screen is still in Testing: publish it.
