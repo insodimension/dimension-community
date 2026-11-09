@@ -223,6 +223,8 @@ describe("a lent file on a real disk", () => {
 	let root: string;
 	let project: string;
 	const home = "/nonexistent-home";
+	const HASH = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+	const engine = (...parts: string[]) => nodePath.join(base, "home", ".inso", ...parts);
 
 	beforeAll(async () => {
 		// `realpath` first: the temp dir may be spelled with 8.3 short names or a link.
@@ -242,6 +244,17 @@ describe("a lent file on a real disk", () => {
 		await writeFile(nodePath.join(project, "id_rsa"), "PRIVATE_KEY_MATERIAL");
 		await writeFile(nodePath.join(project, "locker", "entry.json"), "SEALED_ENTRY");
 		await writeFile(nodePath.join(base, "home", ".inso", "agent", "sessions.jsonl"), "AGENT_CREDENTIALS");
+		await mkdir(nodePath.join(base, "home", ".inso", "agent", "blobs", "nested"), { recursive: true });
+		await mkdir(nodePath.join(base, "home", ".inso", "profiles", "p1", "agent", "blobs"), { recursive: true });
+		for (const blob of [
+			engine("agent", "blobs", `${HASH}.png`),
+			engine("profiles", "p1", "agent", "blobs", `${HASH}.jpg`),
+			engine("agent", "blobs", HASH),
+			engine("agent", "blobs", "nested", `${HASH}.png`),
+			engine("agent", "blobs", `${HASH}.db`),
+		]) {
+			await writeFile(blob, "SNAPSHOT_BYTES");
+		}
 		await writeFile(nodePath.join(base, "outside", "secret.txt"), "OUTSIDE_SECRET");
 		if (linkable) {
 			await symlink(nodePath.join(project, "granted.txt"), nodePath.join(project, "via-link.txt"), "file");
@@ -295,6 +308,49 @@ describe("a lent file on a real disk", () => {
 			expect(verdict.ok).toBe(false);
 			expect(reasonOf(verdict)).toContain(words[index] as string);
 			expect(reasonOf(verdict)).not.toMatch(/SECRET_VALUE|PRIVATE_KEY_MATERIAL|SEALED_ENTRY|AGENT_CREDENTIALS/);
+		}
+	});
+
+	test("a presented file's copy in the engine's blob store opens only with its grant, as that exact file", async () => {
+		for (const copy of [engine("agent", "blobs", `${HASH}.png`), engine("profiles", "p1", "agent", "blobs", `${HASH}.jpg`)]) {
+			expect(reasonOf(await fence().check(copy))).toContain("agent state");
+			expect(await fence().check(copy, lend(copy))).toEqual({ ok: true, real: copy });
+		}
+	});
+
+	test("a root the user configured over the engine home never opens the blob store on its own: the copy still needs its grant", async () => {
+		const wide = () => createFence({ home, env: { VIEWER_ROOTS: nodePath.join(base, "home") } });
+		for (const copy of [engine("agent", "blobs", `${HASH}.png`), engine("profiles", "p1", "agent", "blobs", `${HASH}.jpg`)]) {
+			for (const meta of [undefined, lend(at("granted.txt"))]) {
+				const verdict = await wide().check(copy, meta);
+				expect(verdict.ok, copy).toBe(false);
+				expect(reasonOf(verdict), copy).toContain("agent state");
+				expect(reasonOf(verdict), copy).not.toContain("SNAPSHOT_BYTES");
+			}
+			expect(await wide().check(copy, lend(copy))).toEqual({ ok: true, real: copy });
+		}
+	});
+
+	test("a copy that does not exist is refused exactly as one that does, so the blob store's contents are no oracle", async () => {
+		const wide = () => createFence({ home, env: { VIEWER_ROOTS: nodePath.join(base, "home") } });
+		const missing = engine("agent", "blobs", `${"0".repeat(64)}.png`);
+		const stored = engine("agent", "blobs", `${HASH}.png`);
+		for (const make of [wide, fence]) {
+			const answer = async (path: string, meta: unknown) => reasonOf(await make().check(path, meta)).replaceAll(path, "<path>");
+			for (const meta of [undefined, lend(at("granted.txt"))]) {
+				expect(await answer(missing, meta)).toContain("agent state");
+				expect(await answer(missing, meta)).toBe(await answer(stored, meta));
+			}
+		}
+	});
+
+	test("beside a lent copy the engine home stays closed even when lent: a blob with no extension, a nested one and a database", async () => {
+		const closed = [engine("agent", "blobs", HASH), engine("agent", "blobs", "nested", `${HASH}.png`), engine("agent", "blobs", `${HASH}.db`)];
+		for (const path of closed) {
+			const verdict = await fence().check(path, lend(...closed));
+			expect(verdict.ok, path).toBe(false);
+			expect(reasonOf(verdict), path).toContain("agent state");
+			expect(reasonOf(verdict), path).not.toContain("SNAPSHOT_BYTES");
 		}
 	});
 

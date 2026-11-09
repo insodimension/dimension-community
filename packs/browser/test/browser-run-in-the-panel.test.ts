@@ -159,7 +159,7 @@ interface Scripted {
   opened: BrowserOpenOptions[];
 }
 
-function portShowing(shown: ShownEntry): Scripted {
+function portShowing(shown: ShownEntry, gated: ReadonlySet<string> = new Set()): Scripted {
   const opened: BrowserOpenOptions[] = [];
   const entries = new Map<string, CodeSeamEntry>();
   const entry = (browserId: string, profile: string | null, engine: CodeSeamEntry["engine"]): CodeSeamEntry =>
@@ -174,6 +174,8 @@ function portShowing(shown: ShownEntry): Scripted {
     },
     browsersOf: () => [...entries.values()].filter(isThrowawayOrRelay),
     require: (browserId: string) => entries.get(browserId)!,
+    resolveProfile: (raw: string) => raw.trim().toLowerCase(),
+    gatedReason: (profile: string | null) => (profile !== null && gated.has(profile) ? `${profile} is a profile a Traction account posts from` : undefined),
     bindView: () => undefined,
     resize: async () => ({}) as BrowserState,
     open: async (options: BrowserOpenOptions) => {
@@ -197,6 +199,19 @@ test("browser.open with no profile joins the saved Chromium profile the session 
   expect(acquired.browserId).toBe("panel");
   expect(opened).toHaveLength(1);
   expect(opened[0]).toMatchObject({ profile: "work", engine: "chromium" });
+});
+
+test("browser.open with no profile refuses the shown saved profile a Traction account posts from, and opens nothing", async () => {
+  const { port, opened } = portShowing({ browserId: "panel", profile: "godofrock", engine: "chromium" }, new Set(["godofrock"]));
+
+  await expect(port.acquire("chat-a", { kind: HEADLESS }, NEVER)).rejects.toThrow("godofrock is a profile a Traction account posts from");
+  expect(opened).toEqual([]);
+});
+
+test("a cell takes no hold on a browser whose profile a Traction account posts from", () => {
+  const { port } = portShowing({ browserId: "panel", profile: "godofrock", engine: "chromium" }, new Set(["godofrock"]));
+
+  expect(() => port.holdWork("panel")).toThrow("godofrock is a profile a Traction account posts from");
 });
 
 test("browser.open with no profile never takes a shown browser that is not a saved Chromium profile: it makes the throwaway a cell gets", async () => {

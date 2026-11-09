@@ -46,15 +46,15 @@
 			"source": "./packs/artifactory-general-agent",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.5/artifactory-general-agent-0.5.5.tgz",
-				"sha256": "71ced1be5313f8ad3c8c35e4bd2081a42e14ab98f184d82580dc59e38314c3a2",
-				"size": 290690
+				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.4/artifactory-general-agent-0.5.4.tgz",
+				"sha256": "638ea3d923e0aaec583e7629703ff93949c1e2e770fc3857e1fcc3950aaaca8a",
+				"size": 289756
 			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
 			"icon": "bot",
 			"description": "See every agent you can run as a card with its face and its week at a glance, open one to edit it, or ask the Machinist to draft a new one.",
-			"version": "0.5.5",
+			"version": "0.5.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -191,15 +191,15 @@
 			"source": "./packs/browser",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.20/browser-0.9.20.tgz",
-				"sha256": "86fb105c8cbdd2220484f1cc269f49a3d96004b9885a372d067ad788c81d2387",
-				"size": 2001662
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.21/browser-0.9.21.tgz",
+				"sha256": "afbb99530cd881916ab884f447765214464b099c475cb27c3502d83530d5bb42",
+				"size": 2006545
 			},
 			"pluginId": "browser",
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.20",
+			"version": "0.9.21",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1570,15 +1570,15 @@
 			"source": "./packs/simulator",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.6/simulator-0.1.6.tgz",
-				"sha256": "880c6c7d9328e1dac506507f4a1e2109ce758c8310bb420246f80b82d41e076b",
-				"size": 446930
+				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.5/simulator-0.1.5.tgz",
+				"sha256": "df52edffd6012db12d0d54a504fb5aca2a98a6179d6cd3bfd0a35fa0ad1f7cb7",
+				"size": 444521
 			},
 			"pluginId": "simulator",
 			"title": "Simulator",
 			"icon": "phone",
 			"description": "An Android phone emulator beside your chat that your agent can drive while you watch: tap, type, install and open apps.",
-			"version": "0.1.6",
+			"version": "0.1.5",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1709,8 +1709,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.3/swiss-knife-0.7.3.tgz",
-				"sha256": "47cd05609105d413ce6c91277cabe8e7e92fb7d7337e149d32392e3cc171c183",
-				"size": 2259812
+				"sha256": "507d99a67d122f93903af87dec8d621081e6d8803630a6600d9d032a969138c8",
+				"size": 2262700
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",

@@ -4,13 +4,16 @@
 // as a card, and to say so in as few words as the model needs: one line per
 // file in `content`, everything else in `details` (UI-only, never model context).
 // Nothing here opens, annotates or reads a file's meaning; it resolves, refuses,
-// classifies, and (for a picture) thumbnails.
+// classifies, thumbnails a picture and keeps a copy of each file for its card.
 //
 // Bounds, because the model names the paths and the work happens before anyone
 // has asked for it: at most `MAX_PRESENTED_ITEMS` paths are looked at; a file is
-// read for its first `HEAD_BYTES`, and an image is read whole only up to
-// `MAX_THUMB_SOURCE_BYTES`, one at a time; the thumbnails of a result share one
-// `MAX_RESULT_THUMB_BYTES` budget. A path the tool refuses never costs a read.
+// read for its first `HEAD_BYTES`, an image whole up to `MAX_THUMB_SOURCE_BYTES`
+// and a file the Viewer could open as a copy whole up to `MAX_SNAPSHOT_BYTES`,
+// one at a time; the thumbnails of a result share one `MAX_RESULT_THUMB_BYTES`
+// budget and the copies one `MAX_RESULT_SNAPSHOT_BYTES`. A path the tool refuses never
+// costs a read, and a file whose copy the Viewer would refuse is read only for its first
+// block (or, as an image, for its thumbnail).
 //
 // Accepted residual risks (decided 2026-10-01 after review). Each needs an agent
 // that can already write to the filesystem, which is the power of the shell it has
@@ -33,14 +36,17 @@ import {
 	PRESENTED_KIND_LABELS,
 	type Presentation,
 	type PresentedItem,
+	type PresentedSnapshot,
 } from "@dimension/sdk/presentation";
-import { denyReason, textRefusal as windowsSpellingRefusal } from "../viewer/src/fence";
+import { blobCopyExtension, denyReason, textRefusal as windowsSpellingRefusal } from "../viewer/src/fence";
 import { imageFacts, MAX_THUMB_BYTES, MAX_THUMB_SOURCE_BYTES, type Thumbnail } from "./thumbnail";
 
 /** Bytes of a file's start read to classify it. */
 const HEAD_BYTES = 512;
 /** Encoded thumbnail bytes one result may carry in all. */
 const MAX_RESULT_THUMB_BYTES = 600 * 1024;
+export const MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
+export const MAX_RESULT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
 /** Code points of a requested path, or of a file name, quoted back in the result. */
 const MAX_ECHO = 200;
 const SVG = "image/svg+xml";
@@ -77,6 +83,7 @@ export interface PresentResult {
 
 /** The call that opens a file for reading: `fs.promises.open`. */
 export type OpenFile = (path: string, flags: number) => Promise<FileHandle>;
+export type KeepSnapshot = (bytes: Buffer, extension: string) => Promise<PresentedSnapshot>;
 
 export interface PresentOptions {
 	/** The session's working directory: where a relative path is resolved. */
@@ -86,6 +93,7 @@ export interface PresentOptions {
 	readonly platform?: NodeJS.Platform;
 	/** `fs.promises.open`: the call a test puts a swapped-in FIFO behind. A test seam. */
 	readonly open?: OpenFile;
+	readonly snapshot?: KeepSnapshot;
 }
 
 /** What one call of `presentPaths` shares across its paths. */
@@ -95,12 +103,32 @@ interface Run {
 	readonly open: OpenFile;
 	/** Real paths already presented: a file named twice is one card. */
 	readonly seen: Set<string>;
+	readonly snapshot: KeepSnapshot | undefined;
 }
 
 type Refused = { readonly refused: string };
 interface Presented {
 	readonly item: PresentedItem;
 	readonly thumb?: Thumbnail;
+	readonly snapshotFailure?: string;
+}
+
+interface Budget {
+	readonly thumbBytes: number;
+	readonly snapshotBytes: number;
+}
+
+type SnapshotOutcome = { readonly snapshot?: PresentedSnapshot; readonly snapshotFailure?: string };
+
+async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, extension: string): Promise<SnapshotOutcome> {
+	try {
+		const snapshot = await keep(bytes, extension);
+		return denyReason(snapshot.path, { allowBlobCopy: true }) === undefined
+			? { snapshot }
+			: { snapshotFailure: "the viewer would not open the copy" };
+	} catch (error) {
+		return { snapshotFailure: error instanceof Error && error.message !== "" ? error.message : String(error) };
+	}
 }
 
 /** C0 and C1 controls, line and paragraph separators, and the bidirectional overrides and isolates. */
@@ -151,7 +179,7 @@ function unresolvedReason(error: unknown): string {
 }
 
 /** Fill `size` bytes from the start of an open file; fewer if it shrank underneath us. */
-async function readWhole(handle: FileHandle, size: number): Promise<Uint8Array> {
+async function readWhole(handle: FileHandle, size: number): Promise<Buffer> {
 	const buffer = Buffer.allocUnsafe(size);
 	let filled = 0;
 	while (filled < size) {
@@ -164,10 +192,9 @@ async function readWhole(handle: FileHandle, size: number): Promise<Uint8Array> 
 
 /**
  * One requested path, to a presented item or a stated refusal. `undefined` when
- * an earlier path already resolved to the same file. `thumbBudget` is what is left
- * of this result's thumbnail bytes.
+ * an earlier path already resolved to the same file.
  */
-async function presentOne(requested: unknown, run: Run, thumbBudget: number): Promise<Presented | Refused | undefined> {
+async function presentOne(requested: unknown, run: Run, budget: Budget): Promise<Presented | Refused | undefined> {
 	if (typeof requested !== "string") return { refused: "it is not a path" };
 	const textual = textRefusal(requested, run.platform);
 	if (textual !== undefined) return { refused: textual };
@@ -221,11 +248,19 @@ async function presentOne(requested: unknown, run: Run, thumbBudget: number): Pr
 
 		const name = oneLine(fileName, MAX_ECHO);
 		const base: PresentedItem = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-		// An SVG is drawn by the kind's icon, not rasterised here.
-		if (kind !== "image" || mime === SVG || opened.size > MAX_THUMB_SOURCE_BYTES) return { item: base };
-		const facts = await imageFacts(await readWhole(handle, opened.size), Math.min(MAX_THUMB_BYTES, thumbBudget));
-		if (facts === undefined) return { item: base };
-		return { item: { ...base, width: facts.width, height: facts.height }, thumb: facts.thumb };
+		const extension = blobCopyExtension(fileName);
+		const copy =
+			run.snapshot !== undefined && extension !== undefined && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes)
+				? { keep: run.snapshot, extension }
+				: undefined;
+		const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
+		if (copy === undefined && !thumbnails) return { item: base };
+		const bytes = await readWhole(handle, opened.size);
+		const kept: SnapshotOutcome = copy === undefined ? {} : await keepSnapshot(copy.keep, bytes, copy.extension);
+		const item = kept.snapshot === undefined ? base : { ...base, snapshot: kept.snapshot };
+		const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : undefined;
+		if (facts === undefined) return { item, snapshotFailure: kept.snapshotFailure };
+		return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, snapshotFailure: kept.snapshotFailure };
 	} finally {
 		await handle.close();
 	}
@@ -248,25 +283,36 @@ export async function presentPaths(input: string | readonly string[], options: P
 		platform: options.platform ?? process.platform,
 		open: options.open ?? open,
 		seen: new Set(),
+		snapshot: options.snapshot,
 	};
 	let thumbBytes = 0;
+	let snapshotBytes = 0;
 
 	for (const path of requested) {
 		options.signal?.throwIfAborted();
-		const outcome = await presentOne(path, run, MAX_RESULT_THUMB_BYTES - thumbBytes);
+		const outcome = await presentOne(path, run, {
+			thumbBytes: MAX_RESULT_THUMB_BYTES - thumbBytes,
+			snapshotBytes: MAX_RESULT_SNAPSHOT_BYTES - snapshotBytes,
+		});
 		if (outcome === undefined) continue;
 		if ("refused" in outcome) {
 			const shown = oneLine(String(path), MAX_ECHO).trim() || "(empty path)";
 			lines.push(`Could not present ${shown}: ${outcome.refused}.`);
 			continue;
 		}
-		const { item, thumb } = outcome;
+		const { item, thumb, snapshotFailure } = outcome;
+		if (item.snapshot !== undefined) snapshotBytes += item.size;
 		if (thumb !== undefined) {
 			thumbBytes += thumb.bytes;
 			images.push({ data: thumb.data, mimeType: thumb.mimeType });
 		}
 		items.push(thumb === undefined ? item : { ...item, thumb: images.length - 1 });
-		lines.push(`Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).`);
+		const presented = `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)})`;
+		lines.push(
+			snapshotFailure === undefined
+				? `${presented}.`
+				: `${presented}; no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`,
+		);
 	}
 	if (all.length > requested.length) {
 		lines.push(`Only the first ${requested.length} of ${all.length} paths were presented.`);

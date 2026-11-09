@@ -7,9 +7,10 @@
  */
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { existsSync, statSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PUBLISH_PROFILES_FILE } from "../src/approved-fill";
 import { defaultWorkerEntry, type SpawnWorker, threadWorkerSpawner } from "../src/code/host/transport";
 import { chromePidsByThrowaway } from "./chrome-processes";
 import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, teardown, waitUntil } from "./fixture";
@@ -413,6 +414,35 @@ describeWithChrome("tabs the person opened", () => {
     await valueOf(host, "s1", "(await browser.tabs()).length");
     await runtime.control(mine.browserId, "take", "app");
     expect(isFailure(await cell(host, "s1", "1 + 1"))).toBe(false);
+  }, BROWSER_TEST_TIMEOUT_MS);
+});
+
+describeWithChrome("Traction starts posting from a profile a cell is using", () => {
+  test("a cell on the person's saved-profile browser, which it adopted and never launched, is stopped and its tabs dropped; the chat's next cells run", async () => {
+    const { host, runtime, rootDir } = await start();
+    const dir = await mkdtemp(join(tmpdir(), "browser-gated-"));
+    const ticks = join(dir, "ticks.txt");
+    try {
+      const person = await runtime.open({ profile: "godofrock" }, { caller: "app", session: "s1" });
+      runtime.bindView("s1", person.browserId);
+      await runtime.act(person.browserId, { kind: "navigate", url: pages.url("/form") });
+      const code = `import { appendFileSync } from "node:fs"; const tab = browser.active(); for (;;) { await tab.url(); appendFileSync(${JSON.stringify(ticks)}, "x"); }`;
+      const pending = host.run("s1", { code, timeoutMs: 120_000, waitMs: 30_000, signal: NEVER });
+      await waitUntil("the loop is ticking", () => (existsSync(ticks) ? statSync(ticks).size : 0), size => size >= 3, 10_000);
+      expect(runtime.codeSeam().peek(person.browserId)?.code).toBeUndefined();
+
+      await writeFile(join(rootDir, PUBLISH_PROFILES_FILE), JSON.stringify({ v: 1, profiles: ["godofrock"] }));
+      const ended = await pending;
+      if (ended.state !== "done" || !("error" in ended.result)) throw new Error("the cell should have ended in an error");
+      expect(ended.result.error.message).toContain("publish_unapproved: godofrock is a profile a Traction account posts from");
+
+      expect(await valueOf(host, "s1", "(await browser.tabs()).length")).toBe(0);
+      expect(await valueOf(host, "s1", "1 + 1")).toBe(2);
+      expect(await valueOf(host, "s1", `(await browser.open({ name: "main", profile: "personal", url: ${JSON.stringify(pages.url("/other"))} })).url()`)).toBe(pages.url("/other"));
+      expect((await runtime.state(person.browserId)).url).toBe(pages.url("/form"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }, BROWSER_TEST_TIMEOUT_MS);
 });
 

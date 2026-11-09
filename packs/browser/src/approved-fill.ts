@@ -1,11 +1,16 @@
+import { type FSWatcher, readFileSync, statSync, watch } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
 import { originOf } from "./address.js";
 import type { BrowserAction } from "./contracts.js";
 import type { EditableText, EngineDriver } from "./engines/types.js";
+import { PROFILE_NAME, RELAY_PROFILE } from "./profile-name.js";
 import { type FillApproval, fillDigest, type PublishApprovals } from "./publish-approval.js";
 import { fail } from "./store.js";
 import { SUBMIT_JUDGE_LIMITS, type SubmitJudgeApproval, type SubmitJudgeRequest, type SubmitJudgeVerdict } from "./submit-judge.js";
 
-export const GATED_PROFILE = /^traction-/;
+const TRACTION_PROFILE = /^traction-/;
+export const PUBLISH_PROFILES_FILE = "publish-profiles.json";
 export const FILL_CLAIM_MS = 10 * 60_000;
 export const JUDGE_CONFIDENCE_BAR = 0.8;
 const EXCERPT_CHARS = 60;
@@ -32,8 +37,147 @@ export interface SubmitExpectation {
 	readonly values: readonly string[];
 }
 
-export function isGated(profile: string | null): profile is string {
-	return profile !== null && GATED_PROFILE.test(profile);
+export function codeRefusal(reason: string): string {
+	return `${reason}: what it posts is checked against what the person approved, so code never drives it. Use the step tools on it, or open another profile.`;
+}
+
+type NamedProfiles = ReadonlySet<string> | "unknown";
+
+export interface GatedProfilesOptions {
+	readonly onGated?: (profiles: ReadonlySet<string>) => void;
+	readonly now?: () => number;
+}
+
+const NO_PROFILES: ReadonlySet<string> = new Set();
+const ABSENT_GRACE_MS = 2_000;
+
+export class GatedProfiles {
+	readonly #dir: string;
+	readonly #file: string;
+	readonly #onGated: (profiles: ReadonlySet<string>) => void;
+	readonly #now: () => number;
+	#seen: string | undefined;
+	#present = false;
+	#absentSince: number | undefined;
+	#recheck: NodeJS.Timeout | undefined;
+	#good: ReadonlySet<string> | undefined;
+	#named: NamedProfiles | undefined;
+	#watcher: FSWatcher | undefined;
+	#closed = false;
+
+	constructor(rootDir: string, options: GatedProfilesOptions = {}) {
+		this.#dir = rootDir;
+		this.#file = join(rootDir, PUBLISH_PROFILES_FILE);
+		this.#onGated = options.onGated ?? (() => undefined);
+		this.#now = options.now ?? (() => performance.now());
+	}
+
+	has(profile: string | null): profile is string {
+		return this.reason(profile) !== undefined;
+	}
+
+	reason(profile: string | null): string | undefined {
+		if (profile === null) return undefined;
+		if (TRACTION_PROFILE.test(profile)) return `${profile} is a profile a Traction account posts from`;
+		const named = this.#current();
+		if (named !== "unknown") return named.has(profile) ? `${profile} is a profile a Traction account posts from` : undefined;
+		return profile === RELAY_PROFILE ? undefined : `the publishing registry ${this.#file} could not be read, so ${profile} is treated as a profile a Traction account posts from`;
+	}
+
+	watch(): void {
+		if (this.#watcher !== undefined || this.#closed) return;
+		try {
+			const watcher = watch(this.#dir, { persistent: false }, (_event, name) => {
+				if (name === null || name === PUBLISH_PROFILES_FILE) this.#current();
+			});
+			watcher.on("error", () => {
+				watcher.close();
+				this.#watcher = undefined;
+				this.watch();
+			});
+			this.#watcher = watcher;
+		} catch (error) {
+			console.error("[browser] the publishing registry watch failed; a newly named profile is let go at its next gate check:", error instanceof Error ? error.message : String(error));
+		}
+		this.#current();
+	}
+
+	close(): void {
+		this.#closed = true;
+		this.#watcher?.close();
+		this.#watcher = undefined;
+		clearTimeout(this.#recheck);
+		this.#recheck = undefined;
+	}
+
+	#current(): NamedProfiles {
+		let identity: string;
+		try {
+			const stats = statSync(this.#file, { bigint: true, throwIfNoEntry: false });
+			identity = stats === undefined ? "absent" : `${stats.ino}:${stats.size}:${stats.mtimeNs}`;
+		} catch {
+			return this.#named ?? "unknown";
+		}
+		if (identity === this.#seen && this.#named !== undefined) return this.#named;
+		if (identity === "absent") return this.#absent();
+		this.#present = true;
+		this.#absentSince = undefined;
+		clearTimeout(this.#recheck);
+		this.#recheck = undefined;
+		const read = readNamedProfiles(this.#file);
+		if (read === undefined) return this.#named ?? "unknown";
+		if (read === "invalid") return this.#settle(identity, this.#good ?? "unknown");
+		this.#good = read;
+		return this.#settle(identity, read);
+	}
+
+	#absent(): NamedProfiles {
+		if (!this.#present) return this.#settle("absent", NO_PROFILES);
+		const now = this.#now();
+		this.#absentSince ??= now;
+		if (now - this.#absentSince >= ABSENT_GRACE_MS) return this.#settle("absent", "unknown");
+		if (this.#recheck === undefined && !this.#closed) {
+			this.#recheck = setTimeout(() => {
+				this.#recheck = undefined;
+				this.#current();
+			}, ABSENT_GRACE_MS);
+			this.#recheck.unref?.();
+		}
+		return this.#named ?? "unknown";
+	}
+
+	#settle(identity: string, named: NamedProfiles): NamedProfiles {
+		this.#seen = identity;
+		const previous = this.#named;
+		this.#named = named;
+		if (named === "unknown") {
+			if (previous !== "unknown") console.error(`[browser] the publishing registry ${this.#file} could not be read: every saved profile but the relay is gated until it can be.`);
+			return named;
+		}
+		if (previous === undefined || named === previous) return named;
+		const added = previous === "unknown" ? named : new Set([...named].filter((profile) => !previous.has(profile)));
+		if (added.size > 0) queueMicrotask(() => this.#onGated(added));
+		return named;
+	}
+}
+
+const PublishProfilesFile = z.object({ v: z.literal(1), profiles: z.array(z.string()) });
+
+function readNamedProfiles(file: string): Set<string> | "invalid" | undefined {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch {
+		return undefined;
+	}
+	let json: unknown;
+	try {
+		json = JSON.parse(text);
+	} catch {
+		return "invalid";
+	}
+	const parsed = PublishProfilesFile.safeParse(json);
+	return parsed.success ? new Set(parsed.data.profiles.filter((name) => PROFILE_NAME.test(name))) : "invalid";
 }
 
 function excerpt(value: string): string {
