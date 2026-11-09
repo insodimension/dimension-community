@@ -13,9 +13,9 @@
  *  - If no Chrome is installed we SKIP, loudly. A green run that never started
  *    a browser must never be mistaken for "the real browser behaves".
  */
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, setSystemTime } from "bun:test";
@@ -520,77 +520,4 @@ export async function failureCode(work: () => Promise<unknown>): Promise<string>
 		throw err;
 	}
 	throw new Error("expected the call to be refused, but it resolved");
-}
-
-// ---------------------------------------------------------------------------
-// Board approvals
-// ---------------------------------------------------------------------------
-
-/** The post a human approved on the board, and for how long that approval lives. */
-export interface ApprovedPost {
-	origin: string;
-	profile: string;
-	/** The shipped preset the post goes through; leave out for a hand-written recipe, which is a different approval. */
-	preset?: string;
-	/** Every field's value, in order. */
-	values: readonly string[];
-	/** The draft the approval is filed under; a test re-approving the same draft names it. */
-	draftId?: string;
-	/** Default an hour: longer than any clock jump the publish tests make, far under the 24 hours the pack accepts. */
-	expiresInMs?: number;
-}
-
-/**
- * Write the record Traction's campaign board writes when the human approves a post, so a test may post it. The binding is hashed HERE,
- * from the contract's own string, never by the pack's `bindingOf`: a `bindingOf` that drifts from the contract (the Traction pack
- * computes the same digest) fails every posting test instead of agreeing with itself.
- */
-export async function approvePublish(rootDir: string, post: ApprovedPost): Promise<{ draftId: string; file: string }> {
-	const draftId = post.draftId ?? `draft-${randomBytes(6).toString("hex")}`;
-	const folder = join(rootDir, "publish-approvals");
-	const file = join(folder, `${draftId}.json`);
-	const now = Date.now();
-	await mkdir(folder, { recursive: true });
-	await writeFile(
-		file,
-		JSON.stringify({
-			v: 1,
-			draftId,
-			nonce: randomBytes(16).toString("hex"),
-			binding: createHash("sha256").update(JSON.stringify(["publish-approval/v1", post.origin, post.profile, post.preset ?? null, post.values])).digest("hex"),
-			approvedAt: new Date(now).toISOString(),
-			expiresAt: new Date(now + (post.expiresInMs ?? 60 * 60_000)).toISOString(),
-		}),
-	);
-	return { draftId, file };
-}
-
-export interface ApprovedFill {
-	profile: string;
-	origins: readonly string[];
-	texts: readonly string[];
-	draftId?: string;
-	expiresInMs?: number;
-}
-
-export async function approveFill(rootDir: string, fill: ApprovedFill): Promise<{ draftId: string; file: string }> {
-	const draftId = fill.draftId ?? `draft-${randomBytes(6).toString("hex")}`;
-	const folder = join(rootDir, "publish-approvals");
-	const file = join(folder, `${draftId}.json`);
-	const now = Date.now();
-	await mkdir(folder, { recursive: true });
-	await writeFile(
-		file,
-		JSON.stringify({
-			v: 2,
-			draftId,
-			nonce: randomBytes(16).toString("hex"),
-			profile: fill.profile,
-			origins: fill.origins,
-			texts: fill.texts,
-			approvedAt: new Date(now).toISOString(),
-			expiresAt: new Date(now + (fill.expiresInMs ?? 60 * 60_000)).toISOString(),
-		}),
-	);
-	return { draftId, file };
 }

@@ -1,6 +1,6 @@
 // The View's Post and Cancel for a parked publish. The agent filled the
-// compose page and parked it; nothing is submitted until a confirm — Post
-// here, or the agent's own browser_publish_confirm. The bar shows where it
+// compose page and parked it, and posts it itself with browser_publish_confirm;
+// the person may press Post here first, or Cancel. The bar shows where it
 // goes (the compose page URL, the profile) and every exact value, and
 // afterwards what the page said: the posted URL, or why it did not (or may
 // not have) posted.
@@ -157,8 +157,8 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 				</span>
 				<span className="bx-publish-text">
 					<span className="bx-publish-title">
-						Post to <span className="bx-publish-key">{record.composeUrl || record.origin}</span> from browser profile{" "}
-						<span className="bx-publish-key">{record.profile}</span>?
+						Ready to post to <span className="bx-publish-key">{record.composeUrl || record.origin}</span> from browser profile{" "}
+						<span className="bx-publish-key">{record.profile}</span>
 					</span>
 					{record.preset?.verified === false && (
 						<span className="bx-publish-caption" title={`The ${record.preset.name} recipe is tested against a copy of the site's page and has not yet posted on the live site.`}>
@@ -166,7 +166,7 @@ export function PublishBar({ client, browserId, publish, onSettled, onDismiss }:
 						</span>
 					)}
 					<span className="bx-publish-detail">
-						Nothing is sent until you press Post or your agent confirms it.
+						Your agent posts this next. Press Post to send it now, or Cancel to stop it.
 						{Number.isFinite(expires.getTime()) && (
 							<>
 								{" "}

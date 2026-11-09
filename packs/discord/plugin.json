@@ -227,15 +227,15 @@
 				},
 				{
 					"name": "discord_send_message",
-					"description": "Post a message (optionally one image) to a channel. PUBLIC — confirm the channel and content first. Mentions never ping unless the person named those users. Asks every time."
+					"description": "Post a message (optionally one image) to a channel. PUBLIC — posts what you chose or asked for, straight away. Mentions never ping unless the person named those users."
 				},
 				{
 					"name": "discord_create_thread",
-					"description": "Create a thread, or a forum post (title, first message, tags) in a forum channel. PUBLIC — confirm first. Asks every time."
+					"description": "Create a thread, or a forum post (title, first message, tags) in a forum channel. PUBLIC — posts straight away."
 				},
 				{
 					"name": "discord_reply_message",
-					"description": "Reply to a specific message (optionally with one image). PUBLIC — confirm the channel, target and text first. Only the replied-to author is notified. Asks every time."
+					"description": "Reply to a specific message (optionally with one image). PUBLIC — posts straight away. Only the replied-to author is notified."
 				},
 				{
 					"name": "discord_add_reaction",
@@ -279,7 +279,7 @@
 				},
 				{
 					"name": "discord_publish_message",
-					"description": "Publish an announcement-channel message to every following server (at most 10 an hour per channel). Asks every time."
+					"description": "Publish an announcement-channel message to every following server (at most 10 an hour per channel)."
 				},
 				{
 					"name": "discord_set_thread_tags",
@@ -287,7 +287,7 @@
 				},
 				{
 					"name": "discord_create_event",
-					"description": "Schedule a server event in a voice or stage channel or at an outside location. Asks every time."
+					"description": "Schedule a server event in a voice or stage channel or at an outside location."
 				},
 				{
 					"name": "discord_list_automod_rules",

@@ -8,9 +8,8 @@
  *  counts. While it is parked, only the View (`caller: "app"`) may drive the
  *  pinned page.
  *
- *  Only a post a human approved on the campaign board goes out, so every post
- *  here is approved first (`approvePublish` writes the board's record), and the
- *  tests at the end prove that gate against a real page.
+ *  No approval record is consulted: the agent posts itself, and the tests at
+ *  the end prove a post goes out with no approval file on disk.
  *
  *  Real Chrome against a local fake site (publish-fixture.ts), driven through
  *  the real MCP server over an in-memory transport so the caller stamp is the
@@ -22,6 +21,7 @@
  *  them once the page has provably done everything it will do, so a test that
  *  expects "no receipt" does not sit through the real wait.
  */
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
@@ -35,7 +35,7 @@ import { confirm, prepare, validateRecipe, type Publication } from "../src/publi
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { ActionNotDispatched } from "../src/store";
-import { approvePublish, BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, newRuntime, perform, racingClock, teardown } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, newRuntime, perform, racingClock, teardown } from "./fixture";
 import { type ComposeVariant, type PublishFixture, startPublishFixture } from "./publish-fixture";
 import { withJevKey } from "./jev-key";
 
@@ -148,15 +148,9 @@ async function counters(runtime: BrowserRuntime, browserId: string): Promise<{ w
 	return { writes: Number(found[1]), clicks: Number(found[2]), secret: Number(found[3]) };
 }
 
-/** The board's approval of exactly the text `posting` types, for the profile `s` opened. */
-async function approve(s: Session, posting: PublishRecipe): Promise<void> {
-	await approvePublish(s.rootDir, { origin: posting.origin, profile: s.profile, values: posting.fields.map((field) => field.value) });
-}
-
-/** The board approves what `variant` types, then a post of it is asked for: whatever comes back. */
+/** A post of what `variant` types is asked for: whatever comes back. */
 async function requestPost(s: Session, variant: ComposeVariant, overrides: Partial<PublishRecipe> = {}): Promise<ToolResult> {
 	const posting = recipe(s.fixture, variant, overrides);
-	await approve(s, posting);
 	return await s.call("browser_publish", { browserId: s.browserId, recipe: posting, mode: "post" });
 }
 
@@ -351,11 +345,9 @@ describeWithChrome("browser_publish", () => {
 				{ name: "browser_publish_confirm", visibility: undefined },
 				{ name: "browser_publish_cancel", visibility: undefined },
 			]);
-			// The host asks the human before every call of a tool marked "prompt", yolo included: the Allow card is the gate.
-			expect(tools[0]?._meta?.["ai.insodimension/approval"]).toBe("prompt");
+			expect(tools[0]?._meta?.["ai.insodimension/approval"]).toBeUndefined();
 
-			const shown = { origin: parked.origin, profile: parked.profile, values: parked.fields.map((field) => field.value) };
-			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId, expect: shown }, "model");
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "model");
 
 			expect(confirmed.isError).toBeFalsy();
 			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
@@ -363,56 +355,6 @@ describeWithChrome("browser_publish", () => {
 			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: RICH }]);
 			expect(s.fixture.hits("/submit")).toBe(1);
 			expect(await record(s, parked.publishId)).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
-
-	test(
-		"a model confirm without expect is refused expect_required, clicks nothing, and leaves the publish pending",
-		async () => {
-			const s = await session("pub-model-no-expect");
-			const parked = await post(s, "nav");
-
-			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "model");
-
-			expect(confirmed.isError).toBe(true);
-			expect(confirmed.content[0]?.text).toContain("expect_required");
-			expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
-			expect(s.fixture.hits("/submit")).toBe(0);
-			expect((await record(s, parked.publishId)).status).toBe("awaiting-confirmation");
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
-
-	test(
-		"a model confirm whose expect differs in one of origin, profile, or a value is refused publish_mismatch and does not consume the publish",
-		async () => {
-			const s = await session("pub-model-mismatch");
-			const parked = await post(s, "nav");
-			const shown = { origin: parked.origin, profile: parked.profile, values: parked.fields.map((field) => field.value) };
-			const args = { browserId: s.browserId, publishId: parked.publishId };
-			const differing = [
-				{ name: "origin", expect: { ...shown, origin: s.fixture.origin.replace("127.0.0.1", "localhost") } },
-				{ name: "profile", expect: { ...shown, profile: "someone-else" } },
-				{ name: "values[1]", expect: { ...shown, values: [TEXT, `${RICH} `] } },
-			];
-
-			for (const row of differing) {
-				const refused = await s.call("browser_publish_confirm", { ...args, expect: row.expect }, "model");
-				expect({ row: row.name, isError: refused.isError, text: refused.content[0]?.text }).toMatchObject({
-					row: row.name,
-					isError: true,
-					text: expect.stringContaining(`publish_mismatch: expect does not match the pending publish (mismatched: ${row.name})`),
-				});
-				expect((await counters(s.runtime, s.browserId)).clicks).toBe(0);
-				expect(s.fixture.hits("/submit")).toBe(0);
-				expect((await record(s, parked.publishId)).status).toBe("awaiting-confirmation");
-			}
-
-			const confirmed = await s.call("browser_publish_confirm", { ...args, expect: shown }, "model");
-
-			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
-			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: RICH }]);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
@@ -624,20 +566,14 @@ describeWithChrome("browser_publish", () => {
 	);
 
 	test(
-		"while a publish awaits the human, an unstamped confirm that names nothing is refused expect_required and an unstamped post publish_pending: nothing is clicked and the publish stays pending",
+		"while a publish awaits confirmation, an unstamped post is refused publish_pending: nothing is clicked and the publish stays pending",
 		async () => {
 			const s = await session("pub-unstamped-settle");
 			const parked = await post(s, "nav");
 			const seen = await counters(s.runtime, s.browserId);
-			const calls: Array<[string, Record<string, unknown>, string]> = [
-				["browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "expect_required"],
-				["browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" }, PENDING],
-			];
 
-			for (const [name, input, reason] of calls) {
-				const refused = await s.call(name, input, null);
-				expect({ name, isError: refused.isError, text: refused.content[0]?.text }).toMatchObject({ name, isError: true, text: expect.stringContaining(reason) });
-			}
+			const refused = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" }, null);
+			expect({ isError: refused.isError, text: refused.content[0]?.text }).toMatchObject({ isError: true, text: expect.stringContaining(PENDING) });
 
 			expect(seen.clicks).toBe(0);
 			expect(await counters(s.runtime, s.browserId)).toEqual(seen);
@@ -1078,94 +1014,37 @@ describeWithChrome("browser_publish", () => {
 	);
 
 	// -----------------------------------------------------------------------
-	// Board approvals: only a post a human approved goes out
+	// No approvals: the agent posts itself
 	// -----------------------------------------------------------------------
 
 	test(
-		"text nobody approved never reaches the page: refused publish_unapproved, the compose page's own counters stay 0 and it is not even reloaded",
+		"with no approval file on disk, browser_publish then browser_publish_confirm posts from a saved profile, and no tool but browser_run carries an approval tier",
 		async () => {
-			const s = await session("pub-unapproved");
-			// Stand on the compose page first: its own counters then say whether anything was typed or clicked there.
-			await perform(s.runtime, s.browserId, { kind: "navigate", url: s.fixture.url("/compose?v=nav") });
-			const loads = s.fixture.hits("/compose");
+			const s = await session("pub-no-approval");
+			expect(existsSync(join(s.rootDir, "publish-approvals"))).toBe(false);
+			const tiers = (await s.client.listTools()).tools
+				.filter((tool) => tool._meta?.["ai.insodimension/approval"] !== undefined)
+				.map((tool) => [tool.name, tool._meta?.["ai.insodimension/approval"]]);
+			expect(tiers.filter(([name]) => name !== "browser_run")).toEqual([]);
 
-			const refused = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" });
+			const parked = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" }, "model");
+			expect(parked.isError, JSON.stringify(parked.content)).toBeFalsy();
+			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
+			const publishId = parked.structuredContent?.publishId as string;
 
-			expect(refused.isError).toBe(true);
-			expect(refused.content[0]?.text).toContain("publish_unapproved: no board approval covers");
-			expect(await counters(s.runtime, s.browserId)).toEqual({ writes: 0, clicks: 0, secret: 0 });
-			expect(s.fixture.hits("/compose")).toBe(loads);
-			expect(s.fixture.hits("/submit")).toBe(0);
-			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
+			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId }, "model");
 
-	test(
-		"an approved post posts exactly once, and a replay of the same text is refused 'already used' before the page is opened",
-		async () => {
-			const s = await session("pub-approved-once");
-			const parked = await post(s, "nav");
-			const shown = { origin: parked.origin, profile: parked.profile, values: parked.fields.map((field) => field.value) };
-
-			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId, expect: shown }, "model");
-
+			expect(confirmed.isError, JSON.stringify(confirmed.content)).toBeFalsy();
 			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
 			expect(s.fixture.submissions()).toEqual([{ text: TEXT, rich: RICH }]);
-			const loads = s.fixture.hits("/compose");
-
-			const replay = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" });
-
-			expect(replay.isError).toBe(true);
-			expect(replay.content[0]?.text).toContain("publish_unapproved");
-			expect(replay.content[0]?.text).toContain("already used");
-			expect(s.fixture.hits("/compose")).toBe(loads);
 			expect(s.fixture.hits("/submit")).toBe(1);
-			expect(s.fixture.submissions()).toHaveLength(1);
+			expect(existsSync(join(s.rootDir, "publish-approvals"))).toBe(false);
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
 
 	test(
-		"an edit of the approved text between approval and park is refused before the page is touched, and the approved text still parks",
-		async () => {
-			const s = await session("pub-edited");
-			await approve(s, recipe(s.fixture, "nav"));
-			const edited = recipe(s.fixture, "nav", { fields: [{ selector: "#text", value: `${TEXT}!` }, { selector: "#rich", value: RICH }] });
-
-			const refused = await s.call("browser_publish", { browserId: s.browserId, recipe: edited, mode: "post" });
-
-			expect(refused.isError).toBe(true);
-			expect(refused.content[0]?.text).toContain("publish_unapproved: no board approval covers");
-			expect(s.fixture.hits("/compose")).toBe(0);
-			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
-			// The refused edit spent nothing: the text the human approved parks.
-			const parked = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" });
-			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
-
-	test(
-		"the View's Post spends the approval too: the agent cannot post the text the human just posted",
-		async () => {
-			const s = await session("pub-view-post");
-			const parked = await post(s, "nav");
-
-			const confirmed = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.publishId }, "app");
-
-			expect(confirmed.structuredContent).toMatchObject({ status: "posted", url: s.fixture.url("/alice/status/1") });
-			expect(s.fixture.submissions()).toHaveLength(1);
-			const again = await s.call("browser_publish", { browserId: s.browserId, recipe: recipe(s.fixture, "nav"), mode: "post" });
-			expect(again.isError).toBe(true);
-			expect(again.content[0]?.text).toContain("already used");
-			expect(s.fixture.submissions()).toHaveLength(1);
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
-
-	test(
-		"a page that changed since it was shown settles failed and keeps the approval: the same text parks again, unapproved anew, and posts",
+		"a page that changed since it was shown settles failed: the same text parks again and posts",
 		async () => {
 			const s = await session("pub-changed-keeps");
 			const parked = await post(s, "nav");

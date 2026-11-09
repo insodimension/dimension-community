@@ -4,7 +4,7 @@
 
 A Bluesky connector. Your agent searches posts, reads posts with their numbers,
 threads, quotes, profiles, an account's recent posts, custom feeds, starter packs,
-trends and your notifications, and publishes a post or thread you approved on
+trends and your notifications, and publishes the post or thread you chose on
 Traction's campaign board. Most reads are public and need no account; post search,
 notifications and publishing use the account you connect with an app password.
 
@@ -14,9 +14,9 @@ notifications and publishing use the account you connect with an app password.
   `bluesky_quotes`, `bluesky_profile`, `bluesky_author_feed`, `bluesky_find_feeds`,
   `bluesky_find_starter_packs`, `bluesky_trends`, `bluesky_my_notifications`,
   `bluesky_link_card`.
-- **Write tool**: `bluesky_publish`, for a post or thread approved on the board.
+- **Write tool**: `bluesky_publish`, for the post or thread chosen on the board.
 - **Skill `bluesky`**: which tool for which question, search traps, what Bluesky
-  can and cannot measure, and how publishing is checked.
+  can and cannot measure, and how publishing works.
 - **Connect card**: your handle and an app password.
 
 ## Who can use it
@@ -31,11 +31,10 @@ direct messages off) and enter it with your handle on the card.
 - The handle and app password are stored in `~/.config/dimension-bluesky/`, with
   the session beside them so the plugin refreshes it rather than signing in again.
   Revoke the app password in Bluesky to cut access.
-- `bluesky_publish` posts only what the board approved, character for character
-  and image file for image file, from the account the approval names, and only
-  once per approval; it also asks you on an approval card in every mode, showing
-  every post, image and link card (title, description and image address). It
-  cannot like, repost, follow or reply to other people's posts.
+- `bluesky_publish` posts the option you chose on the board, character for
+  character and image file for image file, as soon as you choose it: choosing is
+  the go-ahead, so no approval card follows. It cannot like, repost, follow or
+  reply to other people's posts.
 - Link cards are read only from public http(s) pages: addresses on your machine
   or private network are refused, at every redirect.
 - Images must be PNG, JPEG or WebP under 2 MB; metadata is stripped before upload,
@@ -49,7 +48,7 @@ direct messages off) and enter it with your handle on the card.
 ## Build and test
 
 No build step: the host loads `index.ts`. Tests stub `fetch` and point the
-config and approval folders at a temp directory:
+config folder at a temp directory:
 
 ```sh
 cd packs/bluesky && bun test

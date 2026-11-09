@@ -1,10 +1,8 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
 import dns from "node:dns/promises";
-import { open, readFile, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { homedir } from "node:os";
-import { extname, join } from "node:path";
+import { extname } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
 import { authed, resolveDid, session, XrpcError } from "./session";
@@ -16,8 +14,6 @@ const PAGE_MAX_BYTES = 1_000_000;
 const MAX_REDIRECTS = 5;
 const FETCH_TIMEOUT_MS = 8000;
 const IMAGES_PER_POST = 4;
-const MAX_APPROVAL_MS = 24 * 60 * 60_000;
-const DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const IMAGE_MIME: Readonly<Record<string, string>> = {
 	".png": "image/png",
 	".jpg": "image/jpeg",
@@ -31,24 +27,13 @@ const PNG_METADATA_CHUNKS: Readonly<Record<string, true>> = {
 	zTXt: true,
 	tIME: true,
 };
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
 const LINK = /https?:\/\/[^\s<>"]+/g;
 const LINK_TAIL = /[.,;:!?)\]'"]+$/;
 const EXIF_ORIENTATION = 0x0112;
 
-const approvalRecord = type({
-	v: "1",
-	draftId: "string",
-	nonce: /^[0-9a-f]{32}$/,
-	binding: /^[0-9a-f]{64}$/,
-	approvedAt: "string",
-	expiresAt: "string",
-});
-
 const publishSchema = type({
-	draftId: type("string").describe("The board draft's id, exactly as the board gave it on Approve."),
 	posts: type("string[]").describe(
-		"The approved option's posts in order, character for character: one post, or a thread of up to 25.",
+		"The chosen option's posts in order, character for character: one post, or a thread of up to 25.",
 	),
 	"media?": type({
 		path: type("string").describe("Absolute path of a PNG, JPEG or WebP the draft carries."),
@@ -66,7 +51,7 @@ const publishSchema = type({
 	})
 		.array()
 		.describe(
-			"Link cards, one per post that has a link and no image, each exactly as bluesky_link_card returned it. The person sees every field before it posts. A post with a link and no card here goes up without one.",
+			"Link cards, one per post that has a link and no image, each exactly as bluesky_link_card returned it. A post with a link and no card here goes up without one.",
 		),
 });
 
@@ -99,13 +84,6 @@ interface StrongRef {
 	cid: string;
 }
 
-function approvalsDir(): string {
-	const insoHome = process.env.INSO_HOME;
-	return insoHome
-		? join(insoHome, "browser", "publish-approvals")
-		: join(homedir(), ".inso", "browser", "publish-approvals");
-}
-
 function graphemeCount(text: string): number {
 	let count = 0;
 	for (const _ of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) count++;
@@ -113,7 +91,6 @@ function graphemeCount(text: string): number {
 }
 
 function checkDraft(params: PublishParams): void {
-	if (!DRAFT_ID.test(params.draftId)) throw new Error(`draftId "${params.draftId}" is not a board draft id.`);
 	if (params.posts.length < 1 || params.posts.length > 25)
 		throw new Error("A Bluesky draft is one post or a thread of up to 25.");
 	params.posts.forEach((text, index) => {
@@ -152,60 +129,6 @@ function checkDraft(params: PublishParams): void {
 		if (card.image !== undefined && !/^https?:\/\//i.test(card.image))
 			throw new Error(`The link card image ${card.image} is not an http(s) URL.`);
 	}
-}
-
-async function claimApproval(
-	draftId: string,
-	binding: string,
-	now: number,
-): Promise<() => Promise<() => Promise<void>>> {
-	const dir = approvalsDir();
-	const unapproved = `publish_unapproved: no board approval covers this exact Bluesky post (draft ${draftId}, binding sha256:${binding.slice(0, 12)}). Post only what the person approved on the campaign board, from the account that draft names, exactly as approved, with each image file unchanged since Approve. Nothing was posted.`;
-	const raw = await readFile(join(dir, `${draftId}.json`), "utf8").catch(() => null);
-	if (raw === null) throw new Error(unapproved);
-	const parsed = (() => {
-		try {
-			return approvalRecord(JSON.parse(raw));
-		} catch {
-			return null;
-		}
-	})();
-	if (parsed === null || parsed instanceof type.errors || parsed.draftId !== draftId) throw new Error(unapproved);
-	const from = Date.parse(parsed.approvedAt);
-	const until = Date.parse(parsed.expiresAt);
-	if (
-		!Number.isFinite(from) ||
-		!Number.isFinite(until) ||
-		until <= from ||
-		until - from > MAX_APPROVAL_MS ||
-		parsed.binding !== binding
-	)
-		throw new Error(unapproved);
-	const marker = join(dir, `${draftId}.${parsed.nonce}.used`);
-	const used = `publish_unapproved: the approval for draft ${draftId} was already used, so this post may already be up. Do not post it again: check the account's latest posts with bluesky_author_feed and record draft_posted with its url, or unconfirmed.`;
-	if (
-		await readFile(marker).then(
-			() => true,
-			() => false,
-		)
-	)
-		throw new Error(used);
-	if (until <= now) {
-		throw new Error(
-			`publish_unapproved: the approval for draft ${draftId} expired at ${new Date(until).toISOString()}. Record draft_failed with that reason; the person presses Retry on the board. Nothing was posted.`,
-		);
-	}
-	return async () => {
-		try {
-			await (await open(marker, "wx")).close();
-		} catch (error) {
-			if (error instanceof Error && "code" in error && error.code === "EEXIST") throw new Error(used);
-			throw error;
-		}
-		return async () => {
-			await unlink(marker).catch(() => undefined);
-		};
-	};
 }
 
 function exifOrientation(bytes: Uint8Array, start: number, end: number): number | undefined {
@@ -489,7 +412,7 @@ async function embedFor(media: readonly { item: Media; bytes: Uint8Array<ArrayBu
 		const image = await cardImage(card.image);
 		if (image === undefined)
 			throw new Error(
-				`The link card image ${card.image} could not be fetched as a public image under 1 MB, so nothing was posted and the approval still stands. Get the card again with bluesky_link_card and call again with it.`,
+				`The link card image ${card.image} could not be fetched as a public image under 1 MB, so nothing was posted. Get the card again with bluesky_link_card and call again with it.`,
 			);
 		external.thumb = await uploadBlob(image.bytes, image.mime);
 	}
@@ -501,7 +424,7 @@ export function createLinkCardTool(): ToolDefinition<typeof linkCardSchema> {
 		name: "bluesky_link_card",
 		label: "Bluesky: Link card",
 		description:
-			"Read the link card Bluesky would show for a link: the page's title, description and image URL. Only public http(s) pages are read. Pass the result, with the post's index, in bluesky_publish's cards for a post with a link and no image; the person sees it on the approval card before anything is posted.",
+			"Read the link card Bluesky would show for a link: the page's title, description and image URL. Only public http(s) pages are read. Pass the result, with the post's index, in bluesky_publish's cards for a post with a link and no image.",
 		parameters: linkCardSchema,
 		approval: "read",
 		async execute(_toolCallId: string, params: typeof linkCardSchema.infer) {
@@ -521,24 +444,9 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 		name: "bluesky_publish",
 		label: "Bluesky: Publish",
 		description:
-			"Publish an APPROVED bluesky-post draft from the connected account: one post or a thread, with its images and alt text, links as rich text, and a link card for each post listed in cards (get it with bluesky_link_card). Pass the draftId and the approved option's posts and media exactly as the board holds them. Refused (publish_unapproved, nothing posted) unless the board's Approve covers this exact text, these exact image files and this account; an approval is spent once, so a refusal saying it was used means the post may already be up and must never be sent again. Returns each post's bsky.app link.",
+			"Publish the chosen bluesky-post draft from the connected account, straight away: one post or a thread, with its images and alt text, links as rich text, and a link card for each post listed in cards (get it with bluesky_link_card). Pass the chosen option's posts and media exactly as the board holds them. Picking the option on the board is the go-ahead; nothing asks again. Post a draft once: if a call fails unclearly, check bluesky_author_feed before calling again. Returns each post's bsky.app link.",
 		parameters: publishSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const parsed = publishSchema(args);
-			if (parsed instanceof type.errors) return ["Bluesky post: (arguments missing or malformed)"];
-			const lines = [`Bluesky draft: ${parsed.draftId}`];
-			parsed.posts.forEach((text, index) => {
-				lines.push(`Post ${index + 1}/${parsed.posts.length}:\n${text}`);
-				for (const item of (parsed.media ?? []).filter(media => media.post === index))
-					lines.push(`  Image: ${item.path}\n  Alt: ${item.alt}`);
-				for (const card of (parsed.cards ?? []).filter(entry => entry.post === index))
-					lines.push(
-						`  Link card: ${card.uri}\n  Title: ${card.title}\n  Description: ${card.description}\n  Card image: ${card.image ?? "(none)"}`,
-					);
-			});
-			return lines;
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: PublishParams) {
 			checkDraft(params);
 			const media = await Promise.all(
@@ -548,23 +456,10 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 							throw new Error(`${item.path} could not be read. Nothing was posted.`);
 						}),
 					);
-					return { item, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+					return { item, bytes };
 				}),
 			);
 			const account = await session();
-			const values = [
-				...params.posts,
-				...media.map(({ item, sha256 }) => JSON.stringify([item.post, item.path, sha256, item.alt])),
-			];
-			const spend = await claimApproval(
-				params.draftId,
-				createHash("sha256")
-					.update(
-						JSON.stringify(["publish-approval/v1", "https://bsky.app", account.handle, "bluesky_publish", values]),
-					)
-					.digest("hex"),
-				Date.now(),
-			);
 			const prepared = await Promise.all(
 				params.posts.map(async (text, index) => {
 					const [facets, embed] = await Promise.all([
@@ -577,7 +472,6 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 					return { text, facets, embed };
 				}),
 			);
-			const release = await spend();
 			const posted: string[] = [];
 			let root: StrongRef | undefined;
 			let parent: StrongRef | undefined;
@@ -604,12 +498,10 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 						error.status < 500 &&
 						error.status !== 408 &&
 						error.status !== 429
-					) {
-						await release();
+					)
 						throw new Error(
-							`${reason}. Bluesky refused post 1, so nothing was posted and the approval still stands; fix the cause and call again.`,
+							`${reason}. Bluesky refused post 1, so nothing was posted; fix the cause and call again.`,
 						);
-					}
 					if (posted.length === 0)
 						throw new Error(
 							`${reason}. Bluesky gave no clear refusal, so post 1 may be up: check with bluesky_author_feed before anything else, and never post this draft again.`,

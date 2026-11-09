@@ -32,7 +32,7 @@ import type { PublishRecipe } from "../src/contracts";
 import type { BrowserRuntime, BrowserRuntimeOptions } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { chromePidsByThrowaway, waitUntilGone } from "./chrome-processes";
-import { approvePublish, BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, type Fixture, newRuntime, startFixture, teardown, waitUntil } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, chromePath, createRoot, describeWithChrome, failureCode, type Fixture, newRuntime, startFixture, teardown, waitUntil } from "./fixture";
 import { withJevKey } from "./jev-key";
 import { type PublishFixture, startPublishFixture } from "./publish-fixture";
 
@@ -140,9 +140,6 @@ async function listAs(r: Rig, who: Who): Promise<Array<Record<string, unknown>>>
 	return Listed.parse(who.caller === "app" ? result.structuredContent : JSON.parse(textOf(result))).profiles;
 }
 const entry = (list: Array<Record<string, unknown>>, name: string): Record<string, unknown> | undefined => list.find((profile) => profile.name === name);
-
-/** The campaign board's approval of exactly the text `posting` types, for `profile`: a post goes out only if a human approved it. */
-const approve = (r: Rig, posting: PublishRecipe, profile: string): Promise<unknown> => approvePublish(r.rootDir, { origin: posting.origin, profile, values: posting.fields.map((field) => field.value) });
 
 /** The refusal an agent reads: an error whose text is returned. */
 function refusal(result: ToolResult): string {
@@ -476,7 +473,6 @@ describeWithChrome("taking a browser over in the View", () => {
 			const id = opened.browserId;
 			expect((await r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: site.url("/login") }] }, CHAT)).isError).toBeFalsy();
 
-			await approve(r, recipe(site), "pub");
 			const parked = await r.call("browser_publish", { browserId: id, recipe: recipe(site), mode: "post" }, CHAT);
 			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
 			const publishId = String(parked.structuredContent?.publishId);
@@ -544,7 +540,6 @@ describeWithChrome("taking a browser over in the View", () => {
 			const site = startHeldCompose(true);
 			try {
 				const id = (await open(r, CHAT, { profile: "pub" })).browserId;
-				await approve(r, site.recipe, "pub");
 				const filling = r.call("browser_publish", { browserId: id, recipe: site.recipe, mode: "post" }, CHAT);
 				await site.asked;
 
@@ -573,7 +568,6 @@ describeWithChrome("taking a browser over in the View", () => {
 			const site = startHeldCompose(false);
 			try {
 				const id = (await open(r, CHAT, { profile: "pub" })).browserId;
-				await approve(r, site.recipe, "pub");
 				const filling = r.call("browser_publish", { browserId: id, recipe: site.recipe, mode: "post" }, CHAT);
 				await site.asked;
 				expect(await failureCode(() => r.runtime.control(id, "take", "app"))).toBe("publish_pending");
@@ -601,7 +595,6 @@ describeWithChrome("taking a browser over in the View", () => {
 			stateOf(await r.call("browser_control", { browserId: id, mode: "take" }, VIEW_OF_CHAT));
 
 			// The person, who holds the wheel, prepares the post themselves (an agent's publish is refused while they hold it).
-			await approve(r, recipe(site), "pub");
 			const parked = await r.call("browser_publish", { browserId: id, recipe: recipe(site), mode: "post" }, VIEW_OF_CHAT);
 			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
 			const publishId = String(parked.structuredContent?.publishId);
@@ -864,7 +857,6 @@ describeWithChrome("leaving a browser for another profile in the View", () => {
 			publishFixtures.push(site);
 			const id = (await open(r, VIEW_OF_CHAT, { profile: "pub" })).browserId;
 			expect((await r.call("browser_act", { browserId: id, actions: [{ kind: "navigate", url: site.url("/login") }] }, CHAT)).isError).toBeFalsy();
-			await approve(r, recipe(site), "pub");
 			const parked = await r.call("browser_publish", { browserId: id, recipe: recipe(site), mode: "post" }, CHAT);
 			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
 

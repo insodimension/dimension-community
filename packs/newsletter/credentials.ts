@@ -48,7 +48,7 @@ export function connectedProviders(): ProviderId[] {
 	return PROVIDERS.filter(id => existsSync(configPath(id)));
 }
 
-export function isProviderId(value: unknown): value is ProviderId {
+function isProviderId(value: unknown): value is ProviderId {
 	return typeof value === "string" && (PROVIDERS as readonly string[]).includes(value);
 }
 

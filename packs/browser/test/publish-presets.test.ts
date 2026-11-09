@@ -19,7 +19,7 @@ import type { PublishRecord } from "../src/contracts";
 import { type PublishPreset, loadPresets, parsePreset } from "../src/presets";
 import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
-import { approvePublish, BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, teardown } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, teardown } from "./fixture";
 import { PLATFORM_ROUTES, type PlatformFixture, rebasePreset, startPlatformFixture } from "./platform-fixture";
 
 const CALLER = "ai.insodimension/caller";
@@ -168,9 +168,6 @@ describeWithChrome("presets against their fixture copies", () => {
 			async () => {
 				const s = await session(`preset-${spec.name}`, spec.name);
 				const preset = { name: spec.name, values: spec.values, ...(spec.target === undefined ? {} : { target: spec.target(s.fixture) }) };
-				// A post goes out only if the board approved exactly this text through exactly this preset, for this profile.
-				await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: spec.name, values: spec.values });
-
 				const parked = await s.call("browser_publish", { browserId: s.browserId, preset, mode: "post" });
 
 				expect(parked.isError, JSON.stringify(parked.content)).toBeFalsy();
@@ -200,35 +197,6 @@ describeWithChrome("presets against their fixture copies", () => {
 			const s = await session("preset-x-account", "x-post");
 			const checked = await s.call("browser_publish", { browserId: s.browserId, preset: { name: "x-post", values: ["hi"] }, mode: "check" });
 			expect(checked.structuredContent).toMatchObject({ status: "signed-in", account: "@alice" });
-		},
-		BROWSER_TEST_TIMEOUT_MS,
-	);
-
-	test(
-		"an approval for a preset's text does not cover the same text through a hand-written recipe with the preset's own selectors: refused before any page is touched, and the preset still parks",
-		async () => {
-			const s = await session("preset-by-hand", "x-post");
-			const values = ["fixture post, approved through x-post"];
-			await approvePublish(s.rootDir, { origin: s.fixture.origin, profile: s.profile, preset: "x-post", values });
-			const x = rebasePreset(shippedPreset("x-post"), s.fixture.origin);
-			const byHand = {
-				origin: x.origin,
-				composeUrl: x.composeUrl ?? "",
-				signedIn: x.signedIn,
-				fields: x.fields.map((field, index) => ({ selector: field.selector, value: values[index] ?? "" })),
-				submit: x.submit,
-				receipt: x.receipt,
-			};
-
-			const refused = await s.call("browser_publish", { browserId: s.browserId, recipe: byHand, mode: "post" });
-
-			expect(refused.isError).toBe(true);
-			expect(errorText(refused)).toStartWith("publish_unapproved:");
-			expect(s.fixture.hits(PLATFORM_ROUTES["x-post"] ?? "")).toBe(0);
-			expect((await s.runtime.state(s.browserId)).publish).toBeNull();
-			const parked = await s.call("browser_publish", { browserId: s.browserId, preset: { name: "x-post", values }, mode: "post" });
-			expect(parked.isError, JSON.stringify(parked.content)).toBeFalsy();
-			expect(parked.structuredContent?.status).toBe("awaiting-confirmation");
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);

@@ -3,7 +3,6 @@
 // launches a Chrome of its own, and nothing in the worker creates a page: the engine opens and instruments every tab, the worker adopts it by targetId. A browser a cell asks for by `app` (connected,
 // spawned, the relay) is found or started by `kinds/establish.ts` and handed to the runtime as an attach target; a cmux browser is not a Chrome and is held by `CmuxBrowsers`, which this port routes to.
 
-import { codeRefusal } from "../../approved-fill.js";
 import type { BrowserEngine, BrowserOpenOptions, BrowserOpener, BrowserState, Viewport } from "../../contracts.js";
 import type { AttachTarget } from "../../engines/attach.js";
 import type { EngineDriver } from "../../engines/types.js";
@@ -21,7 +20,7 @@ export const CODE_IDLE_MS = 1_800_000;
 /** The longest delay a timer holds; a "never" idle clock is parked here, and `persist` is what stops it closing the browser. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-export type EndWhy = "closed" | "retired" | "taken-over" | "gated";
+export type EndWhy = "closed" | "retired" | "taken-over";
 export type EndListener = (browserId: string, why: EndWhy, reason?: string) => void;
 
 /**
@@ -58,7 +57,6 @@ export interface CodeSeam {
   peek(browserId: string): CodeSeamEntry | undefined;
   /** The slug a saved profile's name or label means: the runtime's own resolution, which throws what `open` would for an ambiguous or invalid name. Reads only. */
   resolveProfile(raw: string): string;
-  gatedReason(profile: string | null): string | undefined;
   /** The session's open browsers, whoever opened them. */
   browsersOf(session: string): CodeSeamEntry[];
   viewOf(session: string): string | undefined;
@@ -223,8 +221,6 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
   }
 
   async #acquireSaved(session: string, kind: BrowserKind, profile: string, req: Parameters<CodeBrowserPort["acquire"]>[1]): Promise<AcquiredBrowser> {
-    const gated = this.#seam.gatedReason(this.#seam.resolveProfile(profile));
-    if (gated !== undefined) throw new ToolError(codeRefusal(gated));
     const size = req.viewport ?? CODE_VIEWPORT;
     const lifetime = this.#lifetime(req.persist, kind);
     const state = await this.#seam.open({ profile, engine: "chromium", viewport: { width: size.width, height: size.height } }, { caller: "model", session }, lifetime);
@@ -361,8 +357,7 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
   }
 
   existing(session: string): { browserId: string; wsEndpoint: string; kind: BrowserKind } | undefined {
-    const shown = this.#seam.shownTo(session);
-    const entry = (shown !== undefined && this.#seam.gatedReason(shown.profile) === undefined ? shown : undefined) ?? this.#reusable(session);
+    const entry = this.#seam.shownTo(session) ?? this.#reusable(session);
     return entry === undefined ? undefined : { browserId: entry.browserId, wsEndpoint: entry.driver.cdpEndpoint(), kind: entry.code?.kind ?? { kind: "headless", headless: this.#hidden } };
   }
 
@@ -382,8 +377,6 @@ export class RuntimeCodeBrowsers implements CodeBrowserPort {
   holdWork(browserId: string): () => void {
     if (this.#cmux.owns(browserId)) return this.#cmux.holdWork(browserId);
     const entry = this.#seam.require(browserId);
-    const gated = this.#seam.gatedReason(entry.profile);
-    if (gated !== undefined) throw new ToolError(codeRefusal(gated));
     return this.#seam.hold(entry);
   }
 

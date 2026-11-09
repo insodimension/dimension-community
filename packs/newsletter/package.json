@@ -2,7 +2,7 @@
 	"name": "@inso/newsletter",
 	"author": "Dimension",
 	"version": "0.1.0",
-	"description": "Newsletter connector: save approved issues as unsent drafts and read issue stats and subscriber counts in beehiiv, Kit, Buttondown or Ghost with your own API key",
+	"description": "Newsletter connector: save chosen issues as unsent drafts and read issue stats and subscriber counts in beehiiv, Kit, Buttondown or Ghost with your own API key",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {

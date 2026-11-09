@@ -50,12 +50,14 @@ Reads:
   no API: the person reads them in the Discord app.
 - `discord_list_automod_rules` — the server's AutoMod rules.
 
-Writes that reach people ask the person in **every** mode, yolo included:
+Every tool runs under the session's permission mode; none asks on its own.
+What the person chose or asked for is the go-ahead. Posting:
 `discord_send_message`, `discord_reply_message`, `discord_create_thread`,
-`discord_edit_message`, `discord_delete_message`, `discord_timeout_member`,
-`discord_create_invite`, `discord_publish_message`, `discord_create_event`,
-`discord_create_automod_rule`. Plain writes: `discord_add_reaction`,
+`discord_publish_message`, `discord_create_event`, plus `discord_add_reaction`,
 `discord_pin_message`, `discord_create_channel`, `discord_set_thread_tags`.
+Edits, moderation and server settings: `discord_edit_message`,
+`discord_delete_message`, `discord_timeout_member`, `discord_create_invite`,
+`discord_create_automod_rule`.
 
 - `discord_send_message` / `discord_reply_message` — text up to 2000
   characters, optionally one local image (`imagePath`: PNG, JPEG, GIF or WebP,
@@ -74,7 +76,7 @@ Writes that reach people ask the person in **every** mode, yolo included:
   server following the announcement channel, at most 10 per hour per channel.
 - `discord_create_event` — in a voice or stage channel, or at an outside
   `location` with an `endTime`.
-- `discord_create_automod_rule` — one rule the person approved: `keyword`
+- `discord_create_automod_rule` — one rule the person asked for: `keyword`
   (with `keywords`), `spam`, `keyword_preset` (`profanity`, `sexual_content`,
   `slurs`) or `mention_spam` (`mentionLimit`), acting by `block`, `alert` (to
   `alertChannelId`) or `timeout`. Discord allows 6 keyword rules per server.
@@ -86,8 +88,7 @@ Writes that reach people ask the person in **every** mode, yolo included:
 Every send, reply, forum post and edit goes out with Discord's
 `allowed_mentions` emptied: `@everyone`, `@here`, role and user mentions in the
 text render but notify nobody. A reply still notifies the author it answers
-(`pingAuthor: false` turns that off). To notify a user, the person must name
-them; pass their ids in `mentionUserIds`. The approval card says who is pinged.
+them; pass their ids in `mentionUserIds`.
 
 ## Formatting
 
@@ -100,15 +101,15 @@ render); use short lists. Wrap a link in `<…>` to suppress its embed.
   `discord_list_threads { channelId, includeArchived: false }` → read the
   posts without `SOLVED` → `discord_search_messages` for the same question
   before drafting an answer.
-- "Post the release notes to #announcements" → confirm the text →
-  `discord_send_message` → on the person's yes, `discord_publish_message`.
+- "Post the release notes to #announcements" → `discord_send_message` with the
+  text the person gave or chose → `discord_publish_message`.
 - "Where do our members come from?" → `discord_guild_snapshot`, read invite
   uses per code.
 
 ## Safety
 
-- Confirm the exact channel and the full text before every send; the card
-  shows both.
+- Post exactly the channel and text the person chose or asked for. If the
+  channel or the text is genuinely unclear, ask one short question in the chat.
 - Moderation acts on other people: the person names the exact message, or the
   exact member AND duration, in the current turn. Refuse "clean up the
   channel" or "mute the spammers" until they do.

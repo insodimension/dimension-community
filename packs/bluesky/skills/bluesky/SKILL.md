@@ -1,6 +1,6 @@
 ---
 name: bluesky
-description: Research and post on Bluesky with eleven tools - authenticated post search, posts with their numbers, threads, quotes, profiles, an account's posts, custom feeds, starter packs, trends, your notifications, and publishing a board-approved post or thread. Use when the user asks what Bluesky says about a topic, how a Bluesky post or account is doing, which feeds or starter packs a niche reads, what needs a reply on Bluesky, or to post an approved Bluesky draft.
+description: Research and post on Bluesky with eleven tools - authenticated post search, posts with their numbers, threads, quotes, profiles, an account's posts, custom feeds, starter packs, trends, your notifications, and publishing the post or thread chosen on the board. Use when the user asks what Bluesky says about a topic, how a Bluesky post or account is doing, which feeds or starter packs a niche reads, what needs a reply on Bluesky, or to post a chosen Bluesky draft.
 ---
 
 # Bluesky
@@ -27,7 +27,7 @@ documented, fewer observed).
 | `bluesky_trends` | no | What is trending now. |
 | `bluesky_my_notifications` | yes | Mentions, replies and quotes by default (`reasons` adds likes, reposts, follows, starter-pack joins). Never marks them read. |
 | `bluesky_link_card` | no | The link card a post's link would show: title, description, image. Public pages only. |
-| `bluesky_publish` | yes | Posts a `bluesky-post` draft the person approved on the board. |
+| `bluesky_publish` | yes | Posts the `bluesky-post` draft the person chose on the board. |
 
 ## Search traps
 
@@ -46,21 +46,21 @@ the brand's own analytics.
 
 ## Publishing
 
-`bluesky_publish` takes the board's `draftId` and the approved option exactly as
-the board holds it: `posts` in order and `media` (`{ path, post, alt }`, images
-only). For each post with a link and no image, call `bluesky_link_card` on its
-first link and pass the result with the post's index in `cards`; a post with a
-link and no card there goes up without one. It refuses with
-`publish_unapproved`, posting nothing, unless the board's approval covers this
-exact text, these exact image files and this account. It then asks the person on
-an approval card in every mode, showing every card field, uploads images (PNG,
-JPEG, WebP, under 2 MB each, metadata stripped), turns links, `@handles` and
-`#tags` into rich text, and chains a thread as replies. The receipt is one
-`bsky.app` link per post; record the first with `draft_posted`.
+Picking an option on the board is the go-ahead: call `bluesky_publish` right
+away, and nothing asks the person again. If something is genuinely unclear (which
+account, a post that no longer fits), ask one short question in the session chat.
 
-- "already used" means the post may be up: check `bluesky_author_feed`, never
-  post it again.
-- "expired" means the person presses Retry on the board.
+`bluesky_publish` takes the chosen option exactly as the board holds it: `posts`
+in order and `media` (`{ path, post, alt }`, images only). For each post with a
+link and no image, call `bluesky_link_card` on its first link and pass the result
+with the post's index in `cards`; a post with a link and no card there goes up
+without one. It uploads images (PNG, JPEG, WebP, under 2 MB each, metadata
+stripped), turns links, `@handles` and `#tags` into rich text, and chains a
+thread as replies. The receipt is one `bsky.app` link per post; record the first
+with `draft_posted`.
+
+- Post a draft once. If a call fails without a clear refusal, the post may be
+  up: check `bluesky_author_feed` before calling again.
 - Video and documents are posted by the person in the app.
 - It never replies to other people's posts, likes, reposts or follows: Bluesky's
   developer guidelines bar automated interactions that notify people.
