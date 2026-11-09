@@ -32275,8 +32275,8 @@ function createFence(options2) {
       real = await resolveReal(lexical);
     } catch (error51) {
       const code = error51 instanceof Error && "code" in error51 && typeof error51.code === "string" ? error51.code : void 0;
-      const unlentCopy = lentText ? void 0 : denyReason(lexical);
-      if (unlentCopy !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy}`);
+      const unlentCopy2 = lentText ? void 0 : denyReason(lexical);
+      if (unlentCopy2 !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy2}`);
       const anchor = await nearestReal(lexical);
       const within2 = lentText || options2.indexed?.isLent(lexical) === true || anchor !== void 0 && [...roots, ...await realRoots()].some((root) => insideRoot(anchor, root, platform));
       if (!within2) return refuseOutside(requested, `it does not resolve (${code ?? "unknown error"})`);
@@ -32284,8 +32284,10 @@ function createFence(options2) {
       if (code === "EACCES" || code === "EPERM") return refuse(`"${requested}" cannot be read: permission denied`);
       return refuse(`"${requested}" cannot be resolved${code ? ` (${code})` : ""}`);
     }
-    const allowed = await realRoots();
     const lentFile = await isLent(real, lent);
+    const unlentCopy = lentFile ? void 0 : denyReason(lexical);
+    if (unlentCopy !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy}`);
+    const allowed = await realRoots();
     if (!allowed.some((root) => insideRoot(real, root, platform)) && !lentFile && !await isIndexed(real)) {
       return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
     }
