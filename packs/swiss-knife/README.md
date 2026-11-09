@@ -65,8 +65,9 @@ a `present` card or an Open button, and the Viewer is not a tool the model calls
   into the session blob store (`<agent>/blobs/<sha256>.<ext>`), so an agent that later overwrites the path
   does not change what an older card opens. The copy carries the file's own extension, and only one the
   Viewer will lend: a larger file, one with no extension or an odd one (a space, more than 32
-  characters), and a database (`.db`, `.sqlite`, `.sqlite3` and their journals) get no copy and are not
-  read for one; they open as they are when clicked, like a file whose copy failed (the model's line says why).
+  characters), a database (`.db`, `.sqlite`, `.sqlite3` and their journals), and a durable copy (`.bak`,
+  `.corrupt-*`) get no copy and are not read for one; they open as they are when clicked, like a file
+  whose copy failed (the model's line says why).
   The Viewer lends a copy only as the exact file a click lent, never because a folder in `VIEWER_ROOTS`
   covers the engine home. `omp gc` removes a copy once no session refers to it.
 - **The Viewer reads only what it is lent**: the vault, folders in `VIEWER_ROOTS`, and the one file a

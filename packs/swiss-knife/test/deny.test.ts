@@ -192,6 +192,9 @@ describe("denyReason and the copy a card opens, which lives in the engine's blob
 		{ name: "a database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db`, category: /agent state/ },
 		{ name: "a sqlite database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.sqlite`, category: /agent state/ },
 		{ name: "a database journal under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db-wal`, category: /agent state/ },
+		{ name: "a durable backup of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.bak`, category: /agent state/ },
+		{ name: "a quarantined copy of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.corrupt-k3x9`, category: /agent state/ },
+		{ name: "a staged write of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.4242.1a2b3c4d.tmp`, category: /agent state/ },
 		{ name: "an extension over 32 characters", path: `/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(33)}`, category: /agent state/ },
 		{ name: "an extension that starts with a dot", path: `/home/me/.inso/agent/blobs/${BLOB}..png`, category: /agent state/ },
 		{ name: "a private key under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.pem`, category: /private key/ },
@@ -223,6 +226,7 @@ describe("blobCopyExtension: the extension a presented file's copy would carry, 
 		["a database journal", "data.db-wal"],
 		["a private key", "key.pem"],
 		["an environment file", "prod.env"],
+		["a durable backup extension", "notes.bak"],
 	])("%s gets no copy: %s", (_name, fileName) => {
 		expect(blobCopyExtension(fileName)).toBeUndefined();
 	});
