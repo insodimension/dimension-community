@@ -95,9 +95,12 @@ review is the taste check.** No pack merges red.
    and load on an older host — matched against the Dimension PRODUCT version with
    `Bun.semver.satisfies`, never parsed by the UI. Omit it when your pack has no
    floor; an unparseable range fails validation.
-7. **Open the PR.** CI validates the catalog and pack layout and refuses index
-   drift; the monorepo CI runs your tests; a maintainer reviews for craft
-   (design-token discipline, honest empty states, reduced-motion safety).
+7. **Open the PR.** GitHub Actions is off here, so the maintainer runs the
+   validation by hand before merging (`bun scripts/validate-marketplace.mjs --check`,
+   `bun scripts/build-index.ts --check`, `bun test scripts/test`,
+   `bun scripts/check-version-bumps.mjs origin/main`), refuses index drift, and
+   reviews for craft (design-token discipline, honest empty states,
+   reduced-motion safety).
 
 Browsing this shelf costs ONE fetch: a client reads the index and paints every
 card from it, then downloads only the pack it installs, as that pack's own
@@ -135,21 +138,34 @@ your entry's `release` pins.
   (`check-version-bumps.mjs` refuses one without), which gives it a new tag
   and a new archive. The same check refuses a catalog whose `release` sha256
   or size changed for a version that did not.
-- **CI publishes it after merge.** On every push to `main`, once the
-  `validate` job is green, the `publish-releases` job reads the catalog and,
-  for each entry whose release asset does not exist yet, builds the archive
-  from the merged commit, checks it is byte for byte the one the catalog pins,
-  creates the release at that commit and uploads it. An asset that already
-  exists is checked, never overwritten: if its bytes differ from the catalog,
-  the job fails and names the pack. A maintainer can run the workflow on
-  `main` by hand (Actions, ci, Run workflow) to publish again after a failure.
-- **The window.** From the merge until that job finishes (normally a minute
-  or two), the catalog on `main` already names your new version but its
-  archive is not uploaded yet. A Dimension that reads `release` gets HTTP 404
-  for it in that window, warns, and installs the pack from its
-  `./packs/<name>` source instead, so the install still works. The merge that
-  introduced release builds put all 60 packs in this window at once, until
-  its first `publish-releases` run finished; the same fallback covered it.
+- **A maintainer publishes it after merge, by hand.** GitHub Actions is off
+  on this repository, so `.github/workflows/ci.yml` never runs; its
+  `publish-releases` job is the script below and nothing else uploads a build.
+  After every merge to `main` that bumps a pack version, the maintainer who
+  merged it runs, from a clean checkout of that merge commit:
+
+  ```sh
+  bun install --frozen-lockfile
+  GITHUB_TOKEN=$(gh auth token) GITHUB_SHA=$(git rev-parse HEAD) bun scripts/publish-pack-releases.mjs
+  ```
+
+  The script reads the catalog and, for each entry whose release asset does
+  not exist yet, builds the archive from the checked-out commit, checks it is
+  byte for byte the one the catalog pins, creates the release at that commit
+  and uploads it. An asset that already exists is checked, never overwritten:
+  if its bytes differ from the catalog, the script fails and names the pack.
+  It is idempotent: a rerun on a fully published catalog reports
+  `0 published, N already published`. The token needs `contents: write` on
+  this repository; `gh auth token` of a maintainer has it. The same reviewer
+  gate CI used to run is on the maintainer too: before merging, run the four
+  checks in "Contribute a pack" step 4 (plus `bun test scripts/test` and
+  `bun scripts/check-version-bumps.mjs origin/main`) on the PR branch.
+- **The window.** From the merge until the maintainer has run the script,
+  the catalog on `main` already names your new version but its archive is
+  not uploaded yet. A Dimension that reads `release` gets HTTP 404 for it in
+  that window, warns, and installs the pack from its `./packs/<name>` source
+  instead, so the install still works. Keep the window short: run the script
+  right after the merge.
 - **Older Dimension.** Every entry keeps `source: "./packs/<name>"` beside
   `release`. A Dimension that does not know the `release` field ignores it and
   installs from `source` as it always has, so no version ever loses its
@@ -214,9 +230,9 @@ your entry's `release` pins.
 
    The first rewrites the index from the packs on disk (both catalog paths); the
    second checks the catalog and pack layout and refuses index drift — exactly
-   what CI runs. Both must be green.
-5. **Open the PR.** One pack per PR, against `main`. CI reruns both scripts;
-   a maintainer reviews against the house rules below.
+   what the maintainer runs before merging. Both must be green.
+5. **Open the PR.** One pack per PR, against `main`. The maintainer reruns both
+   scripts by hand and reviews against the house rules below.
 
 ## Contribute a General Agent
 
