@@ -541,7 +541,7 @@ export async function createBrowserServer(options: BrowserServerOptions = {}): P
   });
   server.registerTool("browser_submit", {
     title: "Post with the person's answer",
-    description: "On a traction-* profile, post when browser_act refused a click, Enter or Space with submit_needs_person: the text on the page is not exactly an approved draft and the judge did not find it consistent with what the person approved or asked for. The host ALWAYS asks the person first, in every permission mode, showing the profile, the site and the text; nothing is clicked unless they allow it. Pass the click (or press) and profile, origin and values copied exactly from the page's typed fields, in any order: any difference fails publish_mismatch and nothing is clicked.",
+    description: "On a profile a Traction account posts from (traction-*, or one Traction names in publish-profiles.json), post when browser_act refused a click, Enter or Space with submit_needs_person: the text on the page is not exactly an approved draft and the judge did not find it consistent with what the person approved or asked for. The host ALWAYS asks the person first, in every permission mode, showing the profile, the site and the text; nothing is clicked unless they allow it. Pass the click (or press) and profile, origin and values copied exactly from the page's typed fields, in any order: any difference fails publish_mismatch and nothing is clicked.",
     inputSchema: {
       browserId: capability,
       action: z.discriminatedUnion("kind", [

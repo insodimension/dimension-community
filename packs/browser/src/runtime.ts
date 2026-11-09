@@ -107,7 +107,7 @@ import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, Pas
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
-import { type FillClaim, FillGate, type FillSpend, type GatedBrowser, isGated, type SubmitJudge } from "./approved-fill.js";
+import { codeRefusal, type FillClaim, FillGate, type FillSpend, type GatedBrowser, GatedProfiles, type SubmitJudge } from "./approved-fill.js";
 import { PublishApprovals } from "./publish-approval.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
@@ -414,6 +414,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly store: ProfileStore;
 	private readonly publishApprovals: PublishApprovals;
 	private readonly fillGate: FillGate;
+	private readonly gatedProfiles: GatedProfiles;
 	private readonly annotationFiles: AnnotationFiles;
 	/** The key every profile's saved passwords are sealed under: one file in the root, beside `profiles/` (credentials.ts). */
 	private readonly credentialKey: CredentialKey;
@@ -484,6 +485,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.credentialKey = new CredentialKey(this.store.rootDir);
 		this.publishApprovals = new PublishApprovals(join(this.store.rootDir, "publish-approvals"));
 		this.fillGate = new FillGate(this.publishApprovals);
+		this.gatedProfiles = new GatedProfiles(this.store.rootDir, { onGated: (profiles) => this.revokeGated(profiles) });
+		this.gatedProfiles.watch();
 		// Only what a dead server abandoned: a live server's throwaway browsers are never touched.
 		this.store.sweepEphemeral();
 	}
@@ -816,6 +819,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.connectionListeners.clear();
 		this.profileWatcher?.close();
 		this.profileWatcher = undefined;
+		this.gatedProfiles.close();
 		// The spare task worker waiting for the next task belongs to no browser: it goes with the runtime.
 		releaseSpare();
 		// Let in-flight launches finish first: a browser born after we started
@@ -1073,14 +1077,27 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	// The code seam (src/code/host): a browser a cell opens is an entry like any other
 	// -----------------------------------------------------------------------
 
-	private notifyEnd(entry: Entry, why: EndWhy): void {
-		const reason = this.released.get(entry.browserId);
+	private notifyEnd(entry: Entry, why: EndWhy, reason = this.released.get(entry.browserId)): void {
 		for (const listener of [...this.endListeners]) {
 			try {
 				listener(entry.browserId, why, reason);
 			} catch (error) {
 				console.error("A browser-end listener failed:", describe(error));
 			}
+		}
+	}
+
+	private revokeGated(profiles: ReadonlySet<string>): void {
+		if (this.disposed) return;
+		for (const entry of this.byId.values()) {
+			if (entry.closed || entry.profile === null || !profiles.has(entry.profile)) continue;
+			const reason = this.gatedProfiles.reason(entry.profile);
+			if (reason === undefined) continue;
+			if (entry.worker) {
+				entry.taskEndpoint?.close();
+				entry.worker.process.cancel();
+			}
+			this.notifyEnd(entry, "gated", codeRefusal(reason));
 		}
 	}
 
@@ -1110,6 +1127,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			close: async (browserId, session) => await this.close(browserId, undefined, undefined, session),
 			require: (browserId) => this.require(browserId),
 			resolveProfile: (raw) => this.resolveProfile(raw, "chromium"),
+			gatedReason: (profile) => this.gatedProfiles.reason(profile),
 			peek: (browserId) => {
 				const entry = this.byId.get(browserId);
 				return entry === undefined || entry.closed ? undefined : entry;
@@ -1928,7 +1946,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		return await this.serialize(entry, async () => {
 			admitCaller(entry, caller);
 			if (caller === "app") fail("bad_action", "browser_submit is the agent's: the person presses the site's own button");
-			if (!isGated(entry.profile)) fail("bad_action", "browser_submit posts approved text on a traction-* profile; on this browser, click with browser_act");
+			if (!this.gatedProfiles.has(entry.profile)) fail("bad_action", "browser_submit posts approved text on a profile a Traction account posts from; on this browser, click with browser_act");
 			const action = normalizeAction(request.action);
 			if (action.kind !== "click" && !(action.kind === "press" && (action.key === "Enter" || action.key === "Space"))) {
 				fail("bad_action", "browser_submit's action is a click, or a press of Enter or Space");
@@ -2111,7 +2129,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 
 	/** One admitted action, dispatched once on the active tab. A failure is a status, never a throw: earlier steps of a batch stay accounted for. */
 	private async dispatch(entry: Entry, action: BrowserAction, caller: ToolCaller | undefined, guard?: EffectGuard, judge?: SubmitJudge): Promise<Dispatched> {
-		const gated = caller !== "app" && isGated(entry.profile) ? (entry as Entry & GatedBrowser) : null;
+		const gated = caller !== "app" && this.gatedProfiles.has(entry.profile) ? (entry as Entry & GatedBrowser) : null;
 		let spent: FillSpend = { release: async () => undefined };
 		if (gated !== null) {
 			try {
@@ -2173,7 +2191,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		} catch (error) {
 			return { status: error instanceof ActionNotDispatched ? "failed" : "unknown", error: describe(error) };
 		} finally {
-			if (isGated(entry.profile)) await this.settleFillClaim(entry as Entry & GatedBrowser);
+			if (this.gatedProfiles.has(entry.profile)) await this.settleFillClaim(entry as Entry & GatedBrowser);
 		}
 		return { status: "completed" };
 	}
@@ -2251,9 +2269,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (entry.engine === "chrome-relay") {
 			fail("task_unsupported_engine", "the task agent drives a whole browser, and chrome-relay is your own Chrome — open a chromium profile for browser_task");
 		}
-		if (isGated(entry.profile)) {
-			fail("publish_unapproved", `publish_unapproved: browser_task types whatever its task says, and ${entry.profile} is a traction-* profile, which types and posts only what the person approved on the campaign board. Drive it with browser_act (sign in with useSavedPassword or generatePassword) and post with browser_submit. Nothing was started.`);
-		}
+		const gated = this.gatedProfiles.reason(entry.profile);
+		if (gated !== undefined) fail("publish_unapproved", taskRefusal(gated));
 		const task = typeof request.task === "string" ? request.task.trim() : "";
 		if (task.length === 0 || task.length > MAX_TASK_CHARS) fail("bad_task", `task must be 1-${MAX_TASK_CHARS} characters`);
 		const maxSteps = Math.min(MAX_TASK_STEPS, Math.max(1, Math.floor(request.maxSteps ?? DEFAULT_TASK_STEPS)));
@@ -2280,6 +2297,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
 			}
+			const stillGated = this.gatedProfiles.reason(entry.profile);
+			if (stillGated !== undefined) fail("publish_unapproved", taskRefusal(stillGated));
 			if (this.disposed) fail("disposed", "runtime has been disposed");
 			if (entry.closed || this.byId.get(entry.browserId) !== entry) this.refuseGone(entry.browserId);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
@@ -2932,6 +2951,10 @@ function requireDelta(value: unknown, name: string): number {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+function taskRefusal(reason: string): string {
+	return `publish_unapproved: browser_task types whatever its task says, and ${reason}, which types and posts only what the person approved on the campaign board. Drive it with browser_act (sign in with useSavedPassword or generatePassword) and post with browser_submit. Nothing was started.`;
+}
 
 /** A task's page is its own, and a pending publish pins the page: neither takes another caller's page work. */
 function refuseWhileBusy(entry: Entry, caller: ToolCaller | undefined, tools: Tools = "steps"): void {

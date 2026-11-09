@@ -12,7 +12,7 @@ One named profile per account, signed in once; the login persists in it across
 restarts. `browser_open({ profile, url })` on the site's login page, then sign in
 yourself with `browser_act` (`useSavedPassword` or `generatePassword` for the password) or let
 the user sign in in the Browser View (`browser_view`). `browser_task` refuses a
-`traction-*` profile, so it never signs in an account Traction posts from. A verification step (CAPTCHA, email or
+profile a Traction account posts from (below), so it never signs in such an account. A verification step (CAPTCHA, email or
 phone code) is yours to handle however you can; use `ask` when you need the user for
 it. Verify with `browser_publish` `mode: "check"` (below): `signed-in` means the
 account is connected.
@@ -64,8 +64,8 @@ remaining steps yourself with `browser_act`.
 ## Publishing
 
 A new X post goes out through `browser_publish` and its `x-post` preset; every
-other post on a `traction-*` profile is typed and posted with `browser_act`, as
-Posting on a `traction-*` profile (below) says. For `browser_publish`, prefer a **preset** over a hand-written recipe: list them with
+other post on a profile a Traction account posts from is typed and posted with `browser_act`, as
+Posting from a Traction account's profile (below) says. For `browser_publish`, prefer a **preset** over a hand-written recipe: list them with
 `browser_publish_presets` (`name`, `platform`, `verified`, `fields`,
 `needsTarget`), then pass `preset: { name, values }`, one value per field, in
 the listed order. A preset with `needsTarget` (e.g. `reddit-comment`) also takes
@@ -124,10 +124,12 @@ the posted URL's path on the origin (`{segment}` = one path segment,
 Beyond that, use your judgment on any other irreversible submission the user has not
 clearly asked for.
 
-## Posting on a `traction-*` profile
+## Posting from a Traction account's profile
 
-On a profile named `traction-*`, every click, `Enter` or `Space` that could post
-typed text is checked first:
+A Traction account posts from its own Browser profile: the one the campaign
+names for it (often one of the person's own, e.g. `godofrock`), else
+`traction-<platform>-<handle>`. On every such profile, and on any `traction-*`
+profile, every click, `Enter` or `Space` that could post typed text is checked first:
 
 - Text that is exactly an approved draft for this profile and site posts at once,
   once. Approve on the campaign board is what makes it approved.
