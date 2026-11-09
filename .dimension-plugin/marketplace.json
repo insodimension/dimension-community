@@ -563,7 +563,7 @@
 			"title": "Clients",
 			"icon": "user",
 			"description": "Win and keep enterprise customers for any product: offerings, campaigns, prospects, warm paths, the pipeline, meetings and customers in one local database. Agents draft; nothing is sent or promised without your click.",
-			"version": "0.2.2",
+			"version": "0.2.3",
 			"author": {
 				"name": "Dimension"
 			},
@@ -581,9 +581,9 @@
 			},
 			"source": {
 				"source": "release",
-				"url": "https://get.insodimension.ai/spaces/clients/clients-0.2.2.tgz",
-				"sha256": "1a5a5b12df16ef19454e6033202fc70bea6de804b36c13f89a3626ee1ee8a2aa",
-				"size": 13851622
+				"url": "https://get.insodimension.ai/spaces/clients/clients-0.2.3.tgz",
+				"sha256": "19827f4dcc0416192ddac6a75b6f85c8cf56c90a47388ec48eea4e15094cec75",
+				"size": 13851654
 			},
 			"spaces": [
 				{
