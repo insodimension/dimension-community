@@ -12,6 +12,7 @@ import {
 	MAX_RESULT_SNAPSHOT_BYTES,
 	MAX_SNAPSHOT_BYTES,
 	nonFileReason,
+	type OpenFile,
 	type PresentOptions,
 	type PresentResult,
 	presentPaths,
@@ -546,19 +547,66 @@ describe("present: the copy a card opens is the file as it was presented", () =>
 		});
 	}
 
-	test("a copy the viewer's fence would refuse (a database name in the engine home) is not kept", async () => {
+	function readCounting(reads: { count: number }): OpenFile {
+		return async (path, flags) => {
+			const handle = await open(path, flags);
+			return new Proxy(handle, {
+				get(target, property) {
+					const member: unknown = Reflect.get(target, property);
+					if (typeof member !== "function") return member;
+					return (...args: unknown[]) => {
+						if (property === "read") reads.count++;
+						return Reflect.apply(member, target, args);
+					};
+				},
+			});
+		};
+	}
+
+	test.each(["data.db", "data.sqlite", "data.db-wal", "Makefile", "odd.with space"])(
+		"%s is read only for its first block, never put in the blob store, and its line does not mention a copy",
+		async file => {
+			await inFolder("no-copy", async folder => {
+				await writeFile(join(folder, file), "x".repeat(4 * KIB));
+				const { copies, keep } = copier();
+				const reads = { count: 0 };
+
+				const result = await presentPaths(join(folder, file), { cwd: base, snapshot: keep, open: readCounting(reads) });
+
+				expect(copies).toEqual([]);
+				expect(reads.count).toBe(1);
+				expect(one(result).snapshot).toBeUndefined();
+				expect(result.text).not.toContain("no copy was kept");
+			});
+		},
+	);
+
+	test("a file with a copyable extension is read again, whole, after its first block", async () => {
+		await inFolder("copyable", async folder => {
+			await writeFile(join(folder, "notes.md"), "x".repeat(4 * KIB));
+			const { copies, keep } = copier();
+			const reads = { count: 0 };
+
+			await presentPaths(join(folder, "notes.md"), { cwd: base, snapshot: keep, open: readCounting(reads) });
+
+			expect(reads.count).toBe(2);
+			expect(copies).toHaveLength(1);
+		});
+	});
+
+	test("a copy the store wrote under a name the viewer's fence still refuses is dropped, and the model's line says so", async () => {
 		await inFolder("refused-copy", async folder => {
-			await writeFile(join(folder, "data.db"), "x");
+			await writeFile(join(folder, "notes.md"), "x");
 			const digest = sha256(Buffer.from("x"));
 			const keep: KeepSnapshot = async () => ({
 				path: join(folder, ".inso", "agent", "blobs", `${digest}.db`),
 				ref: `blob:sha256:${digest}`,
 			});
 
-			const result = await presentPaths(join(folder, "data.db"), { cwd: base, snapshot: keep });
+			const result = await presentPaths(join(folder, "notes.md"), { cwd: base, snapshot: keep });
 
 			expect(one(result).snapshot).toBeUndefined();
-			expect(result.text).not.toContain("no copy was kept");
+			expect(result.text).toContain("no copy was kept (the viewer would not open the copy)");
 		});
 	});
 

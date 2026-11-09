@@ -10,8 +10,9 @@
 //   2. DENY beats allow: private keys, `.env*`, credential and token stores, the
 //      Personal vault's Locker (its `locker` folders, `_locker.json`,
 //      `*.secret.json`), the engine's agent state and databases are refused
-//      wherever they live, even inside an allowed folder. The deny check runs on
-//      the path as written AND on the resolved real path, so a symlink to
+//      wherever they live, even inside an allowed folder; only a typed blob copy
+//      the host lent (5) is let through. The deny check runs on the path as
+//      written AND on the resolved real path, so a symlink to
 //      `~/.ssh/id_rsa` is refused for what it is, not what it is called.
 //   3. The REAL path must sit under an allowed root. Symlinks, `..` and 8.3 short
 //      names all collapse in `realpath`, so an escape by link is refused by the
@@ -25,8 +26,10 @@
 //      engine stamps `_meta["ai.insodimension/grant"] = { read: [<realpath>] }` on
 //      the calls of that View, and this server treats it as ONE extra file, never
 //      a folder. It is checked AFTER 1 and 2 and never instead of them: a click
-//      cannot open a secret. A file is lent only when the REQUESTED path, resolved
-//      to its real path, equals a lent entry (no prefix, no sibling, no parent, and
+//      cannot open a secret; the one thing 2 lets through is a lent typed blob
+//      copy, and only as exactly the lent file. A file is lent only when the
+//      REQUESTED path, resolved to its real path, equals a lent entry (no prefix,
+//      no sibling, no parent, and
 //      the entry is not resolved again) and is a regular file. The engine strips the
 //      key from every call it did not stamp, but this server does not rely on that:
 //      a grant with any flaw (not an object, `read` not a list, a non-string or
@@ -199,6 +202,15 @@ export function denyReason(path: string, { allowBlobCopy = false }: DenyOptions 
 	return undefined;
 }
 
+const PROBE_BLOB_DIRECTORY = "/.inso/agent/blobs/";
+const PROBE_BLOB_DIGEST = "0".repeat(64);
+
+export function blobCopyExtension(fileName: string): string | undefined {
+	const extension = nodePath.extname(fileName).slice(1).toLowerCase();
+	const probe = `${PROBE_BLOB_DIRECTORY}${PROBE_BLOB_DIGEST}.${extension}`;
+	return denyReason(probe, { allowBlobCopy: true }) === undefined ? extension : undefined;
+}
+
 /**
  * Why `requested` is refused on its TEXT alone, before any filesystem call, or
  * `undefined`. These are the Windows spellings the operating system acts on:
@@ -356,20 +368,23 @@ export function createFence(options: FenceOptions): Fence {
 		const refused = textRefusal(requested, platform);
 		if (refused !== undefined) return refuse(refused);
 		const lexical = api.resolve(requested);
-		// Deny first, on the text, before any filesystem call and whatever was lent.
-		const early = denyReason(lexical, { allowBlobCopy: true });
-		if (early !== undefined) return refuse(`refused to open "${requested}": ${early}`);
 		const lent = readGrant(meta)?.read ?? [];
+		const lentText = lent.some(file => comparable(file, platform) === comparable(lexical, platform));
+		// Deny first, on the text, before any filesystem call; a grant lets only a typed blob copy on to the real-path check.
+		const early = denyReason(lexical, { allowBlobCopy: lent.length > 0 });
+		if (early !== undefined) return refuse(`refused to open "${requested}": ${early}`);
 
 		let real: string;
 		try {
 			real = await resolveReal(lexical);
 		} catch (error) {
 			const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+			const unlentCopy = lentText ? undefined : denyReason(lexical);
+			if (unlentCopy !== undefined) return refuse(`refused to open "${requested}": ${unlentCopy}`);
 			const anchor = await nearestReal(lexical);
 			// A lent file the human named is theirs to hear about: "no such file" beats "outside the folders" for one they just clicked.
 			const within =
-				lent.some(file => comparable(file, platform) === comparable(lexical, platform)) ||
+				lentText ||
 				options.indexed?.isLent(lexical) === true ||
 				(anchor !== undefined && [...roots, ...(await realRoots())].some(root => insideRoot(anchor, root, platform)));
 			if (!within) return refuseOutside(requested, `it does not resolve (${code ?? "unknown error"})`);

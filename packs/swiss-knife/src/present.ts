@@ -4,13 +4,15 @@
 // as a card, and to say so in as few words as the model needs: one line per
 // file in `content`, everything else in `details` (UI-only, never model context).
 // Nothing here opens, annotates or reads a file's meaning; it resolves, refuses,
-// classifies, and (for a picture) thumbnails.
+// classifies, thumbnails a picture and keeps a copy of each file for its card.
 //
 // Bounds, because the model names the paths and the work happens before anyone
 // has asked for it: at most `MAX_PRESENTED_ITEMS` paths are looked at; a file is
-// read for its first `HEAD_BYTES`, and an image is read whole only up to
-// `MAX_THUMB_SOURCE_BYTES`, one at a time; the thumbnails of a result share one
-// `MAX_RESULT_THUMB_BYTES` budget. A path the tool refuses never costs a read.
+// read for its first `HEAD_BYTES`, an image whole up to `MAX_THUMB_SOURCE_BYTES`
+// and a file the Viewer could open as a copy whole up to `MAX_SNAPSHOT_BYTES`,
+// one at a time; the thumbnails of a result share one `MAX_RESULT_THUMB_BYTES`
+// budget and the copies one `MAX_RESULT_SNAPSHOT_BYTES`. A path the tool refuses,
+// and a file whose copy the Viewer would refuse, never cost a read.
 //
 // Accepted residual risks (decided 2026-10-01 after review). Each needs an agent
 // that can already write to the filesystem, which is the power of the shell it has
@@ -25,7 +27,7 @@
 import { constants, type Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import {
 	classifyFile,
 	formatByteSize,
@@ -35,7 +37,7 @@ import {
 	type PresentedItem,
 	type PresentedSnapshot,
 } from "@dimension/sdk/presentation";
-import { denyReason, textRefusal as windowsSpellingRefusal } from "../viewer/src/fence";
+import { blobCopyExtension, denyReason, textRefusal as windowsSpellingRefusal } from "../viewer/src/fence";
 import { imageFacts, MAX_THUMB_BYTES, MAX_THUMB_SOURCE_BYTES, type Thumbnail } from "./thumbnail";
 
 /** Bytes of a file's start read to classify it. */
@@ -44,7 +46,6 @@ const HEAD_BYTES = 512;
 const MAX_RESULT_THUMB_BYTES = 600 * 1024;
 export const MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
 export const MAX_RESULT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
-const SNAPSHOT_EXTENSION = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 /** Code points of a requested path, or of a file name, quoted back in the result. */
 const MAX_ECHO = 200;
 const SVG = "image/svg+xml";
@@ -118,17 +119,12 @@ interface Budget {
 
 type SnapshotOutcome = { readonly snapshot?: PresentedSnapshot; readonly snapshotFailure?: string };
 
-function snapshotExtension(fileName: string): string | undefined {
-	const extension = extname(fileName).slice(1).toLowerCase();
-	return SNAPSHOT_EXTENSION.test(extension) ? extension : undefined;
-}
-
-async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, fileName: string): Promise<SnapshotOutcome> {
-	const extension = snapshotExtension(fileName);
-	if (extension === undefined) return {};
+async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, extension: string): Promise<SnapshotOutcome> {
 	try {
 		const snapshot = await keep(bytes, extension);
-		return denyReason(snapshot.path, { allowBlobCopy: true }) === undefined ? { snapshot } : {};
+		return denyReason(snapshot.path, { allowBlobCopy: true }) === undefined
+			? { snapshot }
+			: { snapshotFailure: "the viewer would not open the copy" };
 	} catch (error) {
 		return { snapshotFailure: error instanceof Error && error.message !== "" ? error.message : String(error) };
 	}
@@ -251,11 +247,15 @@ async function presentOne(requested: unknown, run: Run, budget: Budget): Promise
 
 		const name = oneLine(fileName, MAX_ECHO);
 		const base: PresentedItem = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-		const keep = run.snapshot !== undefined && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? run.snapshot : undefined;
+		const extension = blobCopyExtension(fileName);
+		const copy =
+			run.snapshot !== undefined && extension !== undefined && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes)
+				? { keep: run.snapshot, extension }
+				: undefined;
 		const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
-		if (keep === undefined && !thumbnails) return { item: base };
+		if (copy === undefined && !thumbnails) return { item: base };
 		const bytes = await readWhole(handle, opened.size);
-		const kept: SnapshotOutcome = keep === undefined ? {} : await keepSnapshot(keep, bytes, fileName);
+		const kept: SnapshotOutcome = copy === undefined ? {} : await keepSnapshot(copy.keep, bytes, copy.extension);
 		const item = kept.snapshot === undefined ? base : { ...base, snapshot: kept.snapshot };
 		const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : undefined;
 		if (facts === undefined) return { item, snapshotFailure: kept.snapshotFailure };

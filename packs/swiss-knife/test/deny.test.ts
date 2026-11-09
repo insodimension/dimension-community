@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { textRefusal } from "../src/present";
 import * as fence from "../viewer/src/fence";
 
-const { denyReason } = fence;
+const { blobCopyExtension, denyReason } = fence;
 
 // `present` and the viewer's fence share ONE deny table, `viewer/src/fence.ts`: present imports
 // it and bundles it into dist/index.mjs. This file holds that table to what it promises: a corpus
@@ -185,6 +185,40 @@ describe("denyReason and the copy a card opens, which lives in the engine's blob
 		{ name: "a blob inside a credentials folder", path: `/home/me/.ssh/.inso/agent/blobs/${BLOB}.png`, category: /credentials folder/ },
 	];
 	for (const { name, path, category } of REFUSED) test(`still refuses ${name}, even lent`, () => expect(denyReason(path, { allowBlobCopy: true }), path).toMatch(category));
+});
+
+describe("blobCopyExtension: the extension a presented file's copy would carry, when the fence would lend it", () => {
+	test.each<readonly [string, string]>([
+		["SHOT.PNG", "png"],
+		["report.pdf", "pdf"],
+		["archive.tar.gz", "gz"],
+		["notes.md", "md"],
+		[`longest.${"a".repeat(32)}`, "a".repeat(32)],
+	])("%s is copied as .%s", (fileName, extension) => {
+		expect(blobCopyExtension(fileName)).toBe(extension);
+	});
+
+	test.each<readonly [string, string]>([
+		["no extension", "Makefile"],
+		["a trailing dot", "notes."],
+		["a space in the extension", "odd.with space"],
+		["an extension over 32 characters", `too-long.${"a".repeat(33)}`],
+		["a database", "data.db"],
+		["a sqlite database", "data.sqlite"],
+		["a sqlite3 database", "data.sqlite3"],
+		["a database journal", "data.db-wal"],
+		["a private key", "key.pem"],
+		["an environment file", "prod.env"],
+	])("%s gets no copy: %s", (_name, fileName) => {
+		expect(blobCopyExtension(fileName)).toBeUndefined();
+	});
+
+	test("an extension it returns is one the fence lends, once the host lent it", () => {
+		for (const fileName of ["a.png", "a.tar.gz", "a.md", `a.${"b".repeat(32)}`]) {
+			const extension = blobCopyExtension(fileName);
+			expect(denyReason(`/home/me/.inso/agent/blobs/${BLOB}.${extension}`, { allowBlobCopy: true }), fileName).toBeUndefined();
+		}
+	});
 });
 
 describe("every entry of the deny tables refuses the thing it names", () => {

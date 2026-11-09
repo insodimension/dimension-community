@@ -313,7 +313,7 @@ describe("a lent file on a real disk", () => {
 
 	test("a presented file's copy in the engine's blob store opens only with its grant, as that exact file", async () => {
 		for (const copy of [engine("agent", "blobs", `${HASH}.png`), engine("profiles", "p1", "agent", "blobs", `${HASH}.jpg`)]) {
-			expect(reasonOf(await fence().check(copy))).toContain("outside the folders");
+			expect(reasonOf(await fence().check(copy))).toContain("agent state");
 			expect(await fence().check(copy, lend(copy))).toEqual({ ok: true, real: copy });
 		}
 	});
@@ -328,6 +328,17 @@ describe("a lent file on a real disk", () => {
 				expect(reasonOf(verdict), copy).not.toContain("SNAPSHOT_BYTES");
 			}
 			expect(await wide().check(copy, lend(copy))).toEqual({ ok: true, real: copy });
+		}
+	});
+
+	test("a copy that does not exist is refused exactly as one that does, so the blob store's contents are no oracle", async () => {
+		const wide = () => createFence({ home, env: { VIEWER_ROOTS: nodePath.join(base, "home") } });
+		const missing = engine("agent", "blobs", `${"0".repeat(64)}.png`);
+		const stored = engine("agent", "blobs", `${HASH}.png`);
+		const answer = async (path: string, meta: unknown) => reasonOf(await wide().check(path, meta)).replaceAll(path, "<path>");
+		for (const meta of [undefined, lend(at("granted.txt"))]) {
+			expect(await answer(missing, meta)).toContain("agent state");
+			expect(await answer(missing, meta)).toBe(await answer(stored, meta));
 		}
 	});
 
