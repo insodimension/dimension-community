@@ -601,7 +601,10 @@ function hasCode(error51, ...codes) {
 // src/present.ts
 import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
+
+// viewer/src/fence.ts
+import * as nodePath from "node:path";
 
 // ../../../packages/sdk/src/artifactory/artifactory-decl.ts
 var PACK_CONNECTION_REPORT_MAX_BYTES = 64 * 1024;
@@ -673,7 +676,7 @@ function isBlobSidecar(segments, blobsAt) {
   const name = segments[blobsAt + 1] ?? "";
   return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DATABASE_FILE.test(name);
 }
-function denyReason(path) {
+function denyReason(path, { allowBlobCopy = false } = {}) {
   const segments = segmentsOf(path);
   const base = segments[segments.length - 1] ?? "";
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
@@ -689,12 +692,19 @@ function denyReason(path) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
-      if (isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
+      if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
+}
+var PROBE_BLOB_DIRECTORY = "/.inso/agent/blobs/";
+var PROBE_BLOB_DIGEST = "0".repeat(64);
+function blobCopyExtension(fileName) {
+  const extension = nodePath.extname(fileName).slice(1).toLowerCase();
+  const probe = `${PROBE_BLOB_DIRECTORY}${PROBE_BLOB_DIGEST}.${extension}`;
+  return denyReason(probe, { allowBlobCopy: true }) === void 0 ? extension : void 0;
 }
 function textRefusal(requested, platform, what = "viewable") {
   if (platform !== "win32") return void 0;
@@ -744,7 +754,6 @@ var HEAD_BYTES = 512;
 var MAX_RESULT_THUMB_BYTES = 600 * 1024;
 var MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
 var MAX_RESULT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
-var SNAPSHOT_EXTENSION = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 var MAX_ECHO = 200;
 var SVG = "image/svg+xml";
 function textRefusal2(requested, platform) {
@@ -752,16 +761,10 @@ function textRefusal2(requested, platform) {
   if (requested.includes("\0")) return "the path contains a NUL byte";
   return textRefusal(requested, platform, "presentable");
 }
-function snapshotExtension(fileName) {
-  const extension = extname(fileName).slice(1).toLowerCase();
-  return SNAPSHOT_EXTENSION.test(extension) ? extension : void 0;
-}
-async function keepSnapshot(keep, bytes, fileName) {
-  const extension = snapshotExtension(fileName);
-  if (extension === void 0) return {};
+async function keepSnapshot(keep, bytes, extension) {
   try {
     const snapshot = await keep(bytes, extension);
-    return denyReason(snapshot.path) === void 0 ? { snapshot } : {};
+    return denyReason(snapshot.path, { allowBlobCopy: true }) === void 0 ? { snapshot } : { snapshotFailure: "the viewer would not open the copy" };
   } catch (error51) {
     return { snapshotFailure: error51 instanceof Error && error51.message !== "" ? error51.message : String(error51) };
   }
@@ -843,11 +846,12 @@ async function presentOne(requested, run2, budget) {
     run2.seen.add(real);
     const name = oneLine(fileName, MAX_ECHO);
     const base = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-    const keep = run2.snapshot !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? run2.snapshot : void 0;
+    const extension = blobCopyExtension(fileName);
+    const copy = run2.snapshot !== void 0 && extension !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? { keep: run2.snapshot, extension } : void 0;
     const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
-    if (keep === void 0 && !thumbnails) return { item: base };
+    if (copy === void 0 && !thumbnails) return { item: base };
     const bytes = await readWhole(handle, opened.size);
-    const kept = keep === void 0 ? {} : await keepSnapshot(keep, bytes, fileName);
+    const kept = copy === void 0 ? {} : await keepSnapshot(copy.keep, bytes, copy.extension);
     const item = kept.snapshot === void 0 ? base : { ...base, snapshot: kept.snapshot };
     const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : void 0;
     if (facts === void 0) return { item, snapshotFailure: kept.snapshotFailure };
