@@ -11,8 +11,9 @@
 // read for its first `HEAD_BYTES`, an image whole up to `MAX_THUMB_SOURCE_BYTES`
 // and a file the Viewer could open as a copy whole up to `MAX_SNAPSHOT_BYTES`,
 // one at a time; the thumbnails of a result share one `MAX_RESULT_THUMB_BYTES`
-// budget and the copies one `MAX_RESULT_SNAPSHOT_BYTES`. A path the tool refuses,
-// and a file whose copy the Viewer would refuse, never cost a read.
+// budget and the copies one `MAX_RESULT_SNAPSHOT_BYTES`. A path the tool refuses never
+// costs a read, and a file whose copy the Viewer would refuse is read only for its first
+// block (or, as an image, for its thumbnail).
 //
 // Accepted residual risks (decided 2026-10-01 after review). Each needs an agent
 // that can already write to the filesystem, which is the power of the shell it has

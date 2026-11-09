@@ -335,10 +335,12 @@ describe("a lent file on a real disk", () => {
 		const wide = () => createFence({ home, env: { VIEWER_ROOTS: nodePath.join(base, "home") } });
 		const missing = engine("agent", "blobs", `${"0".repeat(64)}.png`);
 		const stored = engine("agent", "blobs", `${HASH}.png`);
-		const answer = async (path: string, meta: unknown) => reasonOf(await wide().check(path, meta)).replaceAll(path, "<path>");
-		for (const meta of [undefined, lend(at("granted.txt"))]) {
-			expect(await answer(missing, meta)).toContain("agent state");
-			expect(await answer(missing, meta)).toBe(await answer(stored, meta));
+		for (const make of [wide, fence]) {
+			const answer = async (path: string, meta: unknown) => reasonOf(await make().check(path, meta)).replaceAll(path, "<path>");
+			for (const meta of [undefined, lend(at("granted.txt"))]) {
+				expect(await answer(missing, meta)).toContain("agent state");
+				expect(await answer(missing, meta)).toBe(await answer(stored, meta));
+			}
 		}
 	});
 

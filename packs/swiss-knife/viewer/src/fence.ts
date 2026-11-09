@@ -392,13 +392,15 @@ export function createFence(options: FenceOptions): Fence {
 			if (code === "EACCES" || code === "EPERM") return refuse(`"${requested}" cannot be read: permission denied`);
 			return refuse(`"${requested}" cannot be resolved${code ? ` (${code})` : ""}`);
 		}
+		const lentFile = await isLent(real, lent);
+		const unlentCopy = lentFile ? undefined : denyReason(lexical);
+		if (unlentCopy !== undefined) return refuse(`refused to open "${requested}": ${unlentCopy}`);
 
 		// Containment BEFORE the real-path deny check: a link that leads out to
 		// `~/.ssh` must read as "outside", like every other outside path, not as
 		// "a credentials folder", which would say what the outside target is. A
 		// lent file is the one other way in, and the deny check below still runs on it.
 		const allowed = await realRoots();
-		const lentFile = await isLent(real, lent);
 		if (!allowed.some(root => insideRoot(real, root, platform)) && !lentFile && !(await isIndexed(real))) {
 			return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
 		}
