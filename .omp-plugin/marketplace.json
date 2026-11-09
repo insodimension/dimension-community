@@ -47,8 +47,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.5/artifactory-general-agent-0.5.5.tgz",
-				"sha256": "1995f72d137f75009637375e97100db8147c63a8d0929ffd3daec2a2f84f86db",
-				"size": 290651
+				"sha256": "b6fb0ee67ab5d9012c31cda17690f6a19458cba3e04c98ba8490e42b47831caa",
+				"size": 290668
 			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
@@ -1709,8 +1709,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.4/swiss-knife-0.7.4.tgz",
-				"sha256": "e724bfd6426712572f66ac0a866ce6e8bc50fed5ec103f96e29dde12a40d145a",
-				"size": 2267084
+				"sha256": "a0a585d03b5a0839a437fff22f23bf30e5c7b2e19ce1ab603e4add797452a37f",
+				"size": 2267194
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
