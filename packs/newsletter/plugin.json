@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "newsletter",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Let your agent save the newsletter issues you choose as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
 	"author": {
 		"name": "Dimension"

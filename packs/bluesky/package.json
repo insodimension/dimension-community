@@ -1,7 +1,7 @@
 {
 	"name": "@inso/bluesky",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Bluesky connector: keyless reads (posts, threads, quotes, profiles, feeds, starter packs, trends), authenticated post search and notifications with an app password, and publishing of posts chosen on the board",
 	"type": "module",
 	"main": "index.ts",
