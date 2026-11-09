@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { ARTIFACTORY_HOST_CONTEXT_META_KEY } from "@dimension/sdk/artifactory";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { PUBLISH_PROFILES_FILE, type SubmitJudge } from "../src/approved-fill";
+import { GatedProfiles, PUBLISH_PROFILES_FILE, type SubmitJudge } from "../src/approved-fill";
 import { RuntimeCodeBrowsers } from "../src/code/host/runtime-port";
 import { ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID, ARTIFACTORY_SUBMIT_JUDGE_METHOD, type SubmitJudgeVerdict } from "../src/submit-judge";
 import type { BrowserAction } from "../src/contracts";
@@ -409,9 +409,88 @@ describe("a profile a Traction account posts from by name (publish-profiles.json
 		expectNeedsPerson(s, await act(s, ...typeAndPost("again")));
 	});
 
-	test("a file that is not Traction's list gates nothing beyond traction-*", async () => {
+	test("a file that is not Traction's list gates every saved profile until a list is read", async () => {
 		const s = await session({ profile: GODOFROCK });
 		await writeFile(join(s.rootDir, PUBLISH_PROFILES_FILE), JSON.stringify({ profiles: [GODOFROCK] }));
-		expectPosted(s, await act(s, ...typeAndPost("anything at all")), "anything at all");
+		expectNeedsPerson(s, await act(s, ...typeAndPost("anything at all")));
+	});
+
+	test("a file that stops parsing keeps the last list read: godofrock stays gated", async () => {
+		const s = await session({ profile: GODOFROCK, accountProfiles: [GODOFROCK] });
+		expectNeedsPerson(s, await act(s, ...typeAndPost("first")));
+		await writeFile(join(s.rootDir, PUBLISH_PROFILES_FILE), "{ torn");
+		s.page.posted.length = 0;
+		expectNeedsPerson(s, await act(s, ...typeAndPost("second")));
+	});
+
+	test("a task that reaches its worker after Traction named the profile is refused, and nothing starts", async () => {
+		const s = await session({ profile: GODOFROCK });
+		const nameIt = Object.assign(async () => await nameAccountProfiles(s.rootDir, [GODOFROCK]), { assertCurrent: () => undefined });
+		expect(await failureCode(() => s.runtime.startTask(s.browserId, { task: "post something" }, undefined, undefined, nameIt))).toBe("publish_unapproved");
+		expect(s.page.posted).toEqual([]);
+	});
+
+	test("naming a profile stops the task running on it and takes it from the code that holds it", async () => {
+		const s = await session({ profile: GODOFROCK });
+		const internals = s.runtime as unknown as { byId: Map<string, Record<string, unknown>> };
+		const entry = internals.byId.get(s.browserId)!;
+		const stopped: string[] = [];
+		const finished = Promise.withResolvers<void>();
+		entry.worker = {
+			process: {
+				cancel: () => {
+					stopped.push("worker");
+					finished.resolve();
+				},
+			},
+			finished: finished.promise,
+		};
+		entry.taskEndpoint = { close: () => stopped.push("endpoint") };
+		entry.code = { idleMs: 60_000, persist: false };
+		const ended = Promise.withResolvers<[string, string, string | undefined]>();
+		s.runtime.codeSeam().onEnd((browserId, why, reason) => ended.resolve([browserId, why, reason]));
+		await nameAccountProfiles(s.rootDir, [GODOFROCK]);
+		expect(await ended.promise).toEqual([s.browserId, "gated", expect.stringContaining("godofrock is a profile a Traction account posts from")]);
+		expect(stopped).toEqual(["endpoint", "worker"]);
+	});
+});
+
+describe("GatedProfiles reads publish-profiles.json and fails closed", () => {
+	test("no file since start gates only traction-*; a list gates what it names", async () => {
+		const rootDir = await createRoot();
+		const gated = new GatedProfiles(rootDir);
+		expect([gated.has("godofrock"), gated.has("traction-x-brand"), gated.has(null)]).toEqual([false, true, false]);
+		await nameAccountProfiles(rootDir, ["godofrock"]);
+		expect([gated.has("godofrock"), gated.has("personal")]).toEqual([true, false]);
+	});
+
+	test("a file that never parsed gates every saved profile but the relay", async () => {
+		const rootDir = await createRoot();
+		await writeFile(join(rootDir, PUBLISH_PROFILES_FILE), JSON.stringify({ v: 2, profiles: [] }));
+		const gated = new GatedProfiles(rootDir);
+		expect([gated.has("personal"), gated.has("default"), gated.has("relay")]).toEqual([true, true, false]);
+		await nameAccountProfiles(rootDir, ["godofrock"]);
+		expect([gated.has("godofrock"), gated.has("personal")]).toEqual([true, false]);
+	});
+
+	test("a file that goes missing after it was read gates every saved profile", async () => {
+		const rootDir = await createRoot();
+		await nameAccountProfiles(rootDir, ["godofrock"]);
+		const gated = new GatedProfiles(rootDir);
+		expect(gated.has("personal")).toBe(false);
+		await rm(join(rootDir, PUBLISH_PROFILES_FILE));
+		expect([gated.has("personal"), gated.has("godofrock")]).toEqual([true, true]);
+	});
+
+	test("a changed list is announced once per change", async () => {
+		const rootDir = await createRoot();
+		let changes = 0;
+		const gated = new GatedProfiles(rootDir, () => void (changes += 1));
+		gated.has("godofrock");
+		await nameAccountProfiles(rootDir, ["godofrock"]);
+		gated.has("godofrock");
+		gated.has("godofrock");
+		await Promise.resolve();
+		expect(changes).toBe(1);
 	});
 });

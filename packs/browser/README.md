@@ -926,17 +926,24 @@ A profile is gated when its name starts with `traction-` (Traction's own
 surface names it in `<root>/publish-profiles.json`:
 `{ "v": 1, "profiles": ["godofrock", ...] }`. Traction writes that file from its
 board: every Browser profile a campaign account posts from by name
-(`campaign_profile_add` `about.browserProfile`), so the person's own profile
-(`godofrock`, `personal`) is gated for as long as an account posts from it,
-before any approval exists, and ungated once no account names it. The pack
-reads the file on a gate check only when its identity (inode, size, mtime)
-changed since the last read, so a check costs one `stat`, never a directory
-scan; a file that does not parse to this shape keeps the last list read (none,
-at start). Gating is per profile, not per approval, on purpose: a profile gated
-only while an approval is live would let an agent post anything from the
-account the rest of the time. The cost is that `browser_task` and `browser_run`
-refuse that profile for every agent while an account posts from it; reading,
-signing in and the step tools work as before.
+(`campaign_profile_add` `about.browserProfile`) and the profile every approved
+draft not yet posted is bound to, so the person's own profile (`godofrock`,
+`personal`) is gated for as long as an account posts from it, before any
+approval exists, and ungated once no account and no live approval names it. The pack
+reads the file on a gate check, and when it changes on disk, only when its
+identity (inode, size, mtime) changed since the last read, so a check costs one
+`stat`, never a directory scan. It fails closed: a file that does not parse to
+this shape keeps the last list read, and while no list has been read from a file
+that exists (it never parsed, or it went missing after it was read) every saved
+profile but the relay is gated. Only a file that has never existed means no
+profile is named. A profile that becomes gated is let go at once: a
+`browser_task` running on it is stopped, and a `browser_run` cell that holds it
+loses its tabs and its browser (the cell using it is stopped with
+`publish_unapproved`). Gating is per profile, not per approval, on purpose: a
+profile gated only while an approval is live would let an agent post anything
+from the account the rest of the time. The cost is that `browser_task` and
+`browser_run` refuse that profile for every agent while an account posts from
+it; reading, signing in and the step tools work as before.
 
 The approved-fill record is `<draftId>.json` in the same folder:
 `{ "v": 2, "draftId", "nonce", "profile", "origins", "texts", "approvedAt",

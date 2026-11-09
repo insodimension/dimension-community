@@ -1,10 +1,10 @@
-import { readFileSync, statSync } from "node:fs";
+import { type FSWatcher, readFileSync, statSync, watch } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { originOf } from "./address.js";
 import type { BrowserAction } from "./contracts.js";
 import type { EditableText, EngineDriver } from "./engines/types.js";
-import { PROFILE_NAME } from "./profile-name.js";
+import { PROFILE_NAME, RELAY_PROFILE } from "./profile-name.js";
 import { type FillApproval, fillDigest, type PublishApprovals } from "./publish-approval.js";
 import { fail } from "./store.js";
 import { SUBMIT_JUDGE_LIMITS, type SubmitJudgeApproval, type SubmitJudgeRequest, type SubmitJudgeVerdict } from "./submit-judge.js";
@@ -37,39 +37,85 @@ export interface SubmitExpectation {
 	readonly values: readonly string[];
 }
 
-export class GatedProfiles {
-	readonly #file: string;
-	#seen: string | undefined;
-	#named: ReadonlySet<string> = new Set();
+export function gatedProfileReason(profile: string): string {
+	return `${profile} is a profile a Traction account posts from: what it posts is checked against what the person approved, so code never drives it. Use the step tools on it, or open another profile.`;
+}
 
-	constructor(rootDir: string) {
+type NamedProfiles = ReadonlySet<string> | "unknown";
+
+const NO_PROFILES: ReadonlySet<string> = new Set();
+
+export class GatedProfiles {
+	readonly #dir: string;
+	readonly #file: string;
+	readonly #onChange: () => void;
+	#seen: string | undefined;
+	#present = false;
+	#good: ReadonlySet<string> | undefined;
+	#named: NamedProfiles | undefined;
+	#watcher: FSWatcher | undefined;
+
+	constructor(rootDir: string, onChange: () => void = () => undefined) {
+		this.#dir = rootDir;
 		this.#file = join(rootDir, PUBLISH_PROFILES_FILE);
+		this.#onChange = onChange;
 	}
 
 	has(profile: string | null): profile is string {
-		return profile !== null && (TRACTION_PROFILE.test(profile) || this.#current().has(profile));
+		if (profile === null) return false;
+		if (TRACTION_PROFILE.test(profile)) return true;
+		const named = this.#current();
+		return named === "unknown" ? profile !== RELAY_PROFILE : named.has(profile);
 	}
 
-	#current(): ReadonlySet<string> {
+	watch(): void {
+		if (this.#watcher !== undefined) return;
+		try {
+			this.#watcher = watch(this.#dir, { persistent: false }, (_event, name) => {
+				if (name === null || name === PUBLISH_PROFILES_FILE) this.#current();
+			});
+			this.#watcher.on("error", () => this.close());
+		} catch (error) {
+			console.error("The publish-profiles watch failed; a newly gated profile is let go at its next gate check:", error instanceof Error ? error.message : String(error));
+		}
+		this.#current();
+	}
+
+	close(): void {
+		this.#watcher?.close();
+		this.#watcher = undefined;
+	}
+
+	#current(): NamedProfiles {
 		let identity: string;
 		try {
 			const stats = statSync(this.#file, { bigint: true, throwIfNoEntry: false });
 			identity = stats === undefined ? "absent" : `${stats.ino}:${stats.size}:${stats.mtimeNs}`;
 		} catch {
-			return this.#named;
+			return this.#named ?? "unknown";
 		}
-		if (identity === this.#seen) return this.#named;
-		const named = identity === "absent" ? new Set<string>() : readNamedProfiles(this.#file);
-		if (named === undefined) return this.#named;
+		if (identity === this.#seen && this.#named !== undefined) return this.#named;
+		if (identity === "absent") return this.#settle(identity, this.#present ? "unknown" : NO_PROFILES);
+		this.#present = true;
+		const read = readNamedProfiles(this.#file);
+		if (read === undefined) return this.#named ?? "unknown";
+		if (read === "invalid") return this.#settle(identity, this.#good ?? "unknown");
+		this.#good = read;
+		return this.#settle(identity, read);
+	}
+
+	#settle(identity: string, named: NamedProfiles): NamedProfiles {
 		this.#seen = identity;
+		const changed = this.#named !== undefined && named !== this.#named;
 		this.#named = named;
+		if (changed) queueMicrotask(this.#onChange);
 		return named;
 	}
 }
 
 const PublishProfilesFile = z.object({ v: z.literal(1), profiles: z.array(z.string()) });
 
-function readNamedProfiles(file: string): Set<string> | undefined {
+function readNamedProfiles(file: string): Set<string> | "invalid" | undefined {
 	let text: string;
 	try {
 		text = readFileSync(file, "utf8");
@@ -80,10 +126,10 @@ function readNamedProfiles(file: string): Set<string> | undefined {
 	try {
 		json = JSON.parse(text);
 	} catch {
-		return undefined;
+		return "invalid";
 	}
 	const parsed = PublishProfilesFile.safeParse(json);
-	return parsed.success ? new Set(parsed.data.profiles.filter((name) => PROFILE_NAME.test(name))) : undefined;
+	return parsed.success ? new Set(parsed.data.profiles.filter((name) => PROFILE_NAME.test(name))) : "invalid";
 }
 
 function excerpt(value: string): string {
