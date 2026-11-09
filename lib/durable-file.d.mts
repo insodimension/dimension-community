@@ -26,3 +26,5 @@ export declare function writeFileAtomic(filePath: string, data: string | Uint8Ar
 export declare function readDurableFileSync<T>(filePath: string, parse: (bytes: Buffer) => T, options?: DurableReadOptions): T | undefined;
 export declare function readDurableFile<T>(filePath: string, parse: (bytes: Buffer) => T, options?: DurableReadOptions): Promise<T | undefined>;
 export declare function removeDurableFile(filePath: string): Promise<void>;
+export declare function writeSecretFileAtomic(filePath: string, data: string | Uint8Array, options?: Pick<DurableWriteOptions, "mode">): Promise<void>;
+export declare function removeSecretFile(filePath: string): Promise<void>;

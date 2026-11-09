@@ -239,6 +239,37 @@ describe("blobCopyExtension: the extension a presented file's copy would carry, 
 	});
 });
 
+describe("denyReason on long names: durable-copy suffixes are stripped in linear time and no name past 255 characters is opened", () => {
+	const TIME_BUDGET_MS = 50;
+
+	function timed(path: string): { reason: string | undefined; elapsedMs: number } {
+		const started = performance.now();
+		const reason = denyReason(path);
+		return { reason, elapsedMs: performance.now() - started };
+	}
+
+	test("a 100 000-character chain of staged-copy suffixes is refused within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/${".1.1.tmp".repeat(12_500)}x`);
+		expect(reason).toMatch(/longer than 255 characters/);
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a 256-character name is refused, a 255-character one is not", () => {
+		expect(denyReason(`/home/me/docs/${"a".repeat(256)}`)).toMatch(/longer than 255 characters/);
+		expect(denyReason(`/home/me/docs/${"a".repeat(255)}`)).toBeUndefined();
+	});
+
+	test("a 248-character chain of suffixes over a plain name is opened, within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/notes${".1.ab.tmp".repeat(26)}${".bak".repeat(2)}x`);
+		expect(reason).toBeUndefined();
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a secret under 62 stacked backups is still refused as the secret", () => {
+		expect(denyReason(`/home/me/docs/.env${".bak".repeat(62)}`)).toMatch(/environment file/);
+	});
+});
+
 describe("every entry of the deny tables refuses the thing it names", () => {
 	// The category in the refusal tells which rule fired, so another rule cannot make a dead entry look alive.
 	const tables = [

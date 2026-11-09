@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { removeDurableFile } from "../../../../../lib/durable-file.mjs";
+import { removeDurableFile, removeSecretFile } from "../../../../../lib/durable-file.mjs";
 import { hasCode } from "../../../src/library/errors";
 import { readJsonFile, StoredFileError, writePrivateJsonFile } from "./fs-json";
 
@@ -67,7 +67,7 @@ export class P2pStore {
 
 	async readTunnel(): Promise<TunnelCredentials | undefined> {
 		try {
-			return await readJsonFile(this.#tunnelPath, tunnelSchema);
+			return await readJsonFile(this.#tunnelPath, tunnelSchema, { holdsSecret: true });
 		} catch (error) {
 			if (error instanceof StoredFileError) return undefined;
 			throw error;
@@ -75,10 +75,10 @@ export class P2pStore {
 	}
 
 	writeTunnel(credentials: TunnelCredentials): Promise<void> {
-		return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials);
+		return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials, { holdsSecret: true });
 	}
 
 	clearTunnel(): Promise<void> {
-		return removeDurableFile(this.#tunnelPath);
+		return removeSecretFile(this.#tunnelPath);
 	}
 }

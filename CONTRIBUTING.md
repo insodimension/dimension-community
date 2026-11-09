@@ -281,7 +281,11 @@ Users enable and disable General Agents in **Capabilities → General Agents**.
   `readDurableFile`/`readDurableFileSync` copy a damaged file to
   `<file>.corrupt-<stamp>` (or not, with `keepDamagedCopy: false`, for a file
   whose damaged bytes may hold plain-text secrets), answer from the `.bak`, and
-  throw rather than hand back a default that would overwrite it. A Bun
+  throw rather than hand back a default that would overwrite it. A file that
+  holds a token or key keeps no second copy: read it with
+  `keepDamagedCopy: false`, write it with `writeSecretFileAtomic` (no `.bak`;
+  it deletes any `.bak` and `.corrupt-*` copy left beside it) and delete it with
+  `removeSecretFile`, so a removed secret cannot come back from a copy. A Bun
   extension pack the engine loads from source uses the host's
   `@oh-my-pi/pi-utils` equivalent once Dimension 0.12.0 ships.
   `bun scripts/check-durable-writes.ts` (in CI) counts every raw

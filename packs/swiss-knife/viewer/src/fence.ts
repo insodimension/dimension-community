@@ -156,8 +156,29 @@ export const OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.back
 export const DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 /** `.inso`, `.inso-dev`, `.omp` and their suffixed variants. */
 export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-const DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
+const DURABLE_COPY_SUFFIX = /^\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+const DURABLE_COPY_SUFFIX_DOTS = 3;
+const LONGEST_FILE_NAME = 255;
 const BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+
+function withoutDurableCopySuffixes(name: string): string {
+	let end = name.length;
+	strip: for (;;) {
+		let farthest = end;
+		for (let dots = 0; dots < DURABLE_COPY_SUFFIX_DOTS; dots++) {
+			const dot = farthest > 0 ? name.lastIndexOf(".", farthest - 1) : -1;
+			if (dot <= 0) break;
+			farthest = dot;
+		}
+		for (let dot = farthest; dot >= 0 && dot < end; dot = name.indexOf(".", dot + 1)) {
+			if (DURABLE_COPY_SUFFIX.test(name.slice(dot, end))) {
+				end = dot;
+				continue strip;
+			}
+		}
+		return name.slice(0, end);
+	}
+}
 
 function isBlobSidecar(segments: readonly string[], blobsAt: number): boolean {
 	const name = segments[blobsAt + 1] ?? "";
@@ -165,7 +186,7 @@ function isBlobSidecar(segments: readonly string[], blobsAt: number): boolean {
 		segments[blobsAt] === "blobs" &&
 		segments.length === blobsAt + 2 &&
 		BLOB_SIDECAR.test(name) &&
-		!DURABLE_COPY_SUFFIXES.test(name) &&
+		withoutDurableCopySuffixes(name) === name &&
 		!DATABASE_FILE.test(name)
 	);
 }
@@ -183,7 +204,8 @@ export interface DenyOptions {
 export function denyReason(path: string, { allowBlobCopy = false }: DenyOptions = {}): string | undefined {
 	const segments = segmentsOf(path);
 	const named = segments[segments.length - 1] ?? "";
-	const base = named.replace(DURABLE_COPY_SUFFIXES, "");
+	if (named.length > LONGEST_FILE_NAME) return `its name is longer than ${LONGEST_FILE_NAME} characters, which no file can be`;
+	const base = withoutDurableCopySuffixes(named);
 	for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
 	for (const secret of SECRET_PATHS) {
 		for (let at = 0; at + secret.length <= segments.length; at++) {

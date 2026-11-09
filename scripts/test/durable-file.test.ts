@@ -10,8 +10,10 @@ import {
 	readDurableFile,
 	readDurableFileSync,
 	removeDurableFile,
+	removeSecretFile,
 	writeFileAtomic,
 	writeFileAtomicSync,
+	writeSecretFileAtomic,
 } from "../../lib/durable-file.mjs";
 
 const roots: string[] = [];
@@ -223,5 +225,33 @@ describe("the async twins", () => {
 		await writeFileAtomic(file, '{"n":2}', { backup: JSON_BACKUP });
 		await removeDurableFile(file);
 		expect(await readDurableFile(file, parseJsonBytes)).toBeUndefined();
+	});
+});
+
+describe("secret files keep no second copy", () => {
+	const plantOldCopies = (): void => {
+		writeFileSync(backupPathOf(file), '{"token":"old"}');
+		writeFileSync(`${file}.corrupt-k3x9`, '{"token":"old"}');
+		writeFileSync(join(dir, "other.json.corrupt-k3x9"), "kept");
+	};
+
+	test("writeSecretFileAtomic publishes the file and deletes its backup and damaged copies, never a neighbour's", async () => {
+		plantOldCopies();
+		await writeSecretFileAtomic(file, '{"token":"new"}');
+		expect(readFileSync(file, "utf8")).toBe('{"token":"new"}');
+		expect(readdirSync(dir).sort()).toEqual(["other.json.corrupt-k3x9", "state.json"]);
+	});
+
+	test("removeSecretFile deletes the file, its backup and its damaged copies, so a later read is absent", async () => {
+		await writeSecretFileAtomic(file, '{"token":"new"}');
+		plantOldCopies();
+		await removeSecretFile(file);
+		expect(await readDurableFile(file, parseJsonBytes)).toBeUndefined();
+		expect(readdirSync(dir)).toEqual(["other.json.corrupt-k3x9"]);
+	});
+
+	test("removeSecretFile on a folder that does not exist is a no-op", async () => {
+		await removeSecretFile(join(dir, "missing", "state.json"));
+		expect(readdirSync(dir)).toEqual([]);
 	});
 });

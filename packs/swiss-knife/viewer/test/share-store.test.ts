@@ -22,28 +22,84 @@ afterEach(async () => {
 	await rm(home, { recursive: true, force: true });
 });
 
-test("a torn tunnel credential is read from the copy the last write kept, and the torn bytes are kept beside it", async () => {
+async function filesHolding(secret: string): Promise<string[]> {
+	const artifacts = join(home, "artifacts");
+	const holding: string[] = [];
+	for (const entry of await readdir(artifacts, { withFileTypes: true })) {
+		if (entry.isFile() && (await Bun.file(join(artifacts, entry.name)).text()).includes(secret)) holding.push(entry.name);
+	}
+	return holding;
+}
+
+async function artifactNames(): Promise<string[]> {
+	return (await readdir(join(home, "artifacts"))).sort();
+}
+
+test("a torn tunnel credential is not read, not copied and not backed up: no second file ever holds its token", async () => {
 	const store = new P2pStore(home);
 	await store.writeTunnel(FIRST);
 	await store.writeTunnel(SECOND);
 	await writeFile(join(home, "artifacts", "tunnel.json"), '{"relay":');
-	expect(await store.readTunnel()).toEqual(FIRST);
-	expect((await readdir(join(home, "artifacts"))).filter(name => name.startsWith("tunnel.json.corrupt-"))).toHaveLength(1);
+	expect(await store.readTunnel()).toBeUndefined();
+	expect(await artifactNames()).toEqual(["tunnel.json"]);
+	expect(await filesHolding(FIRST.token)).toEqual([]);
 });
 
 for (const damage of ['{"relay":', '{"relay":"https://relay.example"}']) {
-	test(`a write over a tunnel credential damaged to ${damage} keeps the good backup instead of the damaged bytes`, async () => {
+	test(`a write over a tunnel credential damaged to ${damage} replaces it and keeps no copy`, async () => {
 		const store = new P2pStore(home);
-		const tunnelPath = join(home, "artifacts", "tunnel.json");
 		await store.writeTunnel(FIRST);
-		await store.writeTunnel(SECOND);
-		await writeFile(tunnelPath, damage);
-		const third = { ...FIRST, tunnelId: "t-3" };
+		await writeFile(join(home, "artifacts", "tunnel.json"), damage);
+		const third = { ...FIRST, tunnelId: "t-3", token: "token-3" };
 		await store.writeTunnel(third);
-		expect(JSON.parse(await Bun.file(`${tunnelPath}.bak`).text())).toEqual(FIRST);
 		expect(await store.readTunnel()).toEqual(third);
+		expect(await artifactNames()).toEqual(["tunnel.json"]);
 	});
 }
+
+test("a write over a tunnel credential deletes the backup and damaged copies an older build left", async () => {
+	const store = new P2pStore(home);
+	const tunnelPath = join(home, "artifacts", "tunnel.json");
+	await store.writeTunnel(FIRST);
+	await writeFile(`${tunnelPath}.bak`, JSON.stringify(FIRST));
+	await writeFile(`${tunnelPath}.corrupt-k3x9`, JSON.stringify(FIRST));
+	await store.writeTunnel(SECOND);
+	expect(await artifactNames()).toEqual(["tunnel.json"]);
+	expect(await filesHolding(FIRST.token)).toEqual([]);
+});
+
+test("a cleared tunnel leaves no file holding its token, backups and damaged copies included", async () => {
+	const store = new P2pStore(home);
+	const tunnelPath = join(home, "artifacts", "tunnel.json");
+	await store.writeTunnel(FIRST);
+	await writeFile(`${tunnelPath}.bak`, JSON.stringify(FIRST));
+	await writeFile(`${tunnelPath}.corrupt-k3x9`, JSON.stringify(FIRST));
+	await store.clearTunnel();
+	expect(await store.readTunnel()).toBeUndefined();
+	expect(await artifactNames()).toEqual([]);
+});
+
+const SELF_HOST = { id: "home-server", kind: "self", name: "Home server", baseUrl: "https://share.example", token: "host-token-1" } as const;
+
+test("a removed server never comes back after the hosts file tears, and no file keeps its token", async () => {
+	const store = new HostStore(home);
+	await store.add(SELF_HOST);
+	await store.add({ ...SELF_HOST, id: "office", name: "Office", baseUrl: "https://office.example", token: "host-token-2" });
+	await store.remove(SELF_HOST.id);
+	expect(await filesHolding(SELF_HOST.token)).toEqual([]);
+	await writeFile(join(home, "artifacts", "hosts.json"), '{"hosts": [');
+	await expect(store.read()).rejects.toThrow("has no readable backup");
+	expect(await artifactNames()).toEqual(["hosts.json"]);
+	expect(await filesHolding(SELF_HOST.token)).toEqual([]);
+});
+
+test("a server whose token is replaced keeps no copy of the old token", async () => {
+	const store = new HostStore(home);
+	await store.add(SELF_HOST);
+	await store.add({ ...SELF_HOST, token: "host-token-new" });
+	expect((await store.read()).hosts.map(host => host.token)).toEqual(["host-token-new"]);
+	expect(await filesHolding(SELF_HOST.token)).toEqual([]);
+});
 
 test("a cleared tunnel and a removed share stay gone: their backups go with them", async () => {
 	const store = new P2pStore(home);
