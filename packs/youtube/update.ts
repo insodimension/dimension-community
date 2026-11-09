@@ -7,8 +7,8 @@ import { type } from "arktype";
 import { freshAccessToken, googleError, videoIdOf, youtubeFetch } from "./api";
 
 const BINDING_DOMAIN = "publish-approval/v1";
-export const UPDATE_ORIGIN = "https://www.youtube.com";
-export const UPDATE_PRESET = "youtube_update_video";
+const UPDATE_ORIGIN = "https://www.youtube.com";
+const UPDATE_PRESET = "youtube_update_video";
 const THUMBNAIL_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 const MAX_APPROVAL_MS = 24 * 60 * 60_000;
 const DRAFT_ID = /^[A-Za-z0-9_-]{1,64}$/;

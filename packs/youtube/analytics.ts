@@ -8,7 +8,7 @@ import { CONFIG_DIR, freshAccessToken, googleError, isScopeRefusal, MISSING_ANAL
 const REPORTING_API = "https://youtubereporting.googleapis.com/v1";
 const ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2/reports";
 const REACH_JOBS_FILE = join(CONFIG_DIR, "reach-jobs.json");
-export const REACH_REPORT_TYPES = ["channel_reach_basic_a1", "channel_reach_combined_a1"] as const;
+const REACH_REPORT_TYPES = ["channel_reach_basic_a1", "channel_reach_combined_a1"] as const;
 type ReachReportType = (typeof REACH_REPORT_TYPES)[number];
 const DAY_MS = 24 * 60 * 60_000;
 const DEFAULT_DAYS = 28;

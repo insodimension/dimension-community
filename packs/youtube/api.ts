@@ -6,7 +6,7 @@ import { type } from "arktype";
 export const CONFIG_DIR = join(homedir(), ".config", "dimension-youtube");
 const CONFIG_TARGET = join(CONFIG_DIR, "token.json");
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-export const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
+const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
 const REFRESH_SKEW_MS = 60_000;
 
 const storedCredential = type({
