@@ -2837,7 +2837,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // src/code/kinds/relay/cli.ts
 import { cp, mkdir, readdir } from "node:fs/promises";
 import { existsSync as existsSync4 } from "node:fs";
-import { dirname as dirname4, join as join4, resolve as resolve3 } from "node:path";
+import { dirname as dirname4, join as join5, resolve as resolve3 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/store.ts
@@ -2845,7 +2845,7 @@ import { randomBytes as randomBytes2 } from "node:crypto";
 import { closeSync as closeSync2, existsSync, fstatSync as fstatSync2, fsyncSync as fsyncSync2, lstatSync as lstatSync2, mkdirSync as mkdirSync2, openSync as openSync2, readdirSync, readFileSync as readFileSync2, readlinkSync, rmSync as rmSync2, statSync as statSync2, unlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir, uptime } from "node:os";
-import { dirname as dirname2, join, resolve } from "node:path";
+import { dirname as dirname2, join as join2, resolve } from "node:path";
 
 // ../../lib/durable-file.mjs
 import { randomBytes } from "node:crypto";
@@ -3220,14 +3220,14 @@ var ProfileStore = class {
     mkdirSync2(this.profilesRoot, { recursive: true, mode: 448 });
   }
   get profilesRoot() {
-    return join(this.rootDir, "profiles");
+    return join2(this.rootDir, "profiles");
   }
   profileDir(slug) {
-    return join(this.profilesRoot, slug);
+    return join2(this.profilesRoot, slug);
   }
   /** Chrome `userDataDir` for a persistent, isolated profile. */
   userDataDir(slug) {
-    return join(this.profileDir(slug), "chrome");
+    return join2(this.profileDir(slug), "chrome");
   }
   /** Whether a folder for `slug` is on disk, listed or not (the listing stops at MAX_PROFILES). Creates nothing. */
   exists(slug) {
@@ -3248,14 +3248,14 @@ var ProfileStore = class {
     }
     return entries.filter((name) => PROFILE_NAME.test(name)).filter((name) => {
       try {
-        return statSync2(join(this.profilesRoot, name)).isDirectory();
+        return statSync2(join2(this.profilesRoot, name)).isDirectory();
       } catch {
         return false;
       }
     }).sort().slice(0, MAX_PROFILES);
   }
   get ephemeralRoot() {
-    return join(this.rootDir, "ephemeral");
+    return join2(this.rootDir, "ephemeral");
   }
   /**
    * A fresh directory for one throwaway browser, marked with this server's
@@ -3263,15 +3263,15 @@ var ProfileStore = class {
    * `userDataDir`; the marker sits beside it, outside anything Chrome writes.
    */
   createEphemeral() {
-    const dir = join(this.ephemeralRoot, randomBytes2(8).toString("hex"));
+    const dir = join2(this.ephemeralRoot, randomBytes2(8).toString("hex"));
     mkdirSync2(dir, { recursive: true, mode: 448 });
     try {
-      writeFileSync(join(dir, OWNER_FILE), String(process.pid), { mode: 384 });
+      writeFileSync(join2(dir, OWNER_FILE), String(process.pid), { mode: 384 });
     } catch (error) {
       rmSync2(dir, { recursive: true, force: true });
       throw error;
     }
-    return { dir, userDataDir: join(dir, "chrome") };
+    return { dir, userDataDir: join2(dir, "chrome") };
   }
   /**
    * Delete a throwaway directory once its browser is gone. Chrome's helper
@@ -3305,9 +3305,9 @@ var ProfileStore = class {
       return;
     }
     for (const name of names) {
-      const dir = join(this.ephemeralRoot, name);
+      const dir = join2(this.ephemeralRoot, name);
       const owner = readOwner(dir);
-      if (owner === void 0 || processAlive(owner) || browserHolds(join(dir, "chrome"))) continue;
+      if (owner === void 0 || processAlive(owner) || browserHolds(join2(dir, "chrome"))) continue;
       try {
         rmSync2(dir, { recursive: true, force: true });
       } catch (error) {
@@ -3326,7 +3326,7 @@ var ProfileStore = class {
    */
   acquireLock(slug) {
     this.ensureProfile(slug);
-    const path5 = join(this.profileDir(slug), "runtime.lock");
+    const path5 = join2(this.profileDir(slug), "runtime.lock");
     const token = randomBytes2(16).toString("hex");
     const body = `${JSON.stringify({ pid: process.pid, token, at: (/* @__PURE__ */ new Date()).toISOString() })}
 `;
@@ -3394,7 +3394,7 @@ var ProfileStore = class {
    * another runtime's on this root), and the profile is not free to open.
    */
   heldElsewhere(slug) {
-    const lock = readLock(join(this.profileDir(slug), "runtime.lock"));
+    const lock = readLock(join2(this.profileDir(slug), "runtime.lock"));
     return lock !== void 0 && lockOwnerAlive(lock);
   }
   connections(slug) {
@@ -3405,7 +3405,7 @@ var ProfileStore = class {
     }
   }
   storedConnections(slug) {
-    const stored = readDurableFileSync(join(this.profileDir(slug), CONNECTIONS_FILE), parseJsonObject)?.sites;
+    const stored = readDurableFileSync(join2(this.profileDir(slug), CONNECTIONS_FILE), parseJsonObject)?.sites;
     const sites = {};
     if (typeof stored !== "object" || stored === null) return sites;
     for (const [host, value] of Object.entries(stored)) {
@@ -3444,7 +3444,7 @@ var ProfileStore = class {
     }
   }
   storedMeta(slug) {
-    const parsed = readDurableFileSync(join(this.profileDir(slug), PROFILE_FILE), parseJsonObject);
+    const parsed = readDurableFileSync(join2(this.profileDir(slug), PROFILE_FILE), parseJsonObject);
     if (parsed === void 0) return {};
     const meta = {};
     const label = cleanLabel(parsed.label);
@@ -3466,7 +3466,7 @@ function parseJsonObject(bytes) {
   return value;
 }
 function writeJsonAtomic(dir, file, value) {
-  writeFileAtomicSync(join(dir, file), `${JSON.stringify(value)}
+  writeFileAtomicSync(join2(dir, file), `${JSON.stringify(value)}
 `, { mode: 384, backup: { parse: parseJsonObject } });
 }
 function readLock(path5) {
@@ -3499,7 +3499,7 @@ function processAlive(pid) {
 }
 function readOwner(dir) {
   try {
-    const text2 = readFileSync2(join(dir, OWNER_FILE), "utf8").trim();
+    const text2 = readFileSync2(join2(dir, OWNER_FILE), "utf8").trim();
     return /^\d{1,10}$/.test(text2) ? Number(text2) : void 0;
   } catch {
     return void 0;
@@ -3508,7 +3508,7 @@ function readOwner(dir) {
 function browserHolds(userDataDir) {
   if (process.platform === "win32") {
     try {
-      closeSync2(openSync2(join(userDataDir, "lockfile"), "r+"));
+      closeSync2(openSync2(join2(userDataDir, "lockfile"), "r+"));
       return false;
     } catch (error) {
       return error.code !== "ENOENT";
@@ -3516,7 +3516,7 @@ function browserHolds(userDataDir) {
   }
   let target;
   try {
-    target = readlinkSync(join(userDataDir, "SingletonLock"));
+    target = readlinkSync(join2(userDataDir, "SingletonLock"));
   } catch (error) {
     return error.code !== "ENOENT";
   }
@@ -3525,8 +3525,8 @@ function browserHolds(userDataDir) {
 }
 function defaultRootDir() {
   const insoHome = process.env.INSO_HOME?.trim();
-  if (insoHome) return join(insoHome, "browser");
-  return join(homedir(), ".inso", "browser");
+  if (insoHome) return join2(insoHome, "browser");
+  return join2(homedir(), ".inso", "browser");
 }
 
 // src/engines/attach.ts
@@ -4402,18 +4402,18 @@ function graphicsMaskExpression(graphics) {
 // src/engines/agent-puppeteer.ts
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync3, renameSync as renameSync2 } from "node:fs";
-import { dirname as dirname3, join as join2 } from "node:path";
+import { dirname as dirname3, join as join3 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 function packRootOf(folder) {
   for (let at = folder; ; at = dirname3(at)) {
-    if (existsSync2(join2(at, "plugin.json"))) return at;
+    if (existsSync2(join3(at, "plugin.json"))) return at;
     if (dirname3(at) === at) throw new Error(`no plugin.json above ${folder}: this is not running inside the browser pack`);
   }
 }
 function locateAgentBundle(moduleUrl) {
   const folder = dirname3(fileURLToPath(moduleUrl));
   const pack = packRootOf(folder);
-  return folder === join2(pack, "app") ? { kind: "shipped", file: join2(pack, "app", "puppeteer-agent.mjs") } : { kind: "source", pack };
+  return folder === join3(pack, "app") ? { kind: "shipped", file: join3(pack, "app", "puppeteer-agent.mjs") } : { kind: "source", pack };
 }
 var loading;
 function agentPuppeteer() {
@@ -4430,11 +4430,11 @@ async function load() {
   return bundled.default;
 }
 async function bundleFromSource(pack) {
-  const builderPath = join2(pack, "scripts", "agent-puppeteer.mjs");
+  const builderPath = join3(pack, "scripts", "agent-puppeteer.mjs");
   const builder = await import(pathToFileURL(builderPath).href);
   const identity = builder.bundleIdentity();
   const hash = createHash2("sha256").update(readFileSync3(builder.PATCH_FILE)).update(readFileSync3(builderPath)).update(identity).digest("hex").slice(0, 12);
-  const outfile = join2(pack, ".cache", `puppeteer-agent-${hash}.mjs`);
+  const outfile = join3(pack, ".cache", `puppeteer-agent-${hash}.mjs`);
   if (existsSync2(outfile)) return outfile;
   mkdirSync3(dirname3(outfile), { recursive: true });
   const partial = `${outfile}.${process.pid}.tmp`;
@@ -4470,7 +4470,7 @@ function environmentLaunchArgs(env = process.env, system = { platform: process.p
 // src/engines/launch.ts
 import { existsSync as existsSync3, mkdirSync as mkdirSync4, readFileSync as readFileSync4 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { Browser as CachedBrowser, detectBrowserPlatform, getInstalledBrowsers } from "@puppeteer/browsers";
 var systemProbe = {
   platform: process.platform,
@@ -4487,7 +4487,7 @@ async function resolveBrowser(explicitPath, probe = systemProbe) {
     const executablePath = candidates[app].find((path5) => probe.exists(path5));
     if (executablePath) return { app, executablePath };
   }
-  const cacheDir = probe.env.PUPPETEER_CACHE_DIR || join3(probe.home, ".cache", "puppeteer");
+  const cacheDir = probe.env.PUPPETEER_CACHE_DIR || join4(probe.home, ".cache", "puppeteer");
   const cached = (await getInstalledBrowsers({ cacheDir })).filter((build) => build.browser === CachedBrowser.CHROME && build.platform === probe.browserPlatform && probe.exists(build.executablePath)).sort((a, b) => compareVersions(b.buildId, a.buildId))[0];
   if (cached) return { app: "chromium", executablePath: cached.executablePath };
   return fail(
@@ -4501,34 +4501,34 @@ function installedCandidates(probe) {
       (root) => typeof root === "string" && root.length > 0
     );
     return {
-      chrome: roots.map((root) => join3(root, "Google", "Chrome", "Application", "chrome.exe")),
-      msedge: roots.map((root) => join3(root, "Microsoft", "Edge", "Application", "msedge.exe")),
-      chromium: roots.map((root) => join3(root, "Chromium", "Application", "chrome.exe"))
+      chrome: roots.map((root) => join4(root, "Google", "Chrome", "Application", "chrome.exe")),
+      msedge: roots.map((root) => join4(root, "Microsoft", "Edge", "Application", "msedge.exe")),
+      chromium: roots.map((root) => join4(root, "Chromium", "Application", "chrome.exe"))
     };
   }
   if (probe.platform === "darwin") {
-    const apps = ["/Applications", join3(probe.home, "Applications")];
+    const apps = ["/Applications", join4(probe.home, "Applications")];
     return {
-      chrome: apps.map((dir) => join3(dir, "Google Chrome.app", "Contents", "MacOS", "Google Chrome")),
-      msedge: apps.map((dir) => join3(dir, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")),
-      chromium: apps.map((dir) => join3(dir, "Chromium.app", "Contents", "MacOS", "Chromium"))
+      chrome: apps.map((dir) => join4(dir, "Google Chrome.app", "Contents", "MacOS", "Google Chrome")),
+      msedge: apps.map((dir) => join4(dir, "Microsoft Edge.app", "Contents", "MacOS", "Microsoft Edge")),
+      chromium: apps.map((dir) => join4(dir, "Chromium.app", "Contents", "MacOS", "Chromium"))
     };
   }
-  const flatpak = ["/var/lib/flatpak/exports/bin", join3(probe.home, ".local", "share", "flatpak", "exports", "bin")];
+  const flatpak = ["/var/lib/flatpak/exports/bin", join4(probe.home, ".local", "share", "flatpak", "exports", "bin")];
   const ungoogledFlatpak = "io.github.ungoogled_software.ungoogled_chromium";
   return {
-    chrome: ["/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", ...flatpak.map((dir) => join3(dir, "com.google.Chrome"))],
+    chrome: ["/opt/google/chrome/chrome", "/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", ...flatpak.map((dir) => join4(dir, "com.google.Chrome"))],
     msedge: ["/opt/microsoft/msedge/msedge", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge"],
     chromium: [
       "/usr/bin/chromium",
       "/usr/bin/chromium-browser",
       "/snap/bin/chromium",
-      ...flatpak.map((dir) => join3(dir, "org.chromium.Chromium")),
-      join3(probe.home, ".nix-profile", "bin", "chromium"),
+      ...flatpak.map((dir) => join4(dir, "org.chromium.Chromium")),
+      join4(probe.home, ".nix-profile", "bin", "chromium"),
       "/run/current-system/sw/bin/chromium",
       "/usr/bin/ungoogled-chromium",
       "/usr/bin/ungoogled-chromium-browser",
-      ...flatpak.map((dir) => join3(dir, ungoogledFlatpak))
+      ...flatpak.map((dir) => join4(dir, ungoogledFlatpak))
     ]
   };
 }
@@ -4620,7 +4620,7 @@ function viewLaunchOptions(input) {
   };
 }
 function turnOffPasswordSaving(userDataDir) {
-  const path5 = join3(userDataDir, "Default", "Preferences");
+  const path5 = join4(userDataDir, "Default", "Preferences");
   let prefs = {};
   if (existsSync3(path5)) {
     let parsed;
@@ -4634,7 +4634,7 @@ function turnOffPasswordSaving(userDataDir) {
   }
   const profile2 = prefs.profile && typeof prefs.profile === "object" ? prefs.profile : {};
   if (prefs.credentials_enable_service === false && profile2.password_manager_enabled === false) return;
-  mkdirSync4(join3(userDataDir, "Default"), { recursive: true, mode: 448 });
+  mkdirSync4(join4(userDataDir, "Default"), { recursive: true, mode: 448 });
   writeFileAtomicSync(path5, JSON.stringify({ ...prefs, credentials_enable_service: false, profile: { ...profile2, password_manager_enabled: false } }), { mode: 384 });
 }
 
@@ -8271,12 +8271,12 @@ var DEFAULT_RELAY_PORT = Number(new URL(DEFAULT_RELAY_URL).port);
 function relayExtensionSource() {
   const here = dirname4(fileURLToPath2(import.meta.url));
   for (const candidate of [resolve3(here, "..", "relay-extension"), resolve3(here, "..", "..", "..", "..", "relay-extension")]) {
-    if (existsSync4(join4(candidate, "manifest.json"))) return candidate;
+    if (existsSync4(join5(candidate, "manifest.json"))) return candidate;
   }
   throw new Error("the Browser pack's relay-extension folder is missing from this install");
 }
 function defaultRelayExtensionDir(root = process.env.DIMENSION_BROWSER_ROOT || defaultRootDir()) {
-  return join4(root, "relay", "extension");
+  return join5(root, "relay", "extension");
 }
 async function installRelayExtension(dir = defaultRelayExtensionDir(), source = relayExtensionSource()) {
   await mkdir(dir, { recursive: true });
@@ -8589,7 +8589,7 @@ function threadWorkerSpawner(entry, limits, commit) {
 
 // src/server.ts
 import { readFile as readFile4, readdir as readdir4 } from "node:fs/promises";
-import { extname as extname3, join as join17 } from "node:path";
+import { extname as extname3, join as join18 } from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -8616,7 +8616,7 @@ var SUBMIT_JUDGE_LIMITS2 = {
 };
 
 // src/code/host/code-host.ts
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 
 // src/code/kinds/resolve.ts
 import { homedir as homedir3 } from "node:os";
@@ -8735,13 +8735,13 @@ function describeHeadless(hidden, standing) {
 
 // src/approved-fill.ts
 import { readFileSync as readFileSync5, statSync as statSync4, watch } from "node:fs";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 import { z as z2 } from "zod";
 
 // src/publish-approval.ts
 import { createHash as createHash4 } from "node:crypto";
 import { open, readdir as readdir2, readFile, unlink } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 var BINDING_DOMAIN = "publish-approval/v1";
 var FILL_DOMAIN = "approved-fill/v1";
 var MAX_APPROVAL_MS = 24 * 60 * 6e4;
@@ -8801,7 +8801,7 @@ var PublishApprovals = class {
     const { names, spent } = await this.#listing();
     const now = this.#now();
     for (const name of names) {
-      const approval = readApproval(await readRecord(join5(this.#dir, name), name));
+      const approval = readApproval(await readRecord(join6(this.#dir, name), name));
       if (approval === null || approval.binding !== binding) continue;
       if (spent.has(markerName(approval))) used.push(approval);
       else if (approval.expiresAt <= now) expired.push(approval);
@@ -8814,7 +8814,7 @@ var PublishApprovals = class {
     const { names, spent } = await this.#listing();
     const now = this.#now();
     for (const name of names) {
-      const approval = readFillApproval(await readRecord(join5(this.#dir, name), name));
+      const approval = readFillApproval(await readRecord(join6(this.#dir, name), name));
       if (approval === null || approval.profile !== profile2 || !originCovered(approval.origins, origin)) continue;
       if (!spent.has(markerName(approval)) && approval.expiresAt > now) live.push(approval);
     }
@@ -8828,7 +8828,7 @@ var PublishApprovals = class {
   }
   async #spend(approval) {
     try {
-      await (await open(join5(this.#dir, markerName(approval)), "wx")).close();
+      await (await open(join6(this.#dir, markerName(approval)), "wx")).close();
       return true;
     } catch (error) {
       if (error.code === "EEXIST") return false;
@@ -8836,7 +8836,7 @@ var PublishApprovals = class {
     }
   }
   async #release(approval) {
-    await unlink(join5(this.#dir, markerName(approval))).catch((error) => {
+    await unlink(join6(this.#dir, markerName(approval))).catch((error) => {
       if (error.code !== "ENOENT") throw error;
     });
   }
@@ -8933,7 +8933,7 @@ var GatedProfiles = class {
   #closed = false;
   constructor(rootDir, options = {}) {
     this.#dir = rootDir;
-    this.#file = join6(rootDir, PUBLISH_PROFILES_FILE);
+    this.#file = join7(rootDir, PUBLISH_PROFILES_FILE);
     this.#onGated = options.onGated ?? (() => void 0);
     this.#now = options.now ?? (() => performance.now());
   }
@@ -9509,7 +9509,7 @@ version=${challenge.version}`;
 // src/code/kinds/spawned.ts
 import { execFile as execFile3, spawn as spawn2 } from "node:child_process";
 import { readdirSync as readdirSync2, readFileSync as readFileSync6, readlinkSync as readlinkSync2 } from "node:fs";
-import { basename, isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute2, resolve as resolve5 } from "node:path";
 import { promisify as promisify3 } from "node:util";
 var execFileAsync3 = promisify3(execFile3);
 function findCdpPortInArgs(args) {
@@ -9567,7 +9567,7 @@ async function findReusableCdp(exe, options = {}) {
     return existing === null || isAbsolute2(existing) && normalizeUserDataDir(existing) !== normalizedRequested;
   });
   if (!canLaunchIsolatedProfile && processes.length > 0) {
-    const name = basename(exe);
+    const name = basename2(exe);
     throw new ToolError(
       `Cannot launch ${name} because it is already running without a reusable CDP endpoint. Close ${name}, relaunch it with --remote-debugging-port, or pass app.cdp_url for an existing endpoint.`
     );
@@ -9618,7 +9618,7 @@ var sameExe = (a, b) => {
 async function scanWindows(exe) {
   const script = "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq $env:DIMENSION_SCAN_NAME } | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress";
   const { stdout } = await execFileAsync3("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    env: { ...process.env, DIMENSION_SCAN_NAME: basename(exe.replaceAll("\\", "/")) },
+    env: { ...process.env, DIMENSION_SCAN_NAME: basename2(exe.replaceAll("\\", "/")) },
     windowsHide: true,
     timeout: 15e3,
     maxBuffer: 16 * 1024 * 1024
@@ -9680,7 +9680,7 @@ var systemScanner = {
       if (process.platform === "linux") return scanProc(exe);
       return await scanPs(exe);
     } catch (error) {
-      console.error(`[browser] could not list running ${basename(exe)} processes: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[browser] could not list running ${basename2(exe)} processes: ${error instanceof Error ? error.message : String(error)}`);
       return { processes: [], unreadable: false };
     }
   }
@@ -9703,7 +9703,7 @@ async function establishSpawned(kind, opts = {}) {
   if (reused) return { cdpUrl: reused.cdpUrl, pid: reused.pid, reused: true };
   const port = await findFreeCdpPort();
   const child = (opts.spawner ?? systemSpawner)(exe, [...kind.args ?? [], `--remote-debugging-port=${port}`]);
-  if (child.pid === void 0) throw new ToolError(`Failed to start ${basename(exe)}: the process did not start.`);
+  if (child.pid === void 0) throw new ToolError(`Failed to start ${basename2(exe)}: the process did not start.`);
   const pid = child.pid;
   const cdpUrl = `http://127.0.0.1:${port}`;
   const early = new AbortController();
@@ -9723,9 +9723,9 @@ async function establishSpawned(kind, opts = {}) {
     await terminate().catch(() => void 0);
     if (opts.signal?.aborted) throw error instanceof ToolAbortError ? error : new ToolAbortError();
     if (exitedWith !== void 0) {
-      throw new ToolError(`Failed to attach to ${basename(exe)} on ${cdpUrl}: the process exited${exitedWith === null ? "" : ` (code ${exitedWith})`} before opening its CDP endpoint`);
+      throw new ToolError(`Failed to attach to ${basename2(exe)} on ${cdpUrl}: the process exited${exitedWith === null ? "" : ` (code ${exitedWith})`} before opening its CDP endpoint`);
     }
-    throw new ToolError(`Failed to attach to ${basename(exe)} on ${cdpUrl}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ToolError(`Failed to attach to ${basename2(exe)} on ${cdpUrl}: ${error instanceof Error ? error.message : String(error)}`);
   }
   return { cdpUrl, pid, reused: false, terminate };
 }
@@ -9982,7 +9982,7 @@ function tailWindow(text2, max) {
 // src/code/spill.ts
 import { createHash as createHash5, randomBytes as randomBytes3 } from "node:crypto";
 import { closeSync as closeSync3, mkdirSync as mkdirSync6, openSync as openSync3, readdirSync as readdirSync3, rmSync as rmSync3, rmdirSync, statSync as statSync5, writeSync as writeSync2 } from "node:fs";
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 var SPILL_FILES_KEPT = 20;
 var SPILL_FILE_MAX_BYTES = 16 * 1024 * 1024;
 var SPILL_SESSION_MAX_BYTES = 128 * 1024 * 1024;
@@ -9998,7 +9998,7 @@ var SPILL_NAME = /^browser-run-\d{13}-\d{6}-[0-9a-f]{8}\.txt$/;
 var SESSION_FOLDER = /^[0-9a-f]{16}$/;
 var sequence = 0;
 function sessionFolder(root, session) {
-  return join8(root, createHash5("sha256").update(session).digest("hex").slice(0, 16));
+  return join9(root, createHash5("sha256").update(session).digest("hex").slice(0, 16));
 }
 function spillNames(dir) {
   try {
@@ -10009,7 +10009,7 @@ function spillNames(dir) {
 }
 function heldIn(folder) {
   return spillNames(folder).flatMap((name) => {
-    const path5 = join8(folder, name);
+    const path5 = join9(folder, name);
     try {
       const stat = statSync5(path5);
       return [{ folder, path: path5, name, bytes: stat.size, mtimeMs: stat.mtimeMs }];
@@ -10043,9 +10043,9 @@ function enforceBounds(root, keep, reserve, now, bounds) {
   } catch {
     return;
   }
-  const keepFolder = keep === void 0 ? void 0 : join8(keep, "..");
+  const keepFolder = keep === void 0 ? void 0 : join9(keep, "..");
   const sessions = names.map((name) => {
-    const folder = join8(root, name);
+    const folder = join9(root, name);
     const files = heldIn(folder);
     return { folder, files, held: files.length };
   });
@@ -10108,10 +10108,10 @@ var SpillFile = class _SpillFile {
     try {
       mkdirSync6(dir, { recursive: true, mode: 448 });
       const now = Date.now();
-      const path5 = join8(dir, newSpillName(now));
+      const path5 = join9(dir, newSpillName(now));
       const fd = openSync3(path5, "wx", 384);
       const file = new _SpillFile(path5, fd, maxBytes);
-      enforceBounds(join8(dir, ".."), path5, maxBytes, now, bounds);
+      enforceBounds(join9(dir, ".."), path5, maxBytes, now, bounds);
       return file;
     } catch {
       return void 0;
@@ -12967,7 +12967,7 @@ function createRuntimeCodeHost(runtime, { env = process.env } = {}) {
     browsers: new RuntimeCodeBrowsers(runtime.codeSeam(), { idleMs: numberEnv(env, "DIMENSION_BROWSER_CODE_IDLE_MS", CODE_IDLE_MS, "milliseconds"), hidden: env.DIMENSION_BROWSER_HEADLESS !== "false" }),
     env,
     headless: env.DIMENSION_BROWSER_HEADLESS !== "false",
-    artifactsRoot: join11(env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
+    artifactsRoot: join12(env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
     ...screenshotDir ? { screenshotDir: screenshotDir.replace(/^~(?=$|[\\/])/, env.HOME ?? env.USERPROFILE ?? "~") } : {},
     timing: { freezeIdleMs: numberEnv(env, "DIMENSION_BROWSER_FREEZE_IDLE_MS", DEFAULT_TIMING.freezeIdleMs, "milliseconds") },
     heapMb: numberEnv(env, "DIMENSION_BROWSER_CODE_HEAP_MB", DEFAULT_HEAP_MB, "megabytes"),
@@ -13093,7 +13093,7 @@ function registerCodeTool(server2, deps) {
 // src/annotation-file.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
 import { mkdirSync as mkdirSync7, readdirSync as readdirSync4, rmSync as rmSync4, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join12, resolve as resolve7 } from "node:path";
+import { join as join13, resolve as resolve7 } from "node:path";
 var SCHEMA_PREFIX = "dimension.annotation-detail/";
 var MAX_DETAIL_BYTES = 1024 * 1024;
 var ANNOTATION_FILES_KEPT = 20;
@@ -13121,7 +13121,7 @@ var AnnotationFiles = class {
     mkdirSync7(this.dir, { recursive: true, mode: 448 });
     this.sequence += 1;
     const name = `annotation-${String(Date.now()).padStart(13, "0")}-${String(this.sequence).padStart(6, "0")}-${randomBytes6(4).toString("hex")}.json`;
-    const path5 = join12(this.dir, name);
+    const path5 = join13(this.dir, name);
     writeFileSync2(path5, json, { encoding: "utf8", mode: 384, flag: "wx" });
     this.prune();
     return path5;
@@ -13135,7 +13135,7 @@ var AnnotationFiles = class {
     }
     for (const name of names.slice(0, Math.max(0, names.length - ANNOTATION_FILES_KEPT))) {
       try {
-        rmSync4(join12(this.dir, name), { force: true });
+        rmSync4(join13(this.dir, name), { force: true });
       } catch {
       }
     }
@@ -13237,7 +13237,7 @@ function linkOffMachine(path5) {
 
 // src/presets.ts
 import { readdir as readdir3, readFile as readFile3 } from "node:fs/promises";
-import { basename as basename3, extname as extname2, join as join13 } from "node:path";
+import { basename as basename4, extname as extname2, join as join14 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 
 // src/publish.ts
@@ -13590,7 +13590,7 @@ async function loadPresets(dir = PRESETS_DIR) {
   const files = (await readdir3(dir)).filter((file) => extname2(file) === ".json").sort();
   const presets = [];
   for (const file of files) {
-    const where = join13(dir, file);
+    const where = join14(dir, file);
     let raw;
     try {
       raw = JSON.parse(await readFile3(where, "utf8"));
@@ -13598,7 +13598,7 @@ async function loadPresets(dir = PRESETS_DIR) {
       throw new Error(`publish preset ${where} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
     const preset = parsePreset(raw, where);
-    if (preset.name !== basename3(file, ".json")) throw new Error(`publish preset ${where} is named ${JSON.stringify(preset.name)}; the file must be ${preset.name}.json`);
+    if (preset.name !== basename4(file, ".json")) throw new Error(`publish preset ${where} is named ${JSON.stringify(preset.name)}; the file must be ${preset.name}.json`);
     presets.push(preset);
   }
   return presets;
@@ -13800,7 +13800,7 @@ async function reapChildren({ parentPid = process.pid, owned: owned2 = ownedPids
 // src/runtime.ts
 import { randomBytes as randomBytes10 } from "node:crypto";
 import { existsSync as existsSync7, watch as watch2 } from "node:fs";
-import { join as join16 } from "node:path";
+import { join as join17 } from "node:path";
 
 // src/probe-timing.ts
 var PROBE_DEBOUNCE_MS = 400;
@@ -13875,7 +13875,7 @@ async function readAccount(reader, read2) {
 import { spawnSync } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes as randomBytes8, randomInt } from "node:crypto";
 import { closeSync as closeSync4, fsyncSync as fsyncSync3, linkSync, mkdirSync as mkdirSync8, openSync as openSync4, readdirSync as readdirSync5, readFileSync as readFileSync7, renameSync as renameSync3, rmSync as rmSync5, writeSync as writeSync3 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 var FILE = "credentials.json";
 var KEY_FILE = "credentials.key";
 var SEALED = /^gcm1:([A-Za-z0-9+/]{16}):([A-Za-z0-9+/]{22}==):([A-Za-z0-9+/]*={0,2})$/;
@@ -13917,7 +13917,7 @@ var CredentialKey = class {
   #key;
   constructor(rootDir) {
     this.#rootDir = rootDir;
-    this.#file = join14(rootDir, KEY_FILE);
+    this.#file = join15(rootDir, KEY_FILE);
   }
   get() {
     return this.#key ??= keyFrom(this.#load() ?? this.#create());
@@ -13990,7 +13990,7 @@ var CredentialKey = class {
    * profile this one had sealed (a rollback).
    */
   #holdsSealedStores() {
-    const profiles = join14(this.#rootDir, "profiles");
+    const profiles = join15(this.#rootDir, "profiles");
     let names;
     try {
       names = readdirSync5(profiles);
@@ -13999,7 +13999,7 @@ var CredentialKey = class {
     }
     return names.some((name) => {
       try {
-        const store = readStore(join14(profiles, name, FILE));
+        const store = readStore(join15(profiles, name, FILE));
         if (store === void 0) return false;
         if (store.version === 2) return true;
         return Object.values(store.origins).some((value) => SEALED.test(value));
@@ -14094,7 +14094,7 @@ function migrate(file, plain, key) {
   }
 }
 function readCredentials(profileDir, key) {
-  return read(join14(profileDir, FILE), key);
+  return read(join15(profileDir, FILE), key);
 }
 function savedPassword(profileDir, origin, key) {
   const origins = readCredentials(profileDir, key);
@@ -14104,13 +14104,13 @@ function savedPasswords(profileDir, key) {
   return Object.values(readCredentials(profileDir, key));
 }
 function saveCredential(profileDir, origin, password, key) {
-  const file = join14(profileDir, FILE);
+  const file = join15(profileDir, FILE);
   write(file, { ...read(file, key), [credentialOrigin(origin)]: password }, key);
 }
 function resolveCredential(profileDir, request, key) {
   if (!CREDENTIAL_MODES.includes(request.mode)) fail("bad_credential", `credential.mode must be one of: ${CREDENTIAL_MODES.join(", ")}`);
   const origin = credentialOrigin(request.origin);
-  const file = join14(profileDir, FILE);
+  const file = join15(profileDir, FILE);
   const origins = read(file, key);
   const saved = origins[origin];
   if (saved) return { origin, password: saved, created: false };
@@ -14350,7 +14350,7 @@ import { spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync6 } from "node:fs";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 import { createInterface as createInterface2 } from "node:readline";
-import { join as join15 } from "node:path";
+import { join as join16 } from "node:path";
 var PYTHON_DIR = fileURLToPath5(new URL("../python/", import.meta.url));
 var CANCEL_GRACE_MS = 15e3;
 var EXIT_DRAIN_MS = 2e3;
@@ -14362,7 +14362,7 @@ function jevKeyConfigured() {
 function interpreter() {
   const configured = process.env.DIM_BROWSER_PYTHON?.trim();
   if (configured) return configured;
-  const venv = process.platform === "win32" ? join15(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join15(PYTHON_DIR, ".venv", "bin", "python");
+  const venv = process.platform === "win32" ? join16(PYTHON_DIR, ".venv", "Scripts", "python.exe") : join16(PYTHON_DIR, ".venv", "bin", "python");
   if (!existsSync6(venv)) {
     fail(
       "python_env_missing",
@@ -14812,9 +14812,9 @@ var BrowserRuntime = class {
     this.unheldIdleMs = timerMs("unheldIdleMs", options.unheldIdleMs, UNHELD_IDLE_MS);
     this.viewGoneMs = timerMs("viewGoneMs", options.viewGoneMs, VIEW_GONE_MS);
     this.store = new ProfileStore(options.rootDir);
-    this.annotationFiles = new AnnotationFiles(join16(this.store.rootDir, "annotations"));
+    this.annotationFiles = new AnnotationFiles(join17(this.store.rootDir, "annotations"));
     this.credentialKey = new CredentialKey(this.store.rootDir);
-    this.publishApprovals = new PublishApprovals(join16(this.store.rootDir, "publish-approvals"));
+    this.publishApprovals = new PublishApprovals(join17(this.store.rootDir, "publish-approvals"));
     this.fillGate = new FillGate(this.publishApprovals);
     this.gatedProfiles = new GatedProfiles(this.store.rootDir, { onGated: (profiles) => this.revokeGated(profiles) });
     this.gatedProfiles.watch();
@@ -14928,10 +14928,10 @@ var BrowserRuntime = class {
       const ephemeral = this.store.createEphemeral();
       directory = ephemeral.userDataDir;
       free = () => this.discard(ephemeral.dir);
-      annotations = new AnnotationFiles(join16(ephemeral.dir, "annotations"));
+      annotations = new AnnotationFiles(join17(ephemeral.dir, "annotations"));
     } else {
       const lock = this.store.acquireLock(profile2);
-      directory = engine === "chromium" ? this.store.userDataDir(profile2) : join16(this.store.profileDir(profile2), engine);
+      directory = engine === "chromium" ? this.store.userDataDir(profile2) : join17(this.store.profileDir(profile2), engine);
       free = () => this.store.releaseLock(lock);
     }
     let released = false;
@@ -17863,7 +17863,7 @@ async function createBrowserServer(options = {}) {
   const stepMeta = stepToolMeta(modelTools);
   const live = new LiveChannel(runtime);
   const viewDir = options.viewDir ?? fileURLToPath6(new URL("./dist/", import.meta.url));
-  const html = await readFile4(join17(viewDir, "index.html"), "utf8");
+  const html = await readFile4(join18(viewDir, "index.html"), "utf8");
   const presets = options.presets ?? await loadPresets();
   const metadata = { ui: { prefersBorder: false, csp: VIEW_CSP } };
   registerAppResource(server2, "Browser", BROWSER_VIEW_URI, { _meta: metadata }, async () => ({
@@ -17874,7 +17874,7 @@ async function createBrowserServer(options = {}) {
     const extension = extname3(entry.name);
     const mimeType = MIME[extension];
     if (!mimeType) throw new Error(`Unsupported browser View asset: ${entry.name}`);
-    const path5 = join17(entry.parentPath, entry.name);
+    const path5 = join18(entry.parentPath, entry.name);
     const relative2 = path5.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://browser/${relative2}`;
     server2.registerResource(relative2, uri, { mimeType }, async () => ({ contents: [{ uri, mimeType, blob: (await readFile4(path5)).toString("base64") }] }));
@@ -18098,7 +18098,7 @@ async function createBrowserServer(options = {}) {
     registerCodeTool(server2, {
       host: codeHost,
       sessionOf,
-      artifactsDir: () => options.codeArtifactsDir ?? join17(process.env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
+      artifactsDir: () => options.codeArtifactsDir ?? join18(process.env.DIMENSION_BROWSER_ROOT || defaultRootDir(), "artifacts"),
       preview: async (session, browserId, running) => (running ? previewMeta(runtime, browserId, session) : await previewResult(runtime, browserId, session))?.[PREVIEW_META_KEY] ?? { v: 1, source: { kind: "browser", browserId }, at: Date.now() },
       meta: { [APPROVAL_META_KEY]: "exec", [APPROVAL_SUMMARY_META_KEY]: "Let your agent browse the web for you", [SPACES_META_KEY]: BROWSER_RUN_SPACES }
     });

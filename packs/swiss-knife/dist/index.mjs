@@ -671,16 +671,37 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-var DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
+var DURABLE_COPY_SUFFIX = /^\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+var DURABLE_COPY_SUFFIX_DOTS = 3;
+var LONGEST_FILE_NAME = 255;
 var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function withoutDurableCopySuffixes(name) {
+  let end = name.length;
+  strip: for (; ; ) {
+    let farthest = end;
+    for (let dots = 0; dots < DURABLE_COPY_SUFFIX_DOTS; dots++) {
+      const dot = farthest > 0 ? name.lastIndexOf(".", farthest - 1) : -1;
+      if (dot <= 0) break;
+      farthest = dot;
+    }
+    for (let dot = farthest; dot >= 0 && dot < end; dot = name.indexOf(".", dot + 1)) {
+      if (DURABLE_COPY_SUFFIX.test(name.slice(dot, end))) {
+        end = dot;
+        continue strip;
+      }
+    }
+    return name.slice(0, end);
+  }
+}
 function isBlobSidecar(segments, blobsAt) {
   const name = segments[blobsAt + 1] ?? "";
-  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DURABLE_COPY_SUFFIXES.test(name) && !DATABASE_FILE.test(name);
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && withoutDurableCopySuffixes(name) === name && !DATABASE_FILE.test(name);
 }
 function denyReason(path2, { allowBlobCopy = false } = {}) {
   const segments = segmentsOf(path2);
   const named = segments[segments.length - 1] ?? "";
-  const base = named.replace(DURABLE_COPY_SUFFIXES, "");
+  if (named.length > LONGEST_FILE_NAME) return `its name is longer than ${LONGEST_FILE_NAME} characters, which no file can be`;
+  const base = withoutDurableCopySuffixes(named);
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -1123,7 +1144,7 @@ import { homedir } from "node:os";
 // src/library/library.ts
 import { constants as constants2, statSync as statSync3 } from "node:fs";
 import { chmod as chmod2, mkdir, open as open3, realpath as realpath3, stat as stat2 } from "node:fs/promises";
-import { basename as basename4, isAbsolute, join as join4, resolve as resolve5 } from "node:path";
+import { basename as basename5, isAbsolute, join as join5, resolve as resolve5 } from "node:path";
 
 // src/library/cursor.ts
 function encodeCursor(position) {
@@ -1635,7 +1656,7 @@ async function moveToTrash(path2, platform = process.platform) {
 
 // src/library/thumbs.ts
 import { readdir, rm } from "node:fs/promises";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 
 // ../../lib/durable-file.mjs
 import { randomBytes } from "node:crypto";
@@ -1769,7 +1790,7 @@ async function writeThumb(directory, id, bytes, mime) {
   }
   if (!matchesMime(bytes, mime)) throw new LibraryError(`the thumbnail bytes are not ${mime}`);
   const name = `${id}.${EXTENSIONS[mime]}`;
-  await writeFileAtomic(join2(directory, name), bytes);
+  await writeFileAtomic(join3(directory, name), bytes);
   await removeThumbs(directory, id, name);
   return name;
 }
@@ -1782,12 +1803,12 @@ async function removeThumbs(directory, id, keep) {
     throw error51;
   }
   const own = entries.filter((entry) => entry !== keep && entry.startsWith(`${id}.`));
-  await Promise.all(own.map((entry) => rm(join2(directory, entry), { force: true })));
+  await Promise.all(own.map((entry) => rm(join3(directory, entry), { force: true })));
 }
 
 // src/library/workspace-root.ts
 import { existsSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
-import { basename as basename3, dirname as dirname3, join as join3, relative, resolve as resolve4 } from "node:path";
+import { basename as basename4, dirname as dirname3, join as join4, relative, resolve as resolve4 } from "node:path";
 
 // ../../../node_modules/zod/v4/classic/external.js
 var external_exports = {};
@@ -16311,8 +16332,8 @@ var OwnersFile = external_exports.object({
   owners: external_exports.record(external_exports.string(), external_exports.object({ root: external_exports.string().min(1), origin: external_exports.string().min(1), mapsSubpaths: external_exports.boolean().optional() }).loose())
 }).loose();
 function createWorkspaceResolver(options) {
-  const projectsFile = options.projectsFile ?? join3(options.home, "projects.json");
-  const ledgerFile = join3(options.home, "worktree-owners.json");
+  const projectsFile = options.projectsFile ?? join4(options.home, "projects.json");
+  const ledgerFile = join4(options.home, "worktree-owners.json");
   const now = options.now ?? Date.now;
   const placed = /* @__PURE__ */ new Map();
   let roots = [];
@@ -16355,13 +16376,13 @@ function ownershipChain(start, owners) {
       const gone = recordedOwnerOf(owners, home);
       if (gone === void 0 || existsSync(gone.root)) break;
       chain.push({ path: home, at: comparable(home), worktree: comparable(gone.root) });
-      home = gone.mapsSubpaths ? join3(gone.origin, relative(gone.root, home)) : resolve4(gone.origin);
+      home = gone.mapsSubpaths ? join4(gone.origin, relative(gone.root, home)) : resolve4(gone.origin);
       continue;
     }
     chain.push({ path: home, at: comparable(home), worktree: comparable(linked.root) });
-    const origin = readText(join3(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
+    const origin = readText(join4(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
     const mapsSubpaths = !origin || comparable(origin) === comparable(linked.mainCheckout);
-    home = mapsSubpaths ? join3(linked.mainCheckout, relative(linked.root, home)) : resolve4(origin);
+    home = mapsSubpaths ? join4(linked.mainCheckout, relative(linked.root, home)) : resolve4(origin);
   }
   chain.push({ path: home, at: comparable(home) });
   return chain;
@@ -16379,7 +16400,7 @@ function recordedOwnerOf(owners, cwd) {
 function linkedWorktreeOf(cwd) {
   let dir = cwd;
   for (; ; ) {
-    const dotGit = join3(dir, ".git");
+    const dotGit = join4(dir, ".git");
     const entry = entryAt(dotGit);
     if (entry === "directory") return void 0;
     if (entry === "file") {
@@ -16395,11 +16416,11 @@ function readLinkedWorktree(root, dotGit) {
   const gitDirRef = /^gitdir:\s*(.+)$/m.exec(readText(dotGit) ?? "")?.[1]?.trim();
   if (!gitDirRef) return "not-linked";
   const gitDir = resolve4(root, gitDirRef);
-  const commonRef = readText(join3(gitDir, "commondir"))?.trim();
+  const commonRef = readText(join4(gitDir, "commondir"))?.trim();
   if (!commonRef) return "not-linked";
   const commonDir = resolve4(gitDir, commonRef);
-  const configured = coreWorktree(readText(join3(commonDir, "config")));
-  const mainCheckout = configured ? resolve4(commonDir, configured) : basename3(commonDir) === ".git" ? dirname3(commonDir) : void 0;
+  const configured = coreWorktree(readText(join4(commonDir, "config")));
+  const mainCheckout = configured ? resolve4(commonDir, configured) : basename4(commonDir) === ".git" ? dirname3(commonDir) : void 0;
   return mainCheckout ? { root, gitDir, mainCheckout } : void 0;
 }
 function coreWorktree(config2) {
@@ -16560,11 +16581,11 @@ async function createLibrary(options) {
   const platform = options.platform ?? process.platform;
   const revokeRemote2 = options.revokeRemote ?? revokeRemote;
   const trashFile = options.trash ?? ((path2) => moveToTrash(path2, platform));
-  const directory = join4(options.home, "artifacts");
-  const thumbsDirectory = join4(directory, "thumbs");
+  const directory = join5(options.home, "artifacts");
+  const thumbsDirectory = join5(directory, "thumbs");
   await mkdir(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
   if (process.platform !== "win32") await chmod2(directory, PRIVATE_DIRECTORY_MODE);
-  const databaseFile = join4(directory, "library.db");
+  const databaseFile = join5(directory, "library.db");
   const workspaceOf = createWorkspaceResolver({ home: options.home, ...options.projectsFile === void 0 ? {} : { projectsFile: options.projectsFile } });
   const db = await openDriver(databaseFile);
   try {
@@ -16741,7 +16762,7 @@ async function createLibrary(options) {
       if (!opened.isFile()) throw refuse("it is not a regular file");
       const head = Buffer.allocUnsafe(Math.min(HEAD_BYTES2, opened.size));
       const { bytesRead } = await handle.read(head, 0, head.length, 0);
-      const { kind, mime } = classifyFile(basename4(real), head.subarray(0, bytesRead));
+      const { kind, mime } = classifyFile(basename5(real), head.subarray(0, bytesRead));
       facts = { kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
     } finally {
       await handle.close();
@@ -16755,7 +16776,7 @@ async function createLibrary(options) {
       newId(moment),
       real,
       key,
-      basename4(real),
+      basename5(real),
       title,
       note,
       tags === void 0 ? null : JSON.stringify(tags),
@@ -17017,7 +17038,7 @@ async function createLibrary(options) {
     setThumb,
     thumbPath(id) {
       const name = sql("SELECT thumb FROM artifacts WHERE id = ? AND state != 'discarded'").get(id)?.thumb;
-      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join4(thumbsDirectory, name) : void 0;
+      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join5(thumbsDirectory, name) : void 0;
     },
     isLent(realPath) {
       return sql("SELECT 1 AS lent FROM artifacts WHERE path_key = ? AND state != 'discarded'").get(pathKey(realPath, platform)) !== void 0;

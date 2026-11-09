@@ -23612,7 +23612,7 @@ var StdioServerTransport = class {
 // src/server.ts
 import { readdir as readdir3, readFile as readFile3 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname as extname3, join as join6 } from "node:path";
+import { extname as extname3, join as join7 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ../../../../node_modules/zod/v3/helpers/util.js
@@ -31667,7 +31667,7 @@ function hasCode(error51, ...codes) {
 // ../src/library/library.ts
 import { constants, statSync as statSync3 } from "node:fs";
 import { chmod as chmod2, mkdir, open as open2, realpath, stat } from "node:fs/promises";
-import { basename as basename3, isAbsolute, join as join3, resolve as resolve3 } from "node:path";
+import { basename as basename4, isAbsolute, join as join4, resolve as resolve3 } from "node:path";
 
 // ../../../../fraym/packages/driver/src/classify-file.ts
 var BINARY = { kind: "binary", mime: "application/octet-stream" };
@@ -32154,16 +32154,37 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-var DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
+var DURABLE_COPY_SUFFIX = /^\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+var DURABLE_COPY_SUFFIX_DOTS = 3;
+var LONGEST_FILE_NAME = 255;
 var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function withoutDurableCopySuffixes(name) {
+  let end = name.length;
+  strip: for (; ; ) {
+    let farthest = end;
+    for (let dots = 0; dots < DURABLE_COPY_SUFFIX_DOTS; dots++) {
+      const dot = farthest > 0 ? name.lastIndexOf(".", farthest - 1) : -1;
+      if (dot <= 0) break;
+      farthest = dot;
+    }
+    for (let dot = farthest; dot >= 0 && dot < end; dot = name.indexOf(".", dot + 1)) {
+      if (DURABLE_COPY_SUFFIX.test(name.slice(dot, end))) {
+        end = dot;
+        continue strip;
+      }
+    }
+    return name.slice(0, end);
+  }
+}
 function isBlobSidecar(segments, blobsAt) {
   const name = segments[blobsAt + 1] ?? "";
-  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DURABLE_COPY_SUFFIXES.test(name) && !DATABASE_FILE.test(name);
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && withoutDurableCopySuffixes(name) === name && !DATABASE_FILE.test(name);
 }
 function denyReason(path3, { allowBlobCopy = false } = {}) {
   const segments = segmentsOf(path3);
   const named = segments[segments.length - 1] ?? "";
-  const base = named.replace(DURABLE_COPY_SUFFIXES, "");
+  if (named.length > LONGEST_FILE_NAME) return `its name is longer than ${LONGEST_FILE_NAME} characters, which no file can be`;
+  const base = withoutDurableCopySuffixes(named);
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -33225,7 +33246,7 @@ async function defaultTrash(path3) {
 
 // ../src/library/thumbs.ts
 import { readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 
 // ../../../lib/durable-file.mjs
 import { randomBytes as randomBytes2 } from "node:crypto";
@@ -33421,6 +33442,27 @@ async function removeDurableFile(filePath) {
   await fs.promises.rm(filePath, { force: true });
   await fsyncDirectory(directory);
 }
+async function removeSecretCopies(filePath) {
+  const directory = path.dirname(filePath);
+  const quarantinePrefix = `${path.basename(filePath)}.corrupt-`;
+  const entries = await fs.promises.readdir(directory).catch((error51) => {
+    if (isMissing(error51)) return [];
+    throw error51;
+  });
+  const copies = [backupPathOf(filePath), ...entries.filter((name) => name.startsWith(quarantinePrefix)).map((name) => path.join(directory, name))];
+  for (const copy of copies) await fs.promises.rm(copy, { force: true });
+}
+async function writeSecretFileAtomic(filePath, data, options2 = {}) {
+  await writeFileAtomic(filePath, data, { mode: options2.mode });
+  await removeSecretCopies(filePath);
+  await fsyncDirectory(path.dirname(filePath));
+}
+async function removeSecretFile(filePath) {
+  const directory = path.dirname(filePath);
+  await removeSecretCopies(filePath);
+  await fs.promises.rm(filePath, { force: true });
+  await fsyncDirectory(directory);
+}
 
 // ../src/thumbnail.ts
 var MAX_THUMB_BYTES = 150 * 1024;
@@ -33441,7 +33483,7 @@ async function writeThumb(directory, id2, bytes, mime) {
   }
   if (!matchesMime(bytes, mime)) throw new LibraryError(`the thumbnail bytes are not ${mime}`);
   const name = `${id2}.${EXTENSIONS[mime]}`;
-  await writeFileAtomic(join(directory, name), bytes);
+  await writeFileAtomic(join2(directory, name), bytes);
   await removeThumbs(directory, id2, name);
   return name;
 }
@@ -33454,12 +33496,12 @@ async function removeThumbs(directory, id2, keep) {
     throw error51;
   }
   const own = entries.filter((entry) => entry !== keep && entry.startsWith(`${id2}.`));
-  await Promise.all(own.map((entry) => rm(join(directory, entry), { force: true })));
+  await Promise.all(own.map((entry) => rm(join2(directory, entry), { force: true })));
 }
 
 // ../src/library/workspace-root.ts
 import { existsSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
-import { basename as basename2, dirname as dirname3, join as join2, relative, resolve as resolve2 } from "node:path";
+import { basename as basename3, dirname as dirname3, join as join3, relative, resolve as resolve2 } from "node:path";
 var SESSION_ORIGIN_FILE = "inso-session-origin";
 var MAX_HOPS = 4;
 var RELOAD_MIN_MS = 5e3;
@@ -33468,8 +33510,8 @@ var OwnersFile = external_exports.object({
   owners: external_exports.record(external_exports.string(), external_exports.object({ root: external_exports.string().min(1), origin: external_exports.string().min(1), mapsSubpaths: external_exports.boolean().optional() }).loose())
 }).loose();
 function createWorkspaceResolver(options2) {
-  const projectsFile = options2.projectsFile ?? join2(options2.home, "projects.json");
-  const ledgerFile = join2(options2.home, "worktree-owners.json");
+  const projectsFile = options2.projectsFile ?? join3(options2.home, "projects.json");
+  const ledgerFile = join3(options2.home, "worktree-owners.json");
   const now = options2.now ?? Date.now;
   const placed = /* @__PURE__ */ new Map();
   let roots = [];
@@ -33512,13 +33554,13 @@ function ownershipChain(start, owners) {
       const gone = recordedOwnerOf(owners, home);
       if (gone === void 0 || existsSync(gone.root)) break;
       chain.push({ path: home, at: comparable2(home), worktree: comparable2(gone.root) });
-      home = gone.mapsSubpaths ? join2(gone.origin, relative(gone.root, home)) : resolve2(gone.origin);
+      home = gone.mapsSubpaths ? join3(gone.origin, relative(gone.root, home)) : resolve2(gone.origin);
       continue;
     }
     chain.push({ path: home, at: comparable2(home), worktree: comparable2(linked.root) });
-    const origin = readText(join2(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
+    const origin = readText(join3(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
     const mapsSubpaths = !origin || comparable2(origin) === comparable2(linked.mainCheckout);
-    home = mapsSubpaths ? join2(linked.mainCheckout, relative(linked.root, home)) : resolve2(origin);
+    home = mapsSubpaths ? join3(linked.mainCheckout, relative(linked.root, home)) : resolve2(origin);
   }
   chain.push({ path: home, at: comparable2(home) });
   return chain;
@@ -33536,7 +33578,7 @@ function recordedOwnerOf(owners, cwd) {
 function linkedWorktreeOf(cwd) {
   let dir = cwd;
   for (; ; ) {
-    const dotGit = join2(dir, ".git");
+    const dotGit = join3(dir, ".git");
     const entry = entryAt(dotGit);
     if (entry === "directory") return void 0;
     if (entry === "file") {
@@ -33552,11 +33594,11 @@ function readLinkedWorktree(root, dotGit) {
   const gitDirRef = /^gitdir:\s*(.+)$/m.exec(readText(dotGit) ?? "")?.[1]?.trim();
   if (!gitDirRef) return "not-linked";
   const gitDir = resolve2(root, gitDirRef);
-  const commonRef = readText(join2(gitDir, "commondir"))?.trim();
+  const commonRef = readText(join3(gitDir, "commondir"))?.trim();
   if (!commonRef) return "not-linked";
   const commonDir = resolve2(gitDir, commonRef);
-  const configured = coreWorktree(readText(join2(commonDir, "config")));
-  const mainCheckout = configured ? resolve2(commonDir, configured) : basename2(commonDir) === ".git" ? dirname3(commonDir) : void 0;
+  const configured = coreWorktree(readText(join3(commonDir, "config")));
+  const mainCheckout = configured ? resolve2(commonDir, configured) : basename3(commonDir) === ".git" ? dirname3(commonDir) : void 0;
   return mainCheckout ? { root, gitDir, mainCheckout } : void 0;
 }
 function coreWorktree(config2) {
@@ -33717,11 +33759,11 @@ async function createLibrary(options2) {
   const platform = options2.platform ?? process.platform;
   const revokeRemote2 = options2.revokeRemote ?? revokeRemote;
   const trashFile = options2.trash ?? ((path3) => moveToTrash(path3, platform));
-  const directory = join3(options2.home, "artifacts");
-  const thumbsDirectory = join3(directory, "thumbs");
+  const directory = join4(options2.home, "artifacts");
+  const thumbsDirectory = join4(directory, "thumbs");
   await mkdir(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
   if (process.platform !== "win32") await chmod2(directory, PRIVATE_DIRECTORY_MODE);
-  const databaseFile = join3(directory, "library.db");
+  const databaseFile = join4(directory, "library.db");
   const workspaceOf = createWorkspaceResolver({ home: options2.home, ...options2.projectsFile === void 0 ? {} : { projectsFile: options2.projectsFile } });
   const db = await openDriver(databaseFile);
   try {
@@ -33898,7 +33940,7 @@ async function createLibrary(options2) {
       if (!opened.isFile()) throw refuse2("it is not a regular file");
       const head = Buffer.allocUnsafe(Math.min(HEAD_BYTES, opened.size));
       const { bytesRead } = await handle.read(head, 0, head.length, 0);
-      const { kind, mime } = classifyFile(basename3(real), head.subarray(0, bytesRead));
+      const { kind, mime } = classifyFile(basename4(real), head.subarray(0, bytesRead));
       facts = { kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
     } finally {
       await handle.close();
@@ -33912,7 +33954,7 @@ async function createLibrary(options2) {
       newId(moment),
       real,
       key,
-      basename3(real),
+      basename4(real),
       title,
       note,
       tags === void 0 ? null : JSON.stringify(tags),
@@ -34174,7 +34216,7 @@ async function createLibrary(options2) {
     setThumb,
     thumbPath(id2) {
       const name = sql("SELECT thumb FROM artifacts WHERE id = ? AND state != 'discarded'").get(id2)?.thumb;
-      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join3(thumbsDirectory, name) : void 0;
+      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join4(thumbsDirectory, name) : void 0;
     },
     isLent(realPath) {
       return sql("SELECT 1 AS lent FROM artifacts WHERE path_key = ? AND state != 'discarded'").get(pathKey(realPath, platform)) !== void 0;
@@ -34262,7 +34304,7 @@ async function readChunk(path3, offset, length) {
 }
 
 // src/tool-support.ts
-import { basename as basename4 } from "node:path";
+import { basename as basename5 } from "node:path";
 
 // src/kind.ts
 var KIND_HEAD_BYTES = 8192;
@@ -34430,7 +34472,7 @@ async function openViewedFile(fence, request, meta3) {
   if (!verdict.ok) return failure(verdict.reason);
   try {
     const head = await readRange(verdict.real, 0, KIND_HEAD_BYTES);
-    const shown = request.filename ?? basename4(verdict.real);
+    const shown = request.filename ?? basename5(verdict.real);
     const file2 = {
       path: verdict.real,
       filename: shown,
@@ -35117,7 +35159,7 @@ var HostClient = class {
 };
 
 // src/share/hosts.ts
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 
 // src/share/fs-json.ts
 var StoredFileError = class extends Error {
@@ -35139,17 +35181,19 @@ function storedJsonParser(path3, schema) {
     return checked.data;
   };
 }
-async function readJsonFile(path3, schema) {
+async function readJsonFile(path3, schema, { holdsSecret = false } = {}) {
   try {
-    return await readDurableFile(path3, storedJsonParser(path3, schema));
+    return await readDurableFile(path3, storedJsonParser(path3, schema), { keepDamagedCopy: !holdsSecret });
   } catch (error51) {
     if (error51 instanceof DurableFileUnreadableError) throw new StoredFileError(error51.message);
     throw error51;
   }
 }
-function writePrivateJsonFile(path3, schema, value) {
-  return writeFileAtomic(path3, `${JSON.stringify(value, null, "	")}
-`, { mode: 384, backup: { parse: storedJsonParser(path3, schema) } });
+function writePrivateJsonFile(path3, schema, value, { holdsSecret = false } = {}) {
+  const text2 = `${JSON.stringify(value, null, "	")}
+`;
+  if (holdsSecret) return writeSecretFileAtomic(path3, text2, { mode: 384 });
+  return writeFileAtomic(path3, text2, { mode: 384, backup: { parse: storedJsonParser(path3, schema) } });
 }
 
 // src/share/hosts.ts
@@ -35224,15 +35268,15 @@ var HostStore = class {
   path;
   #queue = Promise.resolve();
   constructor(home) {
-    this.path = join4(home, "artifacts", "hosts.json");
+    this.path = join5(home, "artifacts", "hosts.json");
   }
   async read() {
-    return await readJsonFile(this.path, hostsFileSchema) ?? { hosts: [] };
+    return await readJsonFile(this.path, hostsFileSchema, { holdsSecret: true }) ?? { hosts: [] };
   }
   #update(change) {
     const run2 = this.#queue.then(async () => {
       const { file: file2, result } = change(await this.read());
-      await writePrivateJsonFile(this.path, hostsFileSchema, file2);
+      await writePrivateJsonFile(this.path, hostsFileSchema, file2, { holdsSecret: true });
       return result;
     });
     this.#queue = run2.catch(() => void 0);
@@ -36591,7 +36635,7 @@ var P2pRuntime = class {
 
 // src/share/p2p-store.ts
 import { readdir as readdir2 } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 var STATE_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 var shareStateSchema = external_exports.object({
   version: external_exports.number().int().positive(),
@@ -36611,12 +36655,12 @@ var P2pStore = class {
   #dir;
   #tunnelPath;
   constructor(home) {
-    this.#dir = join5(home, "artifacts", "p2p");
-    this.#tunnelPath = join5(home, "artifacts", "tunnel.json");
+    this.#dir = join6(home, "artifacts", "p2p");
+    this.#tunnelPath = join6(home, "artifacts", "tunnel.json");
   }
   #sharePath(id2) {
     if (!STATE_ID_PATTERN.test(id2)) throw new StoredFileError("a share id contains characters that cannot name a file");
-    return join5(this.#dir, `${id2}.json`);
+    return join6(this.#dir, `${id2}.json`);
   }
   async readShare(id2) {
     try {
@@ -36642,17 +36686,17 @@ var P2pStore = class {
   }
   async readTunnel() {
     try {
-      return await readJsonFile(this.#tunnelPath, tunnelSchema);
+      return await readJsonFile(this.#tunnelPath, tunnelSchema, { holdsSecret: true });
     } catch (error51) {
       if (error51 instanceof StoredFileError) return void 0;
       throw error51;
     }
   }
   writeTunnel(credentials) {
-    return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials);
+    return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials, { holdsSecret: true });
   }
   clearTunnel() {
-    return removeDurableFile(this.#tunnelPath);
+    return removeSecretFile(this.#tunnelPath);
   }
 };
 
@@ -37424,7 +37468,7 @@ async function createViewerServer(options2 = {}) {
     }
   }
   try {
-    const html = await readFile3(join6(viewDir, "index.html"), "utf8");
+    const html = await readFile3(join7(viewDir, "index.html"), "utf8");
     media = await startMediaServer(fence, Date.now, library);
     share = library === void 0 ? void 0 : startShareRuntime({ library, fence, home });
     server2.server.onclose = () => {
@@ -37447,7 +37491,7 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
     if (!entry.isFile() || entry.name === "index.html") continue;
     const mimeType = MIME[extname3(entry.name)];
     if (mimeType === void 0) throw new Error(`Unsupported viewer View asset: ${entry.name}`);
-    const path3 = join6(entry.parentPath, entry.name);
+    const path3 = join7(entry.parentPath, entry.name);
     const relative2 = path3.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://viewer/${relative2}`;
     server2.registerResource(relative2, uri, { mimeType }, async () => {

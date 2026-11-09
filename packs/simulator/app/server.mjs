@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // src/server.ts
 import { readFile } from "node:fs/promises";
 import { homedir as homedir4 } from "node:os";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -3226,7 +3226,7 @@ Content-Length: 0\r
 // src/settings.ts
 import { readFileSync as readFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 var GPU_MODES = ["auto", "host", "swiftshader_indirect", "angle_indirect"];
 var DEFAULT_SETTINGS = { maxDevices: 2, idleMinutes: 15, sdkPath: null, allowPhysical: false, gpu: "auto" };
 var GROUP = "simulator";
@@ -3276,8 +3276,8 @@ var nodeSettingsSource = () => ({
 });
 function agentConfigPath(source) {
   const dir = source.env.PI_CODING_AGENT_DIR;
-  if (dir) return join3(dir, "config.yml");
-  return join3(source.home, source.env.PI_CONFIG_DIR || ".omp", "agent", "config.yml");
+  if (dir) return join4(dir, "config.yml");
+  return join4(source.home, source.env.PI_CONFIG_DIR || ".omp", "agent", "config.yml");
 }
 function readSettings(source = nodeSettingsSource()) {
   const text = source.readFile(agentConfigPath(source));
@@ -3365,9 +3365,9 @@ async function createSimulatorServer(options = {}) {
   const settings = options.settings ?? (() => readSettings(nodeSettingsSource()));
   const leased = leasedToolchain(settings);
   const toolchain = options.toolchain ?? (() => leased.current());
-  const dataDir = options.dataDir ?? join4(process.env.INSO_HOME ?? join4(homedir4(), ".inso"), "simulator");
-  const backend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join4(dataDir, "logs"), gpu: () => settings().gpu });
-  const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join4(dataDir, "owned.json")), log });
+  const dataDir = options.dataDir ?? join5(process.env.INSO_HOME ?? join5(homedir4(), ".inso"), "simulator");
+  const backend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join5(dataDir, "logs"), gpu: () => settings().gpu });
+  const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join5(dataDir, "owned.json")), log });
   const physicalUnlocked = (allowPhysical) => settings().allowPhysical && allowPhysical === true;
   async function authorize(serial, allowPhysical) {
     const kind = await backend.kindOf(serial, physicalUnlocked(allowPhysical));

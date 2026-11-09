@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // src/server.ts
 import { randomUUID } from "node:crypto";
 import { realpathSync, statSync as statSync2 } from "node:fs";
-import { isAbsolute, join as join4, resolve } from "node:path";
+import { isAbsolute, join as join5, resolve } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { parse as parseYaml4 } from "yaml";
@@ -270,7 +270,7 @@ function toAgentMd(draft, homeId) {
 
 // src/home.ts
 import { readFile as readFile2, stat } from "node:fs/promises";
-import { dirname as dirname2, join as join2 } from "node:path";
+import { dirname as dirname2, join as join3 } from "node:path";
 
 // ../../lib/durable-file.mjs
 import { randomBytes } from "node:crypto";
@@ -7714,7 +7714,7 @@ function parseGeneralAgent(content, filePath, dirName) {
 // src/store.ts
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join as join2, relative } from "node:path";
 import { parse as parseYaml2, stringify as stringifyYaml } from "yaml";
 var LEGACY_AGENTS_DIR = "agents";
 var WRITE_DIR = process.env.PI_CONFIG_DIR?.trim() || ".inso";
@@ -7722,24 +7722,24 @@ var LEGACY_DIR = ".omp";
 function pathsOf(home) {
   if (home === null) return null;
   return {
-    plugins: join(home, "plugins"),
+    plugins: join2(home, "plugins"),
     /** The agent dir: skills, settings, and the General Agent user tier. */
-    agent: join(home, "agent"),
-    userAgents: join(home, "agent", GENERAL_AGENTS_DIR),
+    agent: join2(home, "agent"),
+    userAgents: join2(home, "agent", GENERAL_AGENTS_DIR),
     /** `<home>/workspaces`: every agent home (`home-<name>`) — the engine pins `PI_AGENT_HOMES_DIR` here. */
-    homes: join(home, "workspaces")
+    homes: join2(home, "workspaces")
   };
 }
 async function installedPluginRoots(pluginsDir) {
   const roots = /* @__PURE__ */ new Map();
-  const modules = join(pluginsDir, "node_modules");
+  const modules = join2(pluginsDir, "node_modules");
   for (const entry2 of await listDirs(modules)) {
     if (entry2.startsWith("@")) {
-      for (const scoped of await listDirs(join(modules, entry2))) roots.set(`${entry2}/${scoped}`, join(modules, entry2, scoped));
-    } else if (!entry2.startsWith(".")) roots.set(entry2, join(modules, entry2));
+      for (const scoped of await listDirs(join2(modules, entry2))) roots.set(`${entry2}/${scoped}`, join2(modules, entry2, scoped));
+    } else if (!entry2.startsWith(".")) roots.set(entry2, join2(modules, entry2));
   }
   try {
-    const installed = JSON.parse(await readFile(join(pluginsDir, "installed_plugins.json"), "utf8"));
+    const installed = JSON.parse(await readFile(join2(pluginsDir, "installed_plugins.json"), "utf8"));
     for (const [id, entries] of Object.entries(installed.plugins ?? {})) {
       const installPath = entries.find((entry2) => typeof entry2.installPath === "string")?.installPath;
       if (typeof installPath === "string" && !roots.has(id)) roots.set(id, installPath);
@@ -7878,7 +7878,7 @@ async function scanAgents(dir, notices) {
   const found = [];
   for (const name of await listDirs(dir)) {
     if (name.startsWith(".")) continue;
-    const path2 = join(dir, name, GENERAL_AGENT_FILE);
+    const path2 = join2(dir, name, GENERAL_AGENT_FILE);
     let content;
     try {
       content = await readFile(path2, "utf8");
@@ -7923,7 +7923,7 @@ async function listAgents(roots) {
   if (paths === null) notices.push("Pack and user agents are not listed: the engine did not tell this server where its home is (INSO_HOME is unset).");
   else {
     for (const [pack, root] of await installedPluginRoots(paths.plugins)) {
-      for (const found of await scanAgents(join(root, GENERAL_AGENTS_DIR), notices)) {
+      for (const found of await scanAgents(join2(root, GENERAL_AGENTS_DIR), notices)) {
         if (!claim(found)) continue;
         agents.push({
           name: found.name,
@@ -7942,9 +7942,9 @@ async function listAgents(roots) {
   if (roots.workspace === null) {
     notices.push(roots.workspaceMissing ?? "No workspace is bound, so project agents are not listed. Pack agents and yours are.");
   } else {
-    for (const dirName of [WRITE_DIR, LEGACY_DIR]) await claimLeftovers(join(roots.workspace, dirName, LEGACY_AGENTS_DIR), "workspace", `${dirName}/${LEGACY_AGENTS_DIR}`);
+    for (const dirName of [WRITE_DIR, LEGACY_DIR]) await claimLeftovers(join2(roots.workspace, dirName, LEGACY_AGENTS_DIR), "workspace", `${dirName}/${LEGACY_AGENTS_DIR}`);
     for (const dirName of [WRITE_DIR, LEGACY_DIR]) {
-      for (const found of await scanAgents(join(roots.workspace, dirName, GENERAL_AGENTS_DIR), notices)) {
+      for (const found of await scanAgents(join2(roots.workspace, dirName, GENERAL_AGENTS_DIR), notices)) {
         if (!claim(found)) continue;
         const legacy = dirName === LEGACY_DIR;
         agents.push({
@@ -7963,7 +7963,7 @@ async function listAgents(roots) {
       }
     }
   }
-  if (paths !== null) await claimLeftovers(join(paths.agent, LEGACY_AGENTS_DIR), "user", `agent/${LEGACY_AGENTS_DIR}`);
+  if (paths !== null) await claimLeftovers(join2(paths.agent, LEGACY_AGENTS_DIR), "user", `agent/${LEGACY_AGENTS_DIR}`);
   if (paths !== null) {
     for (const found of await scanAgents(paths.userAgents, notices)) {
       if (!claim(found)) continue;
@@ -7998,14 +7998,14 @@ async function saveAgent(options) {
   const paths = pathsOf(roots.home);
   const tier = target.create ? target.tier ?? "user" : target.tier;
   const tierRoot = tier === "user" ? roots.home : roots.workspace;
-  const agentsDir = tier === "user" ? paths?.userAgents : roots.workspace === null ? void 0 : join(roots.workspace, WRITE_DIR, GENERAL_AGENTS_DIR);
+  const agentsDir = tier === "user" ? paths?.userAgents : roots.workspace === null ? void 0 : join2(roots.workspace, WRITE_DIR, GENERAL_AGENTS_DIR);
   if (tierRoot === null || agentsDir === void 0) {
     throw new SaveRefused(
       tier === "user" ? "The user tier cannot be reached: the engine did not tell this server where its home is (INSO_HOME is unset)." : "No workspace is bound, so its project agents cannot be rewritten."
     );
   }
-  const dir = join(agentsDir, draft.name);
-  const path2 = join(dir, GENERAL_AGENT_FILE);
+  const dir = join2(agentsDir, draft.name);
+  const path2 = join2(dir, GENERAL_AGENT_FILE);
   const rendered = renderDraft(draft, path2);
   if ("problems" in rendered) throw new SaveRefused(rendered.problems.join(" "));
   const { content } = rendered;
@@ -8074,13 +8074,13 @@ async function contentOf(path2) {
   }
 }
 function candidatesFor(roots, source, name, agentFile) {
-  const sibling = { kind: source === "pack" ? "pack" : "agent-dir", path: join2(dirname2(agentFile), AGENTS_MD) };
+  const sibling = { kind: source === "pack" ? "pack" : "agent-dir", path: join3(dirname2(agentFile), AGENTS_MD) };
   if (source === "workspace") return [sibling];
   const homes = pathsOf(roots.home)?.homes;
-  const home = homes === void 0 ? [] : [{ kind: "home", path: join2(homes, agentHomeWorkspaceId(name), AGENTS_MD) }];
+  const home = homes === void 0 ? [] : [{ kind: "home", path: join3(homes, agentHomeWorkspaceId(name), AGENTS_MD) }];
   if (source === "user") return [...home, sibling];
-  const projectDirs = roots.workspace === null ? [] : [.../* @__PURE__ */ new Set([WRITE_DIR, LEGACY_DIR])].map((dir) => join2(roots.workspace, dir, GENERAL_AGENTS_DIR));
-  return [...projectDirs.map((dir) => ({ kind: "workspace-copy", path: join2(dir, name, AGENTS_MD) })), ...home, sibling];
+  const projectDirs = roots.workspace === null ? [] : [.../* @__PURE__ */ new Set([WRITE_DIR, LEGACY_DIR])].map((dir) => join3(roots.workspace, dir, GENERAL_AGENTS_DIR));
+  return [...projectDirs.map((dir) => ({ kind: "workspace-copy", path: join3(dir, name, AGENTS_MD) })), ...home, sibling];
 }
 async function resolveInstructions(roots, source, name, agentFile) {
   const candidates = candidatesFor(roots, source, name, agentFile);
@@ -8112,8 +8112,8 @@ async function describeHome(roots, name) {
   const canStandAtHome = source !== "workspace";
   const foreign = !derivesAgentHome(name, listed?.workspaceId);
   const hasHome = canStandAtHome && !foreign;
-  const folder = canStandAtHome && paths !== null ? join2(paths.homes, homeId) : null;
-  const agentFile = listed?.path ?? join2(paths?.userAgents ?? "", name, GENERAL_AGENT_FILE);
+  const folder = canStandAtHome && paths !== null ? join3(paths.homes, homeId) : null;
+  const agentFile = listed?.path ?? join3(paths?.userAgents ?? "", name, GENERAL_AGENT_FILE);
   const { files, text } = await resolveInstructions(roots, source, name, agentFile);
   const folderExists = folder !== null && await isDirectory(folder);
   let homeNote;
@@ -8124,7 +8124,7 @@ async function describeHome(roots, name) {
   else if (paths === null) homeNote = `Its home is ${homeId}; where that lives is unknown, as the engine did not say where its home is.`;
   else homeNote = folderExists ? `Its home is ${homeId}; the folder exists.` : `Its home is ${homeId}; the engine creates the folder the first time the agent is opened, seeding it from the AGENTS.md beside agent.md.`;
   const editable = listed === void 0 ? false : listed.editable;
-  const targetFile = listed === void 0 || !listed.editable ? null : source === "user" && folderExists ? { path: join2(folder ?? "", AGENTS_MD), kind: "home" } : { path: join2(dirname2(listed.path), AGENTS_MD), kind: "agent-dir" };
+  const targetFile = listed === void 0 || !listed.editable ? null : source === "user" && folderExists ? { path: join3(folder ?? "", AGENTS_MD), kind: "home" } : { path: join3(dirname2(listed.path), AGENTS_MD), kind: "agent-dir" };
   let target = null;
   if (targetFile !== null) {
     const current = targetFile.path === files.find((file) => file.wins)?.path ? text : await contentOf(targetFile.path);
@@ -8160,7 +8160,7 @@ async function saveInstructions(roots, name, text, revision) {
 
 // src/parts.ts
 import { readdir as readdir2, readFile as readFile3 } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 import { parse as parseYaml3 } from "yaml";
 var PACK_MCP_FILES = ["mcp.json", "ai.insodimension.dimension/mcp.json", ".mcp.json"];
 async function skillsIn(dir) {
@@ -8174,7 +8174,7 @@ async function skillsIn(dir) {
   for (const name of names2) {
     let text;
     try {
-      text = await readFile3(join3(dir, name, "SKILL.md"), "utf8");
+      text = await readFile3(join4(dir, name, "SKILL.md"), "utf8");
     } catch {
       continue;
     }
@@ -8219,17 +8219,17 @@ async function listParts(options) {
   const skillRoots = [];
   const mcpFiles = [];
   if (options.workspace !== null) {
-    for (const dir of [".inso", ".omp"]) skillRoots.push({ label: `workspace ${dir}/skills`, dir: join3(options.workspace, dir, "skills") });
-    for (const file of [".inso/mcp.json", ".omp/mcp.json", ".mcp.json"]) mcpFiles.push({ label: `workspace ${file}`, dir: join3(options.workspace, file) });
+    for (const dir of [".inso", ".omp"]) skillRoots.push({ label: `workspace ${dir}/skills`, dir: join4(options.workspace, dir, "skills") });
+    for (const file of [".inso/mcp.json", ".omp/mcp.json", ".mcp.json"]) mcpFiles.push({ label: `workspace ${file}`, dir: join4(options.workspace, file) });
   } else omitted.push("Workspace skills and MCP servers: no workspace is known.");
   if (options.agentDir !== null) {
-    skillRoots.push({ label: "your skills", dir: join3(options.agentDir, "skills") });
-    mcpFiles.push({ label: "your mcp.json", dir: join3(options.agentDir, "mcp.json") });
+    skillRoots.push({ label: "your skills", dir: join4(options.agentDir, "skills") });
+    mcpFiles.push({ label: "your mcp.json", dir: join4(options.agentDir, "mcp.json") });
   }
   if (options.pluginsDir !== null) {
     for (const [pack, root] of await installedPluginRoots(options.pluginsDir)) {
-      skillRoots.push({ label: `the ${pack} pack`, dir: join3(root, "skills") });
-      for (const file of PACK_MCP_FILES) mcpFiles.push({ label: `the ${pack} pack`, dir: join3(root, file) });
+      skillRoots.push({ label: `the ${pack} pack`, dir: join4(root, "skills") });
+      for (const file of PACK_MCP_FILES) mcpFiles.push({ label: `the ${pack} pack`, dir: join4(root, file) });
     }
   }
   if (options.agentDir === null || options.pluginsDir === null) {
@@ -8485,7 +8485,7 @@ function createForgeServer(options = {}) {
       _meta: APP_ONLY
     },
     async ({ draft }) => {
-      const rendered = renderDraft(draft, join4(draft.name, "agent.md"));
+      const rendered = renderDraft(draft, join5(draft.name, "agent.md"));
       const check = { problems: "problems" in rendered ? rendered.problems : [] };
       return json(check, check.problems.length === 0 ? "It would save." : check.problems.join(" "));
     }
