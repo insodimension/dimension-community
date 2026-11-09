@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { freshAccessToken, googleError, videoIdOf, youtubeFetch } from "./api";
+import { freshAccessToken, googleError, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
 
 const BINDING_DOMAIN = "publish-approval/v1";
 const UPDATE_ORIGIN = "https://www.youtube.com";
@@ -178,8 +178,9 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 				if (!snippet.categoryId) throw new Error(`Video ${videoId} came back without its category, and videos.update needs it. Nothing was changed.`);
 				const release = await spend();
 				await applyChange(
-					await youtubeFetch("/videos?part=snippet", accessToken, {
+					await fetch(`${YOUTUBE_API}/videos?part=snippet`, {
 						method: "PUT",
+						headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
 						body: JSON.stringify({ id: videoId, snippet: snippetWithTitle(snippet, title) }),
 					}),
 					release,

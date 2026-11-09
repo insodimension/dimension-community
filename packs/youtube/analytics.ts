@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { CONFIG_DIR, freshAccessToken, googleError, isScopeRefusal, MISSING_ANALYTICS_SCOPE, readCredential, videoIdOf } from "./api";
+import { configFile, freshAccessToken, googleJson, readCredential, videoIdOf } from "./api";
 
 const REPORTING_API = "https://youtubereporting.googleapis.com/v1";
 const ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2/reports";
-const REACH_JOBS_FILE = join(CONFIG_DIR, "reach-jobs.json");
+const REACH_JOBS_FILE = "reach-jobs.json";
 const REACH_REPORT_TYPES = ["channel_reach_basic_a1", "channel_reach_combined_a1"] as const;
 type ReachReportType = (typeof REACH_REPORT_TYPES)[number];
 const DAY_MS = 24 * 60 * 60_000;
@@ -15,6 +15,7 @@ const DEFAULT_DAYS = 28;
 const MAX_REACH_DAYS = 60;
 const TOP_VIDEOS = 25;
 const RETENTION_POINTS = [0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 1] as const;
+const PARALLEL_DOWNLOADS = 6;
 
 const TRAFFIC_SOURCE_NAMES: Readonly<Record<string, string>> = {
 	"0": "Direct or unknown",
@@ -63,22 +64,12 @@ const reachJobsRecord = type({
 type ReachJobs = typeof reachJobsRecord.infer;
 
 async function reportingJson<T>(path: string, accessToken: string, op: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(`${REPORTING_API}${path}`, {
-		...init,
-		headers: { Authorization: `Bearer ${accessToken}`, ...(init?.body ? { "Content-Type": "application/json" } : {}) },
-	});
-	const payload: unknown = await res.json().catch(() => null);
-	if (!res.ok || payload === null) {
-		const message = googleError(payload, res.statusText);
-		if (isScopeRefusal(res.status, message)) throw new Error(MISSING_ANALYTICS_SCOPE);
-		throw new Error(`YouTube Reporting ${op} failed: ${message}`);
-	}
-	return payload as T;
+	return googleJson<T>(`${REPORTING_API}${path}`, accessToken, `YouTube Reporting ${op}`, init);
 }
 
 async function readReachJobs(): Promise<ReachJobs | undefined> {
 	try {
-		const parsed = reachJobsRecord(JSON.parse(await readFile(REACH_JOBS_FILE, "utf-8")));
+		const parsed = reachJobsRecord(JSON.parse(await readFile(configFile(REACH_JOBS_FILE), "utf-8")));
 		return parsed instanceof type.errors ? undefined : parsed;
 	} catch {
 		return undefined;
@@ -90,7 +81,16 @@ export interface EnsuredReachJobs {
 	readonly created: readonly ReachReportType[];
 }
 
-export async function ensureReachJobs(): Promise<EnsuredReachJobs> {
+let pendingReachJobs: Promise<EnsuredReachJobs> | undefined;
+
+export function ensureReachJobs(): Promise<EnsuredReachJobs> {
+	pendingReachJobs ??= loadOrCreateReachJobs().finally(() => {
+		pendingReachJobs = undefined;
+	});
+	return pendingReachJobs;
+}
+
+async function loadOrCreateReachJobs(): Promise<EnsuredReachJobs> {
 	const credential = createHash("sha256").update((await readCredential()).refresh).digest("hex").slice(0, 16);
 	const known = await readReachJobs();
 	if (known?.credential === credential && REACH_REPORT_TYPES.every(id => known.jobs[id] !== undefined)) {
@@ -114,8 +114,9 @@ export async function ensureReachJobs(): Promise<EnsuredReachJobs> {
 		jobs[reportTypeId] = { id: job.id, createTime: job.createTime ?? new Date().toISOString() };
 		created.push(reportTypeId);
 	}
-	await mkdir(dirname(REACH_JOBS_FILE), { recursive: true });
-	await writeFile(REACH_JOBS_FILE, JSON.stringify({ credential, jobs }, null, 2));
+	const file = configFile(REACH_JOBS_FILE);
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify({ credential, jobs }, null, 2));
 	return { jobs: jobs as EnsuredReachJobs["jobs"], created };
 }
 
@@ -233,15 +234,20 @@ export function createReachReportTool(): ToolDefinition<typeof reachReportSchema
 			const videoId = params.videoId ? videoIdOf(params.videoId) : undefined;
 			const totals = new Map<string, ReachTotals>();
 			const perDay = new Map<string, ReachTotals>();
-			for (const report of reports) {
-				for (const row of await downloadRows(report, accessToken)) {
-					if (videoId && row.video_id !== videoId) continue;
-					const key = params.bySource
-						? (TRAFFIC_SOURCE_NAMES[row.traffic_source_type ?? ""] ?? `source ${row.traffic_source_type}`)
-						: (row.video_id ?? "?");
-					addReach(totals, key, row);
-					if (videoId) addReach(perDay, row.date ?? report.startTime.slice(0, 10), row);
-				}
+			for (let start = 0; start < reports.length; start += PARALLEL_DOWNLOADS) {
+				const batch = reports.slice(start, start + PARALLEL_DOWNLOADS);
+				const downloaded = await Promise.all(batch.map(report => downloadRows(report, accessToken)));
+				downloaded.forEach((rows, index) => {
+					const day = batch[index]?.startTime.slice(0, 10) ?? "?";
+					for (const row of rows) {
+						if (videoId && row.video_id !== videoId) continue;
+						const key = params.bySource
+							? (TRAFFIC_SOURCE_NAMES[row.traffic_source_type ?? ""] ?? `source ${row.traffic_source_type}`)
+							: (row.video_id ?? "?");
+						addReach(totals, key, row);
+						if (videoId) addReach(perDay, row.date ?? day, row);
+					}
+				});
 			}
 			const first = reports[0]?.startTime.slice(0, 10);
 			const last = reports.at(-1)?.startTime.slice(0, 10);
@@ -268,14 +274,11 @@ interface AnalyticsResponse {
 
 async function analyticsQuery(query: Record<string, string>, accessToken: string): Promise<Record<string, string | number>[]> {
 	const search = new URLSearchParams({ ids: "channel==MINE", ...query });
-	const res = await fetch(`${ANALYTICS_API}?${search.toString()}`, { headers: { Authorization: `Bearer ${accessToken}` } });
-	const payload: unknown = await res.json().catch(() => null);
-	if (!res.ok || payload === null) {
-		const message = googleError(payload, res.statusText);
-		if (isScopeRefusal(res.status, message)) throw new Error(MISSING_ANALYTICS_SCOPE);
-		throw new Error(`YouTube Analytics reports.query failed: ${message}`);
-	}
-	const { columnHeaders = [], rows = [] } = payload as AnalyticsResponse;
+	const { columnHeaders = [], rows = [] } = await googleJson<AnalyticsResponse>(
+		`${ANALYTICS_API}?${search.toString()}`,
+		accessToken,
+		"YouTube Analytics reports.query",
+	);
 	return rows.map(row => Object.fromEntries(columnHeaders.map((header, index) => [header.name, row[index] ?? ""])));
 }
 

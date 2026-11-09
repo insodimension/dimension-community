@@ -1,15 +1,15 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
 import { createReachReportTool, createVideoAnalyticsTool, ensureReachJobs } from "./analytics";
-import { CONFIG_DIR, freshAccessToken, videoIdOf, youtubeJson } from "./api";
+import { configFile, freshAccessToken, videoIdOf, youtubeJson } from "./api";
 import { createUpdateVideoTool } from "./update";
 
 const MAX_DESCRIPTION_CHARS = 4_000;
 const MAX_COMMENT_CHARS = 2_000;
-const COMMENT_LEDGER = join(CONFIG_DIR, "comment-ledger.json");
+const COMMENT_LEDGER = "comment-ledger.json";
 const COMMENTS_PER_DAY = 5;
 const DUPLICATE_SIMILARITY = 0.8;
 const LEDGER_KEEP = 500;
@@ -490,7 +490,7 @@ export function commentRefusal(
 
 async function readCommentLedger(): Promise<CommentLedgerEntry[]> {
 	try {
-		const parsed: unknown = JSON.parse(await readFile(COMMENT_LEDGER, "utf-8"));
+		const parsed: unknown = JSON.parse(await readFile(configFile(COMMENT_LEDGER), "utf-8"));
 		return Array.isArray(parsed) ? (parsed as CommentLedgerEntry[]) : [];
 	} catch {
 		return [];
@@ -498,8 +498,9 @@ async function readCommentLedger(): Promise<CommentLedgerEntry[]> {
 }
 
 async function recordComment(ledger: readonly CommentLedgerEntry[], entry: CommentLedgerEntry): Promise<void> {
-	await mkdir(dirname(COMMENT_LEDGER), { recursive: true });
-	await writeFile(COMMENT_LEDGER, JSON.stringify([...ledger, entry].slice(-LEDGER_KEEP)));
+	const file = configFile(COMMENT_LEDGER);
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify([...ledger, entry].slice(-LEDGER_KEEP)));
 }
 
 function createPostCommentTool(): ToolDefinition<typeof postCommentSchema> {

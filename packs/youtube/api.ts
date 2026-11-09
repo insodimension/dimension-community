@@ -3,10 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 
-export const CONFIG_DIR = join(homedir(), ".config", "dimension-youtube");
-const CONFIG_TARGET = join(CONFIG_DIR, "token.json");
+export function configFile(name: string): string {
+	return join(homedir(), ".config", "dimension-youtube", name);
+}
+
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
+export const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
 const REFRESH_SKEW_MS = 60_000;
 
 const storedCredential = type({
@@ -22,13 +24,13 @@ export type StoredCredential = typeof storedCredential.infer;
 export async function readCredential(): Promise<StoredCredential> {
 	let raw: string;
 	try {
-		raw = await readFile(CONFIG_TARGET, "utf-8");
+		raw = await readFile(configFile("token.json"), "utf-8");
 	} catch {
 		throw new Error("YouTube isn't connected yet. Open the plugin's Connect dialog (Plugins → YouTube) and sign in.");
 	}
 	const parsed = storedCredential(JSON.parse(raw));
 	if (parsed instanceof type.errors) {
-		throw new Error(`YouTube's stored credential at ${CONFIG_TARGET} is malformed. Reconnect the plugin.`);
+		throw new Error(`YouTube's stored credential at ${configFile("token.json")} is malformed. Reconnect the plugin.`);
 	}
 	return parsed;
 }
@@ -58,7 +60,7 @@ async function refreshAccessToken(cred: StoredCredential): Promise<StoredCredent
 		refresh: typeof payload.refresh_token === "string" ? payload.refresh_token : cred.refresh,
 		expires: Date.now() + expiresIn * 1000,
 	};
-	await writeFile(CONFIG_TARGET, JSON.stringify(refreshed, null, 2));
+	await writeFile(configFile("token.json"), JSON.stringify(refreshed, null, 2));
 	return refreshed;
 }
 
@@ -106,6 +108,16 @@ export function googleError(payload: unknown, fallback: string): string {
 	return fallback;
 }
 
-export function isScopeRefusal(status: number, message: string): boolean {
-	return status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(message);
+export async function googleJson<T>(url: string, accessToken: string, label: string, init?: RequestInit): Promise<T> {
+	const res = await fetch(url, {
+		...init,
+		headers: { Authorization: `Bearer ${accessToken}`, ...(init?.body ? { "Content-Type": "application/json" } : {}) },
+	});
+	const payload: unknown = await res.json().catch(() => null);
+	if (!res.ok || payload === null) {
+		const message = googleError(payload, res.statusText);
+		if (res.status === 403 && /insufficient|scope/i.test(message)) throw new Error(MISSING_ANALYTICS_SCOPE);
+		throw new Error(`${label} failed: ${message}`);
+	}
+	return payload as T;
 }

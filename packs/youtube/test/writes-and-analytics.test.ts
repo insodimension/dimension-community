@@ -1,8 +1,11 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { join } from "node:path";
+import { addReach, createReachReportTool, createVideoAnalyticsTool, ensureReachJobs, parseCsv } from "../analytics";
+import { MISSING_ANALYTICS_SCOPE } from "../api";
+import { createUpdateVideoTool, snippetWithTitle, updateBinding } from "../update";
 
 const ENV = ["HOME", "USERPROFILE", "INSO_HOME"] as const;
 const prior = Object.fromEntries(ENV.map(name => [name, process.env[name]]));
@@ -11,28 +14,14 @@ const home = join(root, "home");
 const insoHome = join(root, "inso");
 const approvals = join(insoHome, "browser", "publish-approvals");
 const thumbs = join(root, "thumbs");
-
-process.env.HOME = home;
-process.env.USERPROFILE = home;
-const { createUpdateVideoTool, updateBinding, snippetWithTitle } = await import("../update.ts?youtube-writes");
-const { createReachReportTool, createVideoAnalyticsTool, ensureReachJobs, parseCsv, addReach } = await import("../analytics.ts?youtube-writes");
-const { CONFIG_DIR, MISSING_ANALYTICS_SCOPE } = await import("../api.ts");
-for (const name of ["HOME", "USERPROFILE"] as const) {
-	if (prior[name] === undefined) delete process.env[name];
-	else process.env[name] = prior[name];
-}
-
-if (!resolve(CONFIG_DIR).startsWith(resolve(tmpdir()) + sep)) {
-	throw new Error(`refusing to write a test token into ${CONFIG_DIR}: it is not under the temp directory`);
-}
+const CONFIG_DIR = join(home, ".config", "dimension-youtube");
 const TOKEN_FILE = join(CONFIG_DIR, "token.json");
 const REACH_JOBS_FILE = join(CONFIG_DIR, "reach-jobs.json");
-const priorToken = await readFile(TOKEN_FILE).catch(() => null);
-const configHome = dirname(dirname(CONFIG_DIR));
-const configHomeExisted = await readdir(configHome).then(
-	() => true,
-	() => false,
-);
+
+beforeAll(() => {
+	process.env.HOME = home;
+	process.env.USERPROFILE = home;
+});
 
 interface Tool {
 	execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }>;
@@ -92,10 +81,6 @@ afterAll(async () => {
 		if (prior[name] === undefined) delete process.env[name];
 		else process.env[name] = prior[name];
 	}
-	await rm(REACH_JOBS_FILE, { force: true });
-	if (!configHomeExisted) await rm(configHome, { recursive: true, force: true });
-	else if (priorToken === null) await rm(TOKEN_FILE, { force: true });
-	else await writeFile(TOKEN_FILE, priorToken);
 	await rm(root, { recursive: true, force: true });
 });
 

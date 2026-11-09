@@ -64,6 +64,7 @@ const collector = {
 	registerTool(tool: ApprovalSubject) {
 		tools.set(tool.name, tool);
 	},
+	on() {},
 } as unknown as Parameters<typeof x>[0];
 for (const factory of [x, discord, slack, teams, telegram, whatsapp, reddit, youtube, googleCalendar, googleMeet]) {
 	factory(collector);
@@ -88,6 +89,7 @@ test.each([
 	"discord_timeout_member",
 	"discord_publish_message",
 	"youtube_post_comment",
+	"youtube_update_video",
 	"google_drive_share_file",
 	"google_calendar_delete_event",
 	"google_meet_end_active_conference",
