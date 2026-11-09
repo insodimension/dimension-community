@@ -498,33 +498,7 @@ describe("which devices are phones", () => {
     ],
   };
 
-  const kinds: { serial: string; kind: "emulator" | "physical"; why: string }[] = [
-    { serial: PHONE, kind: "physical", why: "the owner's USB phone, with the properties it reports" },
-    { serial: "ZX1PROBEFAIL", kind: "physical", why: "a device whose properties could not be read is a phone: fail safe" },
-    { serial: "UNAUTH0001", kind: "physical", why: "an unauthorized device cannot be asked, and is a phone" },
-    { serial: "NETPHONE:5555", kind: "physical", why: "a phone attached over Wi-Fi" },
-    { serial: "10.0.0.9:5555", kind: "emulator", why: "an emulator attached over the network, by its properties" },
-    { serial: "emulator-5554", kind: "emulator", why: "an emulator by its own name" },
-  ];
-  for (const row of kinds) {
-    test(`kindOf ${row.serial}: ${row.kind} (${row.why})`, async () => {
-      const { backend } = rig(world);
-      expect(await backend.kindOf(row.serial)).toBe(row.kind);
-    });
-  }
-
-  test("an emulator by its serial needs no round trip to the device", async () => {
-    const { backend } = rig(world);
-    await backend.kindOf("emulator-5554");
-    expect(tools.calls()).toEqual([]);
-  });
-
-  test("a serial that is not attached is reported as not connected", async () => {
-    const { backend } = rig(world);
-    await expect(backend.kindOf("NOT-ATTACHED")).rejects.toMatchObject({ code: "not_connected" });
-  });
-
-  test("the device list carries the same verdicts, and the owner's phone is never called an emulator", async () => {
+  test("the device list tells emulators from phones, and the owner's phone is never called an emulator", async () => {
     const { backend } = rig(world);
     const listed = await backend.list();
     expect(Object.fromEntries(listed.map(device => [device.serial, device.kind]))).toEqual({
@@ -535,6 +509,27 @@ describe("which devices are phones", () => {
       "10.0.0.9:5555": "emulator",
       "NETPHONE:5555": "physical",
     });
+  });
+});
+
+describe("naming a device the pack acts on", () => {
+  const world: FakeWorld = { avds: [AVD], devices: [{ serial: PHONE, state: "device", model: "IV2201", probe: probeOutput({ model: "IV2201", hardware: "qcom", characteristics: "default" }) }, PERSON] };
+
+  test("an emulator by its serial needs no round trip to the device", async () => {
+    const { backend } = rig(world);
+    await backend.ensureConnected("emulator-5554");
+    expect(tools.calls()).toEqual([]);
+  });
+
+  test("an attached phone is found in adb's own listing and nothing is run on it", async () => {
+    const { backend } = rig(world);
+    await backend.ensureConnected(PHONE);
+    expect(tools.calls().filter(call => call.args[0] === "shell")).toEqual([]);
+  });
+
+  test("a serial that is not attached is reported as not connected", async () => {
+    const { backend } = rig(world);
+    await expect(backend.ensureConnected("NOT-ATTACHED")).rejects.toMatchObject({ code: "not_connected" });
   });
 });
 

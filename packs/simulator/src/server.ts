@@ -72,7 +72,7 @@ async function respond(extra: CallExtra, run: () => Promise<{ text: string; stru
   }
 }
 
-export function deviceLine(device: DeviceInfo): string {
+function deviceLine(device: DeviceInfo): string {
   const parts = [device.serial, device.name, device.state];
   parts.push(device.kind === "physical" ? "PHYSICAL PHONE (the person's own device)" : "emulator");
   if (device.androidVersion) parts.push(`android ${device.androidVersion}`);
@@ -130,16 +130,12 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
   const dataDir = options.dataDir ?? join(process.env.INSO_HOME ?? join(homedir(), ".inso"), "simulator");
   const backend: DeviceBackend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join(dataDir, "logs"), gpu: () => settings().gpu });
   const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join(dataDir, "owned.json")), log });
-  const ensureConnected = async (serial: string): Promise<void> => {
-    await backend.kindOf(serial);
-  };
 
   const relay =
     options.relay ??
     new FrameRelay({
       backend,
       log,
-      ensureConnected,
       onViewers: (serial, total) => fleet.setViewers(serial, total),
       onActivity: serial => fleet.touch(serial),
     });
@@ -167,7 +163,7 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
   /** `serial` once it is connected, or the one EMULATOR that can only be meant: a physical phone is never picked for you. */
   async function target(extra: CallExtra, serial: string | undefined): Promise<string> {
     if (serial !== undefined) {
-      await ensureConnected(serial);
+      await backend.ensureConnected(serial);
       fleet.touch(serial);
       return serial;
     }
@@ -194,7 +190,7 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
       live: backend.liveAvailable(),
       settings: settings(),
     };
-    const lines = devices.length === 0 ? ["no devices running"] : devices.map(device => deviceLine(device));
+    const lines = devices.length === 0 ? ["no devices running"] : devices.map(deviceLine);
     if (avds.length > 0) lines.push(`bootable AVDs: ${avds.map(name => (running.has(name) ? `${name} (running)` : name)).join(", ")}`);
     for (const missing of tc.missing) lines.push(`MISSING ${missing.tool}: ${missing.fix}`);
     return { text: lines.join("\n"), structured };
@@ -207,7 +203,7 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
       inputSchema: {},
       annotations: READ_ONLY,
     },
-    (_args, extra) => respond(extra, () => listResult()),
+    (_args, extra) => respond(extra, listResult),
   );
 
   server.registerTool(
@@ -239,7 +235,7 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
     },
     ({ serial }, extra) =>
       respond(extra, async () => {
-        await ensureConnected(serial);
+        await backend.ensureConnected(serial);
         const outcome = await fleet.stop(serial);
         return { text: outcome === "stopped" ? `${serial} stopped.` : `${serial} had already exited; the pack killed nothing.`, structured: { serial, stopped: true, outcome } };
       }),
@@ -414,7 +410,7 @@ export async function createSimulatorServer(options: SimulatorServerOptions = {}
     ({ serial, avd, boot }, extra) =>
       respond(extra, async () => {
         let id = serial;
-        if (id !== undefined) await ensureConnected(id);
+        if (id !== undefined) await backend.ensureConnected(id);
         else if (avd !== undefined && boot === true) id = (await fleet.boot({ avd }, 1_000)).device?.serial;
         if (id === undefined) {
           const pick = selectDefaultDevice(await enriched(), undefined);

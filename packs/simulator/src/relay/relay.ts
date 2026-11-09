@@ -35,7 +35,6 @@ export interface RelayOptions {
   readonly onViewers: (serial: string, total: number) => void;
   /** A viewer drove the device (the fleet's idle clock, throttled here). */
   readonly onActivity: (serial: string) => void;
-  readonly ensureConnected: (serial: string) => Promise<void>;
   readonly now?: () => number;
   /** How long the encoder outlives its last viewer (a reloaded View re-attaches within it). */
   readonly stopGraceMs?: number;
@@ -511,7 +510,7 @@ export class FrameRelay {
   }
 
   async mint(serial: string, requested: StreamMode): Promise<StreamGrant> {
-    await this.#opts.ensureConnected(serial);
+    await this.#opts.backend.ensureConnected(serial);
     let mode = requested;
     let downgraded: string | null = null;
     if (mode === "h264" && !this.#opts.backend.liveAvailable()) {

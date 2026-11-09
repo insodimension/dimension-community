@@ -61,10 +61,8 @@ export class FakeBackend implements DeviceBackend {
     return [...this.devices];
   }
 
-  async kindOf(serial: string): Promise<DeviceInfo["kind"]> {
-    const device = this.devices.find(candidate => candidate.serial === serial);
-    if (device === undefined) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
-    return device.kind;
+  async ensureConnected(serial: string): Promise<void> {
+    if (!this.devices.some(candidate => candidate.serial === serial)) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
   }
 
   async avds(): Promise<string[]> {

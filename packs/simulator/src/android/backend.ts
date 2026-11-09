@@ -6,7 +6,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import type { BootHandle, BootObserver, DeviceBackend, OwnedProcess, ResolvedBoot, RunningEmulator, StopOptions, StopOutcome, VideoStream, VideoStreamHandlers, VideoStreamOptions } from "../backend";
-import { type DeviceInfo, type DeviceKind, type DeviceState, fail, type KeyName, type Screenshot, type UiSnapshot } from "../contracts";
+import { type DeviceInfo, type DeviceState, fail, type KeyName, type Screenshot, type UiSnapshot } from "../contracts";
 import { classifyDevice } from "../device-safety";
 import type { Size } from "../shared/pointer";
 import type { GpuMode } from "../settings";
@@ -239,15 +239,11 @@ export class AndroidBackend implements DeviceBackend {
     );
   }
 
-  async kindOf(serial: string): Promise<DeviceKind> {
+  async ensureConnected(serial: string): Promise<void> {
     // An emulator names itself `emulator-<console port>`: the common case needs no round trip.
-    if (classifyDevice({ serial }) === "emulator") return "emulator";
-    const adb = this.#adb();
-    const listed = (await adb.devices()).find(device => device.serial === serial);
+    if (classifyDevice({ serial }) === "emulator") return;
+    const listed = (await this.#adb().devices()).find(device => device.serial === serial);
     if (listed === undefined) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
-    if (listed.state !== "device") return classifyDevice({ serial });
-    const probe = await adb.shell(serial, PROBE_COMMAND, { timeoutMs: 10_000 }).then(parseProbe, () => null);
-    return classifyDevice({ serial, ...probe });
   }
 
   async #probe(adb: Adb, serial: string): Promise<Probe> {

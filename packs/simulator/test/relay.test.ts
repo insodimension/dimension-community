@@ -71,6 +71,8 @@ class LiveBackend extends FakeBackend {
     return true;
   }
 
+  override async ensureConnected(): Promise<void> {}
+
   override openStream(serial: string, _options: VideoStreamOptions, handlers: VideoStreamHandlers): Promise<VideoStream> {
     const encoder = new FakeEncoder(serial);
     const opening = Promise.withResolvers<VideoStream>();
@@ -280,7 +282,6 @@ function rig(over: Partial<RelayOptions> = {}): Rig {
     log: line => void logs.push(line),
     onViewers: () => undefined,
     onActivity: () => undefined,
-    ensureConnected: async () => undefined,
     ...TIMING,
     ...over,
   });

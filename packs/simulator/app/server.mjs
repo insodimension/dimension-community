@@ -1351,14 +1351,10 @@ var AndroidBackend = class {
       })
     );
   }
-  async kindOf(serial) {
-    if (classifyDevice({ serial }) === "emulator") return "emulator";
-    const adb = this.#adb();
-    const listed = (await adb.devices()).find((device) => device.serial === serial);
+  async ensureConnected(serial) {
+    if (classifyDevice({ serial }) === "emulator") return;
+    const listed = (await this.#adb().devices()).find((device) => device.serial === serial);
     if (listed === void 0) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
-    if (listed.state !== "device") return classifyDevice({ serial });
-    const probe = await adb.shell(serial, PROBE_COMMAND, { timeoutMs: 1e4 }).then(parseProbe, () => null);
-    return classifyDevice({ serial, ...probe });
   }
   async #probe(adb, serial) {
     try {
@@ -2863,7 +2859,7 @@ var FrameRelay = class {
     };
   }
   async mint(serial, requested) {
-    await this.#opts.ensureConnected(serial);
+    await this.#opts.backend.ensureConnected(serial);
     let mode = requested;
     let downgraded = null;
     if (mode === "h264" && !this.#opts.backend.liveAvailable()) {
@@ -3132,13 +3128,9 @@ async function createSimulatorServer(options = {}) {
   const dataDir = options.dataDir ?? join4(process.env.INSO_HOME ?? join4(homedir4(), ".inso"), "simulator");
   const backend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join4(dataDir, "logs"), gpu: () => settings().gpu });
   const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join4(dataDir, "owned.json")), log });
-  const ensureConnected = async (serial) => {
-    await backend.kindOf(serial);
-  };
   const relay = options.relay ?? new FrameRelay({
     backend,
     log,
-    ensureConnected,
     onViewers: (serial, total) => fleet.setViewers(serial, total),
     onActivity: (serial) => fleet.touch(serial)
   });
@@ -3157,7 +3149,7 @@ async function createSimulatorServer(options = {}) {
   }
   async function target(extra, serial) {
     if (serial !== void 0) {
-      await ensureConnected(serial);
+      await backend.ensureConnected(serial);
       fleet.touch(serial);
       return serial;
     }
@@ -3182,7 +3174,7 @@ async function createSimulatorServer(options = {}) {
       live: backend.liveAvailable(),
       settings: settings()
     };
-    const lines = devices.length === 0 ? ["no devices running"] : devices.map((device) => deviceLine(device));
+    const lines = devices.length === 0 ? ["no devices running"] : devices.map(deviceLine);
     if (avds.length > 0) lines.push(`bootable AVDs: ${avds.map((name) => running.has(name) ? `${name} (running)` : name).join(", ")}`);
     for (const missing of tc.missing) lines.push(`MISSING ${missing.tool}: ${missing.fix}`);
     return { text: lines.join("\n"), structured };
@@ -3194,7 +3186,7 @@ async function createSimulatorServer(options = {}) {
       inputSchema: {},
       annotations: READ_ONLY
     },
-    (_args, extra) => respond(extra, () => listResult())
+    (_args, extra) => respond(extra, listResult)
   );
   server2.registerTool(
     "device_boot",
@@ -3222,7 +3214,7 @@ async function createSimulatorServer(options = {}) {
       annotations: { ...WRITES, destructiveHint: true, idempotentHint: true }
     },
     ({ serial }, extra) => respond(extra, async () => {
-      await ensureConnected(serial);
+      await backend.ensureConnected(serial);
       const outcome = await fleet.stop(serial);
       return { text: outcome === "stopped" ? `${serial} stopped.` : `${serial} had already exited; the pack killed nothing.`, structured: { serial, stopped: true, outcome } };
     })
@@ -3377,7 +3369,7 @@ async function createSimulatorServer(options = {}) {
     },
     ({ serial, avd, boot }, extra) => respond(extra, async () => {
       let id = serial;
-      if (id !== void 0) await ensureConnected(id);
+      if (id !== void 0) await backend.ensureConnected(id);
       else if (avd !== void 0 && boot === true) id = (await fleet.boot({ avd }, 1e3)).device?.serial;
       if (id === void 0) {
         const pick = selectDefaultDevice(await enriched(), void 0);

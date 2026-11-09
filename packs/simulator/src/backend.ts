@@ -6,7 +6,7 @@
 // macOS-host backend that implements this same interface with `xcrun simctl`; see
 // the README for why it is not here.
 
-import type { BootRequest, DeviceInfo, DeviceKind, KeyName, Screenshot, UiSnapshot, VideoPacket } from "./contracts";
+import type { BootRequest, DeviceInfo, KeyName, Screenshot, UiSnapshot, VideoPacket } from "./contracts";
 import type { Size } from "./shared/pointer";
 
 export interface VideoStreamOptions {
@@ -81,7 +81,7 @@ export interface DeviceBackend {
   readonly platform: "android";
 
   list(): Promise<DeviceInfo[]>;
-  kindOf(serial: string): Promise<DeviceKind>;
+  ensureConnected(serial: string): Promise<void>;
   /** Bootable virtual devices (AVD names). */
   avds(): Promise<string[]>;
   /** Start a virtual device. Does not wait for it to finish booting: see `BootHandle.ready`. */
