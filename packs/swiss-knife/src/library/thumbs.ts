@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { writeFileAtomic } from "../../../../lib/durable-file.mjs";
 import { MAX_THUMB_BYTES } from "../thumbnail";
 import { hasCode, LibraryError } from "./errors";
 import type { ThumbMime } from "./types";
@@ -20,16 +20,8 @@ export async function writeThumb(directory: string, id: string, bytes: Uint8Arra
 		throw new LibraryError(`a thumbnail is 1 byte to ${MAX_THUMB_BYTES} bytes; this one is ${bytes.length}`);
 	}
 	if (!matchesMime(bytes, mime)) throw new LibraryError(`the thumbnail bytes are not ${mime}`);
-	await mkdir(directory, { recursive: true });
 	const name = `${id}.${EXTENSIONS[mime]}`;
-	const staging = join(directory, `${name}.${randomBytes(6).toString("hex")}.tmp`);
-	try {
-		await writeFile(staging, bytes);
-		await rename(staging, join(directory, name));
-	} catch (error) {
-		await rm(staging, { force: true });
-		throw error;
-	}
+	await writeFileAtomic(join(directory, name), bytes);
 	await removeThumbs(directory, id, name);
 	return name;
 }

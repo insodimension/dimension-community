@@ -95,8 +95,10 @@ test("stdio EOF after MCP initialization exits successfully without a terminatio
 	let process_: OwnedProcess | undefined;
 	let lines: Interface | undefined;
 	try {
-		const packSource = join(directory, "src");
-		const source = join(directory, "viewer", "src");
+		const pack = join(directory, "packs", "swiss-knife");
+		const packSource = join(pack, "src");
+		const source = join(pack, "viewer", "src");
+		await cp(join(viewer, "..", "..", "..", "lib"), join(directory, "lib"), { recursive: true });
 		await cp(join(viewer, "..", "src"), packSource, { recursive: true });
 		await cp(join(viewer, "src"), source, { recursive: true, filter: path => basename(path) !== "dist" });
 		await mkdir(join(source, "dist"));

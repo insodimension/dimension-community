@@ -98,6 +98,17 @@ const DENIED: Record<string, string[]> = {
 		"/home/me/.inso/vault/locker/audit.log",
 		"D:\\Brain\\LOCKER\\anything.txt",
 		"/backups/vault-2026/_locker.json",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.corrupt-1787117067954",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-2026-11-09t00-00-00-000z.bak",
+		"/home/me/.inso/vault/notes.db.corrupt-k3x9",
+	],
+	"staged copies of a secret file's backup, quarantine copy or key": [
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/browser/credentials.json.corrupt-k3x9.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-x.bak.12.ab12cd34.tmp",
+		"/home/me/.inso/browser/credentials.key.4242.a1b2c3d4e5f6.tmp",
 	],
 };
 
@@ -126,6 +137,9 @@ const ALLOWED = [
 	"/home/me/docs/envelope.png",
 	"/home/me/agent/photo.png",
 	"C:\\Work\\reports\\a.png",
+	"/home/me/docs/activation.json.md",
+	"/home/me/docs/notes.txt.bak",
+	"/home/me/docs/notes.txt.bak.4242.1a2b3c4d.tmp",
 ];
 
 describe("denyReason refuses credentials, keys and engine state", () => {
@@ -178,6 +192,9 @@ describe("denyReason and the copy a card opens, which lives in the engine's blob
 		{ name: "a database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db`, category: /agent state/ },
 		{ name: "a sqlite database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.sqlite`, category: /agent state/ },
 		{ name: "a database journal under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db-wal`, category: /agent state/ },
+		{ name: "a durable backup of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.bak`, category: /agent state/ },
+		{ name: "a quarantined copy of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.corrupt-k3x9`, category: /agent state/ },
+		{ name: "a staged write of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.4242.1a2b3c4d.tmp`, category: /agent state/ },
 		{ name: "an extension over 32 characters", path: `/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(33)}`, category: /agent state/ },
 		{ name: "an extension that starts with a dot", path: `/home/me/.inso/agent/blobs/${BLOB}..png`, category: /agent state/ },
 		{ name: "a private key under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.pem`, category: /private key/ },
@@ -209,6 +226,7 @@ describe("blobCopyExtension: the extension a presented file's copy would carry, 
 		["a database journal", "data.db-wal"],
 		["a private key", "key.pem"],
 		["an environment file", "prod.env"],
+		["a durable backup extension", "notes.bak"],
 	])("%s gets no copy: %s", (_name, fileName) => {
 		expect(blobCopyExtension(fileName)).toBeUndefined();
 	});
@@ -218,6 +236,37 @@ describe("blobCopyExtension: the extension a presented file's copy would carry, 
 			const extension = blobCopyExtension(fileName);
 			expect(denyReason(`/home/me/.inso/agent/blobs/${BLOB}.${extension}`, { allowBlobCopy: true }), fileName).toBeUndefined();
 		}
+	});
+});
+
+describe("denyReason on long names: durable-copy suffixes are stripped in linear time and no name past 255 characters is opened", () => {
+	const TIME_BUDGET_MS = 50;
+
+	function timed(path: string): { reason: string | undefined; elapsedMs: number } {
+		const started = performance.now();
+		const reason = denyReason(path);
+		return { reason, elapsedMs: performance.now() - started };
+	}
+
+	test("a 100 000-character chain of staged-copy suffixes is refused within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/${".1.1.tmp".repeat(12_500)}x`);
+		expect(reason).toMatch(/longer than 255 characters/);
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a 256-character name is refused, a 255-character one is not", () => {
+		expect(denyReason(`/home/me/docs/${"a".repeat(256)}`)).toMatch(/longer than 255 characters/);
+		expect(denyReason(`/home/me/docs/${"a".repeat(255)}`)).toBeUndefined();
+	});
+
+	test("a 248-character chain of suffixes over a plain name is opened, within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/notes${".1.ab.tmp".repeat(26)}${".bak".repeat(2)}x`);
+		expect(reason).toBeUndefined();
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a secret under 62 stacked backups is still refused as the secret", () => {
+		expect(denyReason(`/home/me/docs/.env${".bak".repeat(62)}`)).toMatch(/environment file/);
 	});
 });
 

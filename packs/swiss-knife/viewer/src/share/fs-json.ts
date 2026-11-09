@@ -1,43 +1,42 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { randomBytes } from "node:crypto";
-import { hasCode } from "../../../src/library/errors";
 import type { z } from "zod";
+import { DurableFileUnreadableError, parseJsonBytes, readDurableFile, writeFileAtomic, writeSecretFileAtomic } from "../../../../../lib/durable-file.mjs";
 
 export class StoredFileError extends Error {
 	override readonly name = "StoredFileError";
 }
 
-export async function readJsonFile<S extends z.ZodType>(path: string, schema: S): Promise<z.infer<S> | undefined> {
-	let text: string;
-	try {
-		text = await readFile(path, "utf8");
-	} catch (error) {
-		if (hasCode(error, "ENOENT")) return undefined;
-		throw error;
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		throw new StoredFileError(`${path} is not valid JSON`);
-	}
-	const checked = schema.safeParse(parsed);
-	if (!checked.success) {
-		const issue = checked.error.issues[0];
-		throw new StoredFileError(`${path} is not valid: ${issue?.path.join(".") || "(root)"} ${issue?.message ?? ""}`.trim());
-	}
-	return checked.data;
+function storedJsonParser<S extends z.ZodType>(path: string, schema: S): (bytes: Buffer) => z.infer<S> {
+	return bytes => {
+		let parsed: unknown;
+		try {
+			parsed = parseJsonBytes(bytes);
+		} catch {
+			throw new StoredFileError(`${path} is not valid JSON`);
+		}
+		const checked = schema.safeParse(parsed);
+		if (!checked.success) {
+			const issue = checked.error.issues[0];
+			throw new StoredFileError(`${path} is not valid: ${issue?.path.join(".") || "(root)"} ${issue?.message ?? ""}`.trim());
+		}
+		return checked.data;
+	};
 }
 
-export async function writePrivateJsonFile(path: string, value: unknown): Promise<void> {
-	await mkdir(dirname(path), { recursive: true });
-	const staged = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+export interface StoredFileOptions {
+	readonly holdsSecret?: boolean;
+}
+
+export async function readJsonFile<S extends z.ZodType>(path: string, schema: S, { holdsSecret = false }: StoredFileOptions = {}): Promise<z.infer<S> | undefined> {
 	try {
-		await writeFile(staged, `${JSON.stringify(value, null, "\t")}\n`, { mode: 0o600 });
-		await rename(staged, path);
+		return await readDurableFile(path, storedJsonParser(path, schema), { keepDamagedCopy: !holdsSecret });
 	} catch (error) {
-		await rm(staged, { force: true });
+		if (error instanceof DurableFileUnreadableError) throw new StoredFileError(error.message);
 		throw error;
 	}
+}
+
+export function writePrivateJsonFile<S extends z.ZodType>(path: string, schema: S, value: z.infer<S>, { holdsSecret = false }: StoredFileOptions = {}): Promise<void> {
+	const text = `${JSON.stringify(value, null, "\t")}\n`;
+	if (holdsSecret) return writeSecretFileAtomic(path, text, { mode: 0o600 });
+	return writeFileAtomic(path, text, { mode: 0o600, backup: { parse: storedJsonParser(path, schema) } });
 }

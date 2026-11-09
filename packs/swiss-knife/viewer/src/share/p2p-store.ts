@@ -1,6 +1,7 @@
-import { readdir, rm } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { removeDurableFile, removeSecretFile } from "../../../../../lib/durable-file.mjs";
 import { hasCode } from "../../../src/library/errors";
 import { readJsonFile, StoredFileError, writePrivateJsonFile } from "./fs-json";
 
@@ -48,11 +49,11 @@ export class P2pStore {
 	}
 
 	writeShare(id: string, state: P2pShareState): Promise<void> {
-		return writePrivateJsonFile(this.#sharePath(id), state);
+		return writePrivateJsonFile(this.#sharePath(id), shareStateSchema, state);
 	}
 
 	removeShare(id: string): Promise<void> {
-		return rm(this.#sharePath(id), { force: true });
+		return removeDurableFile(this.#sharePath(id));
 	}
 
 	async shareIds(): Promise<readonly string[]> {
@@ -66,7 +67,7 @@ export class P2pStore {
 
 	async readTunnel(): Promise<TunnelCredentials | undefined> {
 		try {
-			return await readJsonFile(this.#tunnelPath, tunnelSchema);
+			return await readJsonFile(this.#tunnelPath, tunnelSchema, { holdsSecret: true });
 		} catch (error) {
 			if (error instanceof StoredFileError) return undefined;
 			throw error;
@@ -74,10 +75,10 @@ export class P2pStore {
 	}
 
 	writeTunnel(credentials: TunnelCredentials): Promise<void> {
-		return writePrivateJsonFile(this.#tunnelPath, credentials);
+		return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials, { holdsSecret: true });
 	}
 
 	clearTunnel(): Promise<void> {
-		return rm(this.#tunnelPath, { force: true });
+		return removeSecretFile(this.#tunnelPath);
 	}
 }

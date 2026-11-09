@@ -271,6 +271,27 @@ Users enable and disable General Agents in **Capabilities → General Agents**.
 - Honest states: empty, loading and failure are part of the component.
 - `prefers-reduced-motion` is not optional.
 - No second copy of anything the platform already renders.
+- State a pack keeps across restarts is written crash-safe. Every pack the
+  shelf's esbuild builds (a pack that runs as its own Node process, and
+  swiss-knife's engine extension bundle `dist/index.mjs`) imports
+  `lib/durable-file.mjs` by relative path and its build inlines it:
+  `writeFileAtomic`/`writeFileAtomicSync` stage the bytes beside the file,
+  fsync, rename and fsync the folder, and with `backup: { parse }` keep the
+  previous file as `<file>.bak` only when `parse` accepts it;
+  `readDurableFile`/`readDurableFileSync` copy a damaged file to
+  `<file>.corrupt-<stamp>` (or not, with `keepDamagedCopy: false`, for a file
+  whose damaged bytes may hold plain-text secrets), answer from the `.bak`, and
+  throw rather than hand back a default that would overwrite it. A file that
+  holds a token or key keeps no second copy: read it with
+  `keepDamagedCopy: false`, write it with `writeSecretFileAtomic` (no `.bak`;
+  it deletes any `.bak` and `.corrupt-*` copy left beside it) and delete it with
+  `removeSecretFile`, so a removed secret cannot come back from a copy. A Bun
+  extension pack the engine loads from source uses the host's
+  `@oh-my-pi/pi-utils` equivalent once Dimension 0.12.0 ships.
+  `bun scripts/check-durable-writes.ts` (in CI) counts every raw
+  `writeFile`/`rename` in pack runtime source against
+  `scripts/durable-writes.allow.json`, where each remaining one says why it is
+  not state, or names the deferred migration and its board card.
 
 ## Licensing
 

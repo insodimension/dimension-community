@@ -5,13 +5,6 @@ import type { WorkspaceResolver } from "./workspace-root";
 export const SCHEMA_VERSION = 3;
 export const DISCARDED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
-const CONNECTION = `
-PRAGMA busy_timeout = 2000;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-`;
-
 const SCHEMA = `
 CREATE TABLE artifacts(
   id TEXT PRIMARY KEY,
@@ -114,7 +107,6 @@ function upgrade(db: SqlDriver, workspaceOf: WorkspaceResolver): void {
 }
 
 export function prepareDatabase(db: SqlDriver, now: number, workspaceOf: WorkspaceResolver): void {
-	db.exec(CONNECTION);
 	if (readVersion(db) < SCHEMA_VERSION) {
 		db.exec("BEGIN IMMEDIATE");
 		try {

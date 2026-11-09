@@ -682,6 +682,29 @@ describe("thumbnails", () => {
 	});
 });
 
+describe("the database connection", () => {
+	test("every connection is write-ahead logged with synchronous commits, waits for a busy writer and enforces foreign keys", async () => {
+		await mkdir(root, { recursive: true });
+		const db = await openDriver(join(root, "pragmas.db"));
+		const pragma = <Row>(name: string): Row | undefined => {
+			const statement = db.prepare(`PRAGMA ${name}`);
+			try {
+				return statement.get<Row>();
+			} finally {
+				statement.finalize();
+			}
+		};
+		try {
+			expect(pragma<{ journal_mode: string }>("journal_mode")?.journal_mode).toBe("wal");
+			expect(pragma<{ synchronous: number }>("synchronous")?.synchronous).toBe(1);
+			expect(pragma<{ timeout: number }>("busy_timeout")?.timeout).toBe(2_000);
+			expect(pragma<{ foreign_keys: number }>("foreign_keys")?.foreign_keys).toBe(1);
+		} finally {
+			db.close();
+		}
+	});
+});
+
 describe("shares and comments", () => {
 	test("comments sync is idempotent, counts unread per share and marks read in one call", async () => {
 		const library = await openLibrary();
