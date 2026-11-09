@@ -162,7 +162,8 @@ describe("denyReason and the copy a card opens, which lives in the engine's blob
 		`/home/me/.inso/agent/blobs/${BLOB}.tar.gz`,
 		`/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(32)}`,
 	];
-	for (const path of OPENABLE) test(`opens ${path}`, () => expect(denyReason(path)).toBeUndefined());
+	for (const path of OPENABLE) test(`opens ${path} once it is lent`, () => expect(denyReason(path, { allowBlobCopy: true })).toBeUndefined());
+	for (const path of OPENABLE) test(`refuses ${path} unless it is lent`, () => expect(denyReason(path), path).toMatch(/agent state/));
 
 	const REFUSED: { name: string; path: string; category: RegExp }[] = [
 		{ name: "the same blob with no extension", path: `/home/me/.inso/agent/blobs/${BLOB}`, category: /agent state/ },
@@ -183,7 +184,7 @@ describe("denyReason and the copy a card opens, which lives in the engine's blob
 		{ name: "an environment file under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.env`, category: /environment file/ },
 		{ name: "a blob inside a credentials folder", path: `/home/me/.ssh/.inso/agent/blobs/${BLOB}.png`, category: /credentials folder/ },
 	];
-	for (const { name, path, category } of REFUSED) test(`still refuses ${name}`, () => expect(denyReason(path), path).toMatch(category));
+	for (const { name, path, category } of REFUSED) test(`still refuses ${name}, even lent`, () => expect(denyReason(path, { allowBlobCopy: true }), path).toMatch(category));
 });
 
 describe("every entry of the deny tables refuses the thing it names", () => {

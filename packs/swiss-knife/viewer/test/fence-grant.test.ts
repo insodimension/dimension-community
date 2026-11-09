@@ -318,6 +318,19 @@ describe("a lent file on a real disk", () => {
 		}
 	});
 
+	test("a root the user configured over the engine home never opens the blob store on its own: the copy still needs its grant", async () => {
+		const wide = () => createFence({ home, env: { VIEWER_ROOTS: nodePath.join(base, "home") } });
+		for (const copy of [engine("agent", "blobs", `${HASH}.png`), engine("profiles", "p1", "agent", "blobs", `${HASH}.jpg`)]) {
+			for (const meta of [undefined, lend(at("granted.txt"))]) {
+				const verdict = await wide().check(copy, meta);
+				expect(verdict.ok, copy).toBe(false);
+				expect(reasonOf(verdict), copy).toContain("agent state");
+				expect(reasonOf(verdict), copy).not.toContain("SNAPSHOT_BYTES");
+			}
+			expect(await wide().check(copy, lend(copy))).toEqual({ ok: true, real: copy });
+		}
+	});
+
 	test("beside a lent copy the engine home stays closed even when lent: a blob with no extension, a nested one and a database", async () => {
 		const closed = [engine("agent", "blobs", HASH), engine("agent", "blobs", "nested", `${HASH}.png`), engine("agent", "blobs", `${HASH}.db`)];
 		for (const path of closed) {

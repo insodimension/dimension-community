@@ -128,7 +128,7 @@ async function keepSnapshot(keep: KeepSnapshot, bytes: Buffer, fileName: string)
 	if (extension === undefined) return {};
 	try {
 		const snapshot = await keep(bytes, extension);
-		return denyReason(snapshot.path) === undefined ? { snapshot } : {};
+		return denyReason(snapshot.path, { allowBlobCopy: true }) === undefined ? { snapshot } : {};
 	} catch (error) {
 		return { snapshotFailure: error instanceof Error && error.message !== "" ? error.message : String(error) };
 	}

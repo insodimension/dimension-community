@@ -165,13 +165,17 @@ function isBlobSidecar(segments: readonly string[], blobsAt: number): boolean {
 	);
 }
 
+export interface DenyOptions {
+	readonly allowBlobCopy?: boolean;
+}
+
 /**
  * Why `path` must never be opened, or `undefined` when nothing on it is
  * forbidden. Matching is case-insensitive on every platform: over-denying
  * `.ENV` on a case-sensitive disk is harmless, under-denying it on NTFS is not.
  * A refusal names a CATEGORY, never the content.
  */
-export function denyReason(path: string): string | undefined {
+export function denyReason(path: string, { allowBlobCopy = false }: DenyOptions = {}): string | undefined {
 	const segments = segmentsOf(path);
 	const base = segments[segments.length - 1] ?? "";
 	for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
@@ -187,7 +191,7 @@ export function denyReason(path: string): string | undefined {
 		if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
 		const next = segments[at + 1];
 		if (next === "agent" || (next === "profiles" && segments[at + 3] === "agent")) {
-			if (isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
+			if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
 			return "it is the engine's agent state (credentials, sessions and databases)";
 		}
 		if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
@@ -353,7 +357,7 @@ export function createFence(options: FenceOptions): Fence {
 		if (refused !== undefined) return refuse(refused);
 		const lexical = api.resolve(requested);
 		// Deny first, on the text, before any filesystem call and whatever was lent.
-		const early = denyReason(lexical);
+		const early = denyReason(lexical, { allowBlobCopy: true });
 		if (early !== undefined) return refuse(`refused to open "${requested}": ${early}`);
 		const lent = readGrant(meta)?.read ?? [];
 
@@ -379,10 +383,11 @@ export function createFence(options: FenceOptions): Fence {
 		// "a credentials folder", which would say what the outside target is. A
 		// lent file is the one other way in, and the deny check below still runs on it.
 		const allowed = await realRoots();
-		if (!allowed.some(root => insideRoot(real, root, platform)) && !(await isLent(real, lent)) && !(await isIndexed(real))) {
+		const lentFile = await isLent(real, lent);
+		if (!allowed.some(root => insideRoot(real, root, platform)) && !lentFile && !(await isIndexed(real))) {
 			return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
 		}
-		const denied = denyReason(real);
+		const denied = denyReason(real, { allowBlobCopy: lentFile });
 		if (denied !== undefined) return refuse(`refused to open "${requested}": ${denied}`);
 		return { ok: true, real };
 	}

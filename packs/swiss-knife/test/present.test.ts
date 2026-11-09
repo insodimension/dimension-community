@@ -541,7 +541,7 @@ describe("present: the copy a card opens is the file as it was presented", () =>
 					return;
 				}
 				expect(copies).toEqual([{ sha256: sha256(Buffer.from("x")), length: 1, extension }]);
-				expect(denyReason(`/home/me/.inso/agent/blobs/${copies[0]?.sha256}.${extension}`), "the viewer's fence opens it").toBeUndefined();
+				expect(denyReason(`/home/me/.inso/agent/blobs/${copies[0]?.sha256}.${extension}`, { allowBlobCopy: true }), "the viewer's fence opens it once lent").toBeUndefined();
 			});
 		});
 	}
