@@ -23612,7 +23612,7 @@ var StdioServerTransport = class {
 // src/server.ts
 import { readdir as readdir3, readFile as readFile4 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname as extname2, join as join6 } from "node:path";
+import { extname as extname3, join as join6 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ../../../../node_modules/zod/v3/helpers/util.js
@@ -32154,7 +32154,12 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-function denyReason(path2) {
+var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function isBlobSidecar(segments, blobsAt) {
+  const name = segments[blobsAt + 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DATABASE_FILE.test(name);
+}
+function denyReason(path2, { allowBlobCopy = false } = {}) {
   const segments = segmentsOf(path2);
   const base = segments[segments.length - 1] ?? "";
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
@@ -32170,12 +32175,14 @@ function denyReason(path2) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
+      if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
 }
+var PROBE_BLOB_DIGEST = "0".repeat(64);
 function textRefusal(requested, platform, what = "viewable") {
   if (platform !== "win32") return void 0;
   if (/^[\\/]{2}[.?][\\/]/.test(requested)) return `Windows device paths (\\\\.\\ and \\\\?\\) are not ${what}`;
@@ -32259,26 +32266,32 @@ function createFence(options2) {
     const refused = textRefusal(requested, platform);
     if (refused !== void 0) return refuse(refused);
     const lexical = api.resolve(requested);
-    const early = denyReason(lexical);
-    if (early !== void 0) return refuse(`refused to open "${requested}": ${early}`);
     const lent = readGrant(meta3)?.read ?? [];
+    const lentText = lent.some((file2) => comparable(file2, platform) === comparable(lexical, platform));
+    const early = denyReason(lexical, { allowBlobCopy: lent.length > 0 });
+    if (early !== void 0) return refuse(`refused to open "${requested}": ${early}`);
     let real;
     try {
       real = await resolveReal(lexical);
     } catch (error51) {
       const code = error51 instanceof Error && "code" in error51 && typeof error51.code === "string" ? error51.code : void 0;
+      const unlentCopy2 = lentText ? void 0 : denyReason(lexical);
+      if (unlentCopy2 !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy2}`);
       const anchor = await nearestReal(lexical);
-      const within2 = lent.some((file2) => comparable(file2, platform) === comparable(lexical, platform)) || options2.indexed?.isLent(lexical) === true || anchor !== void 0 && [...roots, ...await realRoots()].some((root) => insideRoot(anchor, root, platform));
+      const within2 = lentText || options2.indexed?.isLent(lexical) === true || anchor !== void 0 && [...roots, ...await realRoots()].some((root) => insideRoot(anchor, root, platform));
       if (!within2) return refuseOutside(requested, `it does not resolve (${code ?? "unknown error"})`);
       if (code === "ENOENT" || code === "ENOTDIR") return refuse(`no such file: "${requested}"`);
       if (code === "EACCES" || code === "EPERM") return refuse(`"${requested}" cannot be read: permission denied`);
       return refuse(`"${requested}" cannot be resolved${code ? ` (${code})` : ""}`);
     }
+    const lentFile = await isLent(real, lent);
+    const unlentCopy = lentFile ? void 0 : denyReason(lexical);
+    if (unlentCopy !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy}`);
     const allowed = await realRoots();
-    if (!allowed.some((root) => insideRoot(real, root, platform)) && !await isLent(real, lent) && !await isIndexed(real)) {
+    if (!allowed.some((root) => insideRoot(real, root, platform)) && !lentFile && !await isIndexed(real)) {
       return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
     }
-    const denied = denyReason(real);
+    const denied = denyReason(real, { allowBlobCopy: lentFile });
     if (denied !== void 0) return refuse(`refused to open "${requested}": ${denied}`);
     return { ok: true, real };
   }
@@ -34475,7 +34488,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
 import { randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants3 } from "node:fs";
 import { open as open4, readFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { extname as extname2 } from "node:path";
 import { createServer } from "node:http";
 import { pipeline } from "node:stream/promises";
 var MAX_LEASES = 64;
@@ -34574,7 +34587,7 @@ async function startMediaServer(fence, now = Date.now, thumbs) {
       return;
     }
     const path2 = capability === thumbCapability ? thumbs?.thumbPath(id2) : void 0;
-    const type = path2 === void 0 ? void 0 : THUMB_CONTENT_TYPES[extname(path2).slice(1)];
+    const type = path2 === void 0 ? void 0 : THUMB_CONTENT_TYPES[extname2(path2).slice(1)];
     if (path2 === void 0 || type === void 0) {
       res.writeHead(404).end();
       return;
@@ -37238,7 +37251,7 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
   }));
   for (const entry of await readdir3(viewDir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === "index.html") continue;
-    const mimeType = MIME[extname2(entry.name)];
+    const mimeType = MIME[extname3(entry.name)];
     if (mimeType === void 0) throw new Error(`Unsupported viewer View asset: ${entry.name}`);
     const path2 = join6(entry.parentPath, entry.name);
     const relative2 = path2.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");

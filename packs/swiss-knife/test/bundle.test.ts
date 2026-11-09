@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { formatByteSize, PRESENTED_KIND_LABELS } from "@dimension/sdk/presentation";
 import { createLibrary } from "../src/library/library";
 import type { Library } from "../src/library/types";
-import { flatPng, loadTools, makeTempDir, removeTree, toolContext } from "./fixtures";
+import { fakeBlobStore, flatPng, loadTools, makeTempDir, removeTree, toolContext } from "./fixtures";
 
 const PACK = join(import.meta.dir, "..");
 const DIST = join(PACK, "dist", "index.mjs");
@@ -72,15 +72,19 @@ describe("the shipped bundle end to end", () => {
 		expect(tier({ op: "teleport" })).toBe("write");
 	});
 
-	test("presents a file on disk: the result line, a thumbnail on the pixel lane, and a library row for it", async () => {
+	test("presents a file on disk: the result line, a thumbnail on the pixel lane, a copy of the file as presented, and a library row for it", async () => {
 		const { tools } = await loadTools(DIST, { library: async () => library });
 		const file = join(base, "shot.png");
-		const result = await tools[0]?.execute("t1", { path: file }, undefined, undefined, toolContext(base));
+		const blobs = fakeBlobStore();
+		const result = await tools[0]?.execute("t1", { path: file }, undefined, undefined, toolContext(base, blobs));
 
 		expect(result?.content).toHaveLength(1);
 		expect(result?.content[0]?.text).toBe(`Presented shot.png (${PRESENTED_KIND_LABELS.image}, ${formatByteSize((await stat(file)).size)}).`);
 		const [item] = result?.details.presentation.items ?? [];
 		expect(item).toMatchObject({ name: "shot.png", kind: "image", width: 3000, height: 2000, thumb: 0 });
+		const [copy] = blobs.stored;
+		expect(copy?.bytes.equals(await readFile(file))).toBe(true);
+		expect(item?.snapshot).toStrictEqual({ path: copy?.displayPath, ref: copy?.ref });
 		expect(result?.details.images).toHaveLength(1);
 		expect(result?.details.images?.[0]?.data.length).toBeGreaterThan(0);
 

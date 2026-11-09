@@ -603,6 +603,9 @@ import { constants } from "node:fs";
 import { open, realpath, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
+// viewer/src/fence.ts
+import * as nodePath from "node:path";
+
 // ../../../packages/sdk/src/artifactory/artifactory-decl.ts
 var PACK_CONNECTION_REPORT_MAX_BYTES = 64 * 1024;
 
@@ -668,7 +671,12 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-function denyReason(path) {
+var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function isBlobSidecar(segments, blobsAt) {
+  const name = segments[blobsAt + 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && !DATABASE_FILE.test(name);
+}
+function denyReason(path, { allowBlobCopy = false } = {}) {
   const segments = segmentsOf(path);
   const base = segments[segments.length - 1] ?? "";
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
@@ -684,11 +692,19 @@ function denyReason(path) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
+      if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
+}
+var PROBE_BLOB_DIRECTORY = "/.inso/agent/blobs/";
+var PROBE_BLOB_DIGEST = "0".repeat(64);
+function blobCopyExtension(fileName) {
+  const extension = nodePath.extname(fileName).slice(1).toLowerCase();
+  const probe = `${PROBE_BLOB_DIRECTORY}${PROBE_BLOB_DIGEST}.${extension}`;
+  return denyReason(probe, { allowBlobCopy: true }) === void 0 ? extension : void 0;
 }
 function textRefusal(requested, platform, what = "viewable") {
   if (platform !== "win32") return void 0;
@@ -736,12 +752,22 @@ async function imageFacts(source, maxBytes) {
 // src/present.ts
 var HEAD_BYTES = 512;
 var MAX_RESULT_THUMB_BYTES = 600 * 1024;
+var MAX_SNAPSHOT_BYTES = 25 * 1024 * 1024;
+var MAX_RESULT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
 var MAX_ECHO = 200;
 var SVG = "image/svg+xml";
 function textRefusal2(requested, platform) {
   if (requested.trim() === "") return "the path is empty";
   if (requested.includes("\0")) return "the path contains a NUL byte";
   return textRefusal(requested, platform, "presentable");
+}
+async function keepSnapshot(keep, bytes, extension) {
+  try {
+    const snapshot = await keep(bytes, extension);
+    return denyReason(snapshot.path, { allowBlobCopy: true }) === void 0 ? { snapshot } : { snapshotFailure: "the viewer would not open the copy" };
+  } catch (error51) {
+    return { snapshotFailure: error51 instanceof Error && error51.message !== "" ? error51.message : String(error51) };
+  }
 }
 var UNSAFE_IN_A_LINE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
 function oneLine(text2, max) {
@@ -779,7 +805,7 @@ async function readWhole(handle, size) {
   }
   return buffer.subarray(0, filled);
 }
-async function presentOne(requested, run2, thumbBudget) {
+async function presentOne(requested, run2, budget) {
   if (typeof requested !== "string") return { refused: "it is not a path" };
   const textual = textRefusal2(requested, run2.platform);
   if (textual !== void 0) return { refused: textual };
@@ -820,10 +846,16 @@ async function presentOne(requested, run2, thumbBudget) {
     run2.seen.add(real);
     const name = oneLine(fileName, MAX_ECHO);
     const base = { path: real, name, kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
-    if (kind !== "image" || mime === SVG || opened.size > MAX_THUMB_SOURCE_BYTES) return { item: base };
-    const facts = await imageFacts(await readWhole(handle, opened.size), Math.min(MAX_THUMB_BYTES, thumbBudget));
-    if (facts === void 0) return { item: base };
-    return { item: { ...base, width: facts.width, height: facts.height }, thumb: facts.thumb };
+    const extension = blobCopyExtension(fileName);
+    const copy = run2.snapshot !== void 0 && extension !== void 0 && opened.size <= Math.min(MAX_SNAPSHOT_BYTES, budget.snapshotBytes) ? { keep: run2.snapshot, extension } : void 0;
+    const thumbnails = kind === "image" && mime !== SVG && opened.size <= MAX_THUMB_SOURCE_BYTES;
+    if (copy === void 0 && !thumbnails) return { item: base };
+    const bytes = await readWhole(handle, opened.size);
+    const kept = copy === void 0 ? {} : await keepSnapshot(copy.keep, bytes, copy.extension);
+    const item = kept.snapshot === void 0 ? base : { ...base, snapshot: kept.snapshot };
+    const facts = thumbnails ? await imageFacts(bytes, Math.min(MAX_THUMB_BYTES, budget.thumbBytes)) : void 0;
+    if (facts === void 0) return { item, snapshotFailure: kept.snapshotFailure };
+    return { item: { ...item, width: facts.width, height: facts.height }, thumb: facts.thumb, snapshotFailure: kept.snapshotFailure };
   } finally {
     await handle.close();
   }
@@ -838,25 +870,34 @@ async function presentPaths(input, options) {
     cwd: options.cwd,
     platform: options.platform ?? process.platform,
     open: options.open ?? open,
-    seen: /* @__PURE__ */ new Set()
+    seen: /* @__PURE__ */ new Set(),
+    snapshot: options.snapshot
   };
   let thumbBytes = 0;
+  let snapshotBytes = 0;
   for (const path of requested) {
     options.signal?.throwIfAborted();
-    const outcome = await presentOne(path, run2, MAX_RESULT_THUMB_BYTES - thumbBytes);
+    const outcome = await presentOne(path, run2, {
+      thumbBytes: MAX_RESULT_THUMB_BYTES - thumbBytes,
+      snapshotBytes: MAX_RESULT_SNAPSHOT_BYTES - snapshotBytes
+    });
     if (outcome === void 0) continue;
     if ("refused" in outcome) {
       const shown = oneLine(String(path), MAX_ECHO).trim() || "(empty path)";
       lines.push(`Could not present ${shown}: ${outcome.refused}.`);
       continue;
     }
-    const { item, thumb } = outcome;
+    const { item, thumb, snapshotFailure } = outcome;
+    if (item.snapshot !== void 0) snapshotBytes += item.size;
     if (thumb !== void 0) {
       thumbBytes += thumb.bytes;
       images.push({ data: thumb.data, mimeType: thumb.mimeType });
     }
     items2.push(thumb === void 0 ? item : { ...item, thumb: images.length - 1 });
-    lines.push(`Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)}).`);
+    const presented = `Presented ${item.name} (${PRESENTED_KIND_LABELS[item.kind]}, ${formatByteSize(item.size)})`;
+    lines.push(
+      snapshotFailure === void 0 ? `${presented}.` : `${presented}; no copy was kept (${oneLine(snapshotFailure, MAX_ECHO)}), so its card opens the file as it is when clicked.`
+    );
   }
   if (all.length > requested.length) {
     lines.push(`Only the first ${requested.length} of ${all.length} paths were presented.`);
@@ -16877,6 +16918,12 @@ function sharedLibrary() {
 }
 
 // src/index.ts
+function blobSnapshots(ctx) {
+  return async (bytes, extension) => {
+    const blob = await ctx.sessionManager.putBlob(bytes, { extension });
+    return { path: blob.displayPath, ref: blob.ref };
+  };
+}
 function swissKnife(pi, deps = { library: sharedLibrary }) {
   const z2 = pi.zod;
   pi.registerTool({
@@ -16888,7 +16935,7 @@ function swissKnife(pi, deps = { library: sharedLibrary }) {
       path: z2.union([z2.string(), z2.array(z2.string())]).describe("Absolute file path, or an array of up to 12 paths.")
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const { text: text2, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal });
+      const { text: text2, details } = await presentPaths(params.path, { cwd: ctx.cwd, signal, snapshot: blobSnapshots(ctx) });
       try {
         await stampPresented(await deps.library(), details, { cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() });
       } catch (error51) {

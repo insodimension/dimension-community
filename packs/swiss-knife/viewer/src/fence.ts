@@ -10,8 +10,9 @@
 //   2. DENY beats allow: private keys, `.env*`, credential and token stores, the
 //      Personal vault's Locker (its `locker` folders, `_locker.json`,
 //      `*.secret.json`), the engine's agent state and databases are refused
-//      wherever they live, even inside an allowed folder. The deny check runs on
-//      the path as written AND on the resolved real path, so a symlink to
+//      wherever they live, even inside an allowed folder; only a typed blob copy
+//      the host lent (5) is let through. The deny check runs on the path as
+//      written AND on the resolved real path, so a symlink to
 //      `~/.ssh/id_rsa` is refused for what it is, not what it is called.
 //   3. The REAL path must sit under an allowed root. Symlinks, `..` and 8.3 short
 //      names all collapse in `realpath`, so an escape by link is refused by the
@@ -25,8 +26,10 @@
 //      engine stamps `_meta["ai.insodimension/grant"] = { read: [<realpath>] }` on
 //      the calls of that View, and this server treats it as ONE extra file, never
 //      a folder. It is checked AFTER 1 and 2 and never instead of them: a click
-//      cannot open a secret. A file is lent only when the REQUESTED path, resolved
-//      to its real path, equals a lent entry (no prefix, no sibling, no parent, and
+//      cannot open a secret; the one thing 2 lets through is a lent typed blob
+//      copy, and only as exactly the lent file. A file is lent only when the
+//      REQUESTED path, resolved to its real path, equals a lent entry (no prefix,
+//      no sibling, no parent, and
 //      the entry is not resolved again) and is a regular file. The engine strips the
 //      key from every call it did not stamp, but this server does not rely on that:
 //      a grant with any flaw (not an object, `read` not a list, a non-string or
@@ -153,6 +156,21 @@ export const OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.back
 export const DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 /** `.inso`, `.inso-dev`, `.omp` and their suffixed variants. */
 export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
+const BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+
+function isBlobSidecar(segments: readonly string[], blobsAt: number): boolean {
+	const name = segments[blobsAt + 1] ?? "";
+	return (
+		segments[blobsAt] === "blobs" &&
+		segments.length === blobsAt + 2 &&
+		BLOB_SIDECAR.test(name) &&
+		!DATABASE_FILE.test(name)
+	);
+}
+
+export interface DenyOptions {
+	readonly allowBlobCopy?: boolean;
+}
 
 /**
  * Why `path` must never be opened, or `undefined` when nothing on it is
@@ -160,7 +178,7 @@ export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
  * `.ENV` on a case-sensitive disk is harmless, under-denying it on NTFS is not.
  * A refusal names a CATEGORY, never the content.
  */
-export function denyReason(path: string): string | undefined {
+export function denyReason(path: string, { allowBlobCopy = false }: DenyOptions = {}): string | undefined {
 	const segments = segmentsOf(path);
 	const base = segments[segments.length - 1] ?? "";
 	for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
@@ -176,11 +194,21 @@ export function denyReason(path: string): string | undefined {
 		if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
 		const next = segments[at + 1];
 		if (next === "agent" || (next === "profiles" && segments[at + 3] === "agent")) {
+			if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
 			return "it is the engine's agent state (credentials, sessions and databases)";
 		}
 		if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
 	}
 	return undefined;
+}
+
+const PROBE_BLOB_DIRECTORY = "/.inso/agent/blobs/";
+const PROBE_BLOB_DIGEST = "0".repeat(64);
+
+export function blobCopyExtension(fileName: string): string | undefined {
+	const extension = nodePath.extname(fileName).slice(1).toLowerCase();
+	const probe = `${PROBE_BLOB_DIRECTORY}${PROBE_BLOB_DIGEST}.${extension}`;
+	return denyReason(probe, { allowBlobCopy: true }) === undefined ? extension : undefined;
 }
 
 /**
@@ -340,20 +368,23 @@ export function createFence(options: FenceOptions): Fence {
 		const refused = textRefusal(requested, platform);
 		if (refused !== undefined) return refuse(refused);
 		const lexical = api.resolve(requested);
-		// Deny first, on the text, before any filesystem call and whatever was lent.
-		const early = denyReason(lexical);
-		if (early !== undefined) return refuse(`refused to open "${requested}": ${early}`);
 		const lent = readGrant(meta)?.read ?? [];
+		const lentText = lent.some(file => comparable(file, platform) === comparable(lexical, platform));
+		// Deny first, on the text, before any filesystem call; a grant lets only a typed blob copy on to the real-path check.
+		const early = denyReason(lexical, { allowBlobCopy: lent.length > 0 });
+		if (early !== undefined) return refuse(`refused to open "${requested}": ${early}`);
 
 		let real: string;
 		try {
 			real = await resolveReal(lexical);
 		} catch (error) {
 			const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
+			const unlentCopy = lentText ? undefined : denyReason(lexical);
+			if (unlentCopy !== undefined) return refuse(`refused to open "${requested}": ${unlentCopy}`);
 			const anchor = await nearestReal(lexical);
 			// A lent file the human named is theirs to hear about: "no such file" beats "outside the folders" for one they just clicked.
 			const within =
-				lent.some(file => comparable(file, platform) === comparable(lexical, platform)) ||
+				lentText ||
 				options.indexed?.isLent(lexical) === true ||
 				(anchor !== undefined && [...roots, ...(await realRoots())].some(root => insideRoot(anchor, root, platform)));
 			if (!within) return refuseOutside(requested, `it does not resolve (${code ?? "unknown error"})`);
@@ -361,16 +392,19 @@ export function createFence(options: FenceOptions): Fence {
 			if (code === "EACCES" || code === "EPERM") return refuse(`"${requested}" cannot be read: permission denied`);
 			return refuse(`"${requested}" cannot be resolved${code ? ` (${code})` : ""}`);
 		}
+		const lentFile = await isLent(real, lent);
+		const unlentCopy = lentFile ? undefined : denyReason(lexical);
+		if (unlentCopy !== undefined) return refuse(`refused to open "${requested}": ${unlentCopy}`);
 
 		// Containment BEFORE the real-path deny check: a link that leads out to
 		// `~/.ssh` must read as "outside", like every other outside path, not as
 		// "a credentials folder", which would say what the outside target is. A
 		// lent file is the one other way in, and the deny check below still runs on it.
 		const allowed = await realRoots();
-		if (!allowed.some(root => insideRoot(real, root, platform)) && !(await isLent(real, lent)) && !(await isIndexed(real))) {
+		if (!allowed.some(root => insideRoot(real, root, platform)) && !lentFile && !(await isIndexed(real))) {
 			return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
 		}
-		const denied = denyReason(real);
+		const denied = denyReason(real, { allowBlobCopy: lentFile });
 		if (denied !== undefined) return refuse(`refused to open "${requested}": ${denied}`);
 		return { ok: true, real };
 	}

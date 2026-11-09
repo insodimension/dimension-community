@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { textRefusal } from "../src/present";
 import * as fence from "../viewer/src/fence";
 
-const { denyReason } = fence;
+const { blobCopyExtension, denyReason } = fence;
 
 // `present` and the viewer's fence share ONE deny table, `viewer/src/fence.ts`: present imports
 // it and bundles it into dist/index.mjs. This file holds that table to what it promises: a corpus
@@ -147,6 +147,78 @@ describe("denyReason refuses credentials, keys and engine state", () => {
 
 describe("denyReason leaves ordinary files alone", () => {
 	for (const path of ALLOWED) test(`allows ${path}`, () => expect(denyReason(path)).toBeUndefined());
+});
+
+const BLOB = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+describe("denyReason and the copy a card opens, which lives in the engine's blob store", () => {
+	const OPENABLE = [
+		`/home/me/.inso/agent/blobs/${BLOB}.png`,
+		`/home/me/.inso/profiles/p1/agent/blobs/${BLOB}.jpg`,
+		`/home/me/.inso-dev/agent/blobs/${BLOB}.pdf`,
+		`/home/me/.omp/agent/blobs/${BLOB}.md`,
+		`C:\\Users\\Me\\.inso\\agent\\blobs\\${BLOB}.png`,
+		`C:\\Users\\Me\\.INSO-DEV\\PROFILES\\p1\\AGENT\\BLOBS\\${BLOB.toUpperCase()}.PNG`,
+		`/home/me/.inso/agent/blobs/${BLOB}.tar.gz`,
+		`/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(32)}`,
+	];
+	for (const path of OPENABLE) test(`opens ${path} once it is lent`, () => expect(denyReason(path, { allowBlobCopy: true })).toBeUndefined());
+	for (const path of OPENABLE) test(`refuses ${path} unless it is lent`, () => expect(denyReason(path), path).toMatch(/agent state/));
+
+	const REFUSED: { name: string; path: string; category: RegExp }[] = [
+		{ name: "the same blob with no extension", path: `/home/me/.inso/agent/blobs/${BLOB}`, category: /agent state/ },
+		{ name: "a copy nested below the blobs folder", path: `/home/me/.inso/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "a copy nested below a profile's blobs folder", path: `/home/me/.inso/profiles/p1/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "the blobs folder itself", path: "/home/me/.inso/agent/blobs", category: /agent state/ },
+		{ name: "another file of the agent", path: "/home/me/.inso/agent/agent.db", category: /agent state/ },
+		{ name: "a hash-shaped name outside the blobs folder", path: `/home/me/.inso/agent/sessions/${BLOB}.png`, category: /agent state/ },
+		{ name: "a name one digit short of a hash", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}.png`, category: /agent state/ },
+		{ name: "a name one digit over a hash", path: `/home/me/.inso/agent/blobs/${BLOB}0.png`, category: /agent state/ },
+		{ name: "a name that is not hex", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}g.png`, category: /agent state/ },
+		{ name: "a database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db`, category: /agent state/ },
+		{ name: "a sqlite database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.sqlite`, category: /agent state/ },
+		{ name: "a database journal under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db-wal`, category: /agent state/ },
+		{ name: "an extension over 32 characters", path: `/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(33)}`, category: /agent state/ },
+		{ name: "an extension that starts with a dot", path: `/home/me/.inso/agent/blobs/${BLOB}..png`, category: /agent state/ },
+		{ name: "a private key under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.pem`, category: /private key/ },
+		{ name: "an environment file under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.env`, category: /environment file/ },
+		{ name: "a blob inside a credentials folder", path: `/home/me/.ssh/.inso/agent/blobs/${BLOB}.png`, category: /credentials folder/ },
+	];
+	for (const { name, path, category } of REFUSED) test(`still refuses ${name}, even lent`, () => expect(denyReason(path, { allowBlobCopy: true }), path).toMatch(category));
+});
+
+describe("blobCopyExtension: the extension a presented file's copy would carry, when the fence would lend it", () => {
+	test.each<readonly [string, string]>([
+		["SHOT.PNG", "png"],
+		["report.pdf", "pdf"],
+		["archive.tar.gz", "gz"],
+		["notes.md", "md"],
+		[`longest.${"a".repeat(32)}`, "a".repeat(32)],
+	])("%s is copied as .%s", (fileName, extension) => {
+		expect(blobCopyExtension(fileName)).toBe(extension);
+	});
+
+	test.each<readonly [string, string]>([
+		["no extension", "Makefile"],
+		["a trailing dot", "notes."],
+		["a space in the extension", "odd.with space"],
+		["an extension over 32 characters", `too-long.${"a".repeat(33)}`],
+		["a database", "data.db"],
+		["a sqlite database", "data.sqlite"],
+		["a sqlite3 database", "data.sqlite3"],
+		["a database journal", "data.db-wal"],
+		["a private key", "key.pem"],
+		["an environment file", "prod.env"],
+	])("%s gets no copy: %s", (_name, fileName) => {
+		expect(blobCopyExtension(fileName)).toBeUndefined();
+	});
+
+	test("an extension it returns is one the fence lends, once the host lent it", () => {
+		for (const fileName of ["a.png", "a.tar.gz", "a.md", `a.${"b".repeat(32)}`]) {
+			const extension = blobCopyExtension(fileName);
+			expect(denyReason(`/home/me/.inso/agent/blobs/${BLOB}.${extension}`, { allowBlobCopy: true }), fileName).toBeUndefined();
+		}
+	});
 });
 
 describe("every entry of the deny tables refuses the thing it names", () => {

@@ -2,6 +2,7 @@
 // fake `pi` the extension factory is loaded with. Not a test file.
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { deflateSync } from "node:zlib";
 import * as zod from "@oh-my-pi/omptype/zod";
-import type { PresentedItem } from "@dimension/sdk/presentation";
+import type { BlobRef, PresentedItem } from "@dimension/sdk/presentation";
 import type { Library } from "../src/library/types";
 
 /** A fresh temp directory, already `realpath`ed (Windows hands out 8.3 short names). */
@@ -185,17 +186,59 @@ export interface ToolResult {
 	};
 }
 
+export interface PutBlobOptions {
+	readonly extension?: string;
+}
+
+export interface PutBlobResult {
+	readonly hash: string;
+	readonly path: string;
+	readonly displayPath: string;
+	readonly ref: BlobRef;
+}
+
+export interface StoredBlob extends PutBlobResult {
+	readonly bytes: Buffer;
+	readonly extension: string | undefined;
+}
+
+export interface FakeBlobStore {
+	readonly stored: readonly StoredBlob[];
+	putBlob(data: Buffer, options?: PutBlobOptions): Promise<PutBlobResult>;
+}
+
+export function fakeBlobStore(directory = join(tmpdir(), "engine", "agent", "blobs")): FakeBlobStore {
+	const stored: StoredBlob[] = [];
+	return {
+		stored,
+		async putBlob(data, options) {
+			const bytes = Buffer.from(data);
+			const hash = createHash("sha256").update(bytes).digest("hex");
+			const extension = options?.extension;
+			const path = join(directory, hash);
+			const result: PutBlobResult = {
+				hash,
+				path,
+				displayPath: extension === undefined ? path : `${path}.${extension}`,
+				ref: `blob:sha256:${hash}`,
+			};
+			stored.push({ ...result, bytes, extension });
+			return result;
+		},
+	};
+}
+
 export interface ToolContext {
 	readonly cwd: string;
-	readonly sessionManager: { getSessionId(): string };
+	readonly sessionManager: { getSessionId(): string; putBlob: FakeBlobStore["putBlob"] };
 }
 
 export interface ExtensionDeps {
 	readonly library: () => Promise<Library>;
 }
 
-export function toolContext(cwd: string): ToolContext {
-	return { cwd, sessionManager: { getSessionId: () => "session-under-test" } };
+export function toolContext(cwd: string, blobs: FakeBlobStore = fakeBlobStore()): ToolContext {
+	return { cwd, sessionManager: { getSessionId: () => "session-under-test", putBlob: (data, options) => blobs.putBlob(data, options) } };
 }
 
 export interface RegisteredTool {
