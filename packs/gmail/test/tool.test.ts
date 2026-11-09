@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import { resolveApproval } from "@oh-my-pi/pi-coding-agent/tools/approval";
 import { type } from "arktype";
 import type { ProcessResult, RunHimalaya } from "../himalaya";
 import gmailExtension, { createSendEmailTool } from "../index";
-
-type ApprovalSubject = Parameters<typeof resolveApproval>[0];
 
 function stubHimalaya(...answers: ProcessResult[]): { readonly run: RunHimalaya; readonly calls: string[][] } {
 	const calls: string[][] = [];
@@ -39,12 +36,6 @@ test("the extension registers the two read tools and the one send tool, named th
 		},
 	} as unknown as Parameters<typeof gmailExtension>[0]);
 	expect(registered).toEqual(["gmail_list_messages", "gmail_read_message", "gmail_send_email"]);
-});
-
-test("sending asks the human in every approval mode, yolo included", () => {
-	for (const mode of ["always-ask", "write", "yolo"] as const) {
-		expect(resolveApproval(tool as unknown as ApprovalSubject, ARGS, mode).policy).toBe("prompt");
-	}
 });
 
 test("the approval card shows every recipient, the subject, the thread and the whole text", () => {

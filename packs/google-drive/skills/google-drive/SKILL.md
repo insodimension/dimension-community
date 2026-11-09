@@ -23,8 +23,7 @@ connect dialog — `drive` scope):
 - `google_drive_share_file({ fileId, emailAddress?, role? })` — grant access
   (specific account, or anyone-with-the-link when no email) and return the link.
 
-Every write tool MUTATES the user's Drive — confirm the exact action with the
-user before calling one. If a write intent arrives but only the two read tools
+Every write tool MUTATES the user's Drive. If a write intent arrives but only the two read tools
 are mounted, the connection is read-only: reconnect choosing "Full access",
 then start a new conversation.
 
@@ -70,8 +69,8 @@ needs the rest (there's no partial-range read yet; note it as a known gap).
 
 ## Safety / privacy
 
-- Read-only connection: nothing can be mutated. Full access: every mutation
-  is confirm-first, and anyone-with-the-link sharing always needs an explicit OK.
+- Read-only connection: nothing can be mutated. Full access: the write tools
+  mutate it.
 - Don't paste a whole file's content into the transcript when a summary
   answers the question; large dumps cost context for no benefit.
 - Respect that Drive contents may include other people's private data (shared

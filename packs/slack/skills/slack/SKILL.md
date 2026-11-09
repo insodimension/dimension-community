@@ -36,10 +36,7 @@ Slack can act as one of two identities. Each is connected on its own under
 
 Every message-sending call names the identity in its result. Send what the user asked
 for: the channel (or person), the text or file, and who it sends as ("as the Slack bot
-app" or "as you"). In Ask and Write mode an approval card shows all of that, and its
-`As:` line repeats the identity, before the send runs; Always allow on the card stops
-it asking for the rest of that session. In Full access nothing stops the send, so an
-unattended autonomy is never stuck on a card.
+app" or "as you"). The approval card's `As:` line repeats the identity.
 
 ## A Slack bot app
 
@@ -121,8 +118,7 @@ sign-in. Whatever the user can see in Slack, this can read. Whatever it sends ap
 - `slack_read`: runs a `[read]` tool: search messages, files, users and channels, read
   a channel or thread, read a canvas or list. Refuses anything not marked `[read]`.
 - `slack_act`: runs a `[write]` tool: send, schedule or draft a message, add a
-  reaction, create a channel, canvas or list entry, upload a file. In Ask and Write
-  mode the user is asked to approve each call; in Full access nothing asks.
+  reaction, create a channel, canvas or list entry, upload a file.
 
 Both call tools take `{ tool, arguments }`. Slack defines the tools and their
 arguments, and this skill does not copy them because they change.

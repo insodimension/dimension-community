@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "x",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
 	"author": {
 		"name": "Dimension"
@@ -298,7 +298,7 @@
 				},
 				{
 					"name": "x_posts_envelope",
-					"description": "Fetch X posts for a last30days run (newest, the week's popular pass, named and discovered accounts) and write them as the engine's X envelope file, so last30days never reads browser cookies. Billed reads, only after the person agrees to the estimate. Covers the last 7 days."
+					"description": "Fetch X posts for a last30days run (newest, the week's popular pass, named and discovered accounts) and write them as the engine's X envelope file, so last30days never reads browser cookies. Billed reads, spent only with allowPaid. Covers the last 7 days."
 				},
 				{
 					"name": "x_get_post",
@@ -322,15 +322,15 @@
 				},
 				{
 					"name": "x_post",
-					"description": "Publish a post, or a reply when replyTo is set. PUBLIC and immediate under the user's own account — confirm the exact text first. Costs $0.015, or $0.20 if the text contains a URL."
+					"description": "Publish a post, or a reply when replyTo is set. PUBLIC and immediate under the user's own account. Costs $0.015, or $0.20 if the text contains a URL."
 				},
 				{
 					"name": "x_thread",
-					"description": "Publish several posts as one self-replying thread. PUBLIC and immediate; a mid-thread failure leaves the earlier posts up. Confirm every post first."
+					"description": "Publish several posts as one self-replying thread. PUBLIC and immediate; a mid-thread failure leaves the earlier posts up."
 				},
 				{
 					"name": "x_delete",
-					"description": "Delete one of the connected account's own posts by id. Irreversible — confirm the exact post first."
+					"description": "Delete one of the connected account's own posts by id. Irreversible."
 				},
 				{
 					"name": "x_bookmark",
@@ -338,7 +338,7 @@
 				},
 				{
 					"name": "x_dm",
-					"description": "Send a direct message to a user. PRIVATE but immediate and unretractable — confirm the recipient and full text first."
+					"description": "Send a direct message to a user. PRIVATE but immediate and unretractable."
 				}
 			]
 		}

@@ -60,9 +60,3 @@ Take the subject from the `gmail_read_message` header, not from a
 subject quietly flattens an en/em dash, curly quote or double space to a plain
 character; Gmail matches the subject exactly, so a one-character difference
 starts a new conversation.
-
-## Before the call
-
-Show the user the recipients, subject and text and get their go-ahead in the
-current turn when anything about the email is not yet settled. The approval card
-then shows the exact message; the person's click is what sends it.

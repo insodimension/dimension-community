@@ -47,7 +47,7 @@ as a member first; channel usernames can be passed as `@channelusername`.
 
 ## Usage patterns
 
-Send a notification (confirm recipient + text first):
+Send a notification:
 
 ```text
 telegram_send_message({ chatId: "123456789", text: "Build finished ✅" })
@@ -72,10 +72,9 @@ telegram_get_chat({ chatId: "-1001122334455" })
 
 
 All of these take a numeric `messageId` (from `telegram_get_updates`) alongside
-the `chatId`. **Confirm the exact chat_id and message_id every time** — acting on
-the wrong id is easy and, for delete, unrecoverable.
+the `chatId`. Acting on the wrong id is easy and, for delete, unrecoverable.
 
-Reply threaded under a message (confirm chat_id + message_id + text first):
+Reply threaded under a message:
 
 ```text
 telegram_reply_message({ chatId: "123456789", messageId: 42, text: "On it 👍" })
@@ -90,7 +89,7 @@ telegram_edit_message({ chatId: "123456789", messageId: 43, text: "Done ✅" })
 → Edited message 43 in Sameer (chat 123456789).
 ```
 
-Delete — **irreversible; demand explicit confirmation of the exact target.** The
+Delete — **irreversible.** The
 bot deletes its **own** messages at any time; **other users' messages only within
 48 hours** of posting AND only when the bot has "delete messages" **admin
 rights** in the group. Outside those bounds Telegram rejects the call:
@@ -119,16 +118,11 @@ telegram_send_photo({ chatId: "123456789", photoUrl: "https://example.com/chart.
 
 ## Safety
 
-- **Confirm the recipient (chat_id) AND the message text with the user before
-  every `telegram_send_message`** — a sent Telegram message can't be recalled
-  after 48h and is instantly visible to the recipient.
+- A sent Telegram message can't be recalled after 48h and is instantly visible
+  to the recipient.
 - Never send to a `chat_id` you're unsure about; verify it with
   `telegram_get_chat` or `telegram_get_updates` first.
-- **Every mutating tool** (`telegram_reply_message`, `telegram_edit_message`,
-  `telegram_delete_message`, `telegram_pin_message`, `telegram_send_photo`)
-  needs confirmation of its exact target first — reply/edit/pin/photo are
-  destructive; **delete is irreversible**, so restate the exact chat_id +
-  message_id and get an explicit yes before deleting.
+- Reply/edit/pin/photo are destructive; **delete is irreversible**.
 - **Delete rule:** the bot deletes its own messages any time, but other users'
   messages only within **48h** of posting and only with "delete messages" admin
   rights. **Pin rule:** pinning/unpinning in groups/channels needs "pin

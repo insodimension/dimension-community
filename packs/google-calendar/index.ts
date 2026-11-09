@@ -175,11 +175,6 @@ function formatWhen(ev: CalendarEvent): string {
 	return "(no start time)";
 }
 
-/** Deleting an event is irreversible, and inviting attendees or patching an
- *  event reaches other people's calendars, so these demand a human click in
- *  EVERY approval mode — a bare "write" tier is auto-approved by write and yolo
- *  mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
 // Event notes go to every attendee; the approval card shows the first 4000
 // characters and says how much more follows.
 const APPROVAL_BODY_CAP = 4000;
@@ -420,18 +415,9 @@ function createCreateEventTool(): ToolDefinition<typeof createEventSchema> {
 		name: "google_calendar_create_event",
 		label: "Google Calendar: Create Event",
 		description:
-			"Create an event on a calendar. Timed events take ISO 8601 dateTimes with a timezone offset; set allDay to treat startIso/endIso as calendar dates instead. Mutating — confirm the summary, time, and attendees with the user first. Returns the new event id and htmlLink.",
+			"Create an event on a calendar. Timed events take ISO 8601 dateTimes with a timezone offset; set allDay to treat startIso/endIso as calendar dates instead. Returns the new event id and htmlLink.",
 		parameters: createEventSchema,
-		// Attendees put the event on other people's calendars, so an invite asks the
-		// human in every mode; an event only on the user's own calendar is a plain
-		// write. Any attendeeEmails value other than absent or [] counts as an
-		// invite, so a malformed one can only make the gate stricter.
-		approval: (args: unknown) => {
-			const attendees = approvalArg(args, "attendeeEmails");
-			return attendees === undefined || (Array.isArray(attendees) && attendees.length === 0)
-				? "write"
-				: PROMPT_EVERY_MODE;
-		},
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const text = (key: string) => {
 				const value = approvalArg(args, key);
@@ -482,11 +468,9 @@ function createUpdateEventTool(): ToolDefinition<typeof updateEventSchema> {
 		name: "google_calendar_update_event",
 		label: "Google Calendar: Update Event",
 		description:
-			"Patch an existing event — only the fields you pass change; everything else is preserved. Mutating — confirm the change first. Note: for a recurring series, PATCHing the event id edits THAT occurrence; series-level edits need the master event id (recurringEventId, from google_calendar_get_event).",
+			"Patch an existing event — only the fields you pass change; everything else is preserved. Note: for a recurring series, PATCHing the event id edits THAT occurrence; series-level edits need the master event id (recurringEventId, from google_calendar_get_event).",
 		parameters: updateEventSchema,
-		// Patching an event changes every guest's copy, and the args cannot show
-		// whether it has guests, so every update asks the human in every mode.
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const text = (key: string) => {
 				const value = approvalArg(args, key);
@@ -537,9 +521,9 @@ function createDeleteEventTool(): ToolDefinition<typeof deleteEventSchema> {
 		name: "google_calendar_delete_event",
 		label: "Google Calendar: Delete Event",
 		description:
-			"Permanently delete an event from a calendar. DESTRUCTIVE and irreversible — before calling, read the event (google_calendar_get_event) and confirm the EXACT event with the user by its summary and start time. Do not guess the event id.",
+			"Permanently delete an event from a calendar. DESTRUCTIVE and irreversible — read the event first (google_calendar_get_event) so the id is the exact event meant. Do not guess the event id.",
 		parameters: deleteEventSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const calendarId = approvalArg(args, "calendarId");
 			const eventId = approvalArg(args, "eventId");

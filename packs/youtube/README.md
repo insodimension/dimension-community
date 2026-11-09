@@ -21,11 +21,11 @@ Off by default; turn it on in Plugins. The connector needs a Google sign-in thro
 
 - **The Studio upload has run once, on 2026-10-31, against a signed-in Studio;** the custom thumbnail was not seen to take. The labels come from YouTube's help pages and public automation projects. Studio changes its markup; the skill reads the page first and stops when a field will not read back.
 - **It never handles your password.** Sign-in, two-step verification and CAPTCHA are yours, in the Browser View.
-- **The upload runs `browser_run`, which has full Node access** on your machine and uses whichever saved browser profile you let it open, including its Google sign-in. The host asks before each run. Use a profile you are happy for the agent to act in, and watch in the Browser View.
+- **The upload runs `browser_run`, which has full Node access** on your machine and uses whichever saved browser profile you let it open, including its Google sign-in. Use a profile you are happy for the agent to act in, and watch in the Browser View.
 - **Public needs your yes.** A private or unlisted upload is the default and can be deleted; a public one is asked for by title and channel.
 - **Disclosure is your decision.** The skill sets out what YouTube says must carry the AI label and records your answer with reasons; it cannot tell whether a clip looks real, and commentary clips carry a fair-use judgement that is yours.
 - **Thumbnails are 1280×720.** YouTube recommends larger; the Motion plugin's stills are this size. Custom thumbnails need a verified channel. The overlay zones and the title and thumbnail statistics the skills quote are third-party measurements, labelled as such, and can change.
-- **The API connector** does not upload or edit videos (that is the Studio flow) and reads no analytics (watch time, retention and CTR are read in Studio). Comments are public: the tool asks every time, posts at most 5 a day and refuses repeated text. Quota (as of 2026-11-06): search has its own 100 calls a day since 2026-06-01; most other calls share 10,000 units a day at 1 unit each.
+- **The API connector** does not upload or edit videos (that is the Studio flow) and reads no analytics (watch time, retention and CTR are read in Studio). Comments are public: the tool posts at most 5 a day and refuses repeated text. Quota (as of 2026-11-06): search has its own 100 calls a day since 2026-06-01; most other calls share 10,000 units a day at 1 unit each.
 - **Captions after upload** go through Studio's Subtitles page and are the least certain step.
 
 ## Build and test

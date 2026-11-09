@@ -87,12 +87,12 @@ test("the extension registers each of the 13 tools plugin.json lists once, and e
 	expect(names).toEqual(dimension.toolRenderer.map(card => card.match).sort());
 });
 
-test.each(SENDS)("$tool asks in Ask and Write mode and passes in Full access", ({ tool, args }) => {
+test.each(SENDS)("$tool is a write: it asks in Ask mode and passes in Write and Full access", ({ tool, args }) => {
 	const policies = APPROVAL_MODES.map(
 		mode => resolveApproval(registeredTool(tool) as Parameters<typeof resolveApproval>[0], args, mode).policy,
 	);
 
-	expect(policies).toEqual(["prompt", "prompt", "allow"]);
+	expect(policies).toEqual(["prompt", "allow", "allow"]);
 });
 
 test.each(SENDS)(

@@ -9,10 +9,9 @@ Google account's YouTube: `youtube_search`, `youtube_get_videos`,
 `youtube_list_comments`, `youtube_post_comment`, `youtube_get_captions`,
 `youtube_channel_stats`.
 
-- **Confirm before writing.** `youtube_playlist_add` and `youtube_post_comment`
-  are mutating. A comment is **public** under the channel's name: state the
-  exact target and the full text and get the user's go-ahead. The tool refuses
-  a sixth comment in a UTC day and any text that repeats an earlier comment.
+- `youtube_playlist_add` and `youtube_post_comment` are mutating. A comment is
+  **public** under the channel's name. The tool refuses a sixth comment in a UTC
+  day and any text that repeats an earlier comment.
 - **Resolve ids, don't guess.** Turn titles and names into ids with
   `youtube_search`, `youtube_list_playlists` or `youtube_channel_stats`
   (by `@handle`) before acting.

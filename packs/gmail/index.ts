@@ -5,8 +5,6 @@ import { type RunHimalaya, runHimalaya, sendEmail } from "./himalaya";
 import { listMessages, parseListRequest, parseReadRequest, readMessage } from "./mailbox";
 import { parseEmail } from "./message";
 
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
 const readAccount = type("string").describe(
 	'The himalaya account to read, by name, e.g. "company". The default account when left out. A message id belongs to one account and folder: pass the account you listed it from.',
 );
@@ -67,9 +65,9 @@ export function createSendEmailTool(run: RunHimalaya): ToolDefinition<typeof sen
 		name: "gmail_send_email",
 		label: "Gmail: Send Email",
 		description:
-			"Send one plain-text email from a himalaya account of the connected mailbox. IRREVERSIBLE: confirm the recipients, the subject and the exact text with the user before calling. This is the ONLY way to send, reply to or forward email: never send mail with himalaya through bash. Recipients are plain addresses (alex@example.com), never display names. There is no Bcc: to reach a hidden recipient, send them a separate message. For a reply, pass the original's Message-Id as `inReplyTo` and reuse its exact subject behind `Re: ` so the reply stays in its thread. `account` (optional) is the himalaya account the mail goes out from, by name, e.g. `company`; the default account when left out. It is part of what the person approves. Text only: no attachments, no HTML. Returns the sent message id.",
+			"Send one plain-text email from a himalaya account of the connected mailbox. IRREVERSIBLE. This is the ONLY way to send, reply to or forward email: never send mail with himalaya through bash. Recipients are plain addresses (alex@example.com), never display names. There is no Bcc: to reach a hidden recipient, send them a separate message. For a reply, pass the original's Message-Id as `inReplyTo` and reuse its exact subject behind `Re: ` so the reply stays in its thread. `account` (optional) is the himalaya account the mail goes out from, by name, e.g. `company`; the default account when left out. Text only: no attachments, no HTML. Returns the sent message id.",
 		parameters: sendEmailSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const account = approvalText(args, "account");
 			const cc = approvalAddresses(args, "cc");

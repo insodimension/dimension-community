@@ -95,13 +95,9 @@ which this connector does not use.
 
 ## Safety
 
-- **Posting is destructive and public.** NEVER call
-  `teams_send_channel_message` without confirming the exact team, channel, and
-  full message text with the user **in the current turn**. When intent is
-  ambiguous, show the drafted message and ask before sending.
-- **Replying is likewise destructive and public.** NEVER call
-  `teams_reply_channel_message` without confirming the exact team, channel,
-  target message id, and reply text with the user **in the current turn**.
+- **Posting is destructive and public.** `teams_send_channel_message` cannot be
+  taken back.
+- **Replying is likewise destructive and public.**
 - **Reading still exposes content:** `teams_read_channel_messages` and
   `teams_list_members` surface channel messages and the member roster — fetch
   only what the user asked for, and quote message ids so the reply target is

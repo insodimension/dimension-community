@@ -10,19 +10,14 @@ inspects chats through the Telegram Bot API via eight native tools
 `telegram_delete_message`, `telegram_pin_message`, `telegram_send_photo`,
 `telegram_get_updates`, `telegram_get_chat`).
 
-- **ALWAYS confirm the exact target with the user before any mutating tool**
-  (`telegram_send_message`, `telegram_reply_message`, `telegram_edit_message`,
-  `telegram_pin_message`, `telegram_send_photo`): restate the chat_id, the
-  message_id (for reply/edit/pin), and the text/photo before calling.
-- **`telegram_delete_message` is IRREVERSIBLE** — demand explicit confirmation
-  of the exact chat_id AND message_id; never delete "just in case". The bot can
+- **`telegram_delete_message` is IRREVERSIBLE** — never delete "just in case". The bot can
   delete its own messages any time, but other users' only within 48h of posting
   and only with "delete messages" admin rights in the group.
 - **`telegram_edit_message` only edits the bot's OWN messages**; editing another
   user's message fails. **`telegram_pin_message`** (and unpin via `unpin: true`)
   needs "pin messages" admin rights in groups/channels.
 - **`telegram_send_photo`** takes a public `https://` image URL (Telegram
-  fetches it); confirm the recipient, URL, and any caption first.
+  fetches it).
 - A bot can only message a user who has messaged it first. To find a `chat_id`,
   have the user send the bot `/start`, then call `telegram_get_updates`.
 - `telegram_get_updates` returns nothing while a webhook is set on the bot.
