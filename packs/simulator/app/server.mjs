@@ -3171,8 +3171,7 @@ async function createSimulatorServer(options = {}) {
       devices,
       avds: avds.map((name) => ({ name, running: running.has(name) })),
       toolchain: { adb: tc.adb, emulator: tc.emulator, scrcpyServer: tc.scrcpyServer, sdkRoot: tc.sdkRoot, missing: tc.missing },
-      live: backend.liveAvailable(),
-      settings: settings()
+      live: backend.liveAvailable()
     };
     const lines = devices.length === 0 ? ["no devices running"] : devices.map(deviceLine);
     if (avds.length > 0) lines.push(`bootable AVDs: ${avds.map((name) => running.has(name) ? `${name} (running)` : name).join(", ")}`);
