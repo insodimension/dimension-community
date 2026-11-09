@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { watch } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -449,13 +450,34 @@ describe("a profile a Traction account posts from by name (publish-profiles.json
 		entry.code = { idleMs: 60_000, persist: false };
 		const ended = Promise.withResolvers<[string, string, string | undefined]>();
 		s.runtime.codeSeam().onEnd((browserId, why, reason) => ended.resolve([browserId, why, reason]));
-		await nameAccountProfiles(s.rootDir, [GODOFROCK]);
-		expect(await ended.promise).toEqual([s.browserId, "gated", expect.stringContaining("godofrock is a profile a Traction account posts from")]);
+		const awake = watch(s.rootDir, { persistent: true });
+		try {
+			await nameAccountProfiles(s.rootDir, [GODOFROCK]);
+			expect(await ended.promise).toEqual([s.browserId, "gated", expect.stringContaining("godofrock is a profile a Traction account posts from")]);
+		} finally {
+			awake.close();
+		}
 		expect(stopped).toEqual(["endpoint", "worker"]);
 	});
 });
 
 describe("GatedProfiles reads publish-profiles.json and fails closed", () => {
+	test("its watch announces a new list with no gate check", async () => {
+		const rootDir = await createRoot();
+		const changed = Promise.withResolvers<void>();
+		const gated = new GatedProfiles(rootDir, () => changed.resolve());
+		gated.watch();
+		const awake = watch(rootDir, { persistent: true });
+		try {
+			await nameAccountProfiles(rootDir, ["godofrock"]);
+			await changed.promise;
+		} finally {
+			awake.close();
+			gated.close();
+		}
+		expect(gated.has("godofrock")).toBe(true);
+	});
+
 	test("no file since start gates only traction-*; a list gates what it names", async () => {
 		const rootDir = await createRoot();
 		const gated = new GatedProfiles(rootDir);
