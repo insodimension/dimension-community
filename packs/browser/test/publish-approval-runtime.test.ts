@@ -186,18 +186,18 @@ interface Session {
 	browserId: string;
 }
 
-async function session(): Promise<Session> {
+async function session(profile = PROFILE): Promise<Session> {
 	const rootDir = await createRoot();
 	const runtime = newRuntime(rootDir);
 	const page = new ComposePage();
-	const browserId = adopt(runtime, PROFILE, page);
+	const browserId = adopt(runtime, profile, page);
 	const viewDir = join(rootDir, "view");
 	await mkdir(viewDir, { recursive: true });
 	await writeFile(join(viewDir, "index.html"), "<!doctype html><title>view</title>");
 	const server = await createBrowserServer({ runtime, viewDir, presets: [STUB_PRESET] });
 	const client = new Client({ name: "publish-approval-runtime-test", version: "0.0.0" });
 	const store = new ProfileStore(rootDir);
-	store.ensureProfile(PROFILE);
+	store.ensureProfile(profile);
 	const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
 	await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
 	clients.push(client);
@@ -334,6 +334,23 @@ describe("browser_publish post", () => {
 
 		expectRefused(refused, NO_APPROVAL);
 		expect(s.page.effects).toEqual([]);
+	});
+
+	test("a post approved for the account's own profile (godofrock) posts from godofrock and is refused from any other profile", async () => {
+		const s = await session("godofrock");
+		await approve(s, [TEXT], "godofrock", PRESET);
+		const elsewhere = new ComposePage();
+		for (const profile of ["personal", "traction-x-watchdryrun", PROFILE]) {
+			const refused = await publish(s, [TEXT], adopt(s.runtime, profile, elsewhere), "preset");
+			expectRefused(refused, NO_APPROVAL);
+		}
+		expect(elsewhere.effects).toEqual([]);
+
+		const parked = await park(s, [TEXT], s.browserId, "preset");
+		expect(parked.profile).toBe("godofrock");
+		const posted = await confirmAs(s, parked, "model");
+		expect(posted.isError, posted.content[0]?.text).toBeFalsy();
+		expect(s.page.clicks).toBe(1);
 	});
 });
 

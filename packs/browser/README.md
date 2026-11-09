@@ -890,10 +890,10 @@ Traction's board writes these for X posts through the `x-post` preset. The
 binding does not cover the page a `needsTarget` preset posts on
 (`reddit-comment`), so no surface should approve one before it does.
 
-### Judge-gated submits on `traction-*` profiles
+### Judge-gated submits on the profiles Traction accounts post from
 
 Every other draft Traction's agents post is typed into the site's own page with
-`browser_act`. On a profile whose name starts with `traction-`, a model's
+`browser_act`. On a **gated profile** (below), a model's
 `click`, `Enter` or `Space` (the View is never gated) first reads every visible
 editable field on the page (frames and open shadow roots included). Sign-in and
 search fields (`email`, `password`, `tel` and `search` inputs, `autocomplete`
@@ -918,11 +918,30 @@ page:
   text, checks the values it names are exactly the text on the page, and clicks.
 
 Text on the page is only ever what is judged, never evidence of approval.
-`browser_task` and `browser_run` refuse a `traction-*` profile.
+`browser_task` and `browser_run` refuse a gated profile, and `browser_submit`
+runs only on one.
+
+A profile is gated when its name starts with `traction-` (Traction's own
+`traction-<platform>-<handle>` profiles, always), or when the publishing
+surface names it in `<root>/publish-profiles.json`:
+`{ "v": 1, "profiles": ["godofrock", ...] }`. Traction writes that file from its
+board: every Browser profile a campaign account posts from by name
+(`campaign_profile_add` `about.browserProfile`), so the person's own profile
+(`godofrock`, `personal`) is gated for as long as an account posts from it,
+before any approval exists, and ungated once no account names it. The pack
+reads the file on a gate check only when its identity (inode, size, mtime)
+changed since the last read, so a check costs one `stat`, never a directory
+scan; a file that does not parse to this shape keeps the last list read (none,
+at start). Gating is per profile, not per approval, on purpose: a profile gated
+only while an approval is live would let an agent post anything from the
+account the rest of the time. The cost is that `browser_task` and `browser_run`
+refuse that profile for every agent while an account posts from it; reading,
+signing in and the step tools work as before.
 
 The approved-fill record is `<draftId>.json` in the same folder:
 `{ "v": 2, "draftId", "nonce", "profile", "origins", "texts", "approvedAt",
-"expiresAt" }`. `profile` is the `traction-<platform>-<handle>` profile;
+"expiresAt" }`. `profile` is the account's Browser profile (its own
+`browserProfile`, else `traction-<platform>-<handle>`);
 `origins` the sites it may be posted on (`https://news.ycombinator.com`, a
 `https://*.substack.com` wildcard, or `*` for a platform with no fixed site);
 `texts` every approved field value. Texts match after NFC, `\r\n` to `\n`,

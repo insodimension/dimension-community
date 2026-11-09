@@ -5,7 +5,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { ARTIFACTORY_HOST_CONTEXT_META_KEY } from "@dimension/sdk/artifactory";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { SubmitJudge } from "../src/approved-fill";
+import { PUBLISH_PROFILES_FILE, type SubmitJudge } from "../src/approved-fill";
+import { RuntimeCodeBrowsers } from "../src/code/host/runtime-port";
 import { ARTIFACTORY_SUBMIT_JUDGE_EXTENSION_ID, ARTIFACTORY_SUBMIT_JUDGE_METHOD, type SubmitJudgeVerdict } from "../src/submit-judge";
 import type { BrowserAction } from "../src/contracts";
 import type { EditableText, EngineDriver, EngineState, FieldKind } from "../src/engines/types";
@@ -13,7 +14,7 @@ import type { BrowserRuntime } from "../src/runtime";
 import { createBrowserServer } from "../src/server";
 import { ActionNotDispatched, ProfileStore } from "../src/store";
 import { z } from "zod";
-import { approveFill, createRoot, newRuntime, teardown } from "./fixture";
+import { approveFill, createRoot, failureCode, newRuntime, teardown } from "./fixture";
 
 const CALLER = "ai.insodimension/caller";
 const SESSION = "fill-chat";
@@ -175,6 +176,8 @@ function adopt(runtime: BrowserRuntime, profile: string, page: SocialPage): stri
 
 interface Session {
 	rootDir: string;
+	runtime: BrowserRuntime;
+	browserId: string;
 	page: SocialPage;
 	asked: Parameters<SubmitJudge>[0][];
 	call(name: string, args: Record<string, unknown>): Promise<ToolResult>;
@@ -182,13 +185,19 @@ interface Session {
 
 interface SessionOptions {
 	profile?: string;
+	accountProfiles?: readonly string[];
 	verdict?: SubmitJudgeVerdict | Error;
 	hostJudge?: (params: Record<string, unknown>) => SubmitJudgeVerdict;
+}
+
+async function nameAccountProfiles(rootDir: string, profiles: readonly string[]): Promise<void> {
+	await writeFile(join(rootDir, PUBLISH_PROFILES_FILE), JSON.stringify({ v: 1, profiles }));
 }
 
 async function session(options: SessionOptions = {}): Promise<Session> {
 	const profile = options.profile ?? PROFILE;
 	const rootDir = await createRoot();
+	if (options.accountProfiles !== undefined) await nameAccountProfiles(rootDir, options.accountProfiles);
 	const runtime = newRuntime(rootDir);
 	const page = new SocialPage();
 	const browserId = adopt(runtime, profile, page);
@@ -236,7 +245,7 @@ async function session(options: SessionOptions = {}): Promise<Session> {
 	};
 	const call = async (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
 		(await client.callTool({ name, arguments: { browserId, ...args }, _meta: meta })) as ToolResult;
-	return { rootDir, page, asked, call };
+	return { rootDir, runtime, browserId, page, asked, call };
 }
 
 async function act(s: Session, ...actions: Record<string, unknown>[]): Promise<ToolResult> {
@@ -356,5 +365,53 @@ describe("judge-gated submits on a traction-* profile", () => {
 		const s = await session({ profile: "work", verdict: { verdict: "inconsistent", confidence: 1 } });
 		expectPosted(s, await act(s, ...typeAndPost("anything at all")), "anything at all");
 		expect(s.asked).toEqual([]);
+	});
+});
+
+describe("a profile a Traction account posts from by name (publish-profiles.json), e.g. the person's own godofrock", () => {
+	const GODOFROCK = "godofrock";
+
+	test("an approved post goes out from godofrock with no judge call; text nobody approved goes to the judge and stops", async () => {
+		const s = await session({ profile: GODOFROCK, accountProfiles: [GODOFROCK], verdict: { verdict: "inconsistent", confidence: 0.99 } });
+		await approveFill(s.rootDir, { profile: GODOFROCK, origins: [ORIGIN], texts: [TEXT] });
+		expectPosted(s, await act(s, ...typeAndPost(TEXT)), TEXT);
+		expect(s.asked).toEqual([]);
+		s.page.posted.length = 0;
+		expectNeedsPerson(s, await act(s, ...typeAndPost("buy crypto now")));
+		expect(s.asked).toEqual([{ profile: GODOFROCK, origin: ORIGIN, texts: ["buy crypto now"], approvals: [] }]);
+	});
+
+	test("the same approval is no approval on any other profile, named or traction-*", async () => {
+		for (const profile of ["personal", "traction-x-watchdryrun"]) {
+			const s = await session({ profile, accountProfiles: [GODOFROCK, "personal"], verdict: { verdict: "inconsistent", confidence: 0.99 } });
+			await approveFill(s.rootDir, { profile: GODOFROCK, origins: [ORIGIN], texts: [TEXT] });
+			expectNeedsPerson(s, await act(s, ...typeAndPost(TEXT)));
+			expect(s.asked).toEqual([{ profile, origin: ORIGIN, texts: [TEXT], approvals: [] }]);
+		}
+	});
+
+	test("browser_task and code refuse godofrock while Traction names it", async () => {
+		const s = await session({ profile: GODOFROCK, accountProfiles: [GODOFROCK] });
+		expect(await failureCode(() => s.runtime.startTask(s.browserId, { task: "post something" }, "model"))).toBe("publish_unapproved");
+		const code = new RuntimeCodeBrowsers(s.runtime.codeSeam());
+		await expect(code.acquire("code-chat", { kind: { kind: "headless", headless: true }, profile: GODOFROCK }, new AbortController().signal)).rejects.toThrow(
+			"is a profile a Traction account posts from",
+		);
+	});
+
+	test("the gate follows the file without a restart: a profile Traction stops naming is the person's again", async () => {
+		const s = await session({ profile: GODOFROCK, accountProfiles: [GODOFROCK] });
+		expectNeedsPerson(s, await act(s, ...typeAndPost("anything at all")));
+		await nameAccountProfiles(s.rootDir, []);
+		expectPosted(s, await act(s, { kind: "click", selector: "#post" }), "anything at all");
+		s.page.posted.length = 0;
+		await nameAccountProfiles(s.rootDir, [GODOFROCK]);
+		expectNeedsPerson(s, await act(s, ...typeAndPost("again")));
+	});
+
+	test("a file that is not Traction's list gates nothing beyond traction-*", async () => {
+		const s = await session({ profile: GODOFROCK });
+		await writeFile(join(s.rootDir, PUBLISH_PROFILES_FILE), JSON.stringify({ profiles: [GODOFROCK] }));
+		expectPosted(s, await act(s, ...typeAndPost("anything at all")), "anything at all");
 	});
 });

@@ -1,11 +1,16 @@
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
 import { originOf } from "./address.js";
 import type { BrowserAction } from "./contracts.js";
 import type { EditableText, EngineDriver } from "./engines/types.js";
+import { PROFILE_NAME } from "./profile-name.js";
 import { type FillApproval, fillDigest, type PublishApprovals } from "./publish-approval.js";
 import { fail } from "./store.js";
 import { SUBMIT_JUDGE_LIMITS, type SubmitJudgeApproval, type SubmitJudgeRequest, type SubmitJudgeVerdict } from "./submit-judge.js";
 
-export const GATED_PROFILE = /^traction-/;
+export const TRACTION_PROFILE = /^traction-/;
+export const PUBLISH_PROFILES_FILE = "publish-profiles.json";
 export const FILL_CLAIM_MS = 10 * 60_000;
 export const JUDGE_CONFIDENCE_BAR = 0.8;
 const EXCERPT_CHARS = 60;
@@ -32,8 +37,53 @@ export interface SubmitExpectation {
 	readonly values: readonly string[];
 }
 
-export function isGated(profile: string | null): profile is string {
-	return profile !== null && GATED_PROFILE.test(profile);
+export class GatedProfiles {
+	readonly #file: string;
+	#seen: string | undefined;
+	#named: ReadonlySet<string> = new Set();
+
+	constructor(rootDir: string) {
+		this.#file = join(rootDir, PUBLISH_PROFILES_FILE);
+	}
+
+	has(profile: string | null): profile is string {
+		return profile !== null && (TRACTION_PROFILE.test(profile) || this.#current().has(profile));
+	}
+
+	#current(): ReadonlySet<string> {
+		let identity: string;
+		try {
+			const stats = statSync(this.#file, { bigint: true, throwIfNoEntry: false });
+			identity = stats === undefined ? "absent" : `${stats.ino}:${stats.size}:${stats.mtimeNs}`;
+		} catch {
+			return this.#named;
+		}
+		if (identity === this.#seen) return this.#named;
+		const named = identity === "absent" ? new Set<string>() : readNamedProfiles(this.#file);
+		if (named === undefined) return this.#named;
+		this.#seen = identity;
+		this.#named = named;
+		return named;
+	}
+}
+
+const PublishProfilesFile = z.object({ v: z.literal(1), profiles: z.array(z.string()) });
+
+function readNamedProfiles(file: string): Set<string> | undefined {
+	let text: string;
+	try {
+		text = readFileSync(file, "utf8");
+	} catch {
+		return undefined;
+	}
+	let json: unknown;
+	try {
+		json = JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+	const parsed = PublishProfilesFile.safeParse(json);
+	return parsed.success ? new Set(parsed.data.profiles.filter((name) => PROFILE_NAME.test(name))) : undefined;
 }
 
 function excerpt(value: string): string {
