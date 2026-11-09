@@ -668,11 +668,11 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-var DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+var DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
 function denyReason(path2) {
   const segments = segmentsOf(path2);
   const named = segments[segments.length - 1] ?? "";
-  const base = named.replace(DURABLE_COPY_SUFFIX, "");
+  const base = named.replace(DURABLE_COPY_SUFFIXES, "");
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -688,7 +688,7 @@ function denyReason(path2) {
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
-    if (DATABASE_FILE.test(named) || DATABASE_FILE.test(base)) return "it is a database inside an engine home";
+    if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
 }
@@ -1619,11 +1619,11 @@ function defectOf(bytes) {
   for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
   return "NUL-filled";
 }
-function isIntactPrevious(bytes, isIntact) {
+function parsesWhole(bytes, parse3) {
   if (defectOf(bytes) !== void 0) return false;
-  if (isIntact === void 0) return true;
   try {
-    return isIntact(bytes);
+    parse3(bytes);
+    return true;
   } catch {
     return false;
   }
@@ -1697,17 +1697,16 @@ async function readPrevious(filePath) {
     await handle.close();
   }
 }
-var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
 async function writeFileAtomic(filePath, data, options = {}) {
   const directory = path.dirname(filePath);
   await fs.promises.mkdir(directory, { recursive: true });
   const bytes = toBuffer(data);
-  const backup = backupOptionsOf(options);
+  const backup = options.backup;
   if (backup === void 0) {
     await publish(filePath, bytes, options.mode ?? await existingMode(filePath));
   } else {
     const previous = await readPrevious(filePath);
-    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
       await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
     }
     await publish(filePath, bytes, options.mode ?? previous?.mode);

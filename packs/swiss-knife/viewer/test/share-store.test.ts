@@ -31,6 +31,20 @@ test("a torn tunnel credential is read from the copy the last write kept, and th
 	expect((await readdir(join(home, "artifacts"))).filter(name => name.startsWith("tunnel.json.corrupt-"))).toHaveLength(1);
 });
 
+for (const damage of ['{"relay":', '{"relay":"https://relay.example"}']) {
+	test(`a write over a tunnel credential damaged to ${damage} keeps the good backup instead of the damaged bytes`, async () => {
+		const store = new P2pStore(home);
+		const tunnelPath = join(home, "artifacts", "tunnel.json");
+		await store.writeTunnel(FIRST);
+		await store.writeTunnel(SECOND);
+		await writeFile(tunnelPath, damage);
+		const third = { ...FIRST, tunnelId: "t-3" };
+		await store.writeTunnel(third);
+		expect(JSON.parse(await Bun.file(`${tunnelPath}.bak`).text())).toEqual(FIRST);
+		expect(await store.readTunnel()).toEqual(third);
+	});
+}
+
 test("a cleared tunnel and a removed share stay gone: their backups go with them", async () => {
 	const store = new P2pStore(home);
 	await store.writeTunnel(FIRST);

@@ -295,11 +295,11 @@ function defectOf(bytes) {
   for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
   return "NUL-filled";
 }
-function isIntactPrevious(bytes, isIntact) {
+function parsesWhole(bytes, parse) {
   if (defectOf(bytes) !== void 0) return false;
-  if (isIntact === void 0) return true;
   try {
-    return isIntact(bytes);
+    parse(bytes);
+    return true;
   } catch {
     return false;
   }
@@ -373,17 +373,16 @@ async function readPrevious(filePath) {
     await handle.close();
   }
 }
-var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
 async function writeFileAtomic(filePath, data, options = {}) {
   const directory = path.dirname(filePath);
   await fs.promises.mkdir(directory, { recursive: true });
   const bytes = toBuffer(data);
-  const backup = backupOptionsOf(options);
+  const backup = options.backup;
   if (backup === void 0) {
     await publish(filePath, bytes, options.mode ?? await existingMode(filePath));
   } else {
     const previous = await readPrevious(filePath);
-    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
       await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
     }
     await publish(filePath, bytes, options.mode ?? previous?.mode);

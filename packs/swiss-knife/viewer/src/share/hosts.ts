@@ -107,7 +107,7 @@ export class HostStore {
 	#update<T>(change: (file: HostsFile) => { readonly file: HostsFile; readonly result: T }): Promise<T> {
 		const run = this.#queue.then(async () => {
 			const { file, result } = change(await this.read());
-			await writePrivateJsonFile(this.path, file);
+			await writePrivateJsonFile(this.path, hostsFileSchema, file);
 			return result;
 		});
 		this.#queue = run.catch(() => undefined);

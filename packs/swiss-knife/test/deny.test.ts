@@ -104,6 +104,12 @@ const DENIED: Record<string, string[]> = {
 		"/home/me/.inso/auth.json.shrink-2026-11-09t00-00-00-000z.bak",
 		"/home/me/.inso/vault/notes.db.corrupt-k3x9",
 	],
+	"staged copies of a secret file's backup, quarantine copy or key": [
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/browser/credentials.json.corrupt-k3x9.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-x.bak.12.ab12cd34.tmp",
+		"/home/me/.inso/browser/credentials.key.4242.a1b2c3d4e5f6.tmp",
+	],
 };
 
 /** Every path here must be allowed: ordinary files, and near-misses of each rule above. */
@@ -133,6 +139,7 @@ const ALLOWED = [
 	"C:\\Work\\reports\\a.png",
 	"/home/me/docs/activation.json.md",
 	"/home/me/docs/notes.txt.bak",
+	"/home/me/docs/notes.txt.bak.4242.1a2b3c4d.tmp",
 ];
 
 describe("denyReason refuses credentials, keys and engine state", () => {

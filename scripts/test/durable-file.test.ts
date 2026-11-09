@@ -33,7 +33,7 @@ afterAll(() => {
 	for (const root of roots) rmSync(root, { recursive: true, force: true });
 });
 
-const isJson = (bytes: Buffer): boolean => parseJsonBytes(bytes) !== undefined;
+const JSON_BACKUP = { parse: parseJsonBytes };
 const leftovers = (): string[] => readdirSync(dir).filter(name => name.endsWith(".tmp"));
 const corruptCopies = (): string[] => readdirSync(dir).filter(name => name.startsWith("state.json.corrupt-"));
 
@@ -46,9 +46,9 @@ describe("writeFileAtomicSync", () => {
 	});
 
 	test("with backup, the previous whole file becomes the .bak", () => {
-		writeFileAtomicSync(file, '{"n":1}', { backup: { isIntact: isJson } });
+		writeFileAtomicSync(file, '{"n":1}', { backup: JSON_BACKUP });
 		expect(fs.existsSync(backupPathOf(file))).toBe(false);
-		writeFileAtomicSync(file, '{"n":2}', { backup: { isIntact: isJson } });
+		writeFileAtomicSync(file, '{"n":2}', { backup: JSON_BACKUP });
 		expect(readFileSync(file, "utf8")).toBe('{"n":2}');
 		expect(readFileSync(backupPathOf(file), "utf8")).toBe('{"n":1}');
 	});
@@ -57,9 +57,25 @@ describe("writeFileAtomicSync", () => {
 		writeFileSync(backupPathOf(file), '{"n":1}');
 		for (const damaged of ["{ torn", "", "\0\0\0\0"]) {
 			writeFileSync(file, damaged);
-			writeFileAtomicSync(file, '{"n":3}', { backup: { isIntact: isJson } });
+			writeFileAtomicSync(file, '{"n":3}', { backup: JSON_BACKUP });
 			expect(readFileSync(backupPathOf(file), "utf8")).toBe('{"n":1}');
 		}
+	});
+
+	test("a previous file the backup parser rejects never replaces a good backup, even when it is whole JSON", () => {
+		const listsOnly = {
+			parse: (bytes: Buffer) => {
+				const parsed = parseJsonBytes(bytes);
+				if (!Array.isArray(parsed)) throw new Error("not a list");
+				return parsed;
+			},
+		};
+		writeFileSync(backupPathOf(file), "[1]");
+		writeFileSync(file, '{"n":2}');
+		writeFileAtomicSync(file, "[3]", { backup: listsOnly });
+		expect(readFileSync(backupPathOf(file), "utf8")).toBe("[1]");
+		writeFileAtomicSync(file, "[4]", { backup: listsOnly });
+		expect(readFileSync(backupPathOf(file), "utf8")).toBe("[3]");
 	});
 
 	test("a write that fails before the rename leaves the old file and no staging file", () => {
@@ -94,10 +110,10 @@ describe("writeFileAtomicSync", () => {
 	});
 
 	test.skipIf(process.platform === "win32")("keeps the replaced file's permissions unless a mode is given", () => {
-		writeFileAtomicSync(file, "a", { mode: 0o600 });
-		writeFileAtomicSync(file, "b");
+		writeFileAtomicSync(file, '"a"', { mode: 0o600 });
+		writeFileAtomicSync(file, '"b"');
 		expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-		writeFileAtomicSync(file, "c", { mode: 0o640, backup: true });
+		writeFileAtomicSync(file, '"c"', { mode: 0o640, backup: JSON_BACKUP });
 		expect(fs.statSync(file).mode & 0o777).toBe(0o640);
 		expect(fs.statSync(backupPathOf(file)).mode & 0o777).toBe(0o600 & 0o640);
 	});
@@ -105,18 +121,18 @@ describe("writeFileAtomicSync", () => {
 
 describe("readDurableFileSync", () => {
 	test("a missing file with no backup is absent", () => {
-		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ state: "absent" });
+		expect(readDurableFileSync(file, parseJsonBytes)).toBeUndefined();
 	});
 
 	test("a whole primary is read from the primary", () => {
 		writeFileAtomicSync(file, '{"n":1}');
-		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ state: "ok", value: { n: 1 }, source: "primary" });
+		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ n: 1 });
 	});
 
 	test("a torn primary is kept as a .corrupt copy, left in place, and the backup answers", () => {
 		writeFileSync(backupPathOf(file), '{"n":1}');
 		writeFileSync(file, '{"n":2');
-		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ state: "ok", value: { n: 1 }, source: "backup" });
+		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ n: 1 });
 		expect(readFileSync(file, "utf8")).toBe('{"n":2');
 		const [copy] = corruptCopies();
 		expect(copy).toBeDefined();
@@ -127,13 +143,13 @@ describe("readDurableFileSync", () => {
 		writeFileSync(backupPathOf(file), "kept");
 		for (const damaged of ["", "\0\0\0"]) {
 			writeFileSync(file, damaged);
-			expect(readDurableFileSync(file, bytes => bytes.toString("utf8"))).toEqual({ state: "ok", value: "kept", source: "backup" });
+			expect(readDurableFileSync(file, bytes => bytes.toString("utf8"))).toBe("kept");
 		}
 	});
 
 	test("a primary missing while its backup exists is read from the backup", () => {
 		writeFileSync(backupPathOf(file), '{"n":1}');
-		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ state: "ok", value: { n: 1 }, source: "backup" });
+		expect(readDurableFileSync(file, parseJsonBytes)).toEqual({ n: 1 });
 	});
 
 	test("unreadable with no readable backup throws, and nothing is rewritten", () => {
@@ -159,15 +175,32 @@ describe("readDurableFileSync", () => {
 		readDurableFileSync(file, parseJsonBytes);
 		expect(corruptCopies()).toHaveLength(1);
 	});
+
+	test("keepDamagedCopy: false reads from the backup without copying the damaged bytes anywhere", () => {
+		writeFileSync(file, "{ torn");
+		writeFileSync(backupPathOf(file), '{"n":1}');
+		expect(readDurableFileSync(file, parseJsonBytes, { keepDamagedCopy: false })).toEqual({ n: 1 });
+		expect(corruptCopies()).toEqual([]);
+		expect(leftovers()).toEqual([]);
+		expect(readFileSync(file, "utf8")).toBe("{ torn");
+	});
+
+	test("keepDamagedCopy: false refuses with no readable backup and names no copy", () => {
+		writeFileSync(file, "{ torn");
+		expect(() => readDurableFileSync(file, parseJsonBytes, { keepDamagedCopy: false })).toThrow(
+			expect.objectContaining({ quarantinedAt: undefined }),
+		);
+		expect(corruptCopies()).toEqual([]);
+	});
 });
 
 describe("the async twins", () => {
 	test("writeFileAtomic keeps the backup and readDurableFile recovers from it", async () => {
-		await writeFileAtomic(file, '{"n":1}', { backup: true });
-		await writeFileAtomic(file, '{"n":2}', { backup: true });
+		await writeFileAtomic(file, '{"n":1}', { backup: JSON_BACKUP });
+		await writeFileAtomic(file, '{"n":2}', { backup: JSON_BACKUP });
 		expect(readFileSync(backupPathOf(file), "utf8")).toBe('{"n":1}');
 		writeFileSync(file, "");
-		expect(await readDurableFile(file, parseJsonBytes)).toEqual({ state: "ok", value: { n: 1 }, source: "backup" });
+		expect(await readDurableFile(file, parseJsonBytes)).toEqual({ n: 1 });
 		expect(corruptCopies()).toHaveLength(1);
 		expect(leftovers()).toEqual([]);
 	});
@@ -178,10 +211,17 @@ describe("the async twins", () => {
 		expect(readFileSync(file, "utf8")).toBe("{ torn");
 	});
 
+	test("readDurableFile with keepDamagedCopy: false copies nothing", async () => {
+		writeFileSync(file, "{ torn");
+		writeFileSync(backupPathOf(file), '{"n":1}');
+		expect(await readDurableFile(file, parseJsonBytes, { keepDamagedCopy: false })).toEqual({ n: 1 });
+		expect(corruptCopies()).toEqual([]);
+	});
+
 	test("removeDurableFile deletes the file and its backup, so a later read is absent rather than brought back", async () => {
-		await writeFileAtomic(file, '{"n":1}', { backup: true });
-		await writeFileAtomic(file, '{"n":2}', { backup: true });
+		await writeFileAtomic(file, '{"n":1}', { backup: JSON_BACKUP });
+		await writeFileAtomic(file, '{"n":2}', { backup: JSON_BACKUP });
 		await removeDurableFile(file);
-		expect(await readDurableFile(file, parseJsonBytes)).toEqual({ state: "absent" });
+		expect(await readDurableFile(file, parseJsonBytes)).toBeUndefined();
 	});
 });

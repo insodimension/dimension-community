@@ -49,7 +49,7 @@ export class P2pStore {
 	}
 
 	writeShare(id: string, state: P2pShareState): Promise<void> {
-		return writePrivateJsonFile(this.#sharePath(id), state);
+		return writePrivateJsonFile(this.#sharePath(id), shareStateSchema, state);
 	}
 
 	removeShare(id: string): Promise<void> {
@@ -75,7 +75,7 @@ export class P2pStore {
 	}
 
 	writeTunnel(credentials: TunnelCredentials): Promise<void> {
-		return writePrivateJsonFile(this.#tunnelPath, credentials);
+		return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials);
 	}
 
 	clearTunnel(): Promise<void> {

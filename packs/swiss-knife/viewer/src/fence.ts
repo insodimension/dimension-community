@@ -153,7 +153,7 @@ export const OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.back
 export const DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 /** `.inso`, `.inso-dev`, `.omp` and their suffixed variants. */
 export const ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-const DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+const DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
 
 /**
  * Why `path` must never be opened, or `undefined` when nothing on it is
@@ -164,7 +164,7 @@ const DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|
 export function denyReason(path: string): string | undefined {
 	const segments = segmentsOf(path);
 	const named = segments[segments.length - 1] ?? "";
-	const base = named.replace(DURABLE_COPY_SUFFIX, "");
+	const base = named.replace(DURABLE_COPY_SUFFIXES, "");
 	for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
 	for (const secret of SECRET_PATHS) {
 		for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -180,7 +180,7 @@ export function denyReason(path: string): string | undefined {
 		if (next === "agent" || (next === "profiles" && segments[at + 3] === "agent")) {
 			return "it is the engine's agent state (credentials, sessions and databases)";
 		}
-		if (DATABASE_FILE.test(named) || DATABASE_FILE.test(base)) return "it is a database inside an engine home";
+		if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
 	}
 	return undefined;
 }

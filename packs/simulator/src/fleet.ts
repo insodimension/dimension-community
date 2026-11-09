@@ -184,7 +184,7 @@ export class Fleet {
 
   async #adoptOrphans(): Promise<void> {
     const backend = this.#deps.backend;
-    const records = this.#deps.store.read();
+    const records = this.#readRecords() ?? [];
     let changed = false;
     for (const record of records) {
       if (record.ownerPid !== this.#pid && (await this.#ownerRunning(record))) continue;
@@ -243,9 +243,20 @@ export class Fleet {
 
   /** This pack's records, plus those of OTHER pack processes that are still running. A dead owner's record was adopted (then it is ours) or dropped by `reconcile`: it is never carried forward. */
   #persist(): void {
+    const stored = this.#readRecords();
+    if (stored === undefined) return;
     const mine = [...this.#owned.values()];
-    const others = this.#deps.store.read().filter(record => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some(own => own.pid === record.pid && own.startedAt === record.startedAt));
+    const others = stored.filter(record => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some(own => own.pid === record.pid && own.startedAt === record.startedAt));
     this.#deps.store.write([...others, ...mine]);
+  }
+
+  #readRecords(): OwnedRecord[] | undefined {
+    try {
+      return this.#deps.store.read();
+    } catch (error) {
+      this.#deps.log(`[sim] the ownership file could not be read, so it is left as it is: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
   }
 
   async boot(request: BootRequest, waitMs: number): Promise<BootOutcome> {

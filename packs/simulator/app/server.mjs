@@ -1886,11 +1886,11 @@ function defectOf(bytes) {
   for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
   return "NUL-filled";
 }
-function isIntactPrevious(bytes, isIntact) {
+function parsesWhole(bytes, parse) {
   if (defectOf(bytes) !== void 0) return false;
-  if (isIntact === void 0) return true;
   try {
-    return isIntact(bytes);
+    parse(bytes);
+    return true;
   } catch {
     return false;
   }
@@ -1956,17 +1956,16 @@ function readPreviousSync(filePath) {
     fs.closeSync(descriptor);
   }
 }
-var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
 function writeFileAtomicSync(filePath, data, options = {}) {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
   const bytes = toBuffer(data);
-  const backup = backupOptionsOf(options);
+  const backup = options.backup;
   if (backup === void 0) {
     publishSync(filePath, bytes, options.mode ?? permissionsOf(fs.statSync(filePath, { throwIfNoEntry: false })));
   } else {
     const previous = readPreviousSync(filePath);
-    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
       publishSync(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
     }
     publishSync(filePath, bytes, options.mode ?? previous?.mode);
@@ -2008,42 +2007,31 @@ function recoverFromBackup(filePath, reason, quarantinedAt, backup, parse) {
   const kept = quarantinedAt ? ` (kept as ${quarantinedAt})` : "";
   if (restored?.ok) {
     console.error(`${filePath} was unreadable (${reason})${kept}; read from its backup.`);
-    return { state: "ok", value: restored.value, source: "backup" };
+    return restored.value;
   }
   console.error(`${filePath} is unreadable (${reason})${kept} and has no readable backup.`);
   throw new DurableFileUnreadableError(filePath, reason, quarantinedAt);
 }
-function readDurableFileSync(filePath, parse) {
+function readDurableFileSync(filePath, parse, options = {}) {
   const bytes = readIfPresentSync(filePath);
   if (bytes === void 0) {
     const backup = readIfPresentSync(backupPathOf(filePath));
-    if (backup === void 0) return { state: "absent" };
+    if (backup === void 0) return void 0;
     return recoverFromBackup(filePath, "missing while its backup exists", void 0, backup, parse);
   }
   const parsed = parseBytes(bytes, parse);
-  if (parsed.ok) return { state: "ok", value: parsed.value, source: "primary" };
-  const quarantinedAt = quarantineSync(filePath, bytes);
+  if (parsed.ok) return parsed.value;
+  const quarantinedAt = options.keepDamagedCopy === false ? void 0 : quarantineSync(filePath, bytes);
   return recoverFromBackup(filePath, parsed.reason, quarantinedAt, readIfPresentSync(backupPathOf(filePath)), parse);
 }
 
 // src/fleet.ts
 function fileOwnershipStore(path2) {
   return {
-    read: () => {
-      let parsed;
-      try {
-        const stored = readDurableFileSync(path2, parseRecordList);
-        if (stored.state === "absent") return [];
-        parsed = stored.value;
-      } catch {
-        return [];
-      }
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(
-        (entry) => typeof entry === "object" && entry !== null && (entry.serial === null || typeof entry.serial === "string") && typeof entry.avd === "string" && isEmulatorPid(entry.pid) && Number.isFinite(entry.startedAt) && Number.isFinite(entry.bootedAt) && Number.isSafeInteger(entry.ownerPid) && entry.ownerPid > 0 && Number.isFinite(entry.ownerStartedAt)
-      );
-    },
-    write: (records) => writeFileAtomicSync(path2, JSON.stringify(records, null, 2), { backup: { isIntact: (bytes) => parseRecordList(bytes) !== void 0 } })
+    read: () => (readDurableFileSync(path2, parseRecordList) ?? []).filter(
+      (entry) => typeof entry === "object" && entry !== null && (entry.serial === null || typeof entry.serial === "string") && typeof entry.avd === "string" && isEmulatorPid(entry.pid) && Number.isFinite(entry.startedAt) && Number.isFinite(entry.bootedAt) && Number.isSafeInteger(entry.ownerPid) && entry.ownerPid > 0 && Number.isFinite(entry.ownerStartedAt)
+    ),
+    write: (records) => writeFileAtomicSync(path2, JSON.stringify(records, null, 2), { backup: { parse: parseRecordList } })
   };
 }
 function parseRecordList(bytes) {
@@ -2112,7 +2100,7 @@ var Fleet = class {
   }
   async #adoptOrphans() {
     const backend = this.#deps.backend;
-    const records = this.#deps.store.read();
+    const records = this.#readRecords() ?? [];
     let changed = false;
     for (const record of records) {
       if (record.ownerPid !== this.#pid && await this.#ownerRunning(record)) continue;
@@ -2165,9 +2153,19 @@ var Fleet = class {
   }
   /** This pack's records, plus those of OTHER pack processes that are still running. A dead owner's record was adopted (then it is ours) or dropped by `reconcile`: it is never carried forward. */
   #persist() {
+    const stored = this.#readRecords();
+    if (stored === void 0) return;
     const mine = [...this.#owned.values()];
-    const others = this.#deps.store.read().filter((record) => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some((own) => own.pid === record.pid && own.startedAt === record.startedAt));
+    const others = stored.filter((record) => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some((own) => own.pid === record.pid && own.startedAt === record.startedAt));
     this.#deps.store.write([...others, ...mine]);
+  }
+  #readRecords() {
+    try {
+      return this.#deps.store.read();
+    } catch (error) {
+      this.#deps.log(`[sim] the ownership file could not be read, so it is left as it is: ${error instanceof Error ? error.message : String(error)}`);
+      return void 0;
+    }
   }
   async boot(request, waitMs) {
     await this.reconcile();

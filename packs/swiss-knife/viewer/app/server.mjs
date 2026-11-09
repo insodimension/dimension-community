@@ -32154,11 +32154,11 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-var DURABLE_COPY_SUFFIX = /\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+var DURABLE_COPY_SUFFIXES = /(?:\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside)))+$/;
 function denyReason(path3) {
   const segments = segmentsOf(path3);
   const named = segments[segments.length - 1] ?? "";
-  const base = named.replace(DURABLE_COPY_SUFFIX, "");
+  const base = named.replace(DURABLE_COPY_SUFFIXES, "");
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -32174,7 +32174,7 @@ function denyReason(path3) {
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
-    if (DATABASE_FILE.test(named) || DATABASE_FILE.test(base)) return "it is a database inside an engine home";
+    if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
 }
@@ -33251,11 +33251,11 @@ function defectOf(bytes) {
   for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
   return "NUL-filled";
 }
-function isIntactPrevious(bytes, isIntact) {
+function parsesWhole(bytes, parse3) {
   if (defectOf(bytes) !== void 0) return false;
-  if (isIntact === void 0) return true;
   try {
-    return isIntact(bytes);
+    parse3(bytes);
+    return true;
   } catch {
     return false;
   }
@@ -33329,17 +33329,16 @@ async function readPrevious(filePath) {
     await handle.close();
   }
 }
-var backupOptionsOf = (options2) => options2.backup === void 0 || options2.backup === false ? void 0 : options2.backup === true ? {} : options2.backup;
 async function writeFileAtomic(filePath, data, options2 = {}) {
   const directory = path.dirname(filePath);
   await fs.promises.mkdir(directory, { recursive: true });
   const bytes = toBuffer(data);
-  const backup = backupOptionsOf(options2);
+  const backup = options2.backup;
   if (backup === void 0) {
     await publish(filePath, bytes, options2.mode ?? await existingMode(filePath));
   } else {
     const previous = await readPrevious(filePath);
-    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
       await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options2.mode, previous.mode));
     }
     await publish(filePath, bytes, options2.mode ?? previous?.mode);
@@ -33385,21 +33384,21 @@ function recoverFromBackup(filePath, reason, quarantinedAt, backup, parse3) {
   const kept = quarantinedAt ? ` (kept as ${quarantinedAt})` : "";
   if (restored?.ok) {
     console.error(`${filePath} was unreadable (${reason})${kept}; read from its backup.`);
-    return { state: "ok", value: restored.value, source: "backup" };
+    return restored.value;
   }
   console.error(`${filePath} is unreadable (${reason})${kept} and has no readable backup.`);
   throw new DurableFileUnreadableError(filePath, reason, quarantinedAt);
 }
-async function readDurableFile(filePath, parse3) {
+async function readDurableFile(filePath, parse3, options2 = {}) {
   const bytes = await readIfPresent(filePath);
   if (bytes === void 0) {
     const backup = await readIfPresent(backupPathOf(filePath));
-    if (backup === void 0) return { state: "absent" };
+    if (backup === void 0) return void 0;
     return recoverFromBackup(filePath, "missing while its backup exists", void 0, backup, parse3);
   }
   const parsed = parseBytes(bytes, parse3);
-  if (parsed.ok) return { state: "ok", value: parsed.value, source: "primary" };
-  const quarantinedAt = await quarantine(filePath, bytes);
+  if (parsed.ok) return parsed.value;
+  const quarantinedAt = options2.keepDamagedCopy === false ? void 0 : await quarantine(filePath, bytes);
   return recoverFromBackup(filePath, parsed.reason, quarantinedAt, await readIfPresent(backupPathOf(filePath)), parse3);
 }
 async function removeDurableFile(filePath) {
@@ -35111,32 +35110,33 @@ import { join as join4 } from "node:path";
 var StoredFileError = class extends Error {
   name = "StoredFileError";
 };
+function storedJsonParser(path3, schema) {
+  return (bytes) => {
+    let parsed;
+    try {
+      parsed = parseJsonBytes(bytes);
+    } catch {
+      throw new StoredFileError(`${path3} is not valid JSON`);
+    }
+    const checked = schema.safeParse(parsed);
+    if (!checked.success) {
+      const issue2 = checked.error.issues[0];
+      throw new StoredFileError(`${path3} is not valid: ${issue2?.path.join(".") || "(root)"} ${issue2?.message ?? ""}`.trim());
+    }
+    return checked.data;
+  };
+}
 async function readJsonFile(path3, schema) {
-  let stored;
   try {
-    stored = await readDurableFile(path3, (bytes) => {
-      let parsed;
-      try {
-        parsed = parseJsonBytes(bytes);
-      } catch {
-        throw new StoredFileError(`${path3} is not valid JSON`);
-      }
-      const checked = schema.safeParse(parsed);
-      if (!checked.success) {
-        const issue2 = checked.error.issues[0];
-        throw new StoredFileError(`${path3} is not valid: ${issue2?.path.join(".") || "(root)"} ${issue2?.message ?? ""}`.trim());
-      }
-      return checked.data;
-    });
+    return await readDurableFile(path3, storedJsonParser(path3, schema));
   } catch (error51) {
     if (error51 instanceof DurableFileUnreadableError) throw new StoredFileError(error51.message);
     throw error51;
   }
-  return stored.state === "ok" ? stored.value : void 0;
 }
-function writePrivateJsonFile(path3, value) {
+function writePrivateJsonFile(path3, schema, value) {
   return writeFileAtomic(path3, `${JSON.stringify(value, null, "	")}
-`, { mode: 384, backup: true });
+`, { mode: 384, backup: { parse: storedJsonParser(path3, schema) } });
 }
 
 // src/share/hosts.ts
@@ -35219,7 +35219,7 @@ var HostStore = class {
   #update(change) {
     const run2 = this.#queue.then(async () => {
       const { file: file2, result } = change(await this.read());
-      await writePrivateJsonFile(this.path, file2);
+      await writePrivateJsonFile(this.path, hostsFileSchema, file2);
       return result;
     });
     this.#queue = run2.catch(() => void 0);
@@ -36614,7 +36614,7 @@ var P2pStore = class {
     }
   }
   writeShare(id2, state) {
-    return writePrivateJsonFile(this.#sharePath(id2), state);
+    return writePrivateJsonFile(this.#sharePath(id2), shareStateSchema, state);
   }
   removeShare(id2) {
     return removeDurableFile(this.#sharePath(id2));
@@ -36636,7 +36636,7 @@ var P2pStore = class {
     }
   }
   writeTunnel(credentials) {
-    return writePrivateJsonFile(this.#tunnelPath, credentials);
+    return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials);
   }
   clearTunnel() {
     return removeDurableFile(this.#tunnelPath);

@@ -70,7 +70,7 @@ export function compareWithAllowlist(counts: ReadonlyMap<string, number>, allowl
 
 function describeDrift({ file, found, allowed }: DurableWriteDrift): string {
 	if (found > allowed) {
-		return `${file}: ${found} raw writes, ${allowed} allowed. Write pack state through writeFileAtomic/writeFileAtomicSync from lib/durable-file.mjs, or add an allowance with the reason this file is not durable state.`;
+		return `${file}: ${found} raw writes, ${allowed} allowed. Write pack state through writeFileAtomic/writeFileAtomicSync from lib/durable-file.mjs, or add an allowance whose reason says why this write is not state, or names the deferred migration and its board card.`;
 	}
 	return `${file}: ${found} raw writes, ${allowed} allowed. Lower the allowance to ${found} in scripts/durable-writes.allow.json${found === 0 ? " (remove the entry)" : ""}.`;
 }

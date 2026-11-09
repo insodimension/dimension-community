@@ -2884,11 +2884,11 @@ function defectOf(bytes) {
   for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
   return "NUL-filled";
 }
-function isIntactPrevious(bytes, isIntact) {
+function parsesWhole(bytes, parse3) {
   if (defectOf(bytes) !== void 0) return false;
-  if (isIntact === void 0) return true;
   try {
-    return isIntact(bytes);
+    parse3(bytes);
+    return true;
   } catch {
     return false;
   }
@@ -2954,17 +2954,16 @@ function readPreviousSync(filePath) {
     fs.closeSync(descriptor);
   }
 }
-var backupOptionsOf = (options) => options.backup === void 0 || options.backup === false ? void 0 : options.backup === true ? {} : options.backup;
 function writeFileAtomicSync(filePath, data, options = {}) {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
   const bytes = toBuffer(data);
-  const backup = backupOptionsOf(options);
+  const backup = options.backup;
   if (backup === void 0) {
     publishSync(filePath, bytes, options.mode ?? permissionsOf(fs.statSync(filePath, { throwIfNoEntry: false })));
   } else {
     const previous = readPreviousSync(filePath);
-    if (previous !== void 0 && isIntactPrevious(previous.bytes, backup.isIntact)) {
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
       publishSync(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
     }
     publishSync(filePath, bytes, options.mode ?? previous?.mode);
@@ -3006,21 +3005,21 @@ function recoverFromBackup(filePath, reason2, quarantinedAt, backup, parse3) {
   const kept = quarantinedAt ? ` (kept as ${quarantinedAt})` : "";
   if (restored?.ok) {
     console.error(`${filePath} was unreadable (${reason2})${kept}; read from its backup.`);
-    return { state: "ok", value: restored.value, source: "backup" };
+    return restored.value;
   }
   console.error(`${filePath} is unreadable (${reason2})${kept} and has no readable backup.`);
   throw new DurableFileUnreadableError(filePath, reason2, quarantinedAt);
 }
-function readDurableFileSync(filePath, parse3) {
+function readDurableFileSync(filePath, parse3, options = {}) {
   const bytes = readIfPresentSync(filePath);
   if (bytes === void 0) {
     const backup = readIfPresentSync(backupPathOf(filePath));
-    if (backup === void 0) return { state: "absent" };
+    if (backup === void 0) return void 0;
     return recoverFromBackup(filePath, "missing while its backup exists", void 0, backup, parse3);
   }
   const parsed = parseBytes(bytes, parse3);
-  if (parsed.ok) return { state: "ok", value: parsed.value, source: "primary" };
-  const quarantinedAt = quarantineSync(filePath, bytes);
+  if (parsed.ok) return parsed.value;
+  const quarantinedAt = options.keepDamagedCopy === false ? void 0 : quarantineSync(filePath, bytes);
   return recoverFromBackup(filePath, parsed.reason, quarantinedAt, readIfPresentSync(backupPathOf(filePath)), parse3);
 }
 
@@ -3406,7 +3405,7 @@ var ProfileStore = class {
     }
   }
   storedConnections(slug) {
-    const stored = readJsonState(join(this.profileDir(slug), CONNECTIONS_FILE))?.sites;
+    const stored = readDurableFileSync(join(this.profileDir(slug), CONNECTIONS_FILE), parseJsonObject)?.sites;
     const sites = {};
     if (typeof stored !== "object" || stored === null) return sites;
     for (const [host, value] of Object.entries(stored)) {
@@ -3445,9 +3444,8 @@ var ProfileStore = class {
     }
   }
   storedMeta(slug) {
-    const value = readJsonState(join(this.profileDir(slug), PROFILE_FILE));
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
-    const parsed = value;
+    const parsed = readDurableFileSync(join(this.profileDir(slug), PROFILE_FILE), parseJsonObject);
+    if (parsed === void 0) return {};
     const meta = {};
     const label = cleanLabel(parsed.label);
     if (label !== void 0) meta.label = label;
@@ -3462,13 +3460,14 @@ var ProfileStore = class {
     writeJsonAtomic(this.ensureProfile(slug), PROFILE_FILE, { ...this.storedMeta(slug), ...patch });
   }
 };
-function readJsonState(path5) {
-  const read2 = readDurableFileSync(path5, parseJsonBytes);
-  return read2.state === "ok" ? read2.value : void 0;
+function parseJsonObject(bytes) {
+  const value = parseJsonBytes(bytes);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("not a JSON object");
+  return value;
 }
 function writeJsonAtomic(dir, file, value) {
   writeFileAtomicSync(join(dir, file), `${JSON.stringify(value)}
-`, { mode: 384, backup: { isIntact: (bytes) => parseJsonBytes(bytes) !== void 0 } });
+`, { mode: 384, backup: { parse: parseJsonObject } });
 }
 function readLock(path5) {
   try {
@@ -13820,7 +13819,7 @@ var CredentialKey = class {
     mkdirSync8(this.#rootDir, { recursive: true, mode: 448 });
     const text2 = `${randomBytes8(32).toString("base64")}
 `;
-    const staging = `${this.#file}.${randomBytes8(6).toString("hex")}.tmp`;
+    const staging = `${this.#file}.${process.pid}.${randomBytes8(6).toString("hex")}.tmp`;
     try {
       closeSync4(openSync4(staging, "wx", 384));
       onlyTheUser(staging);
@@ -13913,33 +13912,39 @@ function write(file, origins, key) {
   const sealed = {};
   for (const [origin, password] of Object.entries(origins)) sealed[origin] = seal(password, origin, key.get());
   writeFileAtomicSync(file, `${JSON.stringify({ version: 2, origins: sealed })}
-`, { mode: 384, backup: { isIntact: (bytes) => parseStore(bytes).version === 2 } });
+`, { mode: 384, backup: { parse: parseSealedStore } });
 }
-function parseStore(bytes) {
-  let parsed;
+function parseJsonDocument(bytes) {
   try {
-    parsed = JSON.parse(bytes.toString("utf8"));
+    return JSON.parse(bytes.toString("utf8"));
   } catch {
     throw new Error("not JSON");
   }
+}
+function storeShape(parsed) {
   const version = parsed?.version;
   const origins = parsed?.origins;
-  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) throw new Error("not a saved-password store");
-  if (version !== 1 && version !== 2 && version !== void 0) throw new Error(`saved-password store version ${String(version)} is not one this browser reads`);
+  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) fail("credentials_unreadable", UNREADABLE);
+  if (version !== 1 && version !== 2 && version !== void 0) fail("credentials_unreadable", UNREADABLE);
   return { version, origins };
 }
-function readStore(file) {
-  const read2 = readDurableFileSync(file, parseStore);
-  return read2.state === "ok" ? read2.value : void 0;
+function parseSealedStore(bytes) {
+  const store = storeShape(parseJsonDocument(bytes));
+  if (store.version !== 2) throw new Error("not a sealed store");
+  return store;
 }
-var unmigrated = /* @__PURE__ */ new Set();
-function read(file, key) {
-  let store;
+function readStore(file) {
+  let parsed;
   try {
-    store = readStore(file);
+    parsed = readDurableFileSync(file, parseJsonDocument, { keepDamagedCopy: false });
   } catch {
     fail("credentials_unreadable", UNREADABLE);
   }
+  return parsed === void 0 ? void 0 : storeShape(parsed);
+}
+var unmigrated = /* @__PURE__ */ new Set();
+function read(file, key) {
+  const store = readStore(file);
   if (store === void 0) return {};
   const { version, origins: stored } = store;
   const clear = {};

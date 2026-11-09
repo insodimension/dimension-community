@@ -140,7 +140,7 @@ export class CredentialKey {
     if (this.#holdsSealedStores()) fail("credentials_unreadable", NO_KEY);
     mkdirSync(this.#rootDir, { recursive: true, mode: 0o700 });
     const text = `${randomBytes(32).toString("base64")}\n`;
-    const staging = `${this.#file}.${randomBytes(6).toString("hex")}.tmp`;
+    const staging = `${this.#file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       closeSync(openSync(staging, "wx", 0o600));
       onlyTheUser(staging);
