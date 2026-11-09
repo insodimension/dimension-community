@@ -220,6 +220,7 @@ Object.freeze({
 	usageWarnThreshold: 60,
 	usageWarnRedThreshold: 90,
 	usageWarnDismissed: {},
+	projectRegistryRestoreDismissed: "",
 	environmentSetupJob: null,
 	environmentMoves: {}
 });
