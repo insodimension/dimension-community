@@ -37,53 +37,77 @@ export interface SubmitExpectation {
 	readonly values: readonly string[];
 }
 
-export function gatedProfileReason(profile: string): string {
-	return `${profile} is a profile a Traction account posts from: what it posts is checked against what the person approved, so code never drives it. Use the step tools on it, or open another profile.`;
+export function codeRefusal(reason: string): string {
+	return `${reason}: what it posts is checked against what the person approved, so code never drives it. Use the step tools on it, or open another profile.`;
 }
 
 type NamedProfiles = ReadonlySet<string> | "unknown";
 
+export interface GatedProfilesOptions {
+	readonly onGated?: (profiles: ReadonlySet<string>) => void;
+	readonly now?: () => number;
+}
+
 const NO_PROFILES: ReadonlySet<string> = new Set();
+const ABSENT_GRACE_MS = 2_000;
 
 export class GatedProfiles {
 	readonly #dir: string;
 	readonly #file: string;
-	readonly #onChange: () => void;
+	readonly #onGated: (profiles: ReadonlySet<string>) => void;
+	readonly #now: () => number;
 	#seen: string | undefined;
 	#present = false;
+	#absentSince: number | undefined;
+	#recheck: NodeJS.Timeout | undefined;
 	#good: ReadonlySet<string> | undefined;
 	#named: NamedProfiles | undefined;
 	#watcher: FSWatcher | undefined;
+	#closed = false;
 
-	constructor(rootDir: string, onChange: () => void = () => undefined) {
+	constructor(rootDir: string, options: GatedProfilesOptions = {}) {
 		this.#dir = rootDir;
 		this.#file = join(rootDir, PUBLISH_PROFILES_FILE);
-		this.#onChange = onChange;
+		this.#onGated = options.onGated ?? (() => undefined);
+		this.#now = options.now ?? (() => performance.now());
 	}
 
 	has(profile: string | null): profile is string {
-		if (profile === null) return false;
-		if (TRACTION_PROFILE.test(profile)) return true;
+		return this.reason(profile) !== undefined;
+	}
+
+	reason(profile: string | null): string | undefined {
+		if (profile === null) return undefined;
+		if (TRACTION_PROFILE.test(profile)) return `${profile} is a profile a Traction account posts from`;
 		const named = this.#current();
-		return named === "unknown" ? profile !== RELAY_PROFILE : named.has(profile);
+		if (named !== "unknown") return named.has(profile) ? `${profile} is a profile a Traction account posts from` : undefined;
+		return profile === RELAY_PROFILE ? undefined : `the publishing registry ${this.#file} could not be read, so ${profile} is treated as a profile a Traction account posts from`;
 	}
 
 	watch(): void {
-		if (this.#watcher !== undefined) return;
+		if (this.#watcher !== undefined || this.#closed) return;
 		try {
-			this.#watcher = watch(this.#dir, { persistent: false }, (_event, name) => {
+			const watcher = watch(this.#dir, { persistent: false }, (_event, name) => {
 				if (name === null || name === PUBLISH_PROFILES_FILE) this.#current();
 			});
-			this.#watcher.on("error", () => this.close());
+			watcher.on("error", () => {
+				watcher.close();
+				this.#watcher = undefined;
+				this.watch();
+			});
+			this.#watcher = watcher;
 		} catch (error) {
-			console.error("The publish-profiles watch failed; a newly gated profile is let go at its next gate check:", error instanceof Error ? error.message : String(error));
+			console.error("[browser] the publishing registry watch failed; a newly named profile is let go at its next gate check:", error instanceof Error ? error.message : String(error));
 		}
 		this.#current();
 	}
 
 	close(): void {
+		this.#closed = true;
 		this.#watcher?.close();
 		this.#watcher = undefined;
+		clearTimeout(this.#recheck);
+		this.#recheck = undefined;
 	}
 
 	#current(): NamedProfiles {
@@ -95,8 +119,11 @@ export class GatedProfiles {
 			return this.#named ?? "unknown";
 		}
 		if (identity === this.#seen && this.#named !== undefined) return this.#named;
-		if (identity === "absent") return this.#settle(identity, this.#present ? "unknown" : NO_PROFILES);
+		if (identity === "absent") return this.#absent();
 		this.#present = true;
+		this.#absentSince = undefined;
+		clearTimeout(this.#recheck);
+		this.#recheck = undefined;
 		const read = readNamedProfiles(this.#file);
 		if (read === undefined) return this.#named ?? "unknown";
 		if (read === "invalid") return this.#settle(identity, this.#good ?? "unknown");
@@ -104,11 +131,32 @@ export class GatedProfiles {
 		return this.#settle(identity, read);
 	}
 
+	#absent(): NamedProfiles {
+		if (!this.#present) return this.#settle("absent", NO_PROFILES);
+		const now = this.#now();
+		this.#absentSince ??= now;
+		if (now - this.#absentSince >= ABSENT_GRACE_MS) return this.#settle("absent", "unknown");
+		if (this.#recheck === undefined && !this.#closed) {
+			this.#recheck = setTimeout(() => {
+				this.#recheck = undefined;
+				this.#current();
+			}, ABSENT_GRACE_MS);
+			this.#recheck.unref?.();
+		}
+		return this.#named ?? "unknown";
+	}
+
 	#settle(identity: string, named: NamedProfiles): NamedProfiles {
 		this.#seen = identity;
-		const changed = this.#named !== undefined && named !== this.#named;
+		const previous = this.#named;
 		this.#named = named;
-		if (changed) queueMicrotask(this.#onChange);
+		if (named === "unknown") {
+			if (previous !== "unknown") console.error(`[browser] the publishing registry ${this.#file} could not be read: every saved profile but the relay is gated until it can be.`);
+			return named;
+		}
+		if (previous === undefined || named === previous) return named;
+		const added = previous === "unknown" ? named : new Set([...named].filter((profile) => !previous.has(profile)));
+		if (added.size > 0) queueMicrotask(() => this.#onGated(added));
 		return named;
 	}
 }

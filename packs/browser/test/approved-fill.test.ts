@@ -431,7 +431,7 @@ describe("a profile a Traction account posts from by name (publish-profiles.json
 		expect(s.page.posted).toEqual([]);
 	});
 
-	test("naming a profile stops the task running on it and takes it from the code that holds it", async () => {
+	test("naming a profile stops the task running on it and takes it from code that holds it, launched or joined", async () => {
 		const s = await session({ profile: GODOFROCK });
 		const internals = s.runtime as unknown as { byId: Map<string, Record<string, unknown>> };
 		const entry = internals.byId.get(s.browserId)!;
@@ -447,7 +447,6 @@ describe("a profile a Traction account posts from by name (publish-profiles.json
 			finished: finished.promise,
 		};
 		entry.taskEndpoint = { close: () => stopped.push("endpoint") };
-		entry.code = { idleMs: 60_000, persist: false };
 		const ended = Promise.withResolvers<[string, string, string | undefined]>();
 		s.runtime.codeSeam().onEnd((browserId, why, reason) => ended.resolve([browserId, why, reason]));
 		const awake = watch(s.rootDir, { persistent: true });
@@ -465,7 +464,7 @@ describe("GatedProfiles reads publish-profiles.json and fails closed", () => {
 	test("its watch announces a new list with no gate check", async () => {
 		const rootDir = await createRoot();
 		const changed = Promise.withResolvers<void>();
-		const gated = new GatedProfiles(rootDir, () => changed.resolve());
+		const gated = new GatedProfiles(rootDir, { onGated: () => changed.resolve() });
 		gated.watch();
 		const awake = watch(rootDir, { persistent: true });
 		try {
@@ -495,24 +494,54 @@ describe("GatedProfiles reads publish-profiles.json and fails closed", () => {
 		expect([gated.has("godofrock"), gated.has("personal")]).toEqual([true, false]);
 	});
 
-	test("a file that goes missing after it was read gates every saved profile", async () => {
+	test("a file that goes missing after it was read gates every saved profile once it has stayed gone past the grace", async () => {
 		const rootDir = await createRoot();
 		await nameAccountProfiles(rootDir, ["godofrock"]);
-		const gated = new GatedProfiles(rootDir);
-		expect(gated.has("personal")).toBe(false);
-		await rm(join(rootDir, PUBLISH_PROFILES_FILE));
-		expect([gated.has("personal"), gated.has("godofrock")]).toEqual([true, true]);
+		let now = 0;
+		const gated = new GatedProfiles(rootDir, { now: () => now });
+		try {
+			expect(gated.has("personal")).toBe(false);
+			await rm(join(rootDir, PUBLISH_PROFILES_FILE));
+			expect([gated.has("personal"), gated.has("godofrock")]).toEqual([false, true]);
+			now = 2_000;
+			expect([gated.has("personal"), gated.has("godofrock"), gated.has("relay")]).toEqual([true, true, false]);
+			expect(gated.reason("personal")).toContain("could not be read");
+		} finally {
+			gated.close();
+		}
 	});
 
-	test("a changed list is announced once per change", async () => {
+	test("a file replaced within the grace keeps the list it held", async () => {
 		const rootDir = await createRoot();
-		let changes = 0;
-		const gated = new GatedProfiles(rootDir, () => void (changes += 1));
+		await nameAccountProfiles(rootDir, ["godofrock"]);
+		let now = 0;
+		const gated = new GatedProfiles(rootDir, { now: () => now });
+		try {
+			gated.has("godofrock");
+			await rm(join(rootDir, PUBLISH_PROFILES_FILE));
+			now = 1_000;
+			expect(gated.has("personal")).toBe(false);
+			await nameAccountProfiles(rootDir, ["godofrock"]);
+			now = 5_000;
+			expect([gated.has("personal"), gated.has("godofrock")]).toEqual([false, true]);
+		} finally {
+			gated.close();
+		}
+	});
+
+	test("only a newly named profile is announced, once", async () => {
+		const rootDir = await createRoot();
+		const announced: string[][] = [];
+		const gated = new GatedProfiles(rootDir, { onGated: (profiles) => void announced.push([...profiles]) });
 		gated.has("godofrock");
 		await nameAccountProfiles(rootDir, ["godofrock"]);
 		gated.has("godofrock");
 		gated.has("godofrock");
+		await nameAccountProfiles(rootDir, ["godofrock", "personal"]);
+		gated.has("godofrock");
+		await nameAccountProfiles(rootDir, ["personal"]);
+		gated.has("godofrock");
 		await Promise.resolve();
-		expect(changes).toBe(1);
+		expect(announced).toEqual([["godofrock"], ["personal"]]);
 	});
 });

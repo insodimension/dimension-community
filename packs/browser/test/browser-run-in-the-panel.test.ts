@@ -175,7 +175,7 @@ function portShowing(shown: ShownEntry, gated: ReadonlySet<string> = new Set()):
     browsersOf: () => [...entries.values()].filter(isThrowawayOrRelay),
     require: (browserId: string) => entries.get(browserId)!,
     resolveProfile: (raw: string) => raw.trim().toLowerCase(),
-    gated: (profile: string | null) => profile !== null && gated.has(profile),
+    gatedReason: (profile: string | null) => (profile !== null && gated.has(profile) ? `${profile} is a profile a Traction account posts from` : undefined),
     bindView: () => undefined,
     resize: async () => ({}) as BrowserState,
     open: async (options: BrowserOpenOptions) => {
