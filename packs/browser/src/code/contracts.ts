@@ -129,7 +129,7 @@ export type HostToWorker =
   | { t: "bridge-reply"; id: number; ok: true; value: BridgeResponse & { attach?: TabHandle } }
   | { t: "bridge-reply"; id: number; ok: false; error: RunError }
   | { t: "abort"; runId: string }
-  | { t: "end"; browserId: string; why: "closed" | "retired" | "taken-over"; reason?: string }
+  | { t: "end"; browserId: string; why: "closed" | "retired" | "taken-over" | "gated"; reason?: string }
   | { t: "close" };
 export type WorkerToHost =
   | { t: "ready" }
@@ -204,7 +204,7 @@ export interface CodeBrowserPort {
   /** Lets go of one hold (`o.by`); with several chats on a saved-profile browser it stays until the last is done. */
   release(browserId: string, o: { kill: boolean; by?: BrowserOpener }): Promise<void>;
   /** `reason` is the runtime's own account when it closed the browser (idle, to make room): what the cell is told in place of "not alive". */
-  onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over", reason?: string) => void): () => void;
+  onEnd(l: (browserId: string, why: "closed" | "retired" | "taken-over" | "gated", reason?: string) => void): () => void;
   // ---- ADDED by L2 (the host needs them on reuse, on a View mounting, and for the freeze clock).
   /** Navigates a tab the session already holds (`browser.open({ name, url })` on a name that exists). A page that has not loaded in `timeoutMs` (or when `signal` aborts) is stopped and the call rejects. */
   navigateTab(browserId: string, tabId: string, o: { url: string; waitUntil?: WaitUntil; timeoutMs: number }, signal: AbortSignal): Promise<TabRef>;

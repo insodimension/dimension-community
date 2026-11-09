@@ -826,8 +826,9 @@ export class CodeSession {
   }
 
   /** A browser of this session ended. Its tabs are dropped from the worker (a cell waiting on one is rejected there); a take-over also stops the cell that was using it. */
-  browserEnded(browserId: string, why: "closed" | "retired" | "taken-over", reason: string | undefined): void {
-    if (!this.#browsers.has(browserId)) return;
+  browserEnded(browserId: string, why: "closed" | "retired" | "taken-over" | "gated", reason: string | undefined): void {
+    const record = this.#browsers.get(browserId);
+    if (record === undefined) return;
     const run = this.#active;
     const worker = this.#worker;
     const used = run?.holds.has(browserId) === true;
@@ -835,11 +836,13 @@ export class CodeSession {
     if (why === "taken-over") this.#dropTabsOf(browserId);
     else this.#forgetBrowser(browserId);
     if (worker !== undefined && !worker.dead) worker.handle.transport.send({ t: "end", browserId, why, ...(reason === undefined ? {} : { reason }) });
-    if (why === "taken-over" && run !== undefined && used && run.settled === undefined) {
-      run.override = { name: "ToolError", message: "human_driving: the person took over this browser in the View, so the cell was stopped. Ask them to hand it back before you act again.", isAbort: true };
+    if ((why === "taken-over" || why === "gated") && run !== undefined && used && run.settled === undefined) {
+      const message = why === "gated" ? `publish_unapproved: ${reason ?? "this browser's profile is one a Traction account posts from"}` : "human_driving: the person took over this browser in the View, so the cell was stopped. Ask them to hand it back before you act again.";
+      run.override = { name: "ToolError", message, isAbort: true };
       run.controller.abort(new ToolAbortError());
       worker?.handle.transport.send({ t: "abort", runId: run.id });
     }
+    if (why === "gated") void this.#dropBrowser(record, false);
     this.#afterRun();
   }
 

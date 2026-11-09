@@ -3,8 +3,10 @@
 If you cannot see a browser tool that opens a page, this file does not apply.
 
 As of 2026-11-06. Each page below is read in the account's own saved profile
-(`traction-<platform>-<handle>` in a Traction session; whichever profile the
-user names otherwise) with the step tools or code tools, at the pace a person
+(in a Traction session the account's Browser profile: the one its campaign
+names, else `traction-<platform>-<handle>`; whichever profile the user names
+otherwise) with the step tools, or the code tools on a profile no Traction
+account posts from, at the pace a person
 reads: a few page loads per task, never a loop. Labels in the evidence column:
 **[site]** the platform's own help or developer pages; **[research]** read by
 Dimension's platform research on the date given, URL not yet opened in a live
