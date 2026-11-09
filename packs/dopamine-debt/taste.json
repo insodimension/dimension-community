@@ -1,0 +1,248 @@
+{
+ "channel": "dry-run",
+ "rules": [
+  {
+   "id": "deadpan",
+   "text": "Deadpan, never cringe",
+   "check": "judge",
+   "severity": "gate"
+  },
+  {
+   "id": "no-hr-music",
+   "text": "No HR or corporate music: beds 88-100 BPM, minor, minimal, no hooks or build-ups. A bed Inso approved in music.json passes: his yes is the measure this proxy stands in for",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-from-library",
+   "text": "The bed is a media-library music entry or a track in music.json `approved`; never a motion_score render (Inso, 2026-11-05, security-week r1 bed: \"fucking horrible\")",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-approved-by-inso",
+   "text": "Every bed's file (by sha256) is in music.json `approved`: Inso's own yes for the track, or a bed the Filmmaker made for the film under his standing ruling of 2026-11-07 (`approved_by` and `film`; it counts for that film only), judged by him by ear in the render; a bed he rejected fails with his words even when it is also approved (Inso, 2026-11-05)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-under-voice",
+   "text": "Under the narration the bed sits at least 12 LU below the voice, measured on the voice and music stems (the approved Altman roast: 14.0 LU)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-ducks-under-memes",
+   "text": "Under every meme that plays its own sound the bed ducks at least 6 dB below its level under the narration, or is silent (the approved Altman roast: 8.4-9.7 dB)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-drops-under-memes",
+   "text": "Under every meme that plays its own sound the bed sits at least 18 LU below the meme's line, or is silent, so the line plays clear (the approved Altman roast: 22.4-23.2 LU)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-no-vocals",
+   "text": "No vocals in a bed: silero VAD finds a voice in under 5% of the track (instrumental beds measured 0%, a sung track 85%)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-text-walls",
+   "text": "No text walls: >=12 unspoken on-screen words under a different sentence",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "real-sources",
+   "text": "Real X/Reddit posts and real people, captured with source and date",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "safe-corners",
+   "text": "Nothing important in the 10% edge band",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-clipped-text",
+   "text": "No cut-off text: in every held state of a picture, no visible word or captured page line is cut by a card, a window, the stage or the frame (Inso, 2026-11-06, weight-space receipts and tags)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "tag-clear-of-text",
+   "text": "Tags, stickers and chips never lie over other text: in every held state, none covers more than 10% of a visible word or page line (Inso, 2026-11-06, weight-space tags over their numbers)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-end-card",
+   "text": "No end card; credits go in the YouTube description",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-lower-thirds",
+   "text": "No lower thirds everywhere: a source label shows once, small, about 2 s",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-fireship",
+   "text": "No Fireship footage or mention",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "min-720p",
+   "text": "Every source at least 720p",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-whole-line",
+   "text": "A meme plays its whole spoken line, setup included, cut on silence in the clip source; a payoff word alone is not a meme (Inso, 2026-11-04)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "one-per-franchise",
+   "text": "No film, show, game or creator supplies more than one meme in a film; a callback reusing the same asset counts once, and so does one meme row played in parts (Inso, 2026-11-04)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-meme-tags",
+   "text": "No credit or source tag on a meme; credits go in the description",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-meme-grids",
+   "text": "No captioned meme grids",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "narration-cut-in-silence",
+   "text": "The narration is cut only in silence, never on live speech (Inso, 2026-11-04)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-sfx-on-words",
+   "text": "No sound effect over a narration word",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-stops-at-sentence-end",
+   "text": "A meme stops the narration only at a sentence end (Inso, 2026-11-04)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-dead-air",
+   "text": "No 1 s run without narration or sound near voice level",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "show-dont-tell",
+   "text": "Show, don't tell: while the narration speaks, the picture changes at least every 5 s (a new picture, a motion-graphic reveal, a meme or clip). A sticker or label is not a change. A page shown as a receipt holds at most 4 s before something explains it (Inso, 2026-11-04, Altman RAM roast notes 1, 3, 5, 8, 9)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-scene-replay",
+   "text": "A motion-graphic scene never snaps back to a frame it already showed: a scene the next line keeps continues from its settled state instead of rebuilding from scratch. Measured on the render; 1 s or more fails (Inso, 2026-11-07, Megascans Filmmaker take: 'the same frame repeated many times')",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "first-laugh-by-4s",
+   "text": "The cold open lands its first meme or punch within 4 s (Inso, 2026-11-07, Megascans Filmmaker take: first laugh at 12 s, 'not so funny')",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "statement-not-asked",
+   "text": "A written statement is never voiced as a question: the render's transcript ends no statement with a question mark (Inso, 2026-11-07, Megascans Filmmaker take: 'the voice acting was weird in the beginning')",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-blank-stage",
+   "text": "No blank screen: never 1.5 s or more of an empty stage or a motion-graphic title with nothing revealed yet (Inso, 2026-11-04, Altman RAM roast note 7)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "analogy-in-motion",
+   "text": "An extended analogy (the spine's anchor_world) is shown as a motion-graphic scene that acts it out, never one still photo (Inso, 2026-11-04, Altman RAM roast note 1)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "never-explain-the-joke",
+   "text": "Deadpan never labels its own joke: no 'that part is our joke', 'just kidding', 'joking aside'. A fairness caveat is stated plainly as a fact (Inso, 2026-11-04, Altman RAM roast note 9)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-is-the-audience",
+   "text": "A meme voices what the target audience feels at that moment, not what the subject or the narrator feels: 'nice' over an 80% margin is the memory maker's reaction, not the viewer's (Inso, 2026-11-04, Altman RAM roast note 2)",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on calibration/inso-marks.jsonl, 2026-11-04: 5/7 rejected caught, 6/6 approved falsely failed. Becomes a gate at recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "meme-canonical-version",
+   "text": "A meme template is used in its most widely recognised version (the one RIZPOL-style edits and the wider internet use): its library entry's canonical.is is true, from evidence (library_tag canonical {is, basis}, the Know Your Meme page or most-viewed upload) or Inso's switch on the Library page; an entry without canonical fails (Inso, 2026-11-04, Altman RAM roast note 2: the wrong Michael Rosen clip; ruled 2026-11-06)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-has-a-setup",
+   "text": "Every meme lands something the narration just set up; a viewer can say why it is there. No meme as decoration (Inso, 2026-11-04, Altman RAM roast notes 6, 10)",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on calibration/inso-marks.jsonl, 2026-11-04: 5/7 rejected caught, 6/6 approved falsely failed. Becomes a gate at recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "picture-is-understood",
+   "text": "A picture depicts the fact the line says, so the floor viewer understands it without explanation; no riddle metaphors (a mantis for regulators) (Inso, 2026-11-04, Altman RAM roast note 4)",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on calibration/inso-marks.jsonl, 2026-11-04: 5/7 rejected caught, 6/6 approved falsely failed. Becomes a gate at recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "analogy-stays-in-its-world",
+   "text": "The film's analogy (spine anchor_world) is acted out only in the world it sets up: its objects never wander into a new setting or story the analogy and the narration never named (Inso, 2026-11-08, METR Filmmaker take: the inspection car reused on a road for 'no bottleneck', 'other AI developers' and 'slow down', 'multiple times where it wouldn't even make sense'). Judged per narrator line on the frames-only reader's description: kit g11plan.seen_judged at K-9.",
+   "check": "judge",
+   "severity": "gate",
+   "calibration": "framework/g11.calibrate(completion, calibration/analogy-world.jsonl), 2026-11-09, slow model, 3-vote majority: 3/3 rejected caught (METR Filmmaker render 9: a1.7, a2.4, a3.10), 1/128 approved lines falsely failed (weight-space a4.10), stable over 3 runs. Held out (METR Filmmaker render 10, 37 lines): 1 flagged (a3.3, the car lifting off the rollers)."
+  }
+ ],
+ "banned_strings": [
+  "step one",
+  "step two",
+  "robot movies",
+  "buckle up",
+  "let's dive in",
+  "game-changer",
+  "in today's video",
+  "smash that like",
+  "without further ado",
+  "fellow kids",
+  "our joke",
+  "that's the joke",
+  "that is the joke",
+  "just kidding",
+  "joking aside"
+ ]
+}

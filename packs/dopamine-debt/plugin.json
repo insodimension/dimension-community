@@ -1,0 +1,31 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "dopamine-debt",
+	"version": "0.3.1",
+	"description": "The Dopamine Debt comedy-film framework: the Filmmaker agent, its film skills, the dd engine and film kit, personas and calibration, and the house gate `inso dd gate`.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": [
+		"video",
+		"comedy",
+		"framework",
+		"gate"
+	],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"title": "Dopamine Debt",
+			"icon": "assets/icon.svg",
+			"category": "media",
+			"cli": [
+				{
+					"name": "dd",
+					"entry": "cli.ts",
+					"description": "Dopamine Debt: `dd gate <script|cut> <production> <report>`, `dd setup <brand>` (writes house-gates.json), `dd new-film <production>` (the kit film's build files)"
+				}
+			]
+		}
+	}
+}

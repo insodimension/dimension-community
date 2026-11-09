@@ -1,0 +1,191 @@
+---
+name: dopamine-debt-film
+description: "Make a Dry Run explainer film through the Dopamine Debt framework, from the audience research to an approved render: spine, joke map, script, storyboard, voice, cut, gate, render, Inso's review. Also turns Inso's notes on a render into rules or calibration. Triggers: 'make the film', 'redo the film', 'rebuild the film from scratch', 'apply the framework', 'dopamine debt', 'debt curve', 'run the framework on', 'where do the memes go', 'place the memes', 'Dry Run film', 'Inso's notes on the render', 'calibrate the framework'. Self-improving: every run ends with a gotcha review."
+---
+
+# Dopamine Debt film workflow
+
+This skill turns `dopamine-debt/FRAMEWORK.md` into the order of work for making a Dry Run film. Each stage writes files that the next stage checks, and the engine (`dd/`) reads every stage. A film reaches Inso only through `dd/gate.py`, and **Inso decides**. The output is a 1080p render, its curve page, the gate table with every advisory failure, and a short list of what was not checked.
+
+This skill is **self-improving**. Every run ends with a gotcha review (see [Self-Improvement Protocol](#self-improvement-protocol)).
+
+> **This skill is a checklist, not a suggestion.** Tick every `[ ]` by writing its status and its Exit outcome in your notes for the film (`films/<f>/WORKLOG.md`) before you move on. Skipping a step without writing down why breaks the skill.
+
+Roots: `DD/` is this plugin's root (two folders above this skill: the engine `dd/`, `framework/` and its film kit, personas, `taste.json`, `tunables.json`, `music.json`, calibration). `WORK/` is the brand's `productions/dopamine-debt/`, where the films (`WORK/films/<f>/<rev>/`) and research live: the house gate and the editor's `script_gate` both resolve a revision there from the production folder. `dd/home.py` resolves the engine home (media library, judge); `DD_ENGINE_HOME` and `DD_FILMS_ROOT` override them for a test home. A film's own production folder holds its build (`build/`, written by `dd new-film <production>`) and its media.
+
+The gate runs from a terminal or as the Video pack's house gate, with no eval kernel: `bun <DD>/gate/launch.ts <script|cut> <production folder> <report.json>` (the same as `inso dd gate …`). It exits 0 (pass), 1 (fail, blockers in the report) or 2 (cannot run, `missing` in the report), and its judge is the person's `judge` role. A production names its revision in `dopamine-debt.json`: `{"revision": "<film>/<rev>", "audiences": {"<audience>": "personas/...md"}}`. The cut stage scores what is in the cut (edl.json speech clips, their transcripts and the memes placed), never script.md.
+
+---
+
+## Pre-flight: ALWAYS
+
+- [ ] **PF-1. Read [references/gotchas.md](references/gotchas.md) and [references/craft.md](references/craft.md).** Exit: you can name Inso's last three rejections and what each one taught.
+- [ ] **PF-2. Read `DD/FRAMEWORK.md` §3, §4, §7, §8, §10 and [references/framework-map.md](references/framework-map.md).** Exit: you can state the debt formula, θ, τ, the four moves and every hard gate in one line each.
+- [ ] **PF-3. Check the root.** The personas (`DD/personas/channel/*.md`, `DD/personas/topic/<topic>.md`) are not past their `expires` date. `DD/taste.json` and `DD/tunables.json` load. Exit: the expiry dates are written down, or a topic persona is rebuilt by the §1.3 protocol.
+- [ ] **PF-4. Check the tools.** `pip install -r <DD>/requirements.txt` is satisfied. The brand's `productions/house-gates.json` exists (`dd setup <brand folder>` writes it from this plugin). `bun <DD>/gate/launch.ts script <production> <report>` runs and its report names the judge model that answered (exit 2 lists what is missing). `ffmpeg`, `faster-whisper` (through `DD/framework/quiet.py`) and a headless Chrome or Edge (`DD/framework/tools.browser`) all run. `npx hyperframes` responds. Exit: a smoke call to each.
+- [ ] **PF-5. Pick the mode.** Exit: Film, Notes or Calibrate is written down.
+
+## Modes
+
+| Mode | When | Output |
+|---|---|---|
+| **Film** | make or remake a film | `films/<f>/<rev>/`: spine, script, `lines.json`, voice, the kit build, render, page, gates |
+| **Notes** | Inso watched a render and commented | each note filed as a G11 rule, a calibration tap or a script repair, then a new revision |
+| **Calibrate** | a film Inso approved or rejected exists | `DD/calibration/targets|failures/<film>/` read by the same pipeline, plus §11 proposals |
+
+---
+
+## Mode: Film
+
+Work in a fresh revision directory `films/<f>/<rev>/`. Never patch a rejected revision in place. Reuse only the **root** (personas, verified facts, the media library), never another revision's script or cut. Recipes and file schemas: [references/stages.md](references/stages.md).
+
+### Stage 1: Packaging and spine (G1)
+- [ ] **F-1. Packaging.** Write the title (it holds the title nouns), the thumbnail, `promise_q`, `confirmed_by_s: 10` and `answered_in: last-25%`. Exit: the title nouns are listed.
+- [ ] **F-2. Spine (`spine.yaml`, frozen before the script).** Fill in premise ("[subject] says A but does B"), a falsifiable take, a narrator `{stance, flaw, never}`, voice_mode, anchor_world `{analogy, maps, breaks_at, extensions, lines}` (`lines`: the script lines that act the analogy out; each gets a motion-graphic scene, G11 `analogy-in-motion`), money_object, retell R1–R3, acts (each with `turn: but|therefore`, a rising `stake_rung`, loops and a button seed) and callbacks (each plant is itself funny and comes at least min(60 s, 30% of the film's runtime) before its first trigger). Exit: every field is present.
+- [ ] **F-3. Intent (`intent.json`).** Write 3 retell facts, each resolving to a verified fact id, plus support facts and the ending feeling. Exit: every id resolves in the film's `sources_verified.json`.
+- [ ] **F-4. Cold open plan.** Within 5 s, a thesis joke carrying the title nouns. A **real moment** (a clip of the subject, a news read, a real post) inside the first 20 s. The promise is confirmed by 10 s. No "This is X" opener. Exit: the first 20 s are written beat by beat.
+
+### Stage 2: Joke map and script (G2–G10)
+- [ ] **F-5. Joke map.** One row per bit: setup, punch (22 words or fewer, punch word last), mechanism, target, carries, `gag_id`, hold, plants/calls, build_id, opens/pays. **A meme is written as the punch of its bit**: the narration sets it up and the meme lands it, about the same fact. A meme never lands on a fact with no setup. Exit: every meme row names the line it punches.
+- [ ] **F-6. Script.** Deadpan. One joke aimed at the narrator in every act. Filing mechanics get a move (Bake in, Carry or Pay; §7.3) before they get a meme. Exit: `script/lines.json` and `script/script.md` are written, and every fact id resolves.
+- [ ] **F-7. Script read.** Build `framework/script/` with units timed at **2.7 words/s** (Inso's measured voice pace, not `tunables.wps` 3.3: G2 and G7 are timing gates) and `root.json` `kind: "script"`, `previous: null` (`scriptstage.write_engine_dir` writes both).
+  - Run `await dd.read.read(...)` and `res = dd.gate.check(..., g11={})`.
+  - Store the stage record with `dd.gate.write(film_dir, res)` (`gates.json` with every meme, `ledger.<aud>.json`: the next stage's G13 compares against it) and `page.html` with the revision's report driver.
+  - Exit: `gates.json` and `page.html` are written, with 0 missing reads, and the cast of memes is in `gates.json` `memes`.
+- [ ] **F-8. Repair loop (at most 3 passes).** Each pass must cut the hard blockers or the debt integral. Log each pass in `repairs.md` with the edit size against the score change, and treat a large jump from a small edit as a red flag.
+  - Fix by **structure** (move, cut, re-anchor, add a laugh inside a long bit), never by rewording to please the judge.
+  - A juror veto on a meme's bit is **G3m, advisory**: never cut the meme for it; log the juror's reason and its ablation for Inso. G3 stays hard for written bits.
+  - A pass may not lower laughs/min (G5) or drop a meme without a library replacement: repair by adding laughs, never by removing them (security-week r1 passed by cutting Phil Swift, The Rock and Hello there, and Inso rejected it).
+  - If the passes run out, restore the best pass (fewest blockers, then lowest integral) before stopping.
+  - Exit: every hard gate passes, or the stage stops and goes to Inso with the blocker and a proposed fix.
+
+### Stage 3: Pictures and memes in `lines.json` (G2–G11 planned)
+- [ ] **F-9. Pictures (show, don't tell).** For each beat, choose a picture that **depicts** the fact: the money object, a motion-graphic scene that acts the fact out, the filing page with the spoken sentence highlighted for 3–4 s as proof, b-roll, a real post captured with its source and capture date.
+  - Under narration the picture **changes at least every 5 s**; a sticker or a name stamp is not a change. A page holds 3–4 s and then a scene, a meme or the subject's face explains it: split a long line into pictures on its words (`from`/`until`).
+  - A scene shows its first element within 1 s (no title-only screen). No riddle metaphors (a mantis for regulators).
+  - Exit: every picture is cued in `lines.json` (`DD/framework/kit/README.md`, `lines.json` contract), and every photo has its one-sentence "depicts" line.
+- [ ] **F-10. Memes from the library.** Pick from the media library (`dd.home.LIBRARY/<id>/entry.json`; read-only, corrections go through `library_tag`, the strict schema rejects extra keys). Every meme's `library` and `gag_id` are its entry id; a longer source fetched for an entry's edges keeps that id, and a clip with no entry (`fetch-*`) is not a library meme.
+  - **The script's cast is the floor:** every meme the script stage cast reaches the cut, or the meme that takes its place logs `replaces: <gag id>`, comes from the library and reads at least as funny for every audience (G13).
+  - A meme is **the audience's reaction at that moment** (read the persona: a "nice" over a company's 80% margin is the company's feeling, not the viewer's), it is the template's **canonical** version (the entry's `canonical.is`; stages.md §Memes), and the line before it sets up exactly what it lands.
+  - Transcribe each candidate with `quiet.speech()` and take the **whole spoken sentence, setup included**; a one-word `payoff.line` is not the line. Set in and out with `quiet.clip_edges()` so both edges sit in silence, and fetch the longer source when an edge is above `CLEAN_DB` (stages.md §Memes).
+  - At most one per franchise. Mix the modes, play most meme time large (full frame, cutout or ghost: G12 wants ≥ 57%), and place each overlay on the thing the narration names.
+  - Exit: every MEME row in `lines.json` has its measured in, out and full line, any `replaces`, and in `meme.why` the sentence "the viewer feels X because the line just said Y".
+
+### Stage 4: Spend and voice
+- [ ] **F-12a. Script gate receipt.** Run the Video editor's `script_gate` on the production (its `dopamine-debt.json` names the revision; `dd setup <brand>` wrote the house gate it runs). Follow a running gate with `job_status`. Exit: it passed, and its `inputsHash` is written down.
+- [ ] **F-12b. Inso's yes to the spend.** Price the voice, music and effects with `generation_quote`, `ask` Inso for that amount and wait for his answer, then `kit_approve` with the `inputsHash` from F-12a and the `estimateUsd` he accepted. A reply that starts "Not recorded" means the script changed since the gate: show him what changed and ask again. Exit: `kit_approve` recorded the approval. Any later edit to `lines.json`, `spine.yaml` or `intent.json` makes it stale: F-12a and F-12b again before the next spend.
+- [ ] **F-12. Voice.** `generation_submit` with model `elevenlabs/voice` and `options.production`; leave `voiceId` out so the default voice set in Settings (Media generation) speaks, unless the brand kit or Inso names another, and keep one voice per film.
+  - The tool returns `audio.mp3` with word timings and takes no endpoint, format or pronunciation option: apply the film's pronounce map (`Film.spoken_forms`) in the text.
+  - One act per job, at most 2 at a time. Never time-stretch. The licence is `elevenlabs-unreviewed`: say so.
+  - Exit: every act has audio plus word timings in `voice/`.
+
+### Stage 5: Build, read, review
+- [ ] **F-13. Build, render and read with the kit.** Follow the `kit-film` skill K-1 … K-10: `dd new-film`, scenes as code, timeline (narration cut only in silence), compose, G11, render, the blind-reader loop, the SEEN gate. The bed: G8; stages.md §Delivery. Exit: K-9 passes (`dd.gate.write` stored the SEEN record) or its one blocker is with Inso.
+- [ ] **F-14. Self-check before Inso.** Transcribe each meme window in the render: the whole line must play. Look at a frame of each meme and of every picture change. Read every advisory G11 judge finding yourself. The bed is registered as G8 says. Exit: a table with time, meme, what plays, and its "viewer feels X because Y" sentence; any you could not write is cut before Inso sees it.
+- [ ] **F-15. Show Inso.** Show the render, `page.html` (curve, laugh marks, memes, worst three stretches), the gate table **with advisory failures**, the music licence, and what was not checked. Say "the framework predicts", never "it passes, so it's good". Exit: presented, with the limits stated.
+- [ ] **F-16. Gotcha review.** Exit: entries appended (see the protocol).
+
+---
+
+## Mode: Notes
+
+Inso's note is a symptom of a flow problem, not a to-do item (craft.md §Notes). Never patch a note literally.
+
+- [ ] **N-1. Locate.** Map each note's timestamp to its unit, bit and meme in the cut's `segments.json`. Exit: each note has a unit id.
+- [ ] **N-2. Classify.** Each note is one of:
+  - (a) a measurable defect, which becomes a G11 rule in `DD/taste.json` (`check: code`, `severity: gate`) **with its check in `DD/framework/g11.py`** and the Plan field it needs;
+  - (b) a taste reading, which becomes a G11 judge rule (`severity: advisory` until calibrated) and labelled rows in `DD/calibration/inso-marks.jsonl` (the note verbatim, its unit, and for judged items the state with `label: rejected`; also add the items he praised as `approved`);
+  - (c) a story problem, which goes back to the stage that owns it (spine, script, or the pictures in `lines.json`).
+  - One note can be all three. Record every note in `inso-marks.jsonl` either way. Exit: a class for each note, and `g11.calibrate` re-run.
+- [ ] **N-3. Find every other instance.** Run the new check over the whole film and every film that has a builder Plan. The check's findings ARE the instance list; a check that misses an instance Inso marked is wrong, so fix the check before the film. Exit: the count of instances, where they are, and which are fixed in this revision.
+- [ ] **N-4. Redo from the owning stage** in a new revision (Film mode, starting at that stage). Exit: the new revision passes the gate, and F-14 shows the note fixed.
+
+## Mode: Calibrate
+
+- [ ] **C-1.** Read the film through the same pipeline into `DD/calibration/targets/<film>/` (approved) or `failures/<film>/` (rejected), with TEXT and SEEN reads. Exit: ledgers and gates exist.
+- [ ] **C-2.** Compare the prediction with Inso's verdict. If people laughed and the judge didn't: re-read with picture and sound, then extend the reference bank. If the judge laughed and people didn't: the line becomes a cringe hard negative. Exit: each disagreement is listed.
+- [ ] **C-3.** Write a §11 proposal `{target, before, after, evidence, golden_delta}`. **Never apply it without Inso's yes.** Exit: the proposal file exists, and Inso has been asked.
+
+---
+
+## Delivery Gate
+
+Nothing reaches Inso until every row is PASS. The kit's K-9 runs `dd.gate.check` (rows G0–G3, G7 and G8); rows G4–G6 are yours.
+
+- [ ] **G0. Fresh ledger.** Every unit of the current cut, at its current state, has its readouts for every gated audience and both card variants, the juror has read every triggered bit, and the whole-cut juror has read the SEEN cut for every persona. A missing read is `incomplete`, never a pass.
+- [ ] **G1. Hard G-gates.** Every gate outside `tunables.json` `advisory_gates` (G3m Meme cringe, G5f Fact laughs) holds for every audience. G4 Nobody lost and G5 Laugh rate are hard since 2026-11-05.
+- [ ] **G2. G11 build checks.** `framework/g11.code_checks(plan)` on the current cut: every gate rule in `DD/taste.json` is answered, and an unchecked rule blocks. Advisory judge findings are listed for Inso, never hidden.
+- [ ] **G3. No bypass.** No flag, no hand-edited `gates.json`, no threshold lowered to pass (§8.1).
+- [ ] **G4. Every meme plays its whole line, setup included,** cut on silence (F-10, F-14).
+- [ ] **G5. Every fact on screen or in the narration resolves** to a verified source id.
+- [ ] **G6. Nothing reaches Inso below 1080p.** Every source is 720p or better.
+- [ ] **G7. The laughs reached the cut.** G13 Laughs kept passes (every meme the script cast is here or replaced from the library with `replaces`), and G12 Entertainment passes on the SEEN read (landed laughs/min, library memes/min, no long voice run without a laugh, large meme display time, the whole-cut juror's keep-watching). No meme was cut for a juror veto (G3m is advisory).
+- [ ] **G8. The bed is approved.** G11 `music-from-library` and `music-approved-by-inso` pass: every bed's sha256 is in `DD/music.json` `approved`, by Inso's own yes or, for a bed you made for this film, under his standing ruling of 2026-11-07 (`approved_by` and `film`, counting for this film only); a rejected bed fails with his words even if it is also approved. `music-under-voice`, `music-ducks-under-memes`, `music-drops-under-memes` and `music-no-vocals` pass on the kit's stems. No model listens for him: he judges the bed by ear in the render.
+
+---
+
+## Shared Infrastructure
+
+- **Where each framework concept lives in code:** [references/framework-map.md](references/framework-map.md)
+- **Stage recipes, file schemas and commands:** [references/stages.md](references/stages.md)
+- **Craft: what Inso approved and rejected, and why:** [references/craft.md](references/craft.md)
+- **A worked example, stage by stage, with tools and outputs:** [references/production-recipe.md](references/production-recipe.md) (Altman RAM roast, approved 2026-11-04)
+- **Gotchas log:** [references/gotchas.md](references/gotchas.md)
+- **One implementation of each thing:** shared code lives in `DD/dd/` (the engine), `DD/framework/` (quiet, overlays, layout, tools) and `DD/framework/kit/` (the film builder, its stage camera and scene templates). A film's directory holds its data and a thin builder. If you need code from another film's `build/`, move it into `DD/framework/` first, then import it from both places.
+
+---
+
+## Self-Improvement Protocol
+
+Every run must end with a gotcha review. New learnings die silently if you don't log them.
+
+**During the run:**
+- An undocumented error or dead end: capture the symptom and the resolution word for word.
+- An API that didn't behave as documented: note its actual shape.
+- A performance, cost or behaviour surprise: note the measurement.
+- Inso pushed back on your phrasing or method: ALWAYS log it. Pushback is the most valuable source of gotchas.
+
+**At the end of the run:**
+1. **Promote the pattern** to its permanent home BEFORE you append the log entry:
+   - craft lessons from Inso → [references/craft.md](references/craft.md)
+   - engine, file or command facts → [references/stages.md](references/stages.md) or [references/framework-map.md](references/framework-map.md)
+   - a new hard rule → the Delivery Gate above, plus a G11 rule in `DD/taste.json` with a build check
+2. **Then** append a 1–3 line entry to [references/gotchas.md](references/gotchas.md). Each entry must point to the reference you promoted the full fix to.
+3. **Never** let a new learning die silently. If you discovered it, log it.
+
+**Gotcha entry format (1–3 lines):**
+```markdown
+### YYYY-MM-DD — <one-line title>
+Symptom → cause → fix. See [<promoted-ref>#<anchor>](<promoted-ref>#<anchor>) for the full pattern.
+Context: <what you were doing + film / stage / note>.
+```
+
+Use today's absolute date. Never a relative one.
+
+---
+
+## Failure / Recovery
+
+| Symptom | Cause / Fix |
+|---|---|
+| Inso is bored in the first minute | No real moment and no written joke in the first 20 s → redo F-4 and F-5 (craft.md §Openings) |
+| A meme "is not a meme" | Only the payoff word plays → F-10: whole sentence from `quiet.speech`, edges from `clip_edges` |
+| Narration chopped before a meme | Cut on a timing boundary, not on silence → the kit's timeline cuts in the take's measured pause (kit-film K-5), G11 `narration-cut-in-silence` |
+| The juror reads every meme as cringe | It read a text description → the SEEN read (kit-film K-9) decides, not the script read |
+| A gate passes and Inso rejects | The gates are necessary, not sufficient → Notes mode (each note becomes a check or a calibration label), then Calibrate mode |
+| Inso: "one still for too long", "just stamping names", "blank screen" | F-9 show-dont-tell / no-blank-stage: split the line into pictures on its words, act the fact out in a scene, receipts 3–4 s |
+| Inso: "this meme doesn't fit / not the right one" | F-10: the audience's feeling, the canonical clip, a named setup; label it in `inso-marks.jsonl` |
+| `dd.gate` says `incomplete` | Missing reads, a missing whole-cut read, an unchecked G11 rule, a `root.json` with no `kind` or `previous`, a previous stage with no `dd.gate.write` record, or a SEEN meme with no `display` → run `dd.read`, write the link or record, implement the check; never pass it by default |
+| Inso: "almost zero memes and jokes" | Repairs removed laughs and nothing put them back → G13 (every cast meme reaches the cut or is replaced from the library) and G12 at the SEEN read; never cut a meme for an advisory G3m veto (F-8, F-10, kit-film K-9) |
+| Inso hates the music ("fucking horrible", "HR music") | A bed shipped that nobody made for the film or listened to → G8: make the film's own bed, register it in `DD/music.json` `approved` under the standing ruling, and record his verdict by ear there (`rejected` with his words) |
+| A judge row is labelled `jev-latest` | Host cache hit → disclose it in the report; the engine can't yet stamp the batch model (gotchas) |
+
+---
+
+## Related
+
+- `DD/FRAMEWORK.md`: the framework itself (v2.1). This skill is its order of work.
+- `filmmaker-core`: the short order of work and the house rules.
+- `kit-film`: building, rendering and reading the film (F-13).
+- `hyperframes-*` skills: composition and animation detail for the kit's page.
+- `media-use`: capture and sourcing helpers.

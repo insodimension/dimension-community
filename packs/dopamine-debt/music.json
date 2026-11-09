@@ -1,0 +1,225 @@
+{
+ "about": "Music beds Inso has ruled on. A film's bed passes G11 music-approved-by-inso only when its file's sha256 is in `approved`: either after Inso's own yes for that track (`inso`, his words), or a bed the Filmmaker made for one film under his standing ruling of 2026-11-07 (`approved_by: \"standing ruling 2026-11-07\"` with `film`: the production id it counts for, and for no other film; never a quoted yes he did not give), which he judges by ear in the render. Every entry names its licence; an `elevenlabs-unreviewed` licence is reported in the film's delivery note. `references` are beds he praised inside a film, kept as listening references; they are not approvals. `rejected` beds fail with his words, even when they are also in `approved`.",
+ "approved": [
+  {
+   "id": "music-96e1c9a3",
+   "cue": "M1",
+   "file": "productions/altman-ram-roast/media/music/M1.mp3",
+   "sha256": "c0b9ac616f1cb1895255cee245ad451357b02b0547023e9649916e3cc686bf18",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "films": [
+    "weight-space-r1"
+   ],
+   "inso": {
+    "date": "2026-11-06",
+    "asked": "Music for the new film: reuse the roast's two beds (recommended; the only beds you've praised by ear; ElevenLabs Music licence still unreviewed), generate 3 new beds for you to pick, or decide for me (I'd reuse the roast beds).",
+    "said": "Decide for me",
+    "decided": "reuse the roast's two beds, as recommended in the question"
+   }
+  },
+  {
+   "id": "music-2975f16e",
+   "cue": "M2",
+   "file": "productions/altman-ram-roast/media/music/M2.mp3",
+   "sha256": "0d2858c9deb9738093f0d00cad322b81b5ae7b8569bbe33f162e454cb84246f4",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "films": [
+    "weight-space-r1"
+   ],
+   "inso": {
+    "date": "2026-11-06",
+    "asked": "Music for the new film: reuse the roast's two beds (recommended; the only beds you've praised by ear; ElevenLabs Music licence still unreviewed), generate 3 new beds for you to pick, or decide for me (I'd reuse the roast beds).",
+    "said": "Decide for me",
+    "decided": "reuse the roast's two beds, as recommended in the question"
+   }
+  },
+  {
+   "id": "music-c8d824e5",
+   "cue": "Bed A",
+   "file": "productions/worst-security-week/media/music-c8d824e5.mp3",
+   "sha256": "6ba5e348f5953d3e72607e7398f28945badb9a2af45dfdac58c79ee0f8b4a9de",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "films": [
+    "security-week-r1"
+   ],
+   "inso": {
+    "date": "2026-11-05",
+    "asked": "Which music bed goes under the film? Bed A: dry and tense (muted plucked synth, sub bass, brushed percussion, ~96 BPM); Bed B: sparse piano; or decide for me (I'd take A). Both raw beds and 30 s auditions under the Binance narration were presented.",
+    "said": "Decide for me",
+    "decided": "Bed A, as recommended in the question",
+    "asked_again": "Keep new Bed A (you approve it by ear at the cut watch), reuse the roast bed, or decide for me (I'd keep Bed A and get your ear on it at the watch).",
+    "said_again": "Decide for me",
+    "note": "Inso has not yet confirmed Bed A by ear; he hears it at the cut watch before Approve cut."
+   }
+  },
+  {
+   "id": "music-a9dd9212",
+   "cue": "M1",
+   "file": "productions/megascans-free-again/media/music/M1.mp3",
+   "sha256": "a2b38d504c062cec3869e94f2720280d2ba3952d4e190fa88a9e0a46e90d22ba",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "prompt": "Instrumental background bed for a deadpan, sarcastic tech-explainer video about free 3D assets. Laid-back boom-bap lo-fi beat at 90 BPM, dry punchy drums, warm muted Rhodes chords, round sub bass, a light playful vibraphone motif. Steady and loopable, constant medium-low energy, no build-ups, no drops, no risers, no vocals, sits quietly under narration.",
+   "films": [
+    "megascans-r1"
+   ],
+   "measured": {
+    "bpm": 89.1,
+    "key": "E major",
+    "key_corr": 0.74,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-07"
+   },
+   "inso": {
+    "date": "2026-11-07",
+    "asked": "Music bed: A reuse the Altman beds, B generate 3 new beds for you to pick by ear, C decide for me (I'd take A).",
+    "said": "Okay, then just continue, right? Whatever. You feel like I think you should create your own music and everything.",
+    "decided": "generate the film's own two beds (M1 acts 0-2, M2 from a3.1); he hears them in the render and can reject them there"
+   }
+  },
+  {
+   "id": "music-def61105",
+   "cue": "M2",
+   "file": "productions/megascans-free-again/media/music/M2.mp3",
+   "sha256": "71535d44e16a0c8f51ead2ce476061a6e6f63ee04a1615b732cfdaeb7c41fff7",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "prompt": "Instrumental background bed for the investigative second half of a deadpan, sarcastic tech-explainer video. Same family as a 90 BPM lo-fi boom-bap groove, but darker and more suspicious: minor-key muted Rhodes, plucked synth ostinato, soft detective-style upright-bass line, dry drums, a hint of tension. Steady and loopable, constant medium-low energy, no build-ups, no drops, no vocals, sits quietly under narration.",
+   "films": [
+    "megascans-r1"
+   ],
+   "measured": {
+    "bpm": 89.1,
+    "key": "C major",
+    "key_corr": 0.69,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-07"
+   },
+   "inso": {
+    "date": "2026-11-07",
+    "asked": "Music bed: A reuse the Altman beds, B generate 3 new beds for you to pick by ear, C decide for me (I'd take A).",
+    "said": "Okay, then just continue, right? Whatever. You feel like I think you should create your own music and everything.",
+    "decided": "generate the film's own two beds (M1 acts 0-2, M2 from a3.1); he hears them in the render and can reject them there"
+   }
+  },
+  {
+   "id": "music-4a9931d0",
+   "cue": "M1",
+   "file": "productions/metr-filmmaker/media/music/M1.mp3",
+   "sha256": "4a9931d0aadec7423f04ad85669747d66712f6bb848a31fb45a7ef47e41c93d0",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "prompt": "Instrumental underscore for a deadpan, sarcastic tech-news explainer about an audit with redacted evidence. 112 BPM, D Dorian, sneaky investigative groove: upright pizzicato bass walking line, muted funk guitar chops, dry brushed snare and tight hi-hat, a small playful marimba hook that returns every 8 bars, occasional typewriter-like percussion ticks. Light, curious, slightly mischievous, confident; leaves space in the mids for a voice-over. No vocals, no big drops, no corporate pads, no inspirational piano.",
+   "films": [
+    "metr-filmmaker-r1"
+   ],
+   "measured": {
+    "bpm": 112.3,
+    "key": "G minor",
+    "key_corr": 0.53,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-08"
+   },
+   "inso": {
+    "date": "2026-11-07",
+    "said": "Okay, then just continue, right? Whatever. You feel like I think you should create your own music and everything.",
+    "decided": "the Filmmaker generates each film's own beds (M1 acts 0-2, M2 from a3.1); he judges them by ear in the render and can reject them there"
+   }
+  },
+  {
+   "id": "music-4c716e08",
+   "cue": "M2",
+   "file": "productions/metr-filmmaker/media/music/M2.mp3",
+   "sha256": "4c716e08b1992259ce7d63dce0974b15ce93154f1eab1c7c9f59d2457a996f88",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "prompt": "Instrumental underscore for the second half of a deadpan, sarcastic investigative explainer: the plot thickens. 112 BPM, D minor with a Phrygian edge, same sneaky groove but darker: pizzicato bass ostinato, low muted guitar chops, dry brushed drums, a ticking clock-like woodblock, a short tense marimba motif answered by a low brass stab every 8 bars, conspiracy-thriller wink but still playful. Leaves space for a voice-over. No vocals, no epic risers, no corporate pads.",
+   "films": [
+    "metr-filmmaker-r1"
+   ],
+   "measured": {
+    "bpm": 112.3,
+    "key": "D minor",
+    "key_corr": 0.84,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-08"
+   },
+   "inso": {
+    "date": "2026-11-07",
+    "said": "Okay, then just continue, right? Whatever. You feel like I think you should create your own music and everything.",
+    "decided": "the Filmmaker generates each film's own beds (M1 acts 0-2, M2 from a3.1); he judges them by ear in the render and can reject them there"
+   }
+  }
+ ],
+ "references": [
+  {
+   "id": "music-96e1c9a3",
+   "cue": "M1",
+   "film": "altman-ram-roast",
+   "file": "productions/altman-ram-roast/media/music/M1.mp3",
+   "sha256": "c0b9ac616f1cb1895255cee245ad451357b02b0547023e9649916e3cc686bf18",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "measured": {
+    "bpm": 95.7,
+    "key": "G major",
+    "key_corr": 0.69,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-05"
+   },
+   "use": "acts 0-2 of the roast, -33 LUFS against voice at -19, ducked 9 dB under memes and clips",
+   "inso": [
+    {
+     "date": "2026-11-04",
+     "said": "fucking awesome… the music matches… memes are properly placed… funny."
+    },
+    {
+     "date": "2026-11-05",
+     "said": "the memes landed, the music was nice."
+    }
+   ]
+  },
+  {
+   "id": "music-2975f16e",
+   "cue": "M2",
+   "film": "altman-ram-roast",
+   "file": "productions/altman-ram-roast/media/music/M2.mp3",
+   "sha256": "0d2858c9deb9738093f0d00cad322b81b5ae7b8569bbe33f162e454cb84246f4",
+   "provider": "elevenlabs/music",
+   "licence": "elevenlabs-unreviewed: commercial use unknown until Inso rules on the ElevenLabs Music licence",
+   "measured": {
+    "bpm": 184.6,
+    "key": "C minor",
+    "key_corr": 0.79,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-05 (the tracker counts double time)"
+   },
+   "use": "act 3 onward of the roast (switch at line a3.1), same level and duck as M1",
+   "inso": [
+    {
+     "date": "2026-11-04",
+     "said": "fucking awesome… the music matches… memes are properly placed… funny."
+    },
+    {
+     "date": "2026-11-05",
+     "said": "the memes landed, the music was nice."
+    }
+   ]
+  }
+ ],
+ "rejected": [
+  {
+   "id": "bed-dminor-95d",
+   "film": "security-week-r1",
+   "file": "productions/worst-security-week/media/bed-dminor-95d.wav",
+   "sha256": "5eae24b4c5cbb8ec6eef82fb37f7f566c02f547a43381ad4c3ca3d13359f5445",
+   "provider": "motion score",
+   "made_by": "motion_score: an ABC score (piano, strings, lofi kit) rendered on CC0 samples, receipt productions/worst-security-week/receipts/score-20261105T082626-bed-dminor-95d.json",
+   "measured": {
+    "bpm": 95.7,
+    "key": "D minor",
+    "key_corr": 0.84,
+    "by": "librosa beat_track + Krumhansl chroma, first 120 s, 2026-11-05"
+   },
+   "date": "2026-11-05",
+   "inso": "fucking horrible"
+  }
+ ]
+}

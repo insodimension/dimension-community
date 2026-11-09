@@ -643,6 +643,40 @@
 			]
 		},
 		{
+			"name": "dopamine-debt",
+			"source": "./packs/dopamine-debt",
+			"release": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.3.1/dopamine-debt-0.3.1.tgz",
+				"sha256": "b2d3e601033b2cbb448f7798c2aa84af4443ab6e54a55130caf71806fa07f424",
+				"size": 1268841
+			},
+			"pluginId": "dopamine-debt",
+			"title": "Dopamine Debt",
+			"icon": "packs/dopamine-debt/assets/icon.svg",
+			"description": "The Dopamine Debt comedy-film framework: the Filmmaker agent, its film skills, the dd engine and film kit, personas and calibration, and the house gate `inso dd gate`.",
+			"version": "0.3.1",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "media",
+			"tags": [
+				"video",
+				"comedy",
+				"framework",
+				"gate"
+			],
+			"generalAgents": [
+				{
+					"name": "filmmaker",
+					"description": "Makes Dry Run films end to end the way the weight-space film was made, through the Dopamine Debt framework and its film kit",
+					"defaultEnabled": true
+				}
+			]
+		},
+		{
 			"name": "example-agents",
 			"source": "./packs/example-agents",
 			"release": {

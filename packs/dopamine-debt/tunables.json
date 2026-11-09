@@ -1,0 +1,314 @@
+{
+  "framework_version": "2.0.0",
+  "judge_model": "typesafe/jev-1.14.0",
+  "values": {
+    "tau_s": {
+      "v": 20,
+      "status": "unfitted",
+      "source": "prior from reviews; fit by hazard model on published retention"
+    },
+    "theta": {
+      "v": 4.0,
+      "status": "unfitted",
+      "source": "prior; set to P90 of max D on target videos"
+    },
+    "wps": {
+      "v": 3.3,
+      "status": "fitted",
+      "source": "tone study: Fireship 3.5, Drinker 3.0-3.3 words/s inside phrases"
+    },
+    "before_window_s": {
+      "v": 45,
+      "status": "unfitted",
+      "source": "reviews"
+    },
+    "laugh_floor_per_min": {
+      "v": 2.99,
+      "status": "fitted",
+      "measure": "laugh+0.5smile",
+      "source": "2026-11-05 SEEN calibration (calibration/failures/security-week-r1/proposal.json): approved Altman roast dry-run 4.29 (K variants 4.19-4.37), altman-ram 3.81 (3.65-4.00); rejected security-week r1 dry-run 2.71 (2.61-2.84), security-week 2.37 (2.29-2.45). The floor stays at the Fireship P25 of calibration run 3 (2.99), which lies in the gap. The old ceiling 4.13 is dropped: the approved film's SEEN read is 4.29 and no rejected film was ever too funny."
+    },
+    "max_joke_sentence_share": {
+      "v": 0.65,
+      "status": "fitted",
+      "source": "tone preset"
+    },
+    "min_fact_laugh_share": {
+      "v": 0.5,
+      "status": "unfitted",
+      "source": "measurement review. 2026-11-05 SEEN pair does not separate on it: approved Altman 0.333 dry-run / 0.314 altman-ram (K variants 0.304-0.338), rejected security-week r1 0.286 / 0.286 (0.286-0.300); the gap is one bit of r1's 21 laughs and the approved film fails 0.5 itself. Advisory (G5f) until a sample separates it."
+    },
+    "min_shared_laugh_share": {
+      "v": 0.667,
+      "status": "unfitted",
+      "source": "audience review"
+    },
+    "lost_p": {
+      "v": 0.5,
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "retell_follow_p": {
+      "v": 0.6,
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "follow_seconds_share": {
+      "v": 0.85,
+      "status": "fitted",
+      "source": "measurement review; kept by the 2026-11-05 SEEN calibration: approved Altman 100% / 100% followed, no lost run, no weak retell unit; rejected security-week r1 96% dry-run but 67% for its topic audience, lost run 4, 5 retell units under 0.6. G4 separates on the topic audience only."
+    },
+    "cringe_veto_p": {
+      "v": 0.4,
+      "status": "fitted",
+      "source": "calibration: second-family juror on 144 labelled seed lines, AUC 0.979; at 0.4 recall 0.92, false alarms 2% on real jokes and 2% on flat (calibration/juror-seed.jsonl)",
+      "judge": "juror"
+    },
+    "juror_trigger": {
+      "v": {
+        "laugh": 0.4,
+        "cringe": 0.15
+      },
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "trust_penalty": {
+      "v": {
+        "factor": 0.7,
+        "seconds": 30,
+        "cringe_p": 0.3
+      },
+      "status": "unfitted",
+      "source": "psychology review [INFERENCE]"
+    },
+    "heavy_net": {
+      "v": 1.5,
+      "status": "unfitted",
+      "source": "v1 carried"
+    },
+    "entity_free": {
+      "v": 3,
+      "status": "fitted",
+      "source": "Cowan 2001 ~4 chunks"
+    },
+    "entity_cost": {
+      "v": 0.5,
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "wall": {
+      "v": {
+        "min_words": 12,
+        "per_s": 0.25,
+        "label_free_words": 5
+      },
+      "status": "unfitted",
+      "source": "Chandler & Sweller 1991; v2 spec"
+    },
+    "reward": {
+      "v": {
+        "laugh": 2.0,
+        "smile": 0.75,
+        "clicked": 1.0,
+        "unrelated_gag": 0.5,
+        "callback_bonus": 0.5,
+        "repeat": 0.6
+      },
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "cost": {
+      "v": {
+        "lost": 1.0,
+        "heavy": 1.0,
+        "cringe": 4.0,
+        "open_loop": 0.3
+      },
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "loop_pay": {
+      "v": {
+        "base": 1.0,
+        "per_s": 0.1,
+        "cap": 3.0
+      },
+      "status": "unfitted",
+      "source": "Loewenstein 1994; psychology review"
+    },
+    "generic_clear_frac": {
+      "v": 0.5,
+      "status": "unfitted",
+      "source": "craft review"
+    },
+    "gaps": {
+      "v": {
+        "open_s": 60,
+        "close_s": 30,
+        "edge_gap_s": 20,
+        "valley_s": 45,
+        "valley_per_s": 120,
+        "after_valley_laughs": 2,
+        "after_valley_s": 12
+      },
+      "status": "unfitted",
+      "source": "craft review"
+    },
+    "peak": {
+      "v": {
+        "fun": 0.5,
+        "window": [
+          0.3,
+          0.7
+        ]
+      },
+      "status": "fitted",
+      "source": "calibration run 1: P95 of E[laugh+\u00bdsmile] over all target units is 0.50; every Fireship video has a mid-40% unit at 0.44-0.62"
+    },
+    "end": {
+      "v": {
+        "window_s": 20,
+        "min_net": 0.16,
+        "max_d": 1.0
+      },
+      "status": "fitted",
+      "source": "calibration run 1: best reference ending (N2TmzjbmjGM) has mean net +0.16 over its last 20 s; all Fireship endings are -0.32 to +0.03; take five -0.27"
+    },
+    "strain_seconds_share": {
+      "v": 0.95,
+      "status": "unfitted",
+      "source": "v2 spec"
+    },
+    "double_heavy_s": {
+      "v": 15,
+      "status": "unfitted",
+      "source": "measurement review"
+    },
+    "cold_open": {
+      "v": {
+        "thesis_by_s": 5,
+        "promise_by_s": 10,
+        "laugh_p": 0.5
+      },
+      "status": "unfitted",
+      "source": "craft review"
+    },
+    "fact_encodings": {
+      "v": {
+        "min": 3,
+        "last_in_final_s": 20,
+        "no_gag_after_s": 8
+      },
+      "status": "unfitted",
+      "source": "Cepeda 2006; psychology review"
+    },
+    "callback_min_gap_s": {
+      "v": 60,
+      "status": "unfitted",
+      "source": "craft review"
+    },
+    "callback_min_gap_frac": {
+      "v": 0.3,
+      "status": "unfitted",
+      "source": "Inso's ruling 2026-11-09: the callback gap scales with the film, min(callback_min_gap_s, this share of the runtime); every film of 200 s or longer is judged as before"
+    },
+    "uncertain_sd": {
+      "v": 1.0,
+      "status": "fitted",
+      "source": "measurement review"
+    },
+    "single_audience_joke_s": {
+      "v": 30,
+      "status": "unfitted",
+      "source": "audience review"
+    },
+    "advisory_gates": {
+      "v": [
+        "G3m Meme cringe",
+        "G5f Fact laughs"
+      ],
+      "status": "decided",
+      "source": "2026-11-05, Inso's yes to the security-week r1 proposal (calibration/failures/security-week-r1/proposal.json): G4 and G5 are hard, fitted on SEEN reads; the juror's cringe veto is advisory on meme bits until Inso rules on its meme calibration (it was fitted on lines with no memes); the fact-laugh share is advisory because the SEEN pair does not separate on it."
+    },
+    "laugh_cut": {
+      "v": 0.2,
+      "status": "fitted",
+      "source": "calibration run 1: P(laugh)+0.5 P(smile) >= 0.2 gives best F1 0.65 (precision 0.68, recall 0.63) against human joke labels on 8 reference videos"
+    },
+    "cringe_source": {
+      "v": "juror where it read the bit, else Jev",
+      "status": "fitted",
+      "source": "juror cringe AUC 0.979 on seed lines; Jev cringe over-calls (14/48 cringe rewrites as lands) and reads 0.3+ on bits the juror calls clean"
+    },
+    "juror_cringe_map": {
+      "v": {
+        "x": [
+          0.0,
+          0.05,
+          0.1,
+          0.15,
+          0.2,
+          0.25,
+          0.3,
+          0.35,
+          0.4,
+          0.45,
+          0.5,
+          0.55,
+          0.6,
+          0.65,
+          0.7,
+          0.75,
+          0.8,
+          0.85,
+          0.9,
+          0.95,
+          1.0
+        ],
+        "y": [
+          0.0,
+          0.0,
+          0.0,
+          0.017,
+          0.017,
+          0.017,
+          0.176,
+          0.176,
+          0.818,
+          0.818,
+          0.909,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "status": "fitted",
+      "source": "isotonic fit of juror cringe score to the cringe label on 144 seed lines; calibration/juror-cringe-map.json"
+    },
+    "laugh_floor_audiences": {
+      "v": [
+        "dry-run"
+      ],
+      "status": "decided",
+      "source": "the floor comes from Fireship references read with the channel card; a topic persona has no on-topic reference to fit a floor from"
+    },
+    "entertainment": {
+      "v": {
+        "laughs_per_min": 6.0,
+        "memes_per_min": 1.67,
+        "max_dry_voice_s": 16.0,
+        "large_meme_share": 0.57,
+        "keep_watching": 0.47
+      },
+      "status": "fitted",
+      "source": "2026-11-05, G12 at the SEEN stage, each threshold the midpoint between the approved Altman roast SEEN read and the rejected security-week r1 SEEN read (n = 1 + 1; calibration/failures/security-week-r1/proposal.json). Landed laughs/min (bits with laugh + 0.5 smile >= laugh_cut): Altman 7.04 / 6.85 (K variants >= 6.75), r1 5.18 / 5.18 (<= 5.18). Library memes/min: Altman 1.86 (19 in 613.5 s), r1 1.48 (6 in 243.3 s). Longest voice run without a laugh or smile: Altman 14.3 s, r1 17.6 s. Meme time shown full, cutout or ghost (seen 'display'): Altman 64%, r1 50%. Whole-cut juror keep-watching, min over audiences of 3 draws: Altman 0.52 (altman-ram; dry-run 0.60), r1 0.41 (security-week; dry-run 0.72, above Altman: the juror does not separate the films for the channel audience, and the 10-minute film is read against a 4-minute one)."
+    }
+  }
+}

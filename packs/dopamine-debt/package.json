@@ -1,0 +1,39 @@
+{
+	"name": "dopamine-debt",
+	"version": "0.3.1",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"private": true,
+	"type": "module",
+	"dimension": {
+		"name": "dopamine-debt",
+		"category": "media",
+		"keywords": [
+			"video",
+			"comedy",
+			"framework",
+			"gate"
+		]
+	},
+	"files": [
+		"plugin.json",
+		"README.md",
+		"assets/",
+		"cli.ts",
+		"scaffold.ts",
+		"requirements.txt",
+		"general-agents/",
+		"gate/",
+		"skills/",
+		"dd/",
+		"framework/",
+		"personas/",
+		"calibration/",
+		"FRAMEWORK.md",
+		"taste.json",
+		"tunables.json",
+		"music.json"
+	]
+}
