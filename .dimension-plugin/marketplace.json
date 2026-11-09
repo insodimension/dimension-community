@@ -1709,8 +1709,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.3/swiss-knife-0.7.3.tgz",
-				"sha256": "e155235f7304da240ff0f8e6c7b983a218f713e70af76fbb4e2741346d5b831c",
-				"size": 2261127
+				"sha256": "6e02ec52eb5a1f9dde7f3f5292651c95a0e49c963cd659e63887baf7b245db7e",
+				"size": 2262669
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
