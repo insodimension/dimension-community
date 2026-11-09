@@ -1,100 +1,19 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
+import { createReachReportTool, createVideoAnalyticsTool, ensureReachJobs } from "./analytics";
+import { configFile, freshAccessToken, videoIdOf, youtubeJson } from "./api";
+import { createUpdateVideoTool } from "./update";
 
-const CONFIG_TARGET = join(homedir(), ".config", "dimension-youtube", "token.json");
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
-const REFRESH_SKEW_MS = 60_000;
 const MAX_DESCRIPTION_CHARS = 4_000;
 const MAX_COMMENT_CHARS = 2_000;
-const COMMENT_LEDGER = join(homedir(), ".config", "dimension-youtube", "comment-ledger.json");
+const COMMENT_LEDGER = "comment-ledger.json";
 const COMMENTS_PER_DAY = 5;
 const DUPLICATE_SIMILARITY = 0.8;
 const LEDGER_KEEP = 500;
 const MAX_VIDEO_IDS = 50;
-
-const storedCredential = type({
-	"provider?": "string",
-	access: "string",
-	refresh: "string",
-	expires: "number",
-	clientId: "string",
-	"clientSecret?": "string",
-});
-type StoredCredential = typeof storedCredential.infer;
-
-async function readCredential(): Promise<StoredCredential> {
-	let raw: string;
-	try {
-		raw = await readFile(CONFIG_TARGET, "utf-8");
-	} catch {
-		throw new Error("YouTube isn't connected yet. Open the plugin's Connect dialog (Plugins → YouTube) and sign in.");
-	}
-	const parsed = storedCredential(JSON.parse(raw));
-	if (parsed instanceof type.errors) {
-		throw new Error(`YouTube's stored credential at ${CONFIG_TARGET} is malformed. Reconnect the plugin.`);
-	}
-	return parsed;
-}
-
-async function refreshAccessToken(cred: StoredCredential): Promise<StoredCredential> {
-	const body = new URLSearchParams({
-		grant_type: "refresh_token",
-		refresh_token: cred.refresh,
-		client_id: cred.clientId,
-	});
-	if (cred.clientSecret) body.set("client_secret", cred.clientSecret);
-	const res = await fetch(TOKEN_URL, {
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-		body: body.toString(),
-	});
-	const payload = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-	if (!res.ok || !payload || typeof payload.access_token !== "string") {
-		const detail =
-			payload && typeof payload.error_description === "string" ? payload.error_description : res.statusText;
-		throw new Error(`YouTube token refresh failed: ${detail}. Reconnect the plugin.`);
-	}
-	const expiresIn = typeof payload.expires_in === "number" ? payload.expires_in : 3600;
-	const refreshed: StoredCredential = {
-		...cred,
-		access: payload.access_token,
-		refresh: typeof payload.refresh_token === "string" ? payload.refresh_token : cred.refresh,
-		expires: Date.now() + expiresIn * 1000,
-	};
-	await writeFile(CONFIG_TARGET, JSON.stringify(refreshed, null, 2));
-	return refreshed;
-}
-
-async function freshAccessToken(): Promise<string> {
-	const cred = await readCredential();
-	if (Date.now() < cred.expires - REFRESH_SKEW_MS) return cred.access;
-	return (await refreshAccessToken(cred)).access;
-}
-
-async function youtubeFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {
-	const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
-	if (init?.body) headers["Content-Type"] = "application/json";
-	const res = await fetch(`${YOUTUBE_API}${path}`, { ...init, headers: { ...headers, ...init?.headers } });
-	if (res.status === 401) {
-		throw new Error("YouTube rejected the access token (401). Reconnect the plugin.");
-	}
-	return res;
-}
-
-async function youtubeJson<T>(path: string, accessToken: string, op: string, init?: RequestInit): Promise<T> {
-	const res = await youtubeFetch(path, accessToken, init);
-	const payload = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
-	if (!res.ok || !payload) {
-		throw new Error(`YouTube ${op} failed: ${payload?.error?.message ?? res.statusText}`);
-	}
-	return payload;
-}
-
 function clamp(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max)}\n[...truncated]` : text;
 }
@@ -325,12 +244,6 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 			return { content: [{ type: "text" as const, text }] };
 		},
 	};
-}
-
-export function videoIdOf(input: string): string {
-	const trimmed = input.trim();
-	const fromUrl = /(?:[?&]v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(trimmed);
-	return fromUrl?.[1] ?? trimmed;
 }
 
 function renderVideo(video: VideoItem, full: boolean): string {
@@ -577,7 +490,7 @@ export function commentRefusal(
 
 async function readCommentLedger(): Promise<CommentLedgerEntry[]> {
 	try {
-		const parsed: unknown = JSON.parse(await readFile(COMMENT_LEDGER, "utf-8"));
+		const parsed: unknown = JSON.parse(await readFile(configFile(COMMENT_LEDGER), "utf-8"));
 		return Array.isArray(parsed) ? (parsed as CommentLedgerEntry[]) : [];
 	} catch {
 		return [];
@@ -585,8 +498,9 @@ async function readCommentLedger(): Promise<CommentLedgerEntry[]> {
 }
 
 async function recordComment(ledger: readonly CommentLedgerEntry[], entry: CommentLedgerEntry): Promise<void> {
-	await mkdir(dirname(COMMENT_LEDGER), { recursive: true });
-	await writeFile(COMMENT_LEDGER, JSON.stringify([...ledger, entry].slice(-LEDGER_KEEP)));
+	const file = configFile(COMMENT_LEDGER);
+	await mkdir(dirname(file), { recursive: true });
+	await writeFile(file, JSON.stringify([...ledger, entry].slice(-LEDGER_KEEP)));
 }
 
 function createPostCommentTool(): ToolDefinition<typeof postCommentSchema> {
@@ -771,4 +685,10 @@ export default function youtubeExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createPostCommentTool());
 	pi.registerTool(createGetCaptionsTool());
 	pi.registerTool(createChannelStatsTool());
+	pi.registerTool(createReachReportTool());
+	pi.registerTool(createVideoAnalyticsTool());
+	pi.registerTool(createUpdateVideoTool());
+	pi.on("session_start", () => {
+		void ensureReachJobs().catch(() => undefined);
+	});
 }

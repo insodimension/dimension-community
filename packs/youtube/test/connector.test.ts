@@ -1,7 +1,9 @@
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { videoIdOf } from "../api";
+import youtubeExtension, { commentRefusal } from "../index";
 
 const home = await mkdtemp(join(tmpdir(), "dimension-youtube-"));
 const configDir = join(home, ".config", "dimension-youtube");
@@ -12,13 +14,11 @@ await writeFile(
 );
 const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
-process.env.HOME = home;
-process.env.USERPROFILE = home;
-const { default: youtubeExtension, commentRefusal, videoIdOf } = await import("../index.ts?youtube-connector");
-if (priorHome === undefined) delete process.env.HOME;
-else process.env.HOME = priorHome;
-if (priorUserProfile === undefined) delete process.env.USERPROFILE;
-else process.env.USERPROFILE = priorUserProfile;
+
+beforeAll(() => {
+	process.env.HOME = home;
+	process.env.USERPROFILE = home;
+});
 
 interface Tool {
 	name: string;
@@ -26,7 +26,7 @@ interface Tool {
 }
 
 const tools = new Map<string, Tool>();
-youtubeExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool) } as never);
+youtubeExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool), on: () => undefined } as never);
 
 function tool(name: string): Tool {
 	const found = tools.get(name);
@@ -74,6 +74,10 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+	if (priorHome === undefined) delete process.env.HOME;
+	else process.env.HOME = priorHome;
+	if (priorUserProfile === undefined) delete process.env.USERPROFILE;
+	else process.env.USERPROFILE = priorUserProfile;
 	await rm(home, { recursive: true, force: true });
 });
 

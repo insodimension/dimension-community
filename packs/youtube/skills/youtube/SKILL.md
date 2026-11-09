@@ -1,18 +1,21 @@
 ---
 name: youtube
-description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to your playlists; read comment threads and post public comments/replies via the YouTube Data API v3. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to your playlists; read comment threads and post public comments/replies; read your own channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); apply board-approved title and thumbnail changes. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
 
 ## Overview
 
-Act on YouTube through nine tools backed by the YouTube Data API v3 (OAuth,
-bring-your-own Google Cloud client). The agent searches, inspects videos and
-channels, browses and edits the connected account's playlists, reads comment
-threads, and posts public comments/replies. Keep answers grounded in the real
-data the tools return — ids, view counts, published dates, comment text — never
-a guessed or reconstructed transcript.
+Act on YouTube through twelve tools backed by the YouTube Data API v3, the
+YouTube Analytics API v2 and the YouTube Reporting API (OAuth, bring-your-own
+Google Cloud client). The agent searches, inspects videos and channels, browses
+and edits the connected account's playlists, reads comment threads, posts
+public comments/replies, reads the connected channel's own analytics and reach,
+and applies title and thumbnail changes the person approved on the Traction
+campaign board. Keep answers grounded in the real data the tools return — ids,
+view counts, published dates, comment text — never a guessed or reconstructed
+transcript or number.
 
 ## Setup
 
@@ -40,8 +43,12 @@ OAuth flow — point them at **Plugins → YouTube → Set up**. On an auth erro
 **Plugins → YouTube → Reconnect**.
 
 **Scopes:** `https://www.googleapis.com/auth/youtube` (manage playlists, read
-channel/video data) + `https://www.googleapis.com/auth/youtube.force-ssl`
-(required to read and post comments).
+channel/video data, update your videos) + `https://www.googleapis.com/auth/youtube.force-ssl`
+(required to read and post comments) + `https://www.googleapis.com/auth/yt-analytics.readonly`
+(Analytics and Reporting reads). Enable the **YouTube Analytics API** and the
+**YouTube Reporting API** in the same Cloud project. A connection made before
+plugin 0.4.0 lacks the analytics scope: the analytics tools say so, and the fix
+is **Plugins → YouTube → Reconnect**.
 
 ## Tools
 
@@ -81,8 +88,31 @@ All native, always-on — no bash, no CLI, no MCP server:
   video count and the uploads playlist id, by `@handle` or channel id; omit
   both for your own channel. (read)
 
-Reads are `read`-tier; `youtube_playlist_add` and `youtube_post_comment` are
-`write`-tier and prompt for confirmation.
+- `youtube_video_analytics({ videoId, startDate?, endDate? })` — one of the
+  connected channel's videos (default the last 28 days): views, engaged views,
+  watch time, average view duration and average percentage viewed; views,
+  engaged views and watch time by traffic source (YouTube reports no average
+  duration or percentage per source; the tool shows watch time over views); and
+  the retention curve (audienceWatchRatio and relativeRetentionPerformance at
+  1/10/25/50/75/90/100%). Retention is not broken down by traffic source in the
+  API. (read)
+- `youtube_reach_report({ videoId?, days?, bySource? })` — thumbnail
+  impressions and impressions CTR from the Reporting API's daily reach reports
+  (`channel_reach_basic_a1`; with `bySource`, `channel_reach_combined_a1` by
+  traffic source). The plugin creates both report jobs at the first session
+  after the channel connects; YouTube backfills only 30 days before a job
+  exists, and the first reports take up to 48 hours. (read)
+- `youtube_update_video({ draftId, videoUrl, title? | thumbnailPath? })` —
+  apply an **approved** Traction `youtube-update` draft: a new title
+  (videos.update, resending the video's whole snippet so description, tags and
+  category stay) or a new thumbnail (thumbnails.set, PNG or JPEG ≤ 2 MB).
+  Refused with `publish_unapproved`, nothing changed, unless the board's
+  Approve covers this exact change on this exact video and the thumbnail file is
+  byte-identical to the approved one. An approval is spent once. Asks the
+  person every time. (write)
+
+Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment` and
+`youtube_update_video` are `write`-tier and prompt for confirmation.
 
 ## Usage patterns
 
@@ -93,9 +123,16 @@ Reads are `read`-tier; `youtube_playlist_add` and `youtube_post_comment` are
   uploads playlist → `youtube_get_videos` on those ids; compare each video's
   views to the channel's median.
 - "How's this video doing?" → `youtube_get_videos` for public counts, stamped
-  with the time read. Watch time, average view duration, retention, impressions
-  and CTR live in YouTube Studio (Analytics trails 48-72 hours): read them in
+  with the time read; `youtube_video_analytics` for watch time, retention and
+  traffic sources and `youtube_reach_report({ videoId })` for impressions and
+  CTR on the connected channel's own videos. Analytics trail about two days and
+  reach reports arrive daily, so for a video's first 48 hours read Studio in
   the Browser on the channel owner's signed-in profile.
+- "Change this video's title/thumbnail" → only through a Traction
+  `youtube-update` draft the person approves on the board, then
+  `youtube_update_video` with that draft's id and exactly its approved value.
+  Test & Compare, pinned comments and end screens have no API: apply those in
+  Studio with the Browser tools.
 - "Add this to my Watch Later–style playlist" → `youtube_list_playlists` to
   resolve the title → its id, confirm, then `youtube_playlist_add`.
 - "What are people saying about this video?" → `youtube_list_comments`, then
@@ -145,12 +182,12 @@ insert costs 50. More quota needs YouTube's compliance audit. On
 These are intentionally **not** implemented — say so honestly if asked, rather
 than pretending:
 
-- **Video upload and metadata edits through the API** — a finished film goes up
-  through YouTube Studio in the person's own signed-in browser: see the
+- **Video upload and most metadata edits through the API** — a finished film
+  goes up through YouTube Studio in the person's own signed-in browser: see the
   `youtube-package`, `youtube-thumbnail` and `youtube-studio-upload` skills,
-  which need the Browser plugin.
-- **Analytics and Reporting APIs** — watch time, retention, impressions and CTR
-  are read in YouTube Studio in the Browser.
+  which need the Browser plugin. The only API edits are an approved title or
+  thumbnail (`youtube_update_video`).
+- **Test & Compare, pinned comments, end screens** — no API exists; Studio only.
 - **Live chat** (`liveChat*`) — requires an active broadcast and long-poll
   streaming, which doesn't fit a request/response tool.
 - **Caption text download** (`captions.download`) — API-restricted to videos you
