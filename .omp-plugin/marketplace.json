@@ -47,8 +47,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.5/artifactory-general-agent-0.5.5.tgz",
-				"sha256": "b6fb0ee67ab5d9012c31cda17690f6a19458cba3e04c98ba8490e42b47831caa",
-				"size": 290668
+				"sha256": "5c0836ce5c3a4633a5f44fb0c8856d0b36e0bfcc530414c0a305260d5e367045",
+				"size": 290671
 			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
@@ -192,8 +192,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.22/browser-0.9.22.tgz",
-				"sha256": "465c31532aa140d345f55fb377f720d59f74bdbef918ff9594a7e0a3d382c1c1",
-				"size": 2008805
+				"sha256": "7475faeb4297f69fc859276ed7293076d83b0ad46d0462b5830a8f3694a559f0",
+				"size": 2008810
 			},
 			"pluginId": "browser",
 			"title": "Browser",
@@ -1571,8 +1571,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.6/simulator-0.1.6.tgz",
-				"sha256": "223d6d9c490cf9e67322cd71170924364ebe3c487d6e7b3b0af59ec4d3dd3227",
-				"size": 447054
+				"sha256": "a803a1b27bbdec2ceeebeb58b37d66000aaf68a76a0fba82ef96e89e41f24f47",
+				"size": 447056
 			},
 			"pluginId": "simulator",
 			"title": "Simulator",
@@ -1709,8 +1709,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.4/swiss-knife-0.7.4.tgz",
-				"sha256": "a0a585d03b5a0839a437fff22f23bf30e5c7b2e19ce1ab603e4add797452a37f",
-				"size": 2267194
+				"sha256": "43a1df87b5dbad3d688853c3abb743e51c491a94e5153510764a82d1d375025e",
+				"size": 2269447
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
