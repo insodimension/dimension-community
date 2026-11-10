@@ -133,8 +133,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/bluesky-v0.1.1/bluesky-0.1.1.tgz",
-				"sha256": "6ae6156d423244834acb34c59d3a526c027821bde1de159b0250ba449842f576",
-				"size": 25182
+				"sha256": "7b5d2ec35c05cf0fc94c92c33e2b9e96c8654cab6d62ff901059132858496c54",
+				"size": 25283
 			},
 			"pluginId": "bluesky",
 			"title": "Bluesky",
@@ -192,8 +192,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.23/browser-0.9.23.tgz",
-				"sha256": "6047fc9f08c7873d4a834ae9ec20a8438ea7f5f18e1284ed54677f2bca4abb93",
-				"size": 1962552
+				"sha256": "3d2a6de4c7ad144381cd8cd88362e9602d0f18b2b17e3d6cb1af4560e63b4cc6",
+				"size": 1962535
 			},
 			"pluginId": "browser",
 			"title": "Browser",
@@ -620,8 +620,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.1/discord-0.2.1.tgz",
-				"sha256": "f82b96bf6acf61d7ec1cac5530922319918d1a6dc60ddbf105410a267ddadcaf",
-				"size": 26374
+				"sha256": "fd210bafcd9c58e3ce9091a97a1d5d7a4fee9e43eb2f171c139cd123bb8591fe",
+				"size": 26378
 			},
 			"pluginId": "discord",
 			"title": "Discord",
@@ -1364,8 +1364,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/newsletter-v0.1.1/newsletter-0.1.1.tgz",
-				"sha256": "0d6af471cf979a42fe9db69303587152c0b71098071d294a6c3b87df1c67258f",
-				"size": 21717
+				"sha256": "addf4794d88b0d898e3feef78681690648ea08b23d7bde06304a46ebe3b9ba68",
+				"size": 21744
 			},
 			"pluginId": "newsletter",
 			"title": "Newsletter",
