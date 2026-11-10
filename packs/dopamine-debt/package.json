@@ -1,0 +1,52 @@
+{
+	"name": "@dimension/community-dopamine-debt",
+	"author": "Dimension",
+	"version": "0.5.0",
+	"description": "Dopamine Debt — the comedy-explainer film framework the Video space requires: the Filmmaker General Agent, its film skills, the Python engine and film kit, the house gate (`inso dd gate`) and the CLI that sets a brand up for it.",
+	"type": "module",
+	"license": "MIT",
+	"scripts": {
+		"check:types": "tsc -p tsconfig.json --noEmit",
+		"test": "python -m pytest tests"
+	},
+	"dimension": {
+		"name": "dopamine-debt",
+		"category": "media",
+		"keywords": [
+			"video",
+			"comedy",
+			"framework",
+			"gate"
+		]
+	},
+	"peerDependencies": {
+		"@oh-my-pi/pi-ai": "*",
+		"@oh-my-pi/pi-coding-agent": "*",
+		"@oh-my-pi/pi-utils": "*"
+	},
+	"devDependencies": {
+		"@oh-my-pi/pi-ai": "workspace:*",
+		"@oh-my-pi/pi-coding-agent": "workspace:*",
+		"@oh-my-pi/pi-utils": "workspace:*",
+		"@types/bun": "catalog:"
+	},
+	"files": [
+		"plugin.json",
+		"README.md",
+		"assets/",
+		"cli.ts",
+		"scaffold.ts",
+		"import.ts",
+		"requirements.txt",
+		"general-agents/",
+		"gate/",
+		"skills/",
+		"dd/",
+		"framework/",
+		"personas/",
+		"FRAMEWORK.md",
+		"taste.json",
+		"tunables.json",
+		"music.json"
+	]
+}
