@@ -20,7 +20,7 @@
 					"mcpServer": "browser",
 					"label": "Browser",
 					"icon": "globe",
-					"grants": ["dictation", "submit:judge"],
+					"grants": ["dictation"],
 					"modelSpaces": ["*"]
 				}
 			],

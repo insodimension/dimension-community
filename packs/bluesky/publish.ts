@@ -33,15 +33,15 @@ const EXIF_ORIENTATION = 0x0112;
 
 const publishSchema = type({
 	posts: type("string[]").describe(
-		"The chosen option's posts in order, character for character: one post, or a thread of up to 25.",
+		"The posts in order, character for character: one post, or a thread of up to 25. From a Traction board, the chosen option's posts.",
 	),
 	"media?": type({
-		path: type("string").describe("Absolute path of a PNG, JPEG or WebP the draft carries."),
+		path: type("string").describe("Absolute path of a PNG, JPEG or WebP to attach."),
 		post: type("number").describe("0-based index of the post it rides on."),
-		alt: type("string").describe("The draft's alt text for it."),
+		alt: type("string").describe("Its alt text."),
 	})
 		.array()
-		.describe("The draft's images, in the draft's order. At most 4 per post, each under 2 MB."),
+		.describe("The images, in order. At most 4 per post, each under 2 MB."),
 	"cards?": type({
 		post: type("number").describe("0-based index of the post the card rides on: a post with a link and no image."),
 		uri: type("string").describe("The post's first link, as bluesky_link_card returned it."),
@@ -444,7 +444,7 @@ export function createPublishTool(): ToolDefinition<typeof publishSchema> {
 		name: "bluesky_publish",
 		label: "Bluesky: Publish",
 		description:
-			"Publish the chosen bluesky-post draft from the connected account, straight away: one post or a thread, with its images and alt text, links as rich text, and a link card for each post listed in cards (get it with bluesky_link_card). Pass the chosen option's posts and media exactly as the board holds them. Picking the option on the board is the go-ahead; nothing asks again. Post a draft once: if a call fails unclearly, check bluesky_author_feed before calling again. Returns each post's bsky.app link.",
+			"Publish the given posts from the connected account, straight away: one post or a thread, with its images and alt text, links as rich text, and a link card for each post listed in cards (get it with bluesky_link_card). For a Traction draft, pass the chosen option's posts and media exactly as the board holds them. It has no ask of its own: your session's permission mode decides. Post once: if a call fails unclearly, check bluesky_author_feed before calling again. Returns each post's bsky.app link.",
 		parameters: publishSchema,
 		approval: "write",
 		async execute(_toolCallId: string, params: PublishParams) {

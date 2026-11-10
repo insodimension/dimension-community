@@ -88,6 +88,7 @@ Edits, moderation and server settings: `discord_edit_message`,
 Every send, reply, forum post and edit goes out with Discord's
 `allowed_mentions` emptied: `@everyone`, `@here`, role and user mentions in the
 text render but notify nobody. A reply still notifies the author it answers
+(`pingAuthor: false` turns that off). To notify a user, the person must name
 them; pass their ids in `mentionUserIds`.
 
 ## Formatting

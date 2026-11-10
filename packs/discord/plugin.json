@@ -259,7 +259,7 @@
 				},
 				{
 					"name": "discord_timeout_member",
-					"description": "MODERATION. Time out (mute) a member for up to 28 days, or lift a timeout. Needs Moderate Members. Asks every time; the person must name the exact member and duration."
+					"description": "MODERATION. Time out (mute) a member for up to 28 days, or lift a timeout. Needs Moderate Members. The person must name the exact member and duration."
 				},
 				{
 					"name": "discord_list_threads",
@@ -275,7 +275,7 @@
 				},
 				{
 					"name": "discord_create_invite",
-					"description": "Create an invite code for one source, so joins can be counted per source. Optional expiry, use limit and roles. Asks every time."
+					"description": "Create an invite code for one source, so joins can be counted per source. Optional expiry, use limit and roles."
 				},
 				{
 					"name": "discord_publish_message",
@@ -295,7 +295,7 @@
 				},
 				{
 					"name": "discord_create_automod_rule",
-					"description": "Create one AutoMod rule the person approved (keywords, spam, presets or a mention limit) with block, alert or timeout. Asks every time."
+					"description": "Create one AutoMod rule the person asked for (keywords, spam, presets or a mention limit) with block, alert or timeout."
 				}
 			]
 		}

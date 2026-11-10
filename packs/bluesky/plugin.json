@@ -2,7 +2,7 @@
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "bluesky",
 	"version": "0.1.1",
-	"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish the post you chose.",
+	"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish posts from your account.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -189,7 +189,7 @@
 				},
 				{
 					"name": "bluesky_publish",
-					"description": "Publish the post or thread you chose on Traction's campaign board, with its images, alt text and link cards. Choosing it is the go-ahead: it posts straight away."
+					"description": "Publish the given posts from your connected account, with their images, alt text and link cards, such as the post or thread you chose on Traction's campaign board. It has no ask of its own; your session's permission mode decides."
 				}
 			]
 		}

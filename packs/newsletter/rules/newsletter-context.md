@@ -12,8 +12,9 @@ write, `newsletter_issue_draft`, which saves an UNSENT draft.
   the person opens the draft in their provider and presses Send. Say "saved as a
   draft", never "sent" or "published".
 - **Only the chosen text.** Save exactly the subject, preview line and body the
-  person chose. No approval card follows: it saves an unsent draft, and the
-  person reviews it in their provider before pressing Send.
+  person chose. It has no ask of its own; your session's permission mode decides.
+  It saves an unsent draft, and the person reviews it in their provider before
+  pressing Send.
 - **Opens are not readership.** Report delivered, complaints, unsubscribes,
   clicks and replies first; an open count is marked unreliable (Apple Mail
   Privacy Protection) and never ranks a subject line or a send time.
