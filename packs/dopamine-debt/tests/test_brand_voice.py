@@ -4,13 +4,15 @@ Every voice and model id below is fake: no person's voice is named in this packa
 """
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from dd.gate import g11_rules
-from dd.home import settings_voice
+from dd.home import brand_kit, settings_voice
 from framework import g11
 from framework.kit import g11plan, voice
 from framework.kit.film import Film
@@ -132,7 +134,7 @@ def settings(tmp_path, monkeypatch, text):
 
 def test_a_production_in_a_brand_finds_its_kit(tmp_path):
     film, brand = brand_film(tmp_path)
-    assert film.brand_kit == brand / "brand"
+    assert brand_kit(film.root) == brand / "brand"
 
 
 def test_brand_voice_reads_the_brand_kit_record_before_settings(tmp_path, monkeypatch):
@@ -156,6 +158,11 @@ def test_no_brand_voice_and_no_settings_default_tells_the_agent_to_set_the_kit(t
     pair, why = voice.brand_voice(film)
     assert pair == {} and str(brand / "brand" / "voice.json") in why and "Settings" in why
     assert settings_voice() is None
+
+
+def test_the_gate_module_loads_without_pyyaml_so_its_prerequisites_can_name_it():
+    probe = "import sys; sys.modules['yaml'] = None; import dd.house"
+    assert subprocess.run([sys.executable, "-c", probe], cwd=KIT, capture_output=True).returncode == 0
 
 
 @pytest.mark.parametrize("record", ['{"voiceId": "fakeBrandVoice01"}', "not json", '["x"]', '{"voiceId": "", "modelId": "m"}'])

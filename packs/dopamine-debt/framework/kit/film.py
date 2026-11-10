@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from dd.home import ENGINE_HOME, LIBRARY, brand_kit
+from dd.home import ENGINE_HOME, LIBRARY
 
 SceneFn = Callable[..., tuple[str, list[str]]]
 SpokenForms = Sequence[tuple[str, str]]
@@ -145,11 +145,6 @@ class Film:
     @property
     def voice_dir(self) -> Path:
         return self.root / "voice"
-
-    @property
-    def brand_kit(self) -> Path | None:
-        """The brand kit `<brand>/brand/` (`dd.home.brand_kit`); None for a production that belongs to no brand."""
-        return brand_kit(self.root)
 
     @property
     def media(self) -> Path:

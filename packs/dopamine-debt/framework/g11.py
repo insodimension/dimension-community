@@ -156,7 +156,10 @@ def _brand_voice(p: Plan) -> list[str] | None:
     used: dict[tuple[str, str], list[str]] = {}
     for seg, pair in recorded:
         used.setdefault((pair["voiceId"], pair["modelId"]), []).append(seg)
-    out = [f"one cut plays {len(used)} voice pairs: " + "; ".join(f"{v} on {m} ({', '.join(segs)})" for (v, m), segs in used.items())] if len(used) > 1 else []
+    out = []
+    if len(used) > 1:
+        pairs = "; ".join(f"{v} on {m} ({', '.join(segs)})" for (v, m), segs in used.items())
+        out.append(f"one cut plays {len(used)} voice pairs: {pairs}")
     if unrecorded or not p.brand_voice.get("voiceId"):
         return out or None
     keys = [k for k in ("voiceId", "modelId") if p.brand_voice.get(k)]

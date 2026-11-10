@@ -7,7 +7,7 @@ from functools import lru_cache
 
 import numpy as np
 
-from dd.home import settings_voice
+from dd.home import brand_kit, settings_voice
 from framework.tools import HIDDEN
 
 from .film import Film, SpokenForms
@@ -159,9 +159,10 @@ def brand_voice(film: Film) -> tuple[dict[str, str], str]:
     """The voice every take of this brand's films uses, and where it came from: the brand kit's `brand/voice.json`
     {voiceId, modelId}, else the Settings default voice ({voiceId}: Settings names no model). With neither, ({}, why),
     the why naming the file to write; a kit record without its pair is no voice and says so."""
-    kit = film.brand_kit
+    kit = brand_kit(film.root)
     record = kit / BRAND_VOICE_FILE if kit else None
-    declare = f'write {record or f"<brand>/brand/{BRAND_VOICE_FILE}"} as {{"voiceId": ..., "modelId": ...}} (the brand kit\'s voice)'
+    target = record or f"<brand>/brand/{BRAND_VOICE_FILE}"
+    declare = f'write {target} as {{"voiceId": ..., "modelId": ...}} (the brand kit\'s voice)'
     if record and record.is_file():
         try:
             data = json.loads(record.read_text(encoding="utf-8"))

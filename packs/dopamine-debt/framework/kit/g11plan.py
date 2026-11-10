@@ -232,7 +232,7 @@ def plan(film: Film, film_x: Path | None = None) -> g11.Plan:
     brand, brand_from = brand_voice(film)
     return g11.Plan(
         duration=max(i["end"] for i in items), narration=sorted(narration), voice=voice,
-        voice_takes=take_voices(film, list(dict.fromkeys(v["seg"] for v in voice))), brand_voice=brand, brand_voice_from=brand_from,
+        voice_takes=take_voices(film, [v["seg"] for v in voice]), brand_voice=brand, brand_voice_from=brand_from,
         memes=[i for i in items if i["kind"] == "meme"], sfx=[(i["start"], i["end"]) for i in items if i["kind"] == "sfx"],
         labels=layout["labels"], boxes=layout["boxes"] + band_boxes, changes=[tuple(c) for c in layout["changes"]], pictures=layout["pictures"],
         scenes=layout["scenes"], analogy_lines=(spine.get("anchor_world") or {}).get("lines", []),
@@ -282,13 +282,14 @@ def write(film: Film, code: dict, advisory: dict | None = None, why: dict | None
     out = film.g11_file
     rules = g11_rules()
     unchecked = [r for r in rules if r not in code]
-    reasons = {r: (why or {})[r] for r in unchecked if r in (why or {})}
+    why = why or {}
+    reasons = {r: why[r] for r in unchecked if r in why}
     status = "fail" if any(code.get(r) for r in rules) else ("incomplete" if unchecked else "pass")
     prev = json.loads(out.read_text(encoding="utf-8")).get("advisory") if out.exists() and advisory is None else None
     out.write_text(json.dumps({"status": status, "fails": {r: code[r] for r in rules if r in code}, "unchecked": unchecked, "why": reasons,
                                "advisory": advisory if advisory is not None else (prev or {})}, indent=1, ensure_ascii=False), encoding="utf-8")
     for r in rules:
-        found = code[r] if r in code else [reasons[r]] if r in reasons else []
+        found = code.get(r, [reasons[r]] if r in reasons else [])
         print(("----" if r not in code else "PASS" if not code[r] else "FAIL") + f"  {r}" + "".join(f"\n      - {v}" for v in found[:FINDINGS_SHOWN]))
     for r, v in (advisory or {}).items():
         print(f"ADVISORY  {r}: {len(v)} to look at" + "".join(f"\n      - {x[:ADVISORY_CHARS]}" for x in v))

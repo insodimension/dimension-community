@@ -2,8 +2,6 @@ import os
 import re
 from pathlib import Path
 
-import yaml
-
 KIT = Path(__file__).resolve().parents[1]
 ENGINE_HOME = Path(os.environ.get("DD_ENGINE_HOME") or os.environ.get("INSO_HOME", "").strip() or Path.home() / ".inso")
 PRODUCTIONS = ENGINE_HOME / "productions"
@@ -75,6 +73,8 @@ def settings_voice() -> str | None:
     """The default voice the person set in Settings, Media generation: `mediaGen.voiceId` in the engine's `config.yml`
     (`PI_CODING_AGENT_DIR`, else `<engine home>/agent`), read and shape-checked as the media-gen provider reads it. None
     when unset, not a voice id, or the file is absent or unreadable."""
+    import yaml
+
     config = Path(os.environ.get("PI_CODING_AGENT_DIR") or ENGINE_HOME / "agent") / "config.yml"
     try:
         parsed = yaml.safe_load(config.read_text(encoding="utf-8"))

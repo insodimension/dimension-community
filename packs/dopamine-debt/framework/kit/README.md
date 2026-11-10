@@ -36,7 +36,7 @@ The stage (`stage.py`) is the house look every new film starts from; the flat ki
 | `motion_kit` | `Path \| None` | The Motion pack's kit folder (`kit.js`, `kit.css`, `fonts/*.b64`); `None` finds it when the page is composed (`film.motion_kit_folder()`: `DD_MOTION_KIT`, else the Motion pack in `<engine home>/plugins/node_modules`). |
 | `gsap` | `Path \| None` | The GSAP build the page loads (`assets/gsap.min.js`); `None` finds it when the page is composed (`film.gsap_file()`: `DD_GSAP`, else the global `gsap@3.14.2` install Motion's setup makes with bun or npm). |
 
-Derived paths: `build`, `lines_file`, `timeline_file`, `layout_file`, `g11_file`, `page_dir` (`build/film`), `css_file` (`build/film.css`), `word_cache` (`build/cache/meme-words.json`), `voice_dir`, `media`, `brand_kit` (`<brand>/brand/` for a production at `<brand>/productions/<id>/`, `dd.home.brand_kit`; `None` for a production that belongs to no brand).
+Derived paths: `build`, `lines_file`, `timeline_file`, `layout_file`, `g11_file`, `page_dir` (`build/film`), `css_file` (`build/film.css`), `word_cache` (`build/cache/meme-words.json`), `voice_dir`, `media`.
 
 ## Public API
 
@@ -45,7 +45,7 @@ Derived paths: `build`, `lines_file`, `timeline_file`, `layout_file`, `g11_file`
 | `voice` | `timings_from_voice(film, lines) -> {line id: take}` | Each narrator line's words from the take that voiced exactly its current text, with `cut_in`/`cut_out` in the take's measured silence. |
 | `voice` | `spoken(text, forms) -> str` | The pronounce map applied (what a voice job is sent). |
 | `voice` | `record_job(film, seg, job_id, text, options, job_dir)`, `take_voices(film, segs) -> {seg: {voiceId, modelId}}` | Write one voice job into `voice/jobs.json` (refused without its voiceId and modelId); read each take's recorded pair for G11 `brand-voice` (`{}` when none is recorded). |
-| `voice` | `brand_voice(film) -> (pair, source)` | The brand's voice: the brand kit's `brand/voice.json` `{voiceId, modelId}`, else the Settings default voice (`dd.home.settings_voice`: `mediaGen.voiceId` in the engine's `config.yml`, a voice with no model), each with where it came from; with neither, `({}, why)` naming the file to write. `g11plan.plan` puts both in `Plan.brand_voice` / `Plan.brand_voice_from`. |
+| `voice` | `brand_voice(film) -> (pair, source)` | The brand's voice: the brand kit's `brand/voice.json` `{voiceId, modelId}` (`dd.home.brand_kit(film.root)`: `<brand>/brand/` for a production at `<brand>/productions/<id>/`, none for a production that belongs to no brand), else the Settings default voice (`dd.home.settings_voice`: `mediaGen.voiceId` in the engine's `config.yml`, a voice with no model), each with where it came from; with neither, `({}, why)` naming the file to write. `g11plan.plan` puts both in `Plan.brand_voice` / `Plan.brand_voice_from`. |
 | `voice` | `pause(pcm, last, nxt)`, `tail_end(pcm, t1)`, `voice_pcm(path)`, `frames_db(pcm, a, b)` | Silence-cut primitives (10 ms frames below −45 dBFS, 30 ms of air kept). |
 | `timeline` | `build(film, lines, timings) -> dict` | The timeline (schema below). |
 | `timeline` | `write(film) -> dict` | `build` from `lines.json` and the takes, written to `build/timeline.json`. |
