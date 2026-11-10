@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname, isAbsolute } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { freshAccessToken, googleError, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
+import { googleError, ownerOfVideo, tokenOf, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
 
 const THUMBNAIL_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -88,7 +88,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 			if (params.title !== undefined) {
 				const title = params.title;
 				checkTitle(title);
-				const accessToken = await freshAccessToken();
+				const accessToken = await tokenOf(await ownerOfVideo(videoId));
 				const listed = await youtubeFetch(`/videos?part=snippet&id=${videoId}`, accessToken);
 				const current = (await listed.json().catch(() => null)) as { items?: { snippet?: VideoSnippet }[] } | null;
 				const snippet = current?.items?.[0]?.snippet;
@@ -110,7 +110,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 			}
 			const path = params.thumbnailPath ?? "";
 			const thumbnail = await readThumbnail(path);
-			const accessToken = await freshAccessToken();
+			const accessToken = await tokenOf(await ownerOfVideo(videoId));
 			await applyChange(
 				await fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
 					method: "POST",

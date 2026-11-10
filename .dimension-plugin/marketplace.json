@@ -1997,15 +1997,15 @@
 			"source": "./packs/youtube",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.4.2/youtube-0.4.2.tgz",
-				"sha256": "bf71b86e35049723ec908cd52ffdca01628dfd5a4cebec8116605ad25c4d0934",
-				"size": 85237
+				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.5.0/youtube-0.5.0.tgz",
+				"sha256": "7a635623b01c2154bec09df0ce87d5087b832090766238941d49aab69f856b05",
+				"size": 101927
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
-			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, change a posted video's title or thumbnail, and get a finished film ready to upload.",
-			"version": "0.4.2",
+			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, change a posted video's title or thumbnail, and get a finished film ready to upload.",
+			"version": "0.5.0",
 			"author": {
 				"name": "Dimension"
 			},

@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.4.2",
-	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, change a posted video's title or thumbnail, and get a finished film ready to upload.",
+	"version": "0.5.0",
+	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, change a posted video's title or thumbnail, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -46,7 +46,7 @@
 					},
 					{
 						"title": "Enable the YouTube Analytics API and the YouTube Reporting API",
-						"detail": "Same Library page: enable \"YouTube Analytics API\" and \"YouTube Reporting API\". They give your agent watch time, retention, traffic sources, thumbnail impressions and click-through rate for your own channel. Already connected before? Reconnect so the plugin can ask for analytics access.",
+						"detail": "Same Library page: enable \"YouTube Analytics API\" and \"YouTube Reporting API\". They give your agent watch time, retention, traffic sources, thumbnail impressions and click-through rate for each channel you connect. Already connected before? Reconnect so the plugin can ask for analytics access.",
 						"url": "https://console.cloud.google.com/apis/library/youtubereporting.googleapis.com",
 						"urlLabel": "Open the Reporting API"
 					},
@@ -88,7 +88,7 @@
 					"usePkce": true,
 					"extraAuthParams": {
 						"access_type": "offline",
-						"prompt": "consent"
+						"prompt": "select_account consent"
 					}
 				},
 				"configTarget": "~/.config/dimension-youtube/token.json",
@@ -173,6 +173,18 @@
 					"title": "Channel stats"
 				},
 				{
+					"match": "youtube_channels",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Channels"
+				},
+				{
+					"match": "youtube_forget_channel",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Forget channel"
+				},
+				{
 					"match": "youtube_reach_report",
 					"use": "summary",
 					"icon": "youtube",
@@ -208,7 +220,7 @@
 				},
 				{
 					"name": "youtube_list_playlists",
-					"description": "List the connected account's own playlists — id, title, item count, and privacy status."
+					"description": "List a connected channel's own playlists — id, title, item count, and privacy status."
 				},
 				{
 					"name": "youtube_list_playlist_items",
@@ -216,7 +228,7 @@
 				},
 				{
 					"name": "youtube_playlist_add",
-					"description": "Add a video to one of your playlists. Mutating — confirm the playlist and video first."
+					"description": "Add a video to one of a connected channel's playlists. Mutating — confirm the playlist and video first."
 				},
 				{
 					"name": "youtube_list_comments",
@@ -232,11 +244,19 @@
 				},
 				{
 					"name": "youtube_channel_stats",
-					"description": "Read a channel's public statistics by @handle, channel id, or your own: subscribers, views, video count, and its uploads playlist."
+					"description": "Read a channel's public statistics by @handle or channel id, or every channel you connected: subscribers, views, video count, and its uploads playlist."
+				},
+				{
+					"name": "youtube_channels",
+					"description": "List the YouTube channels you connected. Each Connect adds the channel you pick; Disconnect removes them all."
+				},
+				{
+					"name": "youtube_forget_channel",
+					"description": "Remove one connected channel's sign-in from this machine."
 				},
 				{
 					"name": "youtube_reach_report",
-					"description": "Thumbnail impressions and click-through rate for your channel's videos, by video or by traffic source, from YouTube's daily reach reports."
+					"description": "Thumbnail impressions and click-through rate for your connected channels' videos, by video or by traffic source, from YouTube's daily reach reports."
 				},
 				{
 					"name": "youtube_video_analytics",
