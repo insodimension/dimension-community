@@ -279,7 +279,16 @@ export function createReachReportTool(): ToolDefinition<typeof reachReportSchema
 					: await connectedChannels();
 			if (channels.length === 0) throw new Error(NOT_CONNECTED);
 			const sections: string[] = [];
-			for (const channel of channels) sections.push(...(await reachSection(channel, params, videoId)), "");
+			for (const channel of channels) {
+				if (channels.length === 1) {
+					sections.push(...(await reachSection(channel, params, videoId)), "");
+					continue;
+				}
+				const section = await reachSection(channel, params, videoId).catch((error: unknown) => [
+					`${channelLabel(channel)}: ${error instanceof Error ? error.message : String(error)}`,
+				]);
+				sections.push(...section, "");
+			}
 			sections.push("CTR is clicks over impressions, weighted by impressions across days.");
 			return { content: [{ type: "text" as const, text: sections.join("\n") }] };
 		},

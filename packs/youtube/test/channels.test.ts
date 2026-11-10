@@ -1,10 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { channelFor, connectedChannels, NOT_CONNECTED, ownerOfVideo } from "../api";
+import { channelFor, connectedChannels, NOT_CONNECTED, ownerOfVideo, tokenOf } from "../api";
 import youtubeExtension from "../index";
-import { ALPHA, BETA, bearerOf, type ChannelSeed, channelIdOf, seedChannel } from "./channel-fixture";
+import { ALPHA, BETA, bearerOf, type ChannelSeed, channelIdOf, channelRecord, fingerprintOf, seedChannel } from "./channel-fixture";
 
 const ENV = ["HOME", "USERPROFILE"] as const;
 const prior = Object.fromEntries(ENV.map(name => [name, process.env[name]]));
@@ -18,6 +18,7 @@ const VIDEO = "dQw4w9WgXcQ";
 interface Tool {
 	name: string;
 	approval: unknown;
+	formatApprovalDetails?: (args: unknown) => string[];
 	execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }>;
 }
 
@@ -42,6 +43,7 @@ interface Owner {
 interface World {
 	mine?: Record<string, Account>;
 	owners?: Record<string, Owner>;
+	oauth?: (refreshToken: string) => Response | Promise<Response>;
 }
 
 const tools = new Map<string, Tool>();
@@ -56,7 +58,7 @@ function tool(name: string): Tool {
 const realFetch = globalThis.fetch;
 let calls: Call[] = [];
 
-function serve(handler: (call: Call) => Response): void {
+function serve(handler: (call: Call) => Response | Promise<Response>): void {
 	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
 		const call: Call = {
 			method: init?.method ?? "GET",
@@ -77,10 +79,12 @@ function isMine(call: Call): boolean {
 	return call.url.pathname === "/youtube/v3/channels" && call.url.searchParams.get("mine") === "true";
 }
 
-function serveWorld(world: World = {}): void {
-	serve(call => {
+function worldHandler(world: World = {}): (call: Call) => Response | Promise<Response> {
+	return call => {
 		const path = call.url.pathname;
-		if (call.url.host === "oauth2.googleapis.com") return Response.json({ access_token: "refreshed-access", expires_in: 3600 });
+		if (call.url.host === "oauth2.googleapis.com") {
+			return world.oauth?.(new URLSearchParams(call.body).get("refresh_token") ?? "") ?? Response.json({ access_token: "refreshed-access", expires_in: 3600 });
+		}
 		if (isMine(call)) {
 			const account = world.mine?.[accessOf(call)];
 			if (!account) return Response.json({ items: [] });
@@ -100,8 +104,15 @@ function serveWorld(world: World = {}): void {
 		}
 		if (path === "/youtube/v3/playlistItems" && call.method === "POST") return Response.json({ id: "item-1", snippet: { title: "Added video" } });
 		if (path === "/youtube/v3/commentThreads" && call.method === "POST") return Response.json({ id: "c1", snippet: { topLevelComment: { id: "c1" } } });
+		if (call.method === "GET" && ["/youtube/v3/playlistItems", "/youtube/v3/commentThreads", "/youtube/v3/captions", "/youtube/v3/search"].includes(path)) {
+			return Response.json({ items: [] });
+		}
 		throw new Error(`unexpected request ${call.method} ${call.url}`);
-	});
+	};
+}
+
+function serveWorld(world: World = {}): void {
+	serve(worldHandler(world));
 }
 
 async function connectAs(access: string, refresh: string, over: { expires?: number; clientSecret?: string } = {}): Promise<void> {
@@ -663,5 +674,556 @@ describe("approval tiers", () => {
 		expect(tool("youtube_list_playlists").approval).toBe("read");
 		expect(tool("youtube_reach_report").approval).toBe("read");
 		expect(tool("youtube_update_video").approval).toEqual({ tier: "write", policy: "prompt" });
+	});
+});
+
+const markerFile = join(configDir, "connect-seen");
+const REVOKED = () => Response.json({ error: "invalid_grant", error_description: "Token has been expired or revoked." }, { status: 400 });
+
+function exists(path: string): Promise<boolean> {
+	return stat(path).then(
+		() => true,
+		() => false,
+	);
+}
+
+async function waitUntil(condition: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 200 && !condition(); attempt++) await Bun.sleep(5);
+	expect(condition()).toBe(true);
+}
+
+function refreshing(tag: string): ChannelSeed {
+	return {
+		channelId: channelIdOf(tag),
+		title: `${tag.slice(0, 1).toUpperCase()}${tag.slice(1)}`,
+		access: `tok-${tag}`,
+		refresh: `ref-${tag}`,
+		expires: Date.now() - 1_000,
+	};
+}
+
+function refreshCalls(): Call[] {
+	return calls.filter(call => call.url.host === "oauth2.googleapis.com");
+}
+
+function idsOf(channels: readonly { channelId: string }[]): string[] {
+	return channels.map(channel => channel.channelId);
+}
+
+const FIRST_BROKEN = refreshing("firstbroken");
+const SECOND_BROKEN = refreshing("secondbroken");
+const SECOND_FINE: ChannelSeed = { channelId: channelIdOf("secondfine"), title: "Second Fine", access: "tok-fine", refresh: "ref-fine" };
+
+describe("the engine's Disconnect", () => {
+	test("while token.json exists a connect-seen marker is kept, and once it is gone every channel and the marker go with it, with no request", async () => {
+		await seed(ALPHA, BETA);
+		await connectAs("acc-1", ALPHA.refresh);
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId, BETA.channelId].sort());
+		expect(await exists(markerFile)).toBe(true);
+		expect(calls).toEqual([]);
+
+		await rm(tokenFile);
+
+		expect(await connectedChannels()).toEqual([]);
+		expect(await exists(channelsDir)).toBe(false);
+		expect(await exists(markerFile)).toBe(false);
+		expect(calls).toEqual([]);
+	});
+
+	test("channels that never came through a token.json are not a Disconnect's to remove", async () => {
+		await seed(ALPHA);
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		expect(await exists(markerFile)).toBe(false);
+	});
+
+	test("after a Disconnect a new Connect adds its channel and the marker returns", async () => {
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA), "acc-2": accountOf(BETA) } });
+		await connectAs("acc-1", "ref-1");
+		await connectedChannels();
+		await rm(tokenFile);
+		expect(await connectedChannels()).toEqual([]);
+
+		await connectAs("acc-2", "ref-2");
+
+		expect(idsOf(await connectedChannels())).toEqual([BETA.channelId]);
+		expect(await channelFiles()).toEqual([fileOf(BETA)]);
+		expect(await exists(markerFile)).toBe(true);
+	});
+
+	test("a token.json that parses but is not a credential is not a Disconnect", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-1", ALPHA.refresh);
+		await connectedChannels();
+
+		await writeFile(tokenFile, JSON.stringify({ access: "only-access" }));
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		expect(await exists(markerFile)).toBe(true);
+		expect(calls).toEqual([]);
+	});
+
+	test("a token.json that is half written is not a Disconnect", async () => {
+		await seed(ALPHA, BETA);
+		await connectAs("acc-1", ALPHA.refresh);
+		await connectedChannels();
+
+		await writeFile(tokenFile, '{"access":"acc-1","refre');
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId, BETA.channelId].sort());
+		expect(await channelFiles()).toEqual([fileOf(ALPHA), fileOf(BETA)].sort());
+	});
+
+	test("forgetting the channel that holds token.json removes token.json and the marker, and the other channels stay connected", async () => {
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA) } });
+		await connectAs("acc-1", "ref-1");
+		await connectedChannels();
+		await seed(BETA);
+		calls = [];
+
+		await tool("youtube_forget_channel").execute("t", { channel: "@alpha" });
+
+		expect(await exists(tokenFile)).toBe(false);
+		expect(await exists(markerFile)).toBe(false);
+		expect(idsOf(await connectedChannels())).toEqual([BETA.channelId]);
+		expect(await channelFiles()).toEqual([fileOf(BETA)]);
+		expect(calls).toEqual([]);
+	});
+
+	test("forgetting a channel that does not hold token.json leaves token.json and the marker", async () => {
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA), "acc-2": accountOf(BETA) } });
+		await connectAs("acc-1", "ref-1");
+		await connectedChannels();
+		await connectAs("acc-2", "ref-2");
+		await connectedChannels();
+
+		await tool("youtube_forget_channel").execute("t", { channel: "@alpha" });
+
+		expect(JSON.parse(await readFile(tokenFile, "utf-8"))).toMatchObject({ refresh: "ref-2" });
+		expect(await exists(markerFile)).toBe(true);
+		expect(idsOf(await connectedChannels())).toEqual([BETA.channelId]);
+	});
+
+	test("a channel forgotten and then connected again is added again", async () => {
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA), "acc-2": accountOf(ALPHA) } });
+		await connectAs("acc-1", "ref-1");
+		await connectedChannels();
+		await tool("youtube_forget_channel").execute("t", { channel: "@alpha" });
+		expect(await channelFiles()).toEqual([]);
+
+		await connectAs("acc-2", "ref-2");
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		expect(await stored(ALPHA.channelId)).toMatchObject({ access: "acc-2", refresh: "ref-2" });
+	});
+});
+
+describe("a Connect that cannot be adopted", () => {
+	test("the channels already connected keep working and youtube_channels says why the new one was not added", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mine: {} });
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		const lines = ((await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "").split("\n");
+
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toContain(ALPHA.channelId);
+		expect(lines[1]).toMatch(/^The last Connect was not added: .*no YouTube channel/);
+		expect((await tool("youtube_list_playlists").execute("t", {})).content[0]?.text).toContain("tok-alpha");
+		expect(await channelFiles()).toEqual([fileOf(ALPHA)]);
+	});
+
+	test("a token.json that cannot be refreshed leaves the known channels in place with the refresh failure as the reason", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-x", "ref-x", { expires: Date.now() - 1_000 });
+		serveWorld({ oauth: REVOKED });
+
+		const text = (await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "";
+
+		expect(text).toContain(ALPHA.channelId);
+		expect(text).toContain("The last Connect was not added: YouTube token refresh failed: Token has been expired or revoked.");
+		expect(mineCalls()).toEqual([]);
+	});
+
+	for (const badId of ["../../escape", "UCtooshort", `UC${"x".repeat(23)}`, "ucabcdefghijklmnopqrstuv", `UC${"x".repeat(21)}/`]) {
+		test(`an account whose channel id is ${JSON.stringify(badId)} is refused and nothing is written`, async () => {
+			await seed(ALPHA);
+			await connectAs("acc-x", "ref-x");
+			serveWorld({ mine: { "acc-x": { id: badId, title: "Bad" } } });
+
+			const text = (await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "";
+
+			expect(text).toContain("The last Connect was not added");
+			expect(await channelFiles()).toEqual([fileOf(ALPHA)]);
+			expect(await exists(join(home, ".config", "escape.json"))).toBe(false);
+		});
+	}
+
+	test("with no channel connected yet the adoption failure is the error", async () => {
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mine: {} });
+
+		await expect(connectedChannels()).rejects.toThrow(/no YouTube channel/);
+		await expect(tool("youtube_channels").execute("t", {})).rejects.toThrow(/no YouTube channel/);
+		await expect(tool("youtube_list_playlists").execute("t", {})).rejects.toThrow(/no YouTube channel/);
+		expect(await channelFiles()).toEqual([]);
+	});
+
+	test("once a later Connect is adopted the note is gone", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mine: {} });
+		await tool("youtube_channels").execute("t", {});
+
+		serveWorld({ mine: { "acc-x": accountOf(BETA) } });
+		const text = (await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "";
+
+		expect(text).not.toContain("not added");
+		expect(text).toContain(BETA.channelId);
+		expect(text).toContain(ALPHA.channelId);
+	});
+
+	test("the note does not outlive the token.json it was about", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mine: {} });
+		await tool("youtube_channels").execute("t", {});
+
+		await rm(tokenFile);
+		const text = (await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "";
+
+		expect(text).toBe(NOT_CONNECTED);
+	});
+});
+
+describe("channel ids in stored files", () => {
+	for (const badId of ["../../escape", "UCtooshort", `UC${"x".repeat(23)}`, "ucabcdefghijklmnopqrstuv", `UC${"x".repeat(21)}/`]) {
+		test(`a stored file whose channelId is ${JSON.stringify(badId)} is ignored`, async () => {
+			await seed(ALPHA);
+			await writeFile(join(channelsDir, "bad.json"), JSON.stringify(channelRecord({ ...BETA, channelId: badId, title: "Bad" })));
+
+			expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+		});
+	}
+
+	test("a stored file without its connectedWith fingerprint is ignored", async () => {
+		await seed(ALPHA);
+		const withoutFingerprint = channelRecord(BETA);
+		delete withoutFingerprint.connectedWith;
+		await writeFile(join(channelsDir, fileOf(BETA)), JSON.stringify(withoutFingerprint));
+
+		expect(idsOf(await connectedChannels())).toEqual([ALPHA.channelId]);
+	});
+
+	test("an adopted channel records which token.json refresh it came from, and that survives the refresh token rotating", async () => {
+		await connectAs("acc-1", "ref-1", { expires: Date.now() - 1_000 });
+		serveWorld({
+			mine: { "refreshed-access": accountOf(ALPHA) },
+			oauth: () => Response.json({ access_token: "refreshed-access", refresh_token: "rotated-refresh", expires_in: 3600 }),
+		});
+
+		await connectedChannels();
+
+		expect(await stored(ALPHA.channelId)).toMatchObject({ refresh: "rotated-refresh", connectedWith: fingerprintOf("ref-1") });
+		expect(JSON.stringify(await stored(ALPHA.channelId))).not.toContain('"ref-1"');
+	});
+
+	test("forgetting a channel whose refresh token rotated still removes the token.json it was adopted from", async () => {
+		await connectAs("acc-1", "ref-1", { expires: Date.now() - 1_000 });
+		serveWorld({
+			mine: { "refreshed-access": accountOf(ALPHA) },
+			oauth: () => Response.json({ access_token: "refreshed-access", refresh_token: "rotated-refresh", expires_in: 3600 }),
+		});
+		await connectedChannels();
+		await seed(BETA);
+
+		await tool("youtube_forget_channel").execute("t", { channel: "@alpha" });
+
+		expect(await exists(tokenFile)).toBe(false);
+		expect(await exists(markerFile)).toBe(false);
+		expect(idsOf(await connectedChannels())).toEqual([BETA.channelId]);
+	});
+
+	test.skipIf(process.platform === "win32")("a channel file is readable by its owner only", async () => {
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA) } });
+		await connectAs("acc-1", "ref-1");
+
+		await connectedChannels();
+
+		expect((await stat(join(channelsDir, fileOf(ALPHA)))).mode & 0o777).toBe(0o600);
+	});
+});
+
+describe("a name that fits two channels", () => {
+	const STUDIO_ONE: ChannelSeed = { channelId: channelIdOf("studioone"), title: "Studio", handle: "@studioone", access: "tok-s1", refresh: "ref-s1" };
+	const STUDIO_TWO: ChannelSeed = { channelId: channelIdOf("studiotwo"), title: "STUDIO", handle: "@studiotwo", access: "tok-s2", refresh: "ref-s2" };
+	const TITLED: ChannelSeed = { channelId: channelIdOf("titled"), title: "Nova", handle: "@novatitle", access: "tok-t", refresh: "ref-t" };
+	const HANDLED: ChannelSeed = { channelId: channelIdOf("handled"), title: "Other", handle: "@nova", access: "tok-h", refresh: "ref-h" };
+
+	test("two channels with the same title in different case are not guessed between, and each is still reachable by id and handle", async () => {
+		await seed(STUDIO_ONE, STUDIO_TWO);
+
+		const failure = await failureOf(channelFor("studio"));
+
+		expect(failure.message).toContain('"studio" names more than one connected channel');
+		expect(failure.message).toContain(STUDIO_ONE.channelId);
+		expect(failure.message).toContain(STUDIO_TWO.channelId);
+		expect((await channelFor(STUDIO_ONE.channelId)).channelId).toBe(STUDIO_ONE.channelId);
+		expect((await channelFor("@studiotwo")).channelId).toBe(STUDIO_TWO.channelId);
+	});
+
+	test("one channel's title against another's handle is ambiguous, while the @ form picks the handle", async () => {
+		await seed(TITLED, HANDLED);
+
+		await expect(channelFor("nova")).rejects.toThrow(/names more than one connected channel/);
+		expect((await channelFor("@nova")).channelId).toBe(HANDLED.channelId);
+		expect((await channelFor("Other")).channelId).toBe(HANDLED.channelId);
+	});
+
+	test("a tool given the ambiguous name is refused before any request, and forgetting it removes nothing", async () => {
+		await seed(STUDIO_ONE, STUDIO_TWO);
+
+		await expect(tool("youtube_list_playlists").execute("t", { channel: "studio" })).rejects.toThrow(/names more than one/);
+		await expect(tool("youtube_forget_channel").execute("t", { channel: "studio" })).rejects.toThrow(/names more than one/);
+
+		expect(calls).toEqual([]);
+		expect(await channelFiles()).toEqual([fileOf(STUDIO_ONE), fileOf(STUDIO_TWO)].sort());
+	});
+});
+
+describe("token refresh", () => {
+	test("a channel refreshed once is not refreshed again by a later call on the same stale object", async () => {
+		const seedValue = refreshing("oncerefreshed");
+		await seed(seedValue);
+		const stale = await channelFor(seedValue.channelId);
+
+		expect(await tokenOf(stale)).toBe("refreshed-access");
+		expect(await tokenOf(stale)).toBe("refreshed-access");
+
+		expect(refreshCalls()).toHaveLength(1);
+		expect(await stored(seedValue.channelId)).toMatchObject({ access: "refreshed-access" });
+	});
+
+	test("that holds when YouTube rotated the refresh token in the first refresh", async () => {
+		const seedValue = refreshing("rotating");
+		await seed(seedValue);
+		serveWorld({ oauth: () => Response.json({ access_token: "refreshed-access", refresh_token: "rotated-refresh", expires_in: 3600 }) });
+		const stale = await channelFor(seedValue.channelId);
+
+		await tokenOf(stale);
+		await tokenOf(stale);
+
+		expect(refreshCalls()).toHaveLength(1);
+		expect(await stored(seedValue.channelId)).toMatchObject({ refresh: "rotated-refresh" });
+	});
+
+	test("a Connect that was refreshed into a rotated refresh token is not looked up again on the next call", async () => {
+		await connectAs("acc-1", "ref-1", { expires: Date.now() - 1_000 });
+		serveWorld({
+			mine: { "refreshed-access": accountOf(ALPHA) },
+			oauth: () => Response.json({ access_token: "refreshed-access", refresh_token: "rotated-refresh", expires_in: 3600 }),
+		});
+		await connectedChannels();
+		const before = calls.length;
+
+		await connectedChannels();
+
+		expect(calls.length).toBe(before);
+	});
+
+	test("reconnecting a refreshed channel with a new refresh token uses the new credential", async () => {
+		const seedValue = refreshing("reconnected");
+		await seed(seedValue);
+		await tokenOf(await channelFor(seedValue.channelId));
+
+		await seedChannel(configDir, { ...seedValue, access: "tok-new", refresh: "ref-new", expires: Date.now() + 3_600_000 });
+
+		expect(await tokenOf(await channelFor(seedValue.channelId))).toBe("tok-new");
+	});
+
+	test("a refresh still in flight when its channel is forgotten does not bring the channel's file back", async () => {
+		const seedValue = refreshing("leaving");
+		await seed(seedValue);
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		serveWorld({
+			oauth: async () => {
+				await gate;
+				return Response.json({ access_token: "late-access", expires_in: 3600 });
+			},
+		});
+		const stale = await channelFor(seedValue.channelId);
+
+		const pending = tokenOf(stale);
+		await waitUntil(() => refreshCalls().length === 1);
+		await tool("youtube_forget_channel").execute("t", { channel: seedValue.channelId });
+		release();
+		await pending;
+
+		expect(await channelFiles()).toEqual([]);
+		expect(await connectedChannels()).toEqual([]);
+	});
+});
+
+describe("reading without naming a channel", () => {
+	test("a channel whose refresh fails is skipped and the next channel's bearer reads", async () => {
+		await seed(FIRST_BROKEN, SECOND_FINE);
+		serveWorld({ oauth: REVOKED });
+
+		const result = await tool("youtube_get_videos").execute("t", { videoIds: [VIDEO] });
+
+		expect(calls.map(call => `${call.method} ${call.url.host}`)).toEqual(["POST oauth2.googleapis.com", "GET www.googleapis.com"]);
+		expect(calls.at(-1)?.headers.get("authorization")).toBe(bearerOf(SECOND_FINE));
+		expect(result.content[0]?.text).toContain("No videos found.");
+	});
+
+	test("when every channel fails the error names each of them", async () => {
+		await seed(FIRST_BROKEN, SECOND_BROKEN);
+		serveWorld({ oauth: REVOKED });
+
+		const failure = await failureOf(tool("youtube_get_videos").execute("t", { videoIds: [VIDEO] }));
+
+		expect(failure.message).toContain(FIRST_BROKEN.channelId);
+		expect(failure.message).toContain(SECOND_BROKEN.channelId);
+		expect(failure.message).toContain("Token has been expired or revoked.");
+		expect(calls.filter(call => call.url.host === "www.googleapis.com")).toEqual([]);
+	});
+
+	test("the first channel that works reads alone and the others are not touched", async () => {
+		await seed(ALPHA, BETA);
+
+		await tool("youtube_get_videos").execute("t", { videoIds: [VIDEO] });
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.headers.get("authorization")).toBe(bearerOf(ALPHA));
+	});
+
+	test("youtube_channel_stats with no handle skips a channel whose refresh fails", async () => {
+		await seed(FIRST_BROKEN, SECOND_FINE);
+		serveWorld({ oauth: REVOKED });
+
+		await tool("youtube_channel_stats").execute("t", {});
+
+		const read = calls.find(call => call.url.pathname === "/youtube/v3/channels");
+		expect(read?.url.searchParams.get("id")).toBe(`${FIRST_BROKEN.channelId},${SECOND_FINE.channelId}`);
+		expect(read?.headers.get("authorization")).toBe(bearerOf(SECOND_FINE));
+	});
+
+	const NAMED: [string, Record<string, unknown>, string][] = [
+		["youtube_get_videos", { videoIds: [VIDEO] }, "/youtube/v3/videos"],
+		["youtube_list_playlist_items", { playlistId: "PL1" }, "/youtube/v3/playlistItems"],
+		["youtube_list_comments", { videoId: VIDEO }, "/youtube/v3/commentThreads"],
+		["youtube_get_captions", { videoId: VIDEO }, "/youtube/v3/captions"],
+	];
+	for (const [name, params, path] of NAMED) {
+		test(`${name} with channel reads with that channel's bearer, and an unknown channel is refused before any request`, async () => {
+			await seed(ALPHA, BETA);
+
+			await tool(name).execute("t", { ...params, channel: "@betastudio" });
+
+			expect(calls).toHaveLength(1);
+			expect(calls[0]?.url.pathname).toBe(path);
+			expect(calls[0]?.headers.get("authorization")).toBe(bearerOf(BETA));
+
+			calls = [];
+			await expect(tool(name).execute("t", { ...params, channel: "@nobody" })).rejects.toThrow(/No connected channel is "@nobody"/);
+			expect(calls).toEqual([]);
+		});
+	}
+
+	test("a named channel whose refresh fails is an error, never swapped for another channel", async () => {
+		await seed(FIRST_BROKEN, SECOND_FINE);
+		serveWorld({ oauth: REVOKED });
+
+		await expect(tool("youtube_get_videos").execute("t", { videoIds: [VIDEO], channel: FIRST_BROKEN.channelId })).rejects.toThrow(/token refresh failed/);
+
+		expect(calls.filter(call => call.url.host === "www.googleapis.com")).toEqual([]);
+	});
+});
+
+describe("ownerOfVideo past channels that cannot answer", () => {
+	function serveVideoBy(byAccess: Record<string, () => Response>, oauth?: World["oauth"]): void {
+		const base = worldHandler({ oauth });
+		serve(call => {
+			if (call.url.pathname === "/youtube/v3/videos") return byAccess[accessOf(call)]?.() ?? Response.json({ items: [] });
+			return base(call);
+		});
+	}
+
+	function ownedBy(seedValue: ChannelSeed): () => Response {
+		return () => Response.json({ items: [{ id: VIDEO, snippet: { channelId: seedValue.channelId, channelTitle: seedValue.title } }] });
+	}
+
+	test("a channel whose refresh fails is skipped and the next one finds the owner", async () => {
+		await seed(FIRST_BROKEN, SECOND_FINE);
+		serveVideoBy({ [SECOND_FINE.access]: ownedBy(SECOND_FINE) }, REVOKED);
+
+		expect((await ownerOfVideo(VIDEO)).channelId).toBe(SECOND_FINE.channelId);
+		expect(calls.map(call => call.method)).toEqual(["POST", "GET"]);
+	});
+
+	test("a channel that is shown no such video is skipped and the next one finds the owner", async () => {
+		await seed(ALPHA, BETA);
+		serveVideoBy({ [ALPHA.access]: () => Response.json({ items: [] }), [BETA.access]: ownedBy(BETA) });
+
+		expect((await ownerOfVideo(VIDEO)).channelId).toBe(BETA.channelId);
+		expect(calls.map(call => call.headers.get("authorization"))).toEqual([bearerOf(ALPHA), bearerOf(BETA)]);
+	});
+
+	test("a channel YouTube refuses the lookup for is skipped and the next one finds the owner", async () => {
+		await seed(ALPHA, BETA);
+		serveVideoBy({ [ALPHA.access]: () => Response.json({ error: { message: "forbidden" } }, { status: 403 }), [BETA.access]: ownedBy(ALPHA) });
+
+		expect((await ownerOfVideo(VIDEO)).channelId).toBe(ALPHA.channelId);
+	});
+
+	test("when every channel's lookup fails the error names each of them", async () => {
+		await seed(ALPHA, BETA);
+		serveVideoBy({
+			[ALPHA.access]: () => Response.json({ error: { message: "alpha refused" } }, { status: 403 }),
+			[BETA.access]: () => Response.json({ error: { message: "beta refused" } }, { status: 403 }),
+		});
+
+		const failure = await failureOf(ownerOfVideo(VIDEO));
+
+		expect(failure.message).toContain(ALPHA.channelId);
+		expect(failure.message).toContain("alpha refused");
+		expect(failure.message).toContain(BETA.channelId);
+		expect(failure.message).toContain("beta refused");
+	});
+
+	test("when no channel is shown the video the error says so", async () => {
+		await seed(ALPHA, BETA);
+		serveVideoBy({});
+
+		await expect(ownerOfVideo(VIDEO)).rejects.toThrow(`YouTube returned no video ${VIDEO} to any connected channel.`);
+		expect(calls).toHaveLength(2);
+	});
+});
+
+describe("youtube_post_comment approval card", () => {
+	function details(args: Record<string, unknown>): string[] {
+		return tool("youtube_post_comment").formatApprovalDetails?.(args) ?? [];
+	}
+
+	test("it names the channel the comment is posted as, exactly as the caller wrote it", () => {
+		expect(details({ videoId: VIDEO, text: "Hello there", channel: "@alpha" })).toEqual([
+			`Video: https://www.youtube.com/watch?v=${VIDEO}`,
+			"Posting as: @alpha",
+			"Comment:\nHello there",
+		]);
+	});
+
+	test("without a channel it says only a lone connected channel can post", () => {
+		expect(details({ videoId: VIDEO, text: "Hello there" })).toContain("Posting as: the only connected channel (refused if several are connected)");
+	});
+
+	test("a reply shows its parent and the channel", () => {
+		expect(details({ parentCommentId: "Ugabc", text: "Thanks", channel: "Alpha" })).toEqual(["Reply to comment: Ugabc", "Posting as: Alpha", "Comment:\nThanks"]);
 	});
 });

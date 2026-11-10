@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { type } from "arktype";
@@ -9,6 +10,7 @@ export function configFile(name: string): string {
 
 const CONNECT_TARGET = "token.json";
 const CHANNELS_DIR = "channels";
+const CONNECT_SEEN = "connect-seen";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
 const REFRESH_SKEW_MS = 60_000;
@@ -25,12 +27,21 @@ const storedCredential = type({
 type StoredCredential = typeof storedCredential.infer;
 
 const connectedChannel = storedCredential.and({
-	channelId: "string",
+	channelId: type(CHANNEL_ID),
 	title: "string",
 	"handle?": "string",
 	connectedAt: "string",
+	connectedWith: "string",
 });
 export type ConnectedChannel = typeof connectedChannel.infer;
+
+function fingerprint(refresh: string): string {
+	return createHash("sha256").update(refresh).digest("hex").slice(0, 32);
+}
+
+function signedInWith(channel: ConnectedChannel, connecting: StoredCredential): boolean {
+	return channel.refresh === connecting.refresh || channel.connectedWith === fingerprint(connecting.refresh);
+}
 
 export const NOT_CONNECTED =
 	"No YouTube channel is connected yet. Open Plugins → YouTube → Connect and sign in with the Google account (and pick the channel) to add it; connect again to add each further channel.";
@@ -40,13 +51,18 @@ async function readJson(path: string): Promise<unknown> {
 }
 
 function channelFile(channelId: string): string {
+	if (!CHANNEL_ID.test(channelId)) throw new Error(`${channelId} is not a channel id.`);
 	return configFile(join(CHANNELS_DIR, `${channelId}.json`));
 }
 
+const forgotten = new Set<string>();
+const fresh = new Map<string, { from: string; renewed: ConnectedChannel }>();
+
 async function writeChannel(channel: ConnectedChannel): Promise<void> {
+	if (forgotten.has(channel.channelId)) return;
 	const file = channelFile(channel.channelId);
 	await mkdir(dirname(file), { recursive: true });
-	await writeFile(file, JSON.stringify(channel, null, 2));
+	await writeFile(file, JSON.stringify(channel, null, 2), { mode: 0o600 });
 }
 
 async function refreshed<T extends StoredCredential>(cred: T): Promise<T> {
@@ -97,19 +113,18 @@ interface MineChannel {
 	readonly snippet?: { readonly title?: string; readonly customUrl?: string };
 }
 
-async function adoptConnectedToken(known: readonly ConnectedChannel[]): Promise<ConnectedChannel | undefined> {
-	const raw = await readJson(configFile(CONNECT_TARGET)).catch(() => undefined);
-	if (raw === undefined) return undefined;
-	const parsed = storedCredential(raw);
-	if (parsed instanceof type.errors) return undefined;
-	if (known.some(channel => channel.refresh === parsed.refresh)) return undefined;
-	const cred = await refreshed(parsed);
+async function adoptConnectedToken(
+	connecting: StoredCredential,
+	known: readonly ConnectedChannel[],
+): Promise<ConnectedChannel | undefined> {
+	if (known.some(channel => signedInWith(channel, connecting))) return undefined;
+	const cred = await refreshed(connecting);
 	const res = await fetch(`${YOUTUBE_API}/channels?part=snippet&mine=true`, { headers: { Authorization: `Bearer ${cred.access}` } });
 	const payload = (await res.json().catch(() => null)) as { items?: MineChannel[] } | null;
 	const mine = payload?.items?.[0];
-	if (!res.ok || !mine?.id) {
+	if (!res.ok || !mine?.id || !CHANNEL_ID.test(mine.id)) {
 		throw new Error(
-			`The Google account that just connected has no YouTube channel YouTube would name (${googleError(payload, res.statusText)}). Connect again and pick the account or brand account that owns the channel.`,
+			`The Google account that last connected has no YouTube channel YouTube would name (${googleError(payload, res.statusText)}). Connect again and pick the account or brand account that owns the channel.`,
 		);
 	}
 	const channel: ConnectedChannel = {
@@ -118,23 +133,65 @@ async function adoptConnectedToken(known: readonly ConnectedChannel[]): Promise<
 		title: mine.snippet?.title ?? mine.id,
 		...(mine.snippet?.customUrl ? { handle: mine.snippet.customUrl } : {}),
 		connectedAt: new Date().toISOString(),
+		connectedWith: fingerprint(connecting.refresh),
 	};
+	forgotten.delete(channel.channelId);
 	await writeChannel(channel);
 	return channel;
 }
 
-let pendingAdoption: Promise<ConnectedChannel[]> | undefined;
+async function disconnectAll(): Promise<void> {
+	await rm(configFile(CHANNELS_DIR), { recursive: true, force: true });
+	await rm(configFile(CONNECT_SEEN), { force: true });
+	fresh.clear();
+}
 
-export function connectedChannels(): Promise<ConnectedChannel[]> {
-	pendingAdoption ??= (async () => {
-		const known = await listedChannels();
-		const adopted = await adoptConnectedToken(known);
+let lastAdoptionError: string | undefined;
+
+export function adoptionProblem(): string | undefined {
+	return lastAdoptionError;
+}
+
+async function readConnectTarget(): Promise<unknown> {
+	try {
+		return JSON.parse(await readFile(configFile(CONNECT_TARGET), "utf-8"));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+		return null;
+	}
+}
+
+async function loadChannels(): Promise<ConnectedChannel[]> {
+	const raw = await readConnectTarget();
+	if (raw === undefined) {
+		if (await stat(configFile(CONNECT_SEEN)).then(() => true, () => false)) await disconnectAll();
+		lastAdoptionError = undefined;
+		return listedChannels();
+	}
+	await mkdir(configFile(""), { recursive: true });
+	await writeFile(configFile(CONNECT_SEEN), "", { flag: "a" });
+	const known = await listedChannels();
+	const connecting = storedCredential(raw);
+	if (connecting instanceof type.errors) return known;
+	try {
+		const adopted = await adoptConnectedToken(connecting, known);
+		lastAdoptionError = undefined;
 		if (adopted === undefined) return known;
 		return [...known.filter(channel => channel.channelId !== adopted.channelId), adopted];
-	})().finally(() => {
-		pendingAdoption = undefined;
+	} catch (error) {
+		lastAdoptionError = error instanceof Error ? error.message : String(error);
+		if (known.length === 0) throw error;
+		return known;
+	}
+}
+
+let pendingLoad: Promise<ConnectedChannel[]> | undefined;
+
+export function connectedChannels(): Promise<ConnectedChannel[]> {
+	pendingLoad ??= loadChannels().finally(() => {
+		pendingLoad = undefined;
 	});
-	return pendingAdoption;
+	return pendingLoad;
 }
 
 export function channelLabel(channel: ConnectedChannel): string {
@@ -161,29 +218,52 @@ export async function channelFor(wanted: string | undefined): Promise<ConnectedC
 			`Several channels are connected; pass channel as one of: ${channels.map(channelLabel).join("; ")}.`,
 		);
 	}
-	const found = channels.find(channel => matches(channel, wanted));
-	if (!found) {
-		throw new Error(
-			`No connected channel is "${wanted}". Connected: ${channels.map(channelLabel).join("; ")}. To add it, connect again (Plugins → YouTube → Connect) and pick that channel.`,
-		);
+	const found = channels.filter(channel => matches(channel, wanted));
+	const [one] = found;
+	if (found.length === 1 && one) return one;
+	if (found.length > 1) {
+		throw new Error(`"${wanted}" names more than one connected channel; pass its id: ${found.map(channelLabel).join("; ")}.`);
 	}
-	return found;
+	throw new Error(
+		`No connected channel is "${wanted}". Connected: ${channels.map(channelLabel).join("; ")}. To add it, connect again (Plugins → YouTube → Connect) and pick that channel.`,
+	);
 }
 
 export async function tokenOf(channel: ConnectedChannel): Promise<string> {
-	const fresh = await refreshed(channel);
-	if (fresh !== channel) await writeChannel(fresh);
-	return fresh.access;
+	const held = fresh.get(channel.channelId);
+	const current = held && (held.from === channel.refresh || held.renewed.refresh === channel.refresh) ? held.renewed : channel;
+	const renewed = await refreshed(current);
+	if (renewed !== current) await writeChannel(renewed);
+	fresh.set(channel.channelId, { from: channel.refresh, renewed });
+	return renewed.access;
 }
 
 export async function channelToken(wanted?: string): Promise<string> {
 	return tokenOf(await channelFor(wanted));
 }
 
-export async function anyToken(): Promise<string> {
-	const [first] = await connectedChannels();
-	if (!first) throw new Error(NOT_CONNECTED);
-	return tokenOf(first);
+async function firstWorking<T>(
+	channels: readonly ConnectedChannel[],
+	attempt: (channel: ConnectedChannel) => Promise<T | undefined>,
+): Promise<T | undefined> {
+	const failures: string[] = [];
+	for (const channel of channels) {
+		try {
+			const result = await attempt(channel);
+			if (result !== undefined) return result;
+		} catch (error) {
+			failures.push(`${channelLabel(channel)}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+	if (failures.length === channels.length && failures.length > 0) throw new Error(failures.join("\n"));
+	return undefined;
+}
+
+export async function readToken(wanted?: string): Promise<string> {
+	if (wanted?.trim()) return channelToken(wanted);
+	const channels = await connectedChannels();
+	if (channels.length === 0) throw new Error(NOT_CONNECTED);
+	return (await firstWorking(channels, tokenOf)) as string;
 }
 
 export async function ownerOfVideo(videoId: string): Promise<ConnectedChannel> {
@@ -191,17 +271,16 @@ export async function ownerOfVideo(videoId: string): Promise<ConnectedChannel> {
 	if (channels.length === 0) throw new Error(NOT_CONNECTED);
 	const only = channels[0];
 	if (channels.length === 1 && only) return only;
-	let owner: { channelId?: string; channelTitle?: string } | undefined;
-	for (const channel of channels) {
+	const owner = await firstWorking(channels, async channel => {
 		const listed = await youtubeJson<{ items?: { snippet?: { channelId?: string; channelTitle?: string } }[] }>(
 			`/videos?part=snippet&id=${encodeURIComponent(videoId)}`,
 			await tokenOf(channel),
 			"videos.list",
 		);
-		owner = listed.items?.[0]?.snippet;
-		if (owner?.channelId) break;
-	}
-	if (!owner?.channelId) throw new Error(`YouTube returned no video ${videoId} to any connected channel.`);
+		const snippet = listed.items?.[0]?.snippet;
+		return snippet?.channelId ? { channelId: snippet.channelId, channelTitle: snippet.channelTitle } : undefined;
+	});
+	if (!owner) throw new Error(`YouTube returned no video ${videoId} to any connected channel.`);
 	const found = channels.find(channel => channel.channelId === owner.channelId);
 	if (!found) {
 		throw new Error(
@@ -212,12 +291,15 @@ export async function ownerOfVideo(videoId: string): Promise<ConnectedChannel> {
 }
 
 export async function forgetChannel(channel: ConnectedChannel): Promise<void> {
-	if (!CHANNEL_ID.test(channel.channelId)) throw new Error(`${channel.channelId} is not a channel id.`);
+	const file = channelFile(channel.channelId);
+	forgotten.add(channel.channelId);
+	fresh.delete(channel.channelId);
 	const connecting = storedCredential(await readJson(configFile(CONNECT_TARGET)).catch(() => null));
-	if (!(connecting instanceof type.errors) && connecting.refresh === channel.refresh) {
+	if (!(connecting instanceof type.errors) && signedInWith(channel, connecting)) {
 		await rm(configFile(CONNECT_TARGET), { force: true });
+		await rm(configFile(CONNECT_SEEN), { force: true });
 	}
-	await rm(channelFile(channel.channelId), { force: true });
+	await rm(file, { force: true });
 }
 
 export async function youtubeFetch(path: string, accessToken: string, init?: RequestInit): Promise<Response> {

@@ -13,7 +13,8 @@ channel the user connected: `youtube_search`, `youtube_get_videos`,
 - **Several channels.** `youtube_channels` lists the connected ones. Tools on a
   video use the channel that owns it; tools that act as a channel (playlists,
   comments) take `channel` when more than one is connected — ask which if the
-  user didn't say. Each Connect adds the channel picked at sign-in.
+  user didn't say. Each Connect adds the channel picked at sign-in; Disconnect
+  removes them all, `youtube_forget_channel` removes one.
 
 - `youtube_playlist_add` and `youtube_post_comment` are mutating. A comment is
   **public** under the channel's name. The tool refuses a sixth comment in a UTC

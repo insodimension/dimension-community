@@ -909,6 +909,54 @@ describe("several channels connected", () => {
 
 			expect(calls).toEqual([]);
 		});
+
+		function serveAlphaRefused(refusal: Response): void {
+			serve(call => {
+				if (call.url.host !== REPORTING) throw new Error(`unexpected request ${call.method} ${call.url}`);
+				if (call.headers.get("authorization") === bearerOf(ALPHA)) return refusal.clone();
+				if (call.url.pathname === "/v1/jobs" && call.method === "GET") return Response.json({});
+				if (call.url.pathname === "/v1/jobs" && call.method === "POST") {
+					const { reportTypeId } = jsonBody(call) as { reportTypeId: string };
+					return Response.json({ id: `${BETA.access}-${reportTypeId}`, reportTypeId, createTime: "2026-11-09T00:00:00Z" });
+				}
+				if (/^\/v1\/jobs\/[^/]+\/reports$/.test(call.url.pathname)) return Response.json({ reports: [] });
+				throw new Error(`unexpected request ${call.method} ${call.url}`);
+			});
+		}
+
+		test("with several channels one that fails becomes its own error line and the others still report", async () => {
+			serveAlphaRefused(Response.json({ error: { message: "Backend Error" } }, { status: 500 }));
+
+			const text = (await reach()).content[0]?.text ?? "";
+
+			expect(text).toContain(`Alpha (@alpha) [${ALPHA.channelId}]: YouTube Reporting jobs.list failed: Backend Error`);
+			expect(text).toContain(`Beta Studio (@betastudio) [${BETA.channelId}]: no channel_reach_basic_a1 reports yet`);
+			expect(createdBy(BETA)).toEqual([BASIC, COMBINED]);
+			expect(await exists(join(REACH_JOBS_DIR, `${ALPHA.channelId}.json`))).toBe(false);
+			expect(await exists(join(REACH_JOBS_DIR, `${BETA.channelId}.json`))).toBe(true);
+			expect(text.trimEnd().endsWith("CTR is clicks over impressions, weighted by impressions across days.")).toBe(true);
+		});
+
+		test("a channel connected before the analytics scope was asked for gets the reconnect line while the others report", async () => {
+			serveAlphaRefused(Response.json({ error: { message: "Request had insufficient authentication scopes." } }, { status: 403 }));
+
+			const text = (await reach()).content[0]?.text ?? "";
+
+			expect(text).toContain(`Alpha (@alpha) [${ALPHA.channelId}]: ${MISSING_ANALYTICS_SCOPE}`);
+			expect(text).toContain(`[${BETA.channelId}]: no channel_reach_basic_a1 reports yet`);
+		});
+
+		test("a single channel that fails is still an error, whether it was named or is the video's owner", async () => {
+			serveAlphaRefused(Response.json({ error: { message: "Backend Error" } }, { status: 500 }));
+
+			await expect(reach({ channel: "@alpha" })).rejects.toThrow(/Backend Error/);
+
+			serve(call => {
+				if (call.url.pathname === "/youtube/v3/videos") return ownerLookup({ channelId: ALPHA.channelId, channelTitle: ALPHA.title });
+				return Response.json({ error: { message: "Backend Error" } }, { status: 500 });
+			});
+			await expect(reach({ videoId: VIDEO })).rejects.toThrow(/Backend Error/);
+		});
 	});
 
 	describe("youtube_video_analytics", () => {

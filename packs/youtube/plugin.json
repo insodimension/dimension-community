@@ -2,7 +2,7 @@
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
 	"version": "0.5.0",
-	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
+	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, apply approved title and thumbnail changes, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -46,7 +46,7 @@
 					},
 					{
 						"title": "Enable the YouTube Analytics API and the YouTube Reporting API",
-						"detail": "Same Library page: enable \"YouTube Analytics API\" and \"YouTube Reporting API\". They give your agent watch time, retention, traffic sources, thumbnail impressions and click-through rate for your own channel. Already connected before? Reconnect so the plugin can ask for analytics access.",
+						"detail": "Same Library page: enable \"YouTube Analytics API\" and \"YouTube Reporting API\". They give your agent watch time, retention, traffic sources, thumbnail impressions and click-through rate for each channel you connect. Already connected before? Reconnect so the plugin can ask for analytics access.",
 						"url": "https://console.cloud.google.com/apis/library/youtubereporting.googleapis.com",
 						"urlLabel": "Open the Reporting API"
 					},
@@ -220,7 +220,7 @@
 				},
 				{
 					"name": "youtube_list_playlists",
-					"description": "List the connected account's own playlists — id, title, item count, and privacy status."
+					"description": "List a connected channel's own playlists — id, title, item count, and privacy status."
 				},
 				{
 					"name": "youtube_list_playlist_items",
@@ -228,7 +228,7 @@
 				},
 				{
 					"name": "youtube_playlist_add",
-					"description": "Add a video to one of your playlists. Mutating."
+					"description": "Add a video to one of a connected channel's playlists. Mutating."
 				},
 				{
 					"name": "youtube_list_comments",
@@ -248,7 +248,7 @@
 				},
 				{
 					"name": "youtube_channels",
-					"description": "List the YouTube channels you connected. Connect again to add another; each one is watched on its own."
+					"description": "List the YouTube channels you connected. Each Connect adds the channel you pick; Disconnect removes them all."
 				},
 				{
 					"name": "youtube_forget_channel",
@@ -256,7 +256,7 @@
 				},
 				{
 					"name": "youtube_reach_report",
-					"description": "Thumbnail impressions and click-through rate for your channel's videos, by video or by traffic source, from YouTube's daily reach reports."
+					"description": "Thumbnail impressions and click-through rate for your connected channels' videos, by video or by traffic source, from YouTube's daily reach reports."
 				},
 				{
 					"name": "youtube_video_analytics",

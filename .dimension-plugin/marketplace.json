@@ -2004,7 +2004,7 @@
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
-			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
+			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, apply approved title and thumbnail changes, and get a finished film ready to upload.",
 			"version": "0.5.0",
 			"author": {
 				"name": "Dimension"

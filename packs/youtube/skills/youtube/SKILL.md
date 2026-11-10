@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to your playlists; read comment threads and post public comments/replies; read your own channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); apply board-approved title and thumbnail changes. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); apply board-approved title and thumbnail changes. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
@@ -23,7 +23,10 @@ manages); connect again to add the next. `youtube_channels` lists them. A tool
 that acts on a video (`youtube_video_analytics`, `youtube_update_video`,
 `youtube_reach_report` with `videoId`) uses the channel that owns the video, so
 no channel is named. A tool that acts *as* a channel (playlists, comments) takes
-`channel` (title, @handle or id) when more than one is connected.
+`channel` (title, @handle or id) when more than one is connected. Readers of
+private items (videos, playlist items, comments, captions) take an optional
+`channel` to read as that channel. **Disconnect** in Plugins removes every
+connected channel; `youtube_forget_channel` removes one.
 
 ## Setup
 
@@ -159,7 +162,7 @@ Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
 
 `youtube_get_captions` lists the caption **tracks** (metadata) on a video. The
 official YouTube Data API's `captions.download` endpoint **only works for videos
-the connected account owns**. For another channel's video, fetch its captions
+a connected channel owns**. For another channel's video, fetch its captions
 with the watch pack (it pulls public captions without browser cookies). Do
 **not** fabricate a transcript, and do not claim to have read captions you
 couldn't download.
