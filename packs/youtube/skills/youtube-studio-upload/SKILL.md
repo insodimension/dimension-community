@@ -1,11 +1,11 @@
 ---
 name: youtube-studio-upload
-description: "Upload a finished film to YouTube through Studio in the person's own signed-in browser, from a checked receipts/publish.json: attach the master, set title, description, thumbnail, audience, altered-content answer, tags and visibility, read every field back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Needs the Browser plugin (browser_run, or its step tools with browser_upload). Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
+description: "Upload a finished film to YouTube from a checked receipts/publish.json: with a connected YouTube channel in one youtube_upload_video call, otherwise through Studio in the person's own signed-in browser; set title, description, thumbnail, audience, altered-content answer, tags and visibility, read every field back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
 ---
 
-# YouTube Studio upload
+# YouTube upload
 
-The YouTube Data API connector here has no upload (a resumable media upload is a deliberate exclusion), so a film goes up through YouTube Studio in a browser the person is signed in to. You drive it with `browser_run`, one verified step at a time, and finish with a video id and a read-back that matches `receipts/publish.json`.
+With the YouTube connector connected to the channel, the film goes up through the API in one `youtube_upload_video` call (below). Without it, or for what the API cannot set (end screens, cards, Test & Compare), it goes through YouTube Studio in a browser the person is signed in to: you drive it with `browser_run`, one verified step at a time, and finish with a video id and a read-back that matches `receipts/publish.json`.
 
 Cell code and the helpers are in [references/studio-cells.md](references/studio-cells.md); Studio's labels and where each came from are in [references/studio-ui.md](references/studio-ui.md). `<SKILL_DIR>` is the folder this SKILL.md is in.
 
@@ -15,7 +15,19 @@ Cell code and the helpers are in [references/studio-cells.md](references/studio-
 
 1. `node <SKILL_DIR>/../youtube-package/scripts/publish-check.mjs check <production-dir>` must say READY, and `upload` must be absent (a second upload of the same film needs the person's say-so). Anything else: stop and go back to `youtube-package` or `youtube-thumbnail`.
 2. The files exist: the master under `renders/`, the chosen thumbnail (and the others if `abTest.run`). Their absolute paths are `<production folder>/<path>`.
-3. Tell the person, in four lines: the channel it will go to if you know it, the title, the visibility, and that the first upload is a draft they can delete. A private or unlisted upload is reversible; a public one is not.
+3. Tell the person in one line: the channel, the title and the visibility. It goes up at `settings.visibility`; a package that names none goes up public, unless the person or the campaign said otherwise.
+
+## With the connector: one call
+
+`youtube_channels` lists the connected channels. When the channel the film is for is there, use `youtube_upload_video` and skip the browser entirely:
+
+- `filePath`: `<production folder>/<master.path>`; `title`: `title.chosen`; `description`: `description.text`; `tags`: `tags`.
+- `madeForKids`: `settings.madeForKids`; `alteredContent`: `settings.alteredContent.disclose`; `category`: `settings.category` (Studio's name works); `language`: `settings.language`; `license`: `cc-by` → `creativeCommon`, otherwise `youtube`; `embeddable`: `settings.allowEmbedding`; `notifySubscribers`: `settings.notifySubscribers`.
+- `visibility`: `settings.visibility`, or `publishAt`: `settings.scheduledAt` for `scheduled`.
+- `thumbnailPath`: the chosen variant's absolute path; `playlistId`: resolve `settings.playlist` with `youtube_list_playlists`; `captionsPath` and `captionsLanguage`: `captions.file` and `captions.language` when a file is set.
+- `channel`: when several are connected and the person or campaign named one.
+
+Write `upload` from the result's `details`: `videoId`, `url`, `visibility` (`scheduled` when you passed `publishAt`, since YouTube holds it private until then), `uploadedAt` (now), `channelId`, `readback` (each row as returned), and `profile: "youtube connector"`. Then run `check` and say the link, the visibility and every follow-up the tool reported. A thumbnail, playlist or caption line marked NOT is fixed with `youtube_update_video`, `youtube_playlist_add` or Studio, never by uploading again. An end screen or an A/B test the package asks for still goes through Studio on the edit page for that id (below). Without the connector, continue with the browser.
 
 ## The browser
 

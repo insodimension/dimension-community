@@ -8,7 +8,8 @@ channel the user connected: `youtube_search`, `youtube_get_videos`,
 `youtube_list_playlists`, `youtube_list_playlist_items`, `youtube_playlist_add`,
 `youtube_list_comments`, `youtube_post_comment`, `youtube_get_captions`,
 `youtube_channel_stats`, `youtube_channels`, `youtube_forget_channel`,
-`youtube_video_analytics`, `youtube_reach_report`, `youtube_update_video`.
+`youtube_video_analytics`, `youtube_reach_report`, `youtube_update_video`,
+`youtube_upload_video`.
 
 - **Several channels.** `youtube_channels` lists the connected ones. Tools on a
   video use the channel that owns it; tools that act as a channel (playlists,
@@ -24,6 +25,15 @@ channel the user connected: `youtube_search`, `youtube_get_videos`,
   decides whether it asks; in Traction the person's pick on the campaign board
   is the go-ahead. A clear refusal means nothing changed; an unclear failure
   means it may be live, so read the video before sending it again.
+- **Uploading a video.** `youtube_upload_video` uploads a file to a connected
+  channel through the API (resumable) and reads it back. It goes up **public**
+  unless the campaign or the person said unlisted, private or a scheduled time
+  (`publishAt`). Answer `madeForKids` from the campaign or the package; ask if
+  neither says. Thumbnail, playlist and captions ride along; a failed one is
+  reported and fixed with `youtube_update_video` or `youtube_playlist_add`,
+  never by uploading again. Upload a film once: after an unclear failure, list
+  the channel's uploads before calling again. End screens, cards and Test &
+  Compare stay in Studio.
 - **Resolve ids, don't guess.** Turn titles and names into ids with
   `youtube_search`, `youtube_list_playlists` or `youtube_channel_stats`
   (by `@handle`) before acting.
