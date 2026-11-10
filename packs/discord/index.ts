@@ -172,25 +172,6 @@ function renderMessageLine(message: Message, guildId: string | undefined, channe
 	return `${message.id}  ${message.timestamp}  ${author}${message.author?.id ? ` (${message.author.id})` : ""}${message.author?.bot ? " [bot]" : ""}${marks.length ? `  [${marks.join("; ")}]` : ""}\n    ${body}\n    ${permalink(guildId, message.channel_id ?? channelId, message.id)}`;
 }
 
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
-function approvalArg(args: unknown, key: string, absent = "(missing)"): string {
-	const value: unknown = typeof args === "object" && args !== null ? Reflect.get(args, key) : undefined;
-	return typeof value === "string" || typeof value === "number" ? String(value) : absent;
-}
-
-function approvalList(args: unknown, key: string): string[] {
-	const value: unknown = typeof args === "object" && args !== null ? Reflect.get(args, key) : undefined;
-	return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-}
-
-function mentionCard(args: unknown): string {
-	const users = approvalList(args, "mentionUserIds");
-	return users.length
-		? `Pings: only users ${users.join(", ")}`
-		: "Pings: none (@everyone, @here, roles and users are not notified)";
-}
-
 function allowedMentions(userIds: readonly string[] | undefined, repliedUser = false): Record<string, unknown> {
 	return { parse: [], users: [...(userIds ?? [])], replied_user: repliedUser };
 }
@@ -499,18 +480,9 @@ function createSendMessageTool(): ToolDefinition<typeof sendMessageSchema> {
 		name: "discord_send_message",
 		label: "Discord: Send Message",
 		description:
-			"Post a message to a Discord channel or thread, optionally with one image. PUBLIC — it publishes to a live channel; confirm the exact channel and text with the user first. Mentions in the text never ping unless the person named those users (mentionUserIds). Returns the message id and permalink.",
+			"Post a message to a Discord channel or thread, optionally with one image. PUBLIC — it publishes to a live channel: post what the person chose or asked for, as is. Mentions in the text never ping unless the person named those users (mentionUserIds). Returns the message id and permalink.",
 		parameters: sendMessageSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const image = approvalArg(args, "imagePath", "");
-			return [
-				`Channel: ${approvalArg(args, "channelId")}`,
-				`Message:\n${approvalArg(args, "content")}`,
-				...(image ? [`Image: ${image}`] : []),
-				mentionCard(args),
-			];
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof sendMessageSchema.infer) {
 			checkLength(params.content, "Message");
 			const token = await botToken();
@@ -542,22 +514,9 @@ function createCreateThreadTool(): ToolDefinition<typeof createThreadSchema> {
 		name: "discord_create_thread",
 		label: "Discord: Create Thread",
 		description:
-			"Create a thread. In a forum channel this is a forum post: `content` is its first message (required) and `tags` are tag names to apply. In a text channel, pass `messageId` to thread off a message, or omit it for a standalone public thread. PUBLIC — confirm the channel, title, text and tags with the user first. Returns the thread id and permalink.",
+			"Create a thread. In a forum channel this is a forum post: `content` is its first message (required) and `tags` are tag names to apply. In a text channel, pass `messageId` to thread off a message, or omit it for a standalone public thread. PUBLIC — post the channel, title, text and tags the person chose or asked for. Returns the thread id and permalink.",
 		parameters: createThreadSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const from = approvalArg(args, "messageId", "");
-			const content = approvalArg(args, "content", "");
-			const tags = approvalList(args, "tags");
-			return [
-				`Channel: ${approvalArg(args, "channelId")}`,
-				`Thread name: ${approvalArg(args, "name")}`,
-				...(from ? [`From message: ${from}`] : []),
-				...(content ? [`First message:\n${content}`] : []),
-				...(tags.length ? [`Tags: ${tags.join(", ")}`] : []),
-				mentionCard(args),
-			];
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof createThreadSchema.infer) {
 			if (params.name.length > THREAD_NAME_LIMIT) {
 				throw new Error(`A thread name is at most ${THREAD_NAME_LIMIT} characters; this one is ${params.name.length}.`);
@@ -617,19 +576,9 @@ function createReplyMessageTool(): ToolDefinition<typeof replyMessageSchema> {
 		name: "discord_reply_message",
 		label: "Discord: Reply to Message",
 		description:
-			"Reply to a specific Discord message (a new message linked to the original), optionally with one image. PUBLIC — confirm the channel, target message and text with the user first. Only the replied-to author is notified (pingAuthor false turns that off); other mentions ping only users the person named. Returns the message id and permalink.",
+			"Reply to a specific Discord message (a new message linked to the original), optionally with one image. PUBLIC — reply with the text the person chose or asked for. Only the replied-to author is notified (pingAuthor false turns that off); other mentions ping only users the person named. Returns the message id and permalink.",
 		parameters: replyMessageSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const image = approvalArg(args, "imagePath", "");
-			return [
-				`Channel: ${approvalArg(args, "channelId")}`,
-				`Reply to message: ${approvalArg(args, "messageId")}`,
-				`Message:\n${approvalArg(args, "content")}`,
-				...(image ? [`Image: ${image}`] : []),
-				mentionCard(args),
-			];
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof replyMessageSchema.infer) {
 			checkLength(params.content, "Reply");
 			const token = await botToken();
@@ -688,15 +637,7 @@ function createEditMessageTool(): ToolDefinition<typeof editMessageSchema> {
 		description:
 			"Edit the content of one of the bot's OWN messages (Discord rejects edits to other users' messages). The previous content is replaced; confirm the exact message and new text with the user first. Mentions ping only users the person named.",
 		parameters: editMessageSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			return [
-				`Channel: ${approvalArg(args, "channelId")}`,
-				`Edit message: ${approvalArg(args, "messageId")}`,
-				`New content:\n${approvalArg(args, "content")}`,
-				mentionCard(args),
-			];
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: typeof editMessageSchema.infer) {
 			checkLength(params.content, "Message");
 			const edited = await discordJson<Message>(
@@ -717,10 +658,7 @@ function createDeleteMessageTool(): ToolDefinition<typeof deleteMessageSchema> {
 		description:
 			'MODERATION. Permanently delete a Discord message — with the Manage Messages permission this works on ANYONE\'s message, not just the bot\'s. IRREVERSIBLE. NEVER call without the user naming the EXACT message (channel + message id, ideally quoting its content) in the current turn. Refuse vague instructions like "clean up the channel".',
 		parameters: deleteMessageSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			return [`Channel: ${approvalArg(args, "channelId")}`, `Delete message: ${approvalArg(args, "messageId")}`];
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: typeof deleteMessageSchema.infer) {
 			await discordVoid(
 				`/channels/${encodeURIComponent(params.channelId)}/messages/${encodeURIComponent(params.messageId)}`,
@@ -788,19 +726,9 @@ function createTimeoutMemberTool(): ToolDefinition<typeof timeoutMemberSchema> {
 		name: "discord_timeout_member",
 		label: "Discord: Timeout Member",
 		description:
-			'MODERATION. Time out (mute) a server member for up to 28 days, or lift a timeout (minutes 0 / clear:true). Needs Moderate Members. Asks the person in every mode. NEVER call without the user naming the EXACT member AND the duration in the current turn. Refuse vague instructions like "mute the spammers".',
+			'MODERATION. Time out (mute) a server member for up to 28 days, or lift a timeout (minutes 0 / clear:true). Needs Moderate Members. NEVER call without the user naming the EXACT member AND the duration in the current turn. Refuse vague instructions like "mute the spammers".',
 		parameters: timeoutMemberSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const clearing =
-				(typeof args === "object" && args !== null && Reflect.get(args, "clear") === true) ||
-				Number(approvalArg(args, "minutes", "0")) <= 0;
-			return [
-				`Server: ${approvalArg(args, "guildId")}`,
-				`Member: ${approvalArg(args, "userId")}`,
-				clearing ? "Action: lift the timeout" : `Action: time out for ${approvalArg(args, "minutes")} minutes`,
-			];
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: typeof timeoutMemberSchema.infer) {
 			const clearing = params.clear === true || params.minutes <= 0;
 			const until = clearing
@@ -1025,19 +953,9 @@ function createCreateInviteTool(): ToolDefinition<typeof createInviteSchema> {
 		name: "discord_create_invite",
 		label: "Discord: Create Invite",
 		description:
-			"Create a new invite code for one source (a bio, a video description, a README), so joins can be counted per source from its uses in discord_guild_snapshot. Optional expiry, use limit and roles granted on join. Asks the person in every mode. Returns the invite URL.",
+			"Create a new invite code for one source (a bio, a video description, a README), so joins can be counted per source from its uses in discord_guild_snapshot. Optional expiry, use limit and roles granted on join. Returns the invite URL.",
 		parameters: createInviteSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const roles = approvalList(args, "roleIds");
-			return [
-				`Channel: ${approvalArg(args, "channelId")}`,
-				`For: ${approvalArg(args, "source")}`,
-				`Expires after: ${approvalArg(args, "maxAgeSeconds", "0")} s (0 = never)`,
-				`Max uses: ${approvalArg(args, "maxUses", "0")} (0 = unlimited)`,
-				...(roles.length ? [`Grants roles: ${roles.join(", ")}`] : []),
-			];
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: typeof createInviteSchema.infer) {
 			const invite = await discordJson<Invite>(
 				`/channels/${encodeURIComponent(params.channelId)}/invites`,
@@ -1066,16 +984,9 @@ function createPublishMessageTool(): ToolDefinition<typeof publishMessageSchema>
 	return {
 		name: "discord_publish_message",
 		label: "Discord: Publish Announcement",
-		description: `Publish a message in an announcement channel to every server that follows it (Discord's Publish button). It reaches other servers and cannot be recalled there; Discord allows ${PUBLISHES_PER_HOUR} publishes per hour per channel. Asks the person in every mode.`,
+		description: `Publish a message in an announcement channel to every server that follows it (Discord's Publish button). It reaches other servers and cannot be recalled there; Discord allows ${PUBLISHES_PER_HOUR} publishes per hour per channel.`,
 		parameters: publishMessageSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			return [
-				`Announcement channel: ${approvalArg(args, "channelId")}`,
-				`Publish message: ${approvalArg(args, "messageId")}`,
-				`Reaches every following server; at most ${PUBLISHES_PER_HOUR} publishes per hour per channel.`,
-			];
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof publishMessageSchema.infer) {
 			const token = await botToken();
 			const channel = await channelOf(params.channelId, token);
@@ -1134,19 +1045,9 @@ function createCreateEventTool(): ToolDefinition<typeof createEventSchema> {
 		name: "discord_create_event",
 		label: "Discord: Create Event",
 		description:
-			"Schedule a server event (an AMA, a launch stream, office hours) in a voice or stage channel, or at an outside location with an end time. Members see it in the Events list. Needs Manage Events. Asks the person in every mode. Returns the event id and link.",
+			"Schedule a server event (an AMA, a launch stream, office hours) in a voice or stage channel, or at an outside location with an end time. Members see it in the Events list. Needs Manage Events. Returns the event id and link.",
 		parameters: createEventSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const location = approvalArg(args, "location", "");
-			return [
-				`Server: ${approvalArg(args, "guildId")}`,
-				`Event: ${approvalArg(args, "name")}`,
-				`Starts: ${approvalArg(args, "startTime")}${approvalArg(args, "endTime", "") ? `  Ends: ${approvalArg(args, "endTime")}` : ""}`,
-				location ? `Where: ${location}` : `Channel: ${approvalArg(args, "channelId")}`,
-				`Description:\n${approvalArg(args, "description", "(none)")}`,
-			];
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof createEventSchema.infer) {
 			if (Boolean(params.channelId) === Boolean(params.location)) throw new Error("Give exactly one of channelId and location.");
 			if (params.location && !params.endTime) throw new Error("An event at an outside location needs endTime.");
@@ -1285,34 +1186,9 @@ function createCreateAutomodRuleTool(): ToolDefinition<typeof createAutomodSchem
 		name: "discord_create_automod_rule",
 		label: "Discord: Create AutoMod Rule",
 		description:
-			"Create one AutoMod rule the person approved (keyword list, spam filter, Discord's word presets, or a mention limit) with a block, alert or timeout action. Needs Manage Server. Asks the person in every mode. Read the existing rules with discord_list_automod_rules first; Discord allows 6 keyword rules per server.",
+			"Create one AutoMod rule the person asked for (keyword list, spam filter, Discord's word presets, or a mention limit) with a block, alert or timeout action. Needs Manage Server. Read the existing rules with discord_list_automod_rules first; Discord allows 6 keyword rules per server.",
 		parameters: createAutomodSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const lines = [`Server: ${approvalArg(args, "guildId")}`, `Rule: ${approvalArg(args, "name")}`];
-			const parsed = createAutomodSchema(args);
-			if (parsed instanceof type.errors) return [...lines, "Rule settings: (arguments missing or malformed)"];
-			let body: AutomodRuleBody;
-			try {
-				body = automodRuleBody(parsed);
-			} catch (error) {
-				return [...lines, `Refused before sending: ${error instanceof Error ? error.message : String(error)}`];
-			}
-			const meta = body.trigger_metadata;
-			const action = body.actions[0];
-			lines.push(`Trigger: ${parsed.trigger}`);
-			if (meta.keyword_filter) lines.push(`Keywords: ${meta.keyword_filter.join(", ")}`);
-			if (parsed.presets?.length) lines.push(`Presets: ${parsed.presets.join(", ")}`);
-			if (meta.mention_total_limit !== undefined) lines.push(`Mention limit: ${meta.mention_total_limit} per message`);
-			lines.push(
-				action?.metadata.duration_seconds !== undefined
-					? `Action: timeout every member who trips it for ${action.metadata.duration_seconds} seconds (${(action.metadata.duration_seconds / 3600).toFixed(2)} hours)`
-					: action?.metadata.channel_id !== undefined
-						? `Action: alert in channel ${action.metadata.channel_id}`
-						: "Action: block the message",
-			);
-			return lines;
-		},
+		approval: "write",
 		async execute(_toolCallId: string, params: typeof createAutomodSchema.infer) {
 			const rule = await discordJson<AutomodRule>(
 				`/guilds/${encodeURIComponent(params.guildId)}/auto-moderation/rules`,

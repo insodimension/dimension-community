@@ -1,6 +1,6 @@
 import type { BrowserRegion, ElementInspection, PageElement, PageElements, PageScroll } from "../contracts.js";
 import type { ReportedIdentity } from "./launch.js";
-import type { EditableText, FieldKind, FieldRead, PageRead } from "./types.js";
+import type { FieldRead, PageRead } from "./types.js";
 /**
  * The page's text and interactive controls, each with a selector for
  * browser_act and its center in main-viewport pixels. Run in a child frame,
@@ -324,57 +324,6 @@ const READ_FIELD_SCRIPT = (el: Element): FieldRead => {
 	const lines = children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText));
 	return { state: "value", value: lines.join("\n") };
 };
-const EDITABLES_SCRIPT = (): EditableText[] => {
-	const notText = ["hidden", "checkbox", "radio", "file", "submit", "button", "reset", "image", "range", "color", "date", "datetime-local", "month", "week", "time"];
-	const exemptTypes = ["email", "password", "tel", "search"];
-	const exemptAutocomplete = /(?:^|\s)(?:username|email|tel|one-time-code|current-password|new-password)(?:\s|$)/i;
-	const kindOf = (el: Element): FieldKind => {
-		if (el.tagName === "INPUT") {
-			const input = el as HTMLInputElement;
-			const type = (input.type || "text").toLowerCase();
-			if (notText.includes(type)) return "none";
-			if (exemptTypes.includes(type) || exemptAutocomplete.test(input.getAttribute("autocomplete") ?? "")) return "exempt";
-			const role = (input.getAttribute("role") ?? "").toLowerCase();
-			if (role === "searchbox" || role === "combobox") return "exempt";
-			if ((input.form ?? input.closest("form"))?.querySelector('input[type="password"]')) return "exempt";
-			return "content";
-		}
-		if (el.tagName === "TEXTAREA") return "content";
-		return (el as HTMLElement).isContentEditable ? "content" : "none";
-	};
-	const shown = (el: Element): boolean => {
-		if (el.getClientRects().length === 0) return false;
-		const style = getComputedStyle(el);
-		return style.visibility !== "hidden" && style.display !== "none";
-	};
-	const valueOf = (el: Element): string => {
-		if (el.tagName === "INPUT") return (el as HTMLInputElement).value;
-		if (el.tagName === "TEXTAREA") return (el as HTMLTextAreaElement).value;
-		const html = el as HTMLElement;
-		const trimmed = (text: string): string => (text.endsWith("\n") ? text.slice(0, -1) : text);
-		const children = Array.from(html.childNodes);
-		const paragraphs =
-			children.some((node) => node.nodeName === "P") &&
-			children.every((node) => node.nodeName === "P" || (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() === ""));
-		if (!paragraphs) return trimmed(html.innerText);
-		return children.filter((node): node is HTMLParagraphElement => node.nodeName === "P").map((p) => trimmed(p.innerText)).join("\n");
-	};
-	const texts: EditableText[] = [];
-	const visit = (root: Document | ShadowRoot): void => {
-		for (const el of Array.from(root.querySelectorAll("input, textarea, [contenteditable]"))) {
-			const kind = kindOf(el);
-			if (kind === "none") continue;
-			if (kind === "content" && el.tagName !== "INPUT" && el.tagName !== "TEXTAREA" && (el.parentElement as HTMLElement | null)?.isContentEditable) continue;
-			if (!shown(el)) continue;
-			const value = valueOf(el);
-			if (value.trim() !== "") texts.push({ value, exempt: kind === "exempt" });
-		}
-		for (const host of Array.from(root.querySelectorAll("*"))) if (host.shadowRoot) visit(host.shadowRoot);
-	};
-	visit(document);
-	if (document.designMode === "on" && document.body !== null && document.body.innerText.trim() !== "") texts.push({ value: document.body.innerText, exempt: false });
-	return texts;
-};
 /**
  * The text an element shows, at most `limit` characters; null for a form
  * control, whose text is a value (a password's included) and never read here,
@@ -534,7 +483,6 @@ export {
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
 	READ_FIELD_SCRIPT,
-	EDITABLES_SCRIPT,
 	ELEMENT_TEXT_SCRIPT,
 	ELEMENT_LABEL_SCRIPT,
 	LINK_HREFS_SCRIPT,

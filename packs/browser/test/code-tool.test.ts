@@ -509,27 +509,27 @@ describe("which tools the model is shown", () => {
     }
   });
 
-  test("the publish set stays Traction's alone, the confirm still asks the human in every permission mode, and browser_run still asks at the exec tier", async () => {
-    for (const mode of ["code", "both"] as const) {
+  test("the publish set stays Traction's alone, no tool but browser_run carries a host approval tier, and browser_run still asks at the exec tier", async () => {
+    for (const mode of ["code", "steps", "both"] as const) {
       const { client } = await connect(fakeHost(() => shown()), mode);
       const tools = await listed(client);
       for (const name of PUBLISH_TOOLS) expect(SPACES_UNDER_TEST.filter(space => offeredToSpace({ name, _meta: tools.get(name) }, space)), `${mode}: ${name} audience`).toEqual(["traction"]);
-      expect(tools.get("browser_publish_confirm")?.["ai.insodimension/approval"], `${mode}: confirm approval`).toBe("prompt");
-      expect(tools.get("browser_run")?.["ai.insodimension/approval"], `${mode}: browser_run approval`).toBe("exec");
+      const tiers = [...tools].filter(([, meta]) => meta?.["ai.insodimension/approval"] !== undefined).map(([name, meta]) => [name, meta?.["ai.insodimension/approval"]]);
+      expect(tiers, `${mode}: approval tiers`).toEqual(mode === "steps" ? [] : [["browser_run", "exec"]]);
     }
   });
 
-  test("browser_upload asks the person before every call in every mode, names the site and every path on the card, and is offered wherever browser_act is", async () => {
+  test("browser_upload asks nobody, carries no approval card, and is offered wherever browser_act is", async () => {
     for (const mode of ["code", "steps", "both"] as const) {
       const { client } = await connect(fakeHost(() => shown()), mode);
       const tools = (await client.listTools()).tools;
       const upload = tools.find(tool => tool.name === "browser_upload");
       const act = tools.find(tool => tool.name === "browser_act");
-      expect(upload?._meta?.["ai.insodimension/approval"], `${mode}: upload approval`).toBe("prompt");
+      expect(upload?._meta?.["ai.insodimension/approval"], `${mode}: upload approval`).toBeUndefined();
+      expect(upload?._meta?.["ai.insodimension/approvalSummary"], `${mode}: upload approval summary`).toBeUndefined();
       for (const space of SPACES_UNDER_TEST) expect(offeredToSpace(upload!, space), `${mode}: upload offered to ${space}`).toBe(offeredToSpace(act!, space));
-      expect(upload?._meta?.["ai.insodimension/approvalSummary"]).toEqual(["Send {paths, plural, one {# file} other {# files}} to {origin}", "Into a frame from {frameOrigin}", "{paths}"]);
       const paths = (upload?.inputSchema.properties as Record<string, { maxItems?: number }>).paths;
-      expect(paths?.maxItems, "the host's card shows a list of at most three in full, so every path is on it").toBe(3);
+      expect(paths?.maxItems, "at most three files per call").toBe(3);
       expect(upload?.inputSchema.required).toEqual(expect.arrayContaining(["browserId", "selector", "paths", "origin"]));
     }
   });

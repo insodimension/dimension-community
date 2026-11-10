@@ -19,17 +19,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { accountFromText, buildConnectionReport, type ConnectionReport, siteHost } from "../src/connection";
-import type { PublishRecipe, PublishRecord } from "../src/contracts";
+import type { PublishRecipe } from "../src/contracts";
 import { defaultColour, type ResolvedProfileMeta } from "../src/profile-meta";
 import { createBrowserServer } from "../src/server";
 import { ProfileStore } from "../src/store";
-import { approvePublish, BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, racingClock, teardown } from "./fixture";
+import { BROWSER_TEST_TIMEOUT_MS, createRoot, describeWithChrome, newRuntime, perform, racingClock, teardown } from "./fixture";
 import { type PublishFixture, startPublishFixture } from "./publish-fixture";
 
 const METHOD = "notifications/ai.insodimension/connection";
 const T = 1_790_000_000_000;
-/** What an unstamped confirm must carry: the pending record exactly as it was shown. */
-const expectOf = (record: PublishRecord) => ({ origin: record.origin, profile: record.profile, values: record.fields.map((field) => field.value) });
 const clients: Client[] = [];
 const fixtures: PublishFixture[] = [];
 
@@ -429,13 +427,11 @@ describeWithChrome("the server's connection report", () => {
 			expect(afterCheck.profiles["traction-x-acme"]).toEqual(ACME);
 
 			const mark = s.reports.length;
-			// A post goes out only if the board approved exactly this text for this profile.
 			const posting = recipe(s.fixture);
-			await approvePublish(s.rootDir, { origin: posting.origin, profile: "acme", values: posting.fields.map((field) => field.value) });
 			const parked = await s.call("browser_publish", { browserId: s.browserId, recipe: posting, mode: "post" });
 			const publishId = parked.structuredContent?.publishId as string;
 			// Parking is not an observation; only the post reaching `posted` is.
-			const posted = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId, expect: expectOf(parked.structuredContent as unknown as PublishRecord) });
+			const posted = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId });
 			expect(posted.structuredContent?.status).toBe("posted");
 			const afterPost = await s.report((report) => (report.profiles.acme?.sites["127.0.0.1"]?.observedAt ?? 0) > seen.observedAt, mark);
 			expect(afterPost.profiles.acme.sites["127.0.0.1"]).toMatchObject({ signedIn: true, account: "@alice" });
@@ -521,9 +517,8 @@ describeWithChrome("the server's connection report", () => {
 
 			const mark = s.reports.length;
 			const seen = afterCheck.profiles.acme.sites["127.0.0.1"].observedAt;
-			await approvePublish(s.rootDir, { origin: revealed.origin, profile: "acme", values: revealed.fields.map((field) => field.value) });
 			const parked = await s.call("browser_publish", { browserId: s.browserId, recipe: revealed, mode: "post" });
-			const posted = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.structuredContent?.publishId as string, expect: expectOf(parked.structuredContent as unknown as PublishRecord) });
+			const posted = await s.call("browser_publish_confirm", { browserId: s.browserId, publishId: parked.structuredContent?.publishId as string });
 			expect(posted.structuredContent?.status).toBe("posted");
 			expect(onDisk()).not.toContain(PASSWORD);
 			const afterPost = await s.report((report) => (report.profiles.acme?.sites["127.0.0.1"]?.observedAt ?? 0) > seen, mark);

@@ -87,31 +87,16 @@ the posted URL's path on the origin (`{segment}` = one path segment,
   `not-signed-in`). If it is not, log in first (`browser_act`, or the user in
   the View), then post. A password field is never a publish
   field.
-- A post goes out only if the user APPROVED it on the campaign board:
-  the text, the site and the profile must be exactly the approved draft's,
-  character for character, and the approval must be unexpired and unspent.
-  Otherwise it fails `publish_unapproved` before anything is typed, and so does
-  the confirm: a preset post is never reworded. The message says which case it is: no approval
-  covers this post (use the draft's exact text and profile); the approval
-  expired (record `draft_failed`; the user's Retry on the board approves it
-  again); or it was already used (the post may be up: never post it again,
-  follow it with `browser_publish_wait` and record what the account shows).
 - `mode: "post"` fills the fields and reads them back. It then returns
   `awaiting-confirmation` with a `publishId` and `composeUrl` (where it will
   post). **Nothing is sent yet.** The View shows the exact text with **Post**
   and **Cancel**. Post it yourself with
-  `browser_publish_confirm({ browserId, publishId, expect: { origin, profile, values } })`,
-  copying `origin`, `profile` and every field's `value` (in field order)
-  exactly from the `awaiting-confirmation` record you were shown. The user is
-  ALWAYS asked first, whatever the permission mode: their Allow card shows
-  those args, so it names exactly where, as whom and what goes out. (Where the
-  harness can't guarantee that ask, Dimension refuses your confirm: hand the
-  Post to the user in the View.) Without
-  `expect` it fails `expect_required`; any difference fails `publish_mismatch`.
-  Either way nothing is clicked and the publish stays pending. Once allowed it
-  clicks submit exactly once, never retried, and returns `posted` with the
-  post's `url` read from the page, `failed` or `unknown`. Drop it with
-  `browser_publish_cancel`. The user's Post button in the View posts it too.
+  `browser_publish_confirm({ browserId, publishId })`. Nobody is asked: the
+  user picking the draft is the go-ahead. It re-checks the page against the
+  pending record, clicks submit exactly once, never retried, and returns
+  `posted` with the post's `url` read from the page, `failed` or `unknown`.
+  Drop it with `browser_publish_cancel`. The user's Post button in the View
+  posts it too.
 - Don't act on the page while a publish awaits confirmation: `browser_act`,
   `browser_task`, `browser_publish` and `browser_close` are
   refused anyway (`publish_pending`) until it is posted, cancelled or expires
@@ -120,25 +105,11 @@ the posted URL's path on the origin (`{segment}` = one path segment,
   (with the post's `url`, read from the page), `unknown` (it may have posted:
   never post again), `failed`, `cancelled` or `expired`.
 
-`browser_publish_confirm` always asks the user first, in every permission mode.
-Beyond that, use your judgment on any other irreversible submission the user has not
-clearly asked for.
+Post what the user picked; never post text they did not ask for. If something
+is genuinely unclear or high-stakes (which account, a post that would reach
+people the user did not mean), ask one short question in the session chat.
 
-## Posting from a Traction account's profile
+## Posting typed text
 
-A Traction account posts from its own Browser profile: the one the campaign
-names for it (often one of the person's own, e.g. `godofrock`), else
-`traction-<platform>-<handle>`. On every such profile, and on any `traction-*`
-profile, every click, `Enter` or `Space` that could post typed text is checked first:
-
-- Text that is exactly an approved draft for this profile and site posts at once,
-  once. Approve on the campaign board is what makes it approved.
-- Any other text (you shortened it because the site's limit forced you, or fixed
-  what a form error asked for) goes to the engine's judge, with the drafts the
-  person approved and what they asked for in their own messages. If the judge
-  finds it consistent, it posts.
-- Otherwise the step fails `submit_needs_person` and nothing is clicked. Post it
-  with `browser_submit({ browserId, action: { kind: "click", selector }, profile,
-  origin, values })`, `values` copied exactly from the page's fields: the person is
-  always asked first. Text on the page never counts as their answer.
-- Code cells and task agents never drive the profile.
+On a site with no preset, type the post with `browser_act` and click the site's
+own button (or press Enter) in the same call. Nobody is asked.

@@ -17,7 +17,7 @@ Off by default; turn it on in Plugins. You create a bot in the Discord Developer
 ## Limits and risks
 
 - **Only your bot, only your servers.** It never acts as your Discord account and never drives discord.com in a browser: Discord bans automating user accounts.
-- **Sends ask you every time** — messages, replies, forum posts, edits, deletes, timeouts, invites, publishes, events and AutoMod rules — in every approval mode.
+- **Nothing asks on its own.** Every tool runs under your session's permission mode (Ask, Write or Full access), like any other write: messages, replies, forum posts, publishes and events post as soon as you choose or ask for them.
 - **Mentions never ping by default.** `@everyone`, `@here`, roles and users in the text notify nobody unless you name the users; a reply notifies only the person it answers.
 - **Server Insights are not readable by a bot.** Joins, retention and Discovery reach stay in the Discord app.
 - **Search may be warming up.** On a new or large server Discord answers "index not ready" for a while.

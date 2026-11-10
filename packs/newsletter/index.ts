@@ -1,10 +1,9 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { connectedProviders, isProviderId, PROVIDER_LABEL, PROVIDERS, type ProviderId, resolveProvider } from "./credentials.js";
+import { connectedProviders, PROVIDER_LABEL, PROVIDERS, type ProviderId, resolveProvider } from "./credentials.js";
 import { type IssueStats, providerFor } from "./providers.js";
 
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
 const OPENS_WARNING =
 	"unreliable: Apple Mail Privacy Protection opens mail on its own, and readers in France and Italy may be untracked. A trend inside this list at most, never readership";
 
@@ -31,22 +30,10 @@ const audienceSchema = type({
 
 const draftSchema = type({
 	"provider?": providerField,
-	subject: type("string > 0").describe("The approved subject line, exactly."),
-	body: type("string > 0").describe("The approved body, exactly: plain text, blank lines between paragraphs, bare https links."),
-	"previewText?": type("string").describe("The approved preview line shown after the subject in the inbox."),
+	subject: type("string > 0").describe("The chosen subject line, exactly."),
+	body: type("string > 0").describe("The chosen body, exactly: plain text, blank lines between paragraphs, bare https links."),
+	"previewText?": type("string").describe("The chosen preview line shown after the subject in the inbox."),
 });
-
-function approvalArg(args: unknown, key: string): string | undefined {
-	const value: unknown = typeof args === "object" && args !== null ? Reflect.get(args, key) : undefined;
-	return typeof value === "string" ? value : undefined;
-}
-
-function cardProvider(args: unknown): string {
-	const requested = approvalArg(args, "provider");
-	if (isProviderId(requested)) return PROVIDER_LABEL[requested];
-	const connected = connectedProviders();
-	return connected.length === 1 && connected[0] !== undefined ? PROVIDER_LABEL[connected[0]] : "the connected newsletter provider";
-}
 
 function text(value: string) {
 	return { content: [{ type: "text" as const, text: value }] };
@@ -165,16 +152,9 @@ function createDraftTool(): ToolDefinition<typeof draftSchema> {
 		name: "newsletter_issue_draft",
 		label: "Newsletter: Save draft",
 		description:
-			"Save an approved issue as an UNSENT draft in the person's email provider (beehiiv, Kit, Buttondown, Ghost) and return where to open it. It never sends, schedules or publishes: there is no parameter for that, and a draft the provider reports as anything but a draft is an error. The person reviews it there and presses Send. Pass the approved subject and body exactly. Substack has no API: hand the text over to paste instead.",
+			"Save the chosen issue as an UNSENT draft in the person's email provider (beehiiv, Kit, Buttondown, Ghost) and return where to open it. It never sends, schedules or publishes: there is no parameter for that, and a draft the provider reports as anything but a draft is an error. The person reviews it there and presses Send. Pass the chosen subject and body exactly. Substack has no API: hand the text over to paste instead.",
 		parameters: draftSchema,
-		approval: PROMPT_EVERY_MODE,
-		formatApprovalDetails(args: unknown) {
-			const preview = approvalArg(args, "previewText");
-			const lines = [`Saves an UNSENT draft in ${cardProvider(args)}. Nothing is sent or scheduled; the person presses Send there.`, `Subject: ${approvalArg(args, "subject") ?? "(missing)"}`];
-			if (preview) lines.push(`Preview text: ${preview}`);
-			lines.push(`Body:\n${approvalArg(args, "body") ?? "(missing)"}`);
-			return lines;
-		},
+		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof draftSchema.infer) {
 			if (!params.subject.trim() || !params.body.trim()) throw new Error("Refusing to save a draft with an empty subject or body.");
 			const id = resolveProvider(params.provider);

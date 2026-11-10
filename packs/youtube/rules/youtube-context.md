@@ -13,11 +13,11 @@ Google account's YouTube: `youtube_search`, `youtube_get_videos`,
 - `youtube_playlist_add` and `youtube_post_comment` are mutating. A comment is
   **public** under the channel's name. The tool refuses a sixth comment in a UTC
   day and any text that repeats an earlier comment.
-- **Video changes go through the board.** `youtube_update_video` changes a
-  posted video's title or thumbnail only with an approved Traction
-  `youtube-update` draft: pass its draft id and exactly the approved value. A
-  `publish_unapproved` refusal means nothing changed; one saying the approval
-  was used means the change may be live, so never send it again.
+- **Changing a posted video.** `youtube_update_video` changes a posted video's
+  title or thumbnail, one change per call. The session's permission mode
+  decides whether it asks; in Traction the person's pick on the campaign board
+  is the go-ahead. A clear refusal means nothing changed; an unclear failure
+  means it may be live, so read the video before sending it again.
 - **Resolve ids, don't guess.** Turn titles and names into ids with
   `youtube_search`, `youtube_list_playlists` or `youtube_channel_stats`
   (by `@handle`) before acting.

@@ -78,13 +78,11 @@ import type {
 	PublishCheck,
 	PublishMode,
 	PublishRecipe,
-	PublishExpectation,
 	PublishRecord,
 	ReadRequest,
 	ReadResult,
 	TabRequest,
 	UploadRequest,
-	SubmitRequest,
 	TaskRequest,
 	TaskRun,
 	TaskStep,
@@ -107,8 +105,6 @@ import type { EngineDriver, EngineState, EvalOutcome, LiveFrame, PageReader, Pas
 import { AnnotationFiles } from "./annotation-file.js";
 import { clampRegion, MAX_FRAME_BYTES } from "./image.js";
 import { type AdmittedInput, admitInput } from "./input.js";
-import { codeRefusal, type FillClaim, FillGate, type FillSpend, type GatedBrowser, GatedProfiles, type SubmitJudge } from "./approved-fill.js";
-import { PublishApprovals } from "./publish-approval.js";
 import { type Publication, cancel, confirm, isPending, prepare, publishRecord, requirePending, validateMode, validateRecipe, waitSettled } from "./publish.js";
 import { blockedReason, DEFAULT_READ_CHARS, MAX_READ_CHARS, READ_TIMEOUT_MS, readPolicy, TIMEOUT_REASON } from "./read.js";
 import { ActionNotDispatched, fail, MAX_PROFILES, ProfileStore, validateProfile } from "./store.js";
@@ -311,7 +307,6 @@ interface Entry {
 	taskEndpoint?: { close(): void };
 	/** The current or most recent publish (publish.ts). */
 	publish: Publication | null;
-	fillClaim?: FillClaim | undefined;
 	/**
 	 * Saved passwords this browser typed or handed a task worker. With every
 	 * password the profile holds on disk, they are replaced in every page read
@@ -412,9 +407,6 @@ function openerFor(openers: Map<string, BrowserOpener>, asker: string | undefine
 
 export class BrowserRuntime implements BrowserRuntimePort {
 	private readonly store: ProfileStore;
-	private readonly publishApprovals: PublishApprovals;
-	private readonly fillGate: FillGate;
-	private readonly gatedProfiles: GatedProfiles;
 	private readonly annotationFiles: AnnotationFiles;
 	/** The key every profile's saved passwords are sealed under: one file in the root, beside `profiles/` (credentials.ts). */
 	private readonly credentialKey: CredentialKey;
@@ -483,10 +475,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.store = new ProfileStore(options.rootDir);
 		this.annotationFiles = new AnnotationFiles(join(this.store.rootDir, "annotations"));
 		this.credentialKey = new CredentialKey(this.store.rootDir);
-		this.publishApprovals = new PublishApprovals(join(this.store.rootDir, "publish-approvals"));
-		this.fillGate = new FillGate(this.publishApprovals);
-		this.gatedProfiles = new GatedProfiles(this.store.rootDir, { onGated: (profiles) => this.revokeGated(profiles) });
-		this.gatedProfiles.watch();
 		// Only what a dead server abandoned: a live server's throwaway browsers are never touched.
 		this.store.sweepEphemeral();
 	}
@@ -819,7 +807,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		this.connectionListeners.clear();
 		this.profileWatcher?.close();
 		this.profileWatcher = undefined;
-		this.gatedProfiles.close();
 		// The spare task worker waiting for the next task belongs to no browser: it goes with the runtime.
 		releaseSpare();
 		// Let in-flight launches finish first: a browser born after we started
@@ -1087,20 +1074,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}
 	}
 
-	private revokeGated(profiles: ReadonlySet<string>): void {
-		if (this.disposed) return;
-		for (const entry of this.byId.values()) {
-			if (entry.closed || entry.profile === null || !profiles.has(entry.profile)) continue;
-			const reason = this.gatedProfiles.reason(entry.profile);
-			if (reason === undefined) continue;
-			if (entry.worker) {
-				entry.taskEndpoint?.close();
-				entry.worker.process.cancel();
-			}
-			this.notifyEnd(entry, "gated", codeRefusal(reason));
-		}
-	}
-
 	/** One call in flight on `entry`, for a cell: out of idle close and make-room, refused like a page call while a task or a pending publish owns the page. Returns what ends it.
 	 *  A cell that drives is an agent acting here, as a step tool is (`admitCaller`): the View offers Take over while it runs and for a few seconds after. */
 	private holdWork(entry: Entry): () => void {
@@ -1127,7 +1100,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			close: async (browserId, session) => await this.close(browserId, undefined, undefined, session),
 			require: (browserId) => this.require(browserId),
 			resolveProfile: (raw) => this.resolveProfile(raw, "chromium"),
-			gatedReason: (profile) => this.gatedProfiles.reason(profile),
 			peek: (browserId) => {
 				const entry = this.byId.get(browserId);
 				return entry === undefined || entry.closed ? undefined : entry;
@@ -1941,46 +1913,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}, { guard });
 	}
 
-	async submit(browserId: string, request: SubmitRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult> {
-		const entry = this.require(browserId);
-		return await this.serialize(entry, async () => {
-			admitCaller(entry, caller);
-			if (caller === "app") fail("bad_action", "browser_submit is the agent's: the person presses the site's own button");
-			if (!this.gatedProfiles.has(entry.profile)) fail("bad_action", "browser_submit posts approved text on a profile a Traction account posts from; on this browser, click with browser_act");
-			const action = normalizeAction(request.action);
-			if (action.kind !== "click" && !(action.kind === "press" && (action.key === "Enter" || action.key === "Space"))) {
-				fail("bad_action", "browser_submit's action is a click, or a press of Enter or Space");
-			}
-			await this.adoptActiveTab(entry, session);
-			await this.pinTab(entry, caller, session, false, guard);
-			const gated = entry as Entry & GatedBrowser;
-			const spent = await this.fillGate.submit(gated, request.expect);
-			try {
-				if (guard !== undefined) await guard();
-				guard?.assertCurrent();
-			} catch (error) {
-				await spent.release();
-				throw error;
-			}
-			let done: Dispatched;
-			try {
-				const outcome = await entry.driver.perform(action, undefined, guard);
-				done = { status: "completed", ...(outcome.dialogs ? { dialogs: outcome.dialogs } : {}) };
-			} catch (error) {
-				if (error instanceof ActionNotDispatched) await spent.release();
-				done = notCompleted(entry, error);
-			}
-			if (done.status === "completed") await this.settleFillClaim(gated);
-			return await this.actionResult(entry, session, done);
-		}, { guard });
-	}
-
-	private async settleFillClaim(entry: Entry & GatedBrowser): Promise<void> {
-		await this.fillGate.after(entry).catch(() => {
-			entry.fillClaim = undefined;
-		});
-	}
-
 	private async actionResult(entry: Entry, session: string | undefined, done: Dispatched): Promise<ActionResult> {
 		if (done.status !== "completed") {
 			const failedState = await this.buildState(entry).catch(() => this.staleState(entry));
@@ -2003,7 +1935,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	 * page; steps run in order until one is not `completed` or the time budget is spent (a host times a call out, and a
 	 * caller that never heard back would send the same submit again). The state is read once, at the end.
 	 */
-	async actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard, judge?: SubmitJudge): Promise<ActManyResult> {
+	async actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActManyResult> {
 		const entry = this.require(browserId);
 		if (!Array.isArray(steps) || steps.length < 1 || steps.length > MAX_BATCH_STEPS) fail("bad_action", `actions must be 1-${MAX_BATCH_STEPS} steps`);
 		return await this.serialize(entry, async () => {
@@ -2036,7 +1968,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 					stopped = { status: "timeout", error: `the batch's time budget (${budget} ms) ran out after ${index} of ${plan.length} steps; send the remaining steps in a new call` };
 					break;
 				}
-				const done = await this.runStep(entry, step, caller, session, valueChars, guard, pin, judge);
+				const done = await this.runStep(entry, step, caller, session, valueChars, guard, pin);
 				valueChars -= done.value?.length ?? 0;
 				outcomes.push({
 					kind: step.kind,
@@ -2068,7 +2000,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}, { guard });
 	}
 
-	private async runStep(entry: Entry, step: PlannedStep, caller: ToolCaller | undefined, session: string | undefined, valueChars: number, guard: EffectGuard | undefined, pin: (opening: boolean) => Promise<void>, judge: SubmitJudge | undefined): Promise<StepDone> {
+	private async runStep(entry: Entry, step: PlannedStep, caller: ToolCaller | undefined, session: string | undefined, valueChars: number, guard: EffectGuard | undefined, pin: (opening: boolean) => Promise<void>): Promise<StepDone> {
 		if (step.kind === "tab") return await this.tabStep(entry, step, session, guard);
 		if (!BROWSER_WIDE_STEPS[step.kind]) {
 			try {
@@ -2083,7 +2015,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			case "eval":
 				return this.evalStep(entry, step, valueChars);
 			default:
-				return this.dispatch(entry, step, caller, guard, judge);
+				return this.dispatch(entry, step, caller, guard);
 		}
 	}
 
@@ -2128,16 +2060,7 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	}
 
 	/** One admitted action, dispatched once on the active tab. A failure is a status, never a throw: earlier steps of a batch stay accounted for. */
-	private async dispatch(entry: Entry, action: BrowserAction, caller: ToolCaller | undefined, guard?: EffectGuard, judge?: SubmitJudge): Promise<Dispatched> {
-		const gated = caller !== "app" && this.gatedProfiles.has(entry.profile) ? (entry as Entry & GatedBrowser) : null;
-		let spent: FillSpend = { release: async () => undefined };
-		if (gated !== null) {
-			try {
-				spent = await this.fillGate.before(gated, action, judge);
-			} catch (error) {
-				return { status: "failed", error: describe(error) };
-			}
-		}
+	private async dispatch(entry: Entry, action: BrowserAction, caller: ToolCaller | undefined, guard?: EffectGuard): Promise<Dispatched> {
 		// The human driving the pinned page while waiting may hit the site's own submit.
 		const pinned = caller === "app" && TOUCHING_KINDS[action.kind] && isPending(entry.publish) ? entry.publish : null;
 		// Another tab is not the page being confirmed; an unreadable state counts as the pinned one.
@@ -2166,11 +2089,8 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			if (touching) touching.touchedWhilePending = true;
 		} catch (error) {
 			if (touching && !(error instanceof ActionNotDispatched)) touching.touchedWhilePending = true;
-			if (error instanceof ActionNotDispatched) await spent.release();
-			if (gated !== null) await this.settleFillClaim(gated);
 			return notCompleted(entry, error);
 		}
-		if (gated !== null) await this.settleFillClaim(gated);
 		return {
 			status: "completed",
 			...(outcome.passwordOrigin ? { credential: { origin: outcome.passwordOrigin, created } } : {}),
@@ -2190,8 +2110,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			await this.applyTab(entry, step, session, guard);
 		} catch (error) {
 			return { status: error instanceof ActionNotDispatched ? "failed" : "unknown", error: describe(error) };
-		} finally {
-			if (this.gatedProfiles.has(entry.profile)) await this.settleFillClaim(entry as Entry & GatedBrowser);
 		}
 		return { status: "completed" };
 	}
@@ -2269,8 +2187,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		if (entry.engine === "chrome-relay") {
 			fail("task_unsupported_engine", "the task agent drives a whole browser, and chrome-relay is your own Chrome — open a chromium profile for browser_task");
 		}
-		const gated = this.gatedProfiles.reason(entry.profile);
-		if (gated !== undefined) fail("publish_unapproved", taskRefusal(gated));
 		const task = typeof request.task === "string" ? request.task.trim() : "";
 		if (task.length === 0 || task.length > MAX_TASK_CHARS) fail("bad_task", `task must be 1-${MAX_TASK_CHARS} characters`);
 		const maxSteps = Math.min(MAX_TASK_STEPS, Math.max(1, Math.floor(request.maxSteps ?? DEFAULT_TASK_STEPS)));
@@ -2297,8 +2213,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
 			}
-			const stillGated = this.gatedProfiles.reason(entry.profile);
-			if (stillGated !== undefined) fail("publish_unapproved", taskRefusal(stillGated));
 			if (this.disposed) fail("disposed", "runtime has been disposed");
 			if (entry.closed || this.byId.get(entry.browserId) !== entry) this.refuseGone(entry.browserId);
 			// Resolved (and, for a sign-up, minted) only once the task will run.
@@ -2415,9 +2329,6 @@ export class BrowserRuntime implements BrowserRuntimePort {
 			entry.starting = "post";
 			let outcome: PublishCheck | Publication;
 			try {
-				// A post the user did not approve is refused before the page is opened: the model cannot even show the human text nobody approved.
-				// Inside the `starting` window, so the wheel cannot be taken while the approval is looked up.
-				if (selected === "post") await this.publishApprovals.require({ origin: valid.origin, profile, ...(preset === undefined ? {} : { preset: preset.name }), values: valid.fields.map((field) => field.value) }, "park");
 				if (guard !== undefined) await guard();
 				guard?.assertCurrent();
 				outcome = await prepare(entry.driver, profile, valid, selected, guard);
@@ -2441,30 +2352,17 @@ export class BrowserRuntime implements BrowserRuntimePort {
 		}, { guard });
 	}
 
-	async confirmPublish(browserId: string, publishId: string, caller?: ToolCaller, expect?: PublishExpectation, guard?: EffectGuard): Promise<PublishRecord> {
+	async confirmPublish(browserId: string, publishId: string, caller?: ToolCaller, guard?: EffectGuard): Promise<PublishRecord> {
 		const entry = this.require(browserId);
 		return await this.serialize(entry, async () => {
 			const publication = requirePending(entry.publish, publishId);
 			refuseWhileTakenOver(entry, caller);
-			// Before any page interaction: a refusal here leaves the publish pending and nothing clicked.
-			requireExpected(this.redact(entry, publishRecord(publication)), caller, expect);
 			if (entry.task?.status === "running") {
 				fail("task_running", "a browser_task owns this page; wait for it or cancel it");
 			}
-			// The approval covers what the record holds NOW (the values the page read back, the origin, the profile and the preset), and
-			// spending it is the lock: it happens before the click, for the View's Post too, so a post the human pressed cannot be posted again by the agent.
-			const { record } = publication;
-			const spent = await this.publishApprovals.consume({ origin: record.origin, profile: record.profile, ...(record.preset === undefined ? {} : { preset: record.preset.name }), values: record.fields.map((field) => field.value) }, "confirm");
-			try {
-				if (guard !== undefined) await guard();
-				guard?.assertCurrent();
-			} catch (error) {
-				await spent.release();
-				throw error;
-			}
+			if (guard !== undefined) await guard();
+			guard?.assertCurrent();
 			await confirm(entry.driver, publication, guard);
-			// `failed` is provably nothing submitted: the approval is the user's still, for the confirm that follows. Anything else may have posted.
-			if (publication.record.status === "failed") await spent.release();
 			if (publication.record.status === "posted") this.observeConnection(publication.record.profile, publication.recipe.origin, true, this.redact(entry, publication.account));
 			return this.redact(entry, publishRecord(publication));
 		}, { guard });
@@ -2952,10 +2850,6 @@ function requireDelta(value: unknown, name: string): number {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-function taskRefusal(reason: string): string {
-	return `publish_unapproved: browser_task types whatever its task says, and ${reason}, which types and posts only what the person approved on the campaign board. Drive it with browser_act (sign in with useSavedPassword or generatePassword) and post with browser_submit. Nothing was started.`;
-}
-
 /** A task's page is its own, and a pending publish pins the page: neither takes another caller's page work. */
 function refuseWhileBusy(entry: Entry, caller: ToolCaller | undefined, tools: Tools = "steps"): void {
 	if (entry.task?.status === "running") {
@@ -3041,30 +2935,6 @@ function refuseWhilePublishing(entry: Entry, caller: ToolCaller | undefined): vo
 function refuseWhileSubmitting(entry: Entry): void {
 	if (entry.publish?.confirming && isPending(entry.publish)) {
 		fail("publish_pending", "the Post is being submitted; the page takes no input until it is done");
-	}
-}
-
-/**
- * The confirm must name what it posts. A model (or unstamped) confirm must
- * carry `expect`; any `expect` must match the record the caller was shown —
- * redacted, as every reported record is — exactly: origin, profile, and every
- * field value in field order. The View's Post ("app") is the human's own
- * click on the bar that shows the record, so it may omit `expect`.
- */
-function requireExpected(shown: PublishRecord, caller: ToolCaller | undefined, expect: PublishExpectation | undefined): void {
-	if (expect === undefined) {
-		if (caller !== "app") fail("expect_required", "expect_required: pass expect: { origin, profile, values } copied exactly from the pending publish record (values: every field's value, in field order); nothing was clicked");
-		return;
-	}
-	const values = shown.fields.map((field) => field.value);
-	const differs = [
-		...(expect.origin === shown.origin ? [] : ["origin"]),
-		...(expect.profile === shown.profile ? [] : ["profile"]),
-		...(expect.values.length === values.length ? [] : [`values (expected ${values.length}, got ${expect.values.length})`]),
-		...values.flatMap((value, index) => (index < expect.values.length && expect.values[index] !== value ? [`values[${index}]`] : [])),
-	];
-	if (differs.length > 0) {
-		fail("publish_mismatch", `publish_mismatch: expect does not match the pending publish (mismatched: ${differs.join(", ")}); nothing was clicked and the publish is still pending. Read it with browser_publish_wait and confirm what it actually holds, or cancel it`);
 	}
 }
 

@@ -1,8 +1,6 @@
-import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { createHash, randomBytes } from "node:crypto";
+import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import dns from "node:dns/promises";
-import * as fsPromises from "node:fs/promises";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveApproval } from "@oh-my-pi/pi-coding-agent/tools/approval";
@@ -13,30 +11,17 @@ import { forgetSession } from "../session";
 type Tool = {
 	name: string;
 	approval?: unknown;
-	formatApprovalDetails?: (args: unknown) => string[];
 	execute: (id: string, params: Record<string, unknown>) => Promise<{ content: { text: string }[] }>;
 };
-
-const SHARED_IMAGE = "C:/assets/a.png";
-const realReadFile = fsPromises.readFile;
-mock.module("node:fs/promises", () => ({
-	...fsPromises,
-	readFile: ((path: unknown, ...rest: unknown[]) =>
-		path === SHARED_IMAGE
-			? Promise.resolve(Buffer.from("test"))
-			: (realReadFile as (...args: unknown[]) => Promise<unknown>)(path, ...rest)) as typeof fsPromises.readFile,
-}));
 
 const tools = new Map<string, Tool>();
 blueskyExtension({ registerTool: (tool: Tool) => tools.set(tool.name, tool) } as never);
 
-const ENV = ["HOME", "USERPROFILE", "INSO_HOME"] as const;
+const ENV = ["HOME", "USERPROFILE"] as const;
 const prior = Object.fromEntries(ENV.map(name => [name, process.env[name]]));
 const realFetch = globalThis.fetch;
 const root = await mkdtemp(join(tmpdir(), "bluesky-pack-"));
 const home = join(root, "home");
-const insoHome = join(root, "inso");
-const approvals = join(insoHome, "browser", "publish-approvals");
 const configDir = join(home, ".config", "dimension-bluesky");
 
 interface Call {
@@ -53,10 +38,8 @@ const DID = "did:plc:brand";
 beforeEach(async () => {
 	process.env.HOME = home;
 	process.env.USERPROFILE = home;
-	process.env.INSO_HOME = insoHome;
 	await rm(root, { recursive: true, force: true });
 	await mkdir(configDir, { recursive: true });
-	await mkdir(approvals, { recursive: true });
 	forgetSession();
 	calls = [];
 });
@@ -236,22 +219,6 @@ test("notifications default to mentions, replies and quotes", async () => {
 	);
 });
 
-function approve(draftId: string, values: string[], over: { expiresInMs?: number } = {}): string {
-	const nonce = randomBytes(16).toString("hex");
-	const now = Date.now();
-	const binding = createHash("sha256")
-		.update(JSON.stringify(["publish-approval/v1", "https://bsky.app", "brand.com", "bluesky_publish", values]))
-		.digest("hex");
-	return JSON.stringify({
-		v: 1,
-		draftId,
-		nonce,
-		binding,
-		approvedAt: new Date(now - 1000).toISOString(),
-		expiresAt: new Date(now + (over.expiresInMs ?? 3_600_000)).toISOString(),
-	});
-}
-
 function publishRoutes(created: unknown[], failStatus?: number): Record<string, Handler> {
 	return {
 		...identity,
@@ -279,7 +246,7 @@ function publishRoutes(created: unknown[], failStatus?: number): Record<string, 
 	};
 }
 
-test("publish sends only the exact approved thread, with links as rich text and each post replying to the one before, and spends the approval", async () => {
+test("publish posts the chosen thread straight away, with links as rich text and each post replying to the one before", async () => {
 	await connect();
 	const image = join(root, "shot.png");
 	const png = Buffer.from("89504e470d0a1a0a0000000d49484452000004b0000002760806000000", "hex");
@@ -287,23 +254,10 @@ test("publish sends only the exact approved thread, with links as rich text and 
 	const posts = ["Ship day 🚀 see https://brand.com/launch.", "Built with #gamedev friends @ana.bsky.social"];
 	const media = [{ path: image, post: 1, alt: "The editor with the camera rig open" }];
 	const cards = [{ post: 0, uri: "https://brand.com/launch", title: "Launch & more", description: "" }];
-	await writeFile(
-		join(approvals, "d1.json"),
-		approve("d1", [...posts, JSON.stringify([1, image, createHash("sha256").update(png).digest("hex"), media[0]?.alt])]),
-	);
 	const created: { record: Record<string, unknown> }[] = [];
 	serve(publishRoutes(created));
 
-	await expect(
-		run("bluesky_publish", { draftId: "d1", posts: [posts[0], "Built with #gamedev friends"], media, cards }),
-	).rejects.toThrow("publish_unapproved: no board approval covers this exact Bluesky post");
-	await writeFile(image, Buffer.concat([png, Buffer.from([0])]));
-	await expect(run("bluesky_publish", { draftId: "d1", posts, media, cards })).rejects.toThrow("publish_unapproved");
-	expect(created).toHaveLength(0);
-	expect(calls.some(call => call.url.pathname.endsWith("uploadBlob"))).toBe(false);
-	await writeFile(image, png);
-
-	const text = await run("bluesky_publish", { draftId: "d1", posts, media, cards });
+	const text = await run("bluesky_publish", { posts, media, cards });
 
 	expect(text).toBe(
 		[
@@ -346,59 +300,38 @@ test("publish sends only the exact approved thread, with links as rich text and 
 		],
 	});
 
-	await expect(run("bluesky_publish", { draftId: "d1", posts, media, cards })).rejects.toThrow(
-		"was already used, so this post may already be up",
-	);
 	expect(created).toHaveLength(2);
 });
 
-test("an expired approval posts nothing, and a post Bluesky refuses gives the approval back", async () => {
+test("a post Bluesky refuses posts nothing and can be sent again once fixed", async () => {
 	await connect();
-	await writeFile(join(approvals, "old.json"), approve("old", ["hi"], { expiresInMs: -500 }));
-	await writeFile(join(approvals, "d2.json"), approve("d2", ["hello"]));
 	const created: unknown[] = [];
 	serve(publishRoutes(created, 400));
 
-	await expect(run("bluesky_publish", { draftId: "old", posts: ["hi"] })).rejects.toThrow("expired at");
-	await expect(run("bluesky_publish", { draftId: "d2", posts: ["hello"] })).rejects.toThrow(
-		"nothing was posted and the approval still stands",
-	);
-	expect((await readdir(approvals)).filter(name => name.endsWith(".used"))).toEqual([]);
+	await expect(run("bluesky_publish", { posts: ["hello"] })).rejects.toThrow("Bluesky refused post 1, so nothing was posted");
 
 	serve(publishRoutes(created));
-	expect(await run("bluesky_publish", { draftId: "d2", posts: ["hello"] })).toBe(
-		"Posted 1/1: https://bsky.app/profile/brand.com/post/r1",
-	);
+	expect(await run("bluesky_publish", { posts: ["hello"] })).toBe("Posted 1/1: https://bsky.app/profile/brand.com/post/r1");
 });
 
-test("a 5xx on post 1 keeps the approval spent, since the post may be up", async () => {
+test("a 5xx on post 1 says the post may be up and to check the account's posts first", async () => {
 	await connect();
-	await writeFile(join(approvals, "d3.json"), approve("d3", ["hello"]));
 	const created: unknown[] = [];
 	serve(publishRoutes(created, 502));
 
-	await expect(run("bluesky_publish", { draftId: "d3", posts: ["hello"] })).rejects.toThrow("bluesky_author_feed");
-	serve(publishRoutes(created));
-	await expect(run("bluesky_publish", { draftId: "d3", posts: ["hello"] })).rejects.toThrow("already used");
+	await expect(run("bluesky_publish", { posts: ["hello"] })).rejects.toThrow("bluesky_author_feed");
 	expect(created).toHaveLength(0);
 });
 
-test("publish stops for a human in every approval mode and shows every post, image and link card field", () => {
+test("publish carries no approval policy, only the plain write tier: choosing on the board is the go-ahead", () => {
 	const tool = tools.get("bluesky_publish");
-	const args = {
-		draftId: "d9",
-		posts: ["see https://brand.com/x", "two"],
-		media: [{ path: "/a.png", post: 1, alt: "a chart" }],
-		cards: [{ post: 0, uri: "https://brand.com/x", title: "Brand X", description: "Ships today", image: "https://cdn.brand.com/x.png" }],
-	};
-	expect(resolveApproval(tool as Parameters<typeof resolveApproval>[0], args, "yolo").policy).toBe("prompt");
-	const card = tool?.formatApprovalDetails?.(args).join("\n") ?? "";
-	for (const shown of ["see https://brand.com/x", "two", "/a.png", "a chart", "Brand X", "Ships today", "https://cdn.brand.com/x.png"])
-		expect(card).toContain(shown);
+	expect(tool?.approval).toBe("write");
+	for (const mode of ["write", "yolo"] as const)
+		expect(resolveApproval(tool as Parameters<typeof resolveApproval>[0], { posts: ["hi"] }, mode).policy).toBe("allow");
 	for (const tool of tools.values()) if (tool.name !== "bluesky_publish") expect(tool.approval).toBe("read");
 });
 
-test("a link card reads only public pages, at every redirect, and publishes exactly the approved card", async () => {
+test("a link card reads only public pages, at every redirect, and publishes exactly the chosen card", async () => {
 	await connect();
 	const thumb = Buffer.from("89504e470d0a1a0a", "hex");
 	const created: { record: { embed?: unknown } }[] = [];
@@ -442,9 +375,7 @@ test("a link card reads only public pages, at every redirect, and publishes exac
 	}
 	expect(calls.some(call => call.url.host !== "brand.com" && call.url.host !== "cdn.brand.com" && !call.url.host.endsWith("bsky.app"))).toBe(false);
 
-	await writeFile(join(approvals, "d4.json"), approve("d4", ["Out now https://brand.com/launch"]));
 	const text = await run("bluesky_publish", {
-		draftId: "d4",
 		posts: ["Out now https://brand.com/launch"],
 		cards: [{ post: 0, ...card }],
 	});
@@ -460,7 +391,6 @@ test("a link card reads only public pages, at every redirect, and publishes exac
 	});
 	await expect(
 		run("bluesky_publish", {
-			draftId: "d4",
 			posts: ["Out now https://brand.com/launch"],
 			cards: [{ post: 0, ...card, uri: "https://brand.com/other" }],
 		}),
@@ -535,41 +465,4 @@ test("a JPEG keeps only its rotation, so a portrait photo stays upright", () => 
 
 	expect(Buffer.from(stripped).includes(Buffer.from("Acm"))).toBe(false);
 	expect(imageSize(stripped, "image/jpeg")).toEqual({ width: 480, height: 640 });
-});
-
-test("publishes against the approval binding Traction's board mints, pinned by the shared golden vector", async () => {
-	await writeFile(
-		join(configDir, "credential.json"),
-		JSON.stringify({ handle: "inso.bsky.social", appPassword: "abcd-efgh-ijkl-mnop" }),
-	);
-	const now = Date.now();
-	await writeFile(
-		join(approvals, "golden.json"),
-		JSON.stringify({
-			v: 1,
-			draftId: "golden",
-			nonce: randomBytes(16).toString("hex"),
-			binding: "ddcc4e9b242804ba9020ff72e5ef991ec551981b370105499d255cf9f41dfe69",
-			approvedAt: new Date(now - 1000).toISOString(),
-			expiresAt: new Date(now + 3_600_000).toISOString(),
-		}),
-	);
-	const created: unknown[] = [];
-	serve({
-		...publishRoutes(created),
-		"public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle": () => Response.json({ did: "did:plc:inso" }),
-		"plc.directory/did:plc:inso": () =>
-			Response.json({ service: [{ id: "#atproto_pds", type: "AtprotoPersonalDataServer", serviceEndpoint: PDS }] }),
-		"pds.example.net/xrpc/com.atproto.server.createSession": () =>
-			Response.json({ did: "did:plc:inso", handle: "inso.bsky.social", accessJwt: "a", refreshJwt: "r" }),
-	});
-
-	const text = await run("bluesky_publish", {
-		draftId: "golden",
-		posts: ["one", "two"],
-		media: [{ path: SHARED_IMAGE, post: 1, alt: "a chart" }],
-	});
-
-	expect(text).toContain("Posted 2/2");
-	expect(created).toHaveLength(2);
 });
