@@ -648,8 +648,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.5.0/dopamine-debt-0.5.0.tgz",
-				"sha256": "ba1cfac257bd0c88cba383c2c86c8d4ec9f0e90c3bf1773aa1b0bfb3c8f500cc",
-				"size": 213098
+				"sha256": "1fe35522c1c3ba4259fd4a4fb8f16352e2304334cdc5bb15becad33062c7c85e",
+				"size": 213180
 			},
 			"pluginId": "dopamine-debt",
 			"title": "Dopamine Debt",
