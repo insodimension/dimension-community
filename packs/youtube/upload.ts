@@ -250,6 +250,7 @@ async function putRange(session: string, bearer: () => Promise<string>, range: s
 }
 
 async function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+	signal?.throwIfAborted();
 	const { promise, resolve, reject } = Promise.withResolvers<void>();
 	const timer = setTimeout(resolve, ms);
 	const abort = (): void => {
@@ -450,7 +451,10 @@ export function createUploadVideoTool(retryDelayMs: (failures: number) => number
 			const videoId = uploaded.id;
 			if (!videoId) throw new Error("YouTube finished the upload but returned no video id. List the channel's uploads before calling again.");
 			const url = `https://youtu.be/${videoId}`;
-			const token = await tokenOf(channel);
+			const token = await tokenOf(channel).catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(`The video is up: ${url}. ${message} Its thumbnail, playlist and captions were not set and it was not read back: set the thumbnail with youtube_update_video, the playlist with youtube_playlist_add and captions in Studio, never by uploading again.`);
+			});
 			const followUps = await followUpsOf(params, videoId, token, thumbnail, captions);
 			if (uploaded.status?.uploadStatus === "rejected" || uploaded.status?.uploadStatus === "failed") {
 				followUps.notes.unshift(`YouTube ${uploaded.status.uploadStatus} the file: ${uploaded.status.rejectionReason ?? uploaded.status.failureReason ?? "no reason given"}.`);
