@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.5.0",
-	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, change a posted video's title or thumbnail, and get a finished film ready to upload.",
+	"version": "0.6.0",
+	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, upload a video, change a posted video's title or thumbnail, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -201,6 +201,12 @@
 					"use": "summary",
 					"icon": "youtube",
 					"title": "Update video"
+				},
+				{
+					"match": "youtube_upload_video",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Upload video"
 				}
 			],
 			"skillCard": {
@@ -265,6 +271,10 @@
 				{
 					"name": "youtube_update_video",
 					"description": "Change a posted video's title or thumbnail, one change per call. Your session's permission mode decides whether it asks."
+				},
+				{
+					"name": "youtube_upload_video",
+					"description": "Upload a video file to a connected channel (resumable) and read it back; public unless told otherwise. Your session's permission mode decides whether it asks."
 				}
 			]
 		}

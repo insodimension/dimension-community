@@ -37,23 +37,31 @@ export function snippetWithTitle(snippet: VideoSnippet, title: string): VideoSni
 	};
 }
 
-function checkTitle(title: string): void {
-	if (title.trim().length === 0) throw new Error("The title is empty. Nothing was changed.");
-	if ([...title].length > TITLE_MAX_CHARS) throw new Error(`The title is ${[...title].length} characters; YouTube allows ${TITLE_MAX_CHARS}. Nothing was changed.`);
-	if (/[<>]/.test(title)) throw new Error("YouTube refuses < and > in a title. Nothing was changed.");
+export function checkTitle(title: string, outcome: string): void {
+	if (title.trim().length === 0) throw new Error(`The title is empty. ${outcome}`);
+	if ([...title].length > TITLE_MAX_CHARS) throw new Error(`The title is ${[...title].length} characters; YouTube allows ${TITLE_MAX_CHARS}. ${outcome}`);
+	if (/[<>]/.test(title)) throw new Error(`YouTube refuses < and > in a title. ${outcome}`);
 }
 
-async function readThumbnail(path: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string }> {
-	if (!isAbsolute(path)) throw new Error(`${path} is not an absolute path. Pass the thumbnail path exactly as the draft holds it. Nothing was changed.`);
+export async function readThumbnail(path: string, outcome: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; mime: string }> {
+	if (!isAbsolute(path)) throw new Error(`${path} is not an absolute path. Pass the thumbnail path exactly as the draft holds it. ${outcome}`);
 	const mime = THUMBNAIL_MIME[extname(path).toLowerCase()];
-	if (!mime) throw new Error(`${path} is not a PNG or JPEG; YouTube thumbnails are one of the two. Nothing was changed.`);
+	if (!mime) throw new Error(`${path} is not a PNG or JPEG; YouTube thumbnails are one of the two. ${outcome}`);
 	const bytes = new Uint8Array(
 		await readFile(path).catch(() => {
-			throw new Error(`${path} could not be read. Nothing was changed.`);
+			throw new Error(`${path} could not be read. ${outcome}`);
 		}),
 	);
-	if (bytes.byteLength > THUMBNAIL_MAX_BYTES) throw new Error(`${path} is ${bytes.byteLength} bytes; YouTube thumbnails are at most 2 MB. Nothing was changed.`);
+	if (bytes.byteLength > THUMBNAIL_MAX_BYTES) throw new Error(`${path} is ${bytes.byteLength} bytes; YouTube thumbnails are at most 2 MB. ${outcome}`);
 	return { bytes, mime };
+}
+
+export function setThumbnail(videoId: string, accessToken: string, thumbnail: { bytes: Uint8Array<ArrayBuffer>; mime: string }): Promise<Response> {
+	return fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
+		method: "POST",
+		headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": thumbnail.mime },
+		body: thumbnail.bytes,
+	});
 }
 
 function isClearRefusal(status: number): boolean {
@@ -87,7 +95,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 			const receipt = `https://www.youtube.com/watch?v=${videoId}`;
 			if (params.title !== undefined) {
 				const title = params.title;
-				checkTitle(title);
+				checkTitle(title, "Nothing was changed.");
 				const accessToken = await tokenOf(await ownerOfVideo(videoId));
 				const listed = await youtubeFetch(`/videos?part=snippet&id=${videoId}`, accessToken);
 				const current = (await listed.json().catch(() => null)) as { items?: { snippet?: VideoSnippet }[] } | null;
@@ -109,16 +117,9 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 				};
 			}
 			const path = params.thumbnailPath ?? "";
-			const thumbnail = await readThumbnail(path);
+			const thumbnail = await readThumbnail(path, "Nothing was changed.");
 			const accessToken = await tokenOf(await ownerOfVideo(videoId));
-			await applyChange(
-				await fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": thumbnail.mime },
-					body: new Blob([thumbnail.bytes], { type: thumbnail.mime }),
-				}),
-				"thumbnail change",
-			);
+			await applyChange(await setThumbnail(videoId, accessToken, thumbnail), "thumbnail change");
 			return { content: [{ type: "text" as const, text: `Thumbnail of ${receipt} set to ${path}.` }] };
 		},
 	};

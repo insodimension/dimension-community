@@ -1,18 +1,18 @@
 ---
 name: youtube
-description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); change a posted video's title or thumbnail. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); upload a video file to a connected channel; change a posted video's title or thumbnail. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, upload, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
 
 ## Overview
 
-Act on YouTube through fourteen tools backed by the YouTube Data API v3, the
+Act on YouTube through fifteen tools backed by the YouTube Data API v3, the
 YouTube Analytics API v2 and the YouTube Reporting API (OAuth, bring-your-own
 Google Cloud client). The agent searches, inspects videos and channels, browses
 and edits connected channels' playlists, reads comment threads, posts public
 comments/replies, reads every connected channel's own analytics and reach, and
-changes a posted video's title or thumbnail. Keep answers grounded in the real
+uploads videos and changes a posted video's title or thumbnail. Keep answers grounded in the real
 data the tools return — ids, view counts, published dates, comment text — never
 a guessed or reconstructed transcript or number.
 
@@ -124,9 +124,24 @@ All native, always-on — no bash, no CLI, no MCP server:
   mode decides whether it asks; the tool asks nobody on its own. A clear
   refusal means nothing changed; an unclear failure means it may be live, so
   read the video with `youtube_get_videos` before trying again. (write)
+- `youtube_upload_video({ filePath, title, madeForKids, description?, tags?,
+  category?, visibility?, publishAt?, alteredContent?, language?, license?,
+  embeddable?, notifySubscribers?, thumbnailPath?, playlistId?, captionsPath?,
+  captionsLanguage?, channel? })` — upload a video file to a connected channel
+  (videos.insert, resumable in 8 MB parts, resuming after a dropped connection)
+  and read it back. Visibility defaults to **public**; `publishAt` uploads it
+  private and YouTube publishes it at that time. `category` takes Studio's name
+  or the numeric id (default People & Blogs). `alteredContent` is Studio's AI
+  use answer (`containsSyntheticMedia`). Every check runs before a byte is
+  sent; an error ending "Nothing was uploaded." means no video exists. Once the
+  video exists, a failed thumbnail, playlist or caption step is a read-back row
+  with `ok: false` and never re-uploads. `details` holds `videoId`, `url`,
+  `channelId`, `visibility`, `publishAt` and `readback` (title, visibility,
+  audience, schedule, and each thumbnail, playlist and caption step) for
+  `receipts/publish.json`. (write)
 
 Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
-`youtube_forget_channel` and `youtube_update_video` are `write`-tier.
+`youtube_forget_channel`, `youtube_update_video` and `youtube_upload_video` are `write`-tier.
 
 ## Usage patterns
 
@@ -147,6 +162,11 @@ Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
   pick on the campaign board is the go-ahead: apply it straight away.
   Test & Compare, pinned comments and end screens have no API: apply those in
   Studio with the Browser tools.
+- "Upload this film" → `youtube_upload_video` with the master's absolute path
+  and the package's title, description, tags, category, audience, altered
+  content answer, language, thumbnail, playlist and captions. Public unless
+  the campaign or the person said otherwise. One call per film: after an
+  unclear failure, list the channel's uploads (its `UU…` playlist) first.
 - "Add this to my Watch Later–style playlist" → `youtube_list_playlists` to
   resolve the title → its id, then `youtube_playlist_add`.
 - "What are people saying about this video?" → `youtube_list_comments`, then
@@ -193,11 +213,9 @@ insert costs 50. More quota needs YouTube's compliance audit. On
 These are intentionally **not** implemented — say so honestly if asked, rather
 than pretending:
 
-- **Video upload and most metadata edits through the API** — a finished film
-  goes up through YouTube Studio in the person's own signed-in browser: see the
-  `youtube-package`, `youtube-thumbnail` and `youtube-studio-upload` skills,
-  which need the Browser plugin. The only API edits are a posted video's title
-  or thumbnail (`youtube_update_video`).
+- **Most metadata edits through the API** — the only API edits are a posted
+  video's title or thumbnail (`youtube_update_video`); everything else after
+  the upload is set in Studio.
 - **Test & Compare, pinned comments, end screens** — no API exists; Studio only.
 - **Live chat** (`liveChat*`) — requires an active broadcast and long-poll
   streaming, which doesn't fit a request/response tool.

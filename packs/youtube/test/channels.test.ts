@@ -666,7 +666,7 @@ describe("youtube_forget_channel", () => {
 });
 
 describe("approval tiers", () => {
-	test("forgetting, posting, adding to a playlist and updating a video are write tier, and reading channels, playlists and reach is read tier", () => {
+	test("forgetting, posting, adding to a playlist, updating a video and uploading one are write tier, and reading channels, playlists and reach is read tier", () => {
 		expect(tool("youtube_forget_channel").approval).toBe("write");
 		expect(tool("youtube_playlist_add").approval).toBe("write");
 		expect(tool("youtube_post_comment").approval).toBe("write");
@@ -674,6 +674,7 @@ describe("approval tiers", () => {
 		expect(tool("youtube_list_playlists").approval).toBe("read");
 		expect(tool("youtube_reach_report").approval).toBe("read");
 		expect(tool("youtube_update_video").approval).toBe("write");
+		expect(tool("youtube_upload_video").approval).toBe("write");
 	});
 });
 
