@@ -6,6 +6,7 @@ import { type } from "arktype";
 import { createReachReportTool, createVideoAnalyticsTool, ensureAllReachJobs } from "./analytics";
 import { adoptionProblem, channelFor, channelLabel, channelToken, configFile, connectedChannels, forgetChannel, NOT_CONNECTED, readToken, videoIdOf, youtubeJson } from "./api";
 import { createUpdateVideoTool } from "./update";
+import { createUploadVideoTool } from "./upload";
 
 const MAX_DESCRIPTION_CHARS = 4_000;
 const MAX_COMMENT_CHARS = 2_000;
@@ -748,6 +749,7 @@ export default function youtubeExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createReachReportTool());
 	pi.registerTool(createVideoAnalyticsTool());
 	pi.registerTool(createUpdateVideoTool());
+	pi.registerTool(createUploadVideoTool());
 	pi.on("session_start", () => {
 		void ensureAllReachJobs().catch(() => undefined);
 	});

@@ -1,8 +1,8 @@
 {
 	"name": "@inso/youtube",
 	"author": "Dimension",
-	"version": "0.5.0",
-	"description": "YouTube connector — search, inspect videos/channels, manage playlists, read/post comments, read analytics and reach for every connected channel, and change a posted video's title/thumbnail via the YouTube Data, Analytics and Reporting APIs (OAuth, bring-your-own Google Cloud client)",
+	"version": "0.6.0",
+	"description": "YouTube connector — search, inspect videos/channels, manage playlists, read/post comments, read analytics and reach for every connected channel, upload videos (resumable), and change a posted video's title/thumbnail via the YouTube Data, Analytics and Reporting APIs (OAuth, bring-your-own Google Cloud client)",
 	"type": "module",
 	"main": "index.ts",
 	"scripts": {
@@ -23,6 +23,7 @@
 		"api.ts",
 		"analytics.ts",
 		"update.ts",
+		"upload.ts",
 		"plugin.json"
 	],
 	"peerDependencies": {
