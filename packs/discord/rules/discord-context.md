@@ -14,8 +14,8 @@ REST API for the user's own server. Reads: `discord_list_guilds`,
 `discord_create_event`, `discord_create_automod_rule`. Moderation:
 `discord_delete_message`, `discord_timeout_member`.
 
-- Every write that reaches people asks the person in every mode. Confirm the
-  exact channel and text before calling it.
+- Every tool runs under the session's permission mode, like any other write:
+  no tool asks on its own. Post what the person chose or asked for.
 - Mentions never ping unless the person named the users (`mentionUserIds`); a
   reply notifies only the author it answers.
 - MODERATION needs the EXACT target named in the current turn — a specific

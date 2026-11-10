@@ -1,4 +1,3 @@
-import type { SubmitJudge } from "./approved-fill.js";
 import type { ConnectionObservations } from "./connection.js";
 import type { LiveFrame } from "./engines/types.js";
 import type { ProfileColour, ResolvedProfileMeta } from "./profile-meta.js";
@@ -66,7 +65,6 @@ export interface BrowserAction {
   clickCount?: number;
 }
 export interface UploadRequest { selector: string; paths: string[]; origin: string; frameOrigin?: string }
-export interface SubmitRequest { action: BrowserAction; expect: { profile: string; origin: string; values: string[] } }
 export interface TabInfo {
   /** Stable opaque id for the tab's lifetime. */
   id: string;
@@ -267,16 +265,6 @@ export interface PublishRecord {
   error?: string;
   /** Set when the recipe came from a named preset (`browser_publish`'s `preset`). */
   preset?: PresetRef;
-}
-/**
- * What a confirm says it is posting: the pending record's `origin`, `profile`
- * and every field's `value` in field order, exactly as the record showed them.
- * The host's Allow card shows these args, so the human approves exactly this.
- */
-export interface PublishExpectation {
-  origin: string;
-  profile: string;
-  values: string[];
 }
 /** A `browser_publish` that stopped before anything was parked for confirmation. */
 export interface PublishCheck {
@@ -483,9 +471,8 @@ export interface BrowserRuntimePort {
    * 1..MAX_BATCH_STEPS steps under ONE lock: refused once (`task_running`, `publish_pending`, as `act`), every step
    * validated before the first runs (`bad_action`/`bad_wait`), then run in order until one is not `completed`.
    */
-  actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard, judge?: SubmitJudge): Promise<ActManyResult>;
+  actMany(browserId: string, steps: readonly BatchStep[], caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActManyResult>;
   upload(browserId: string, request: UploadRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
-  submit(browserId: string, request: SubmitRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard): Promise<ActionResult>;
   /** A picture for a model: webp, at most 1024 CSS px on its longest edge, never retained (so never annotatable). Read like `snapshot`. */
   shot(browserId: string, request?: ShotRequest, guard?: EffectGuard): Promise<ModelShot>;
   /** The active tab's log entries since the last call (which marks them read); `[]` when nothing is new. For a model's reads, never the View's. */
@@ -554,12 +541,8 @@ export interface BrowserRuntimePort {
   startTask(browserId: string, request: TaskRequest, caller?: ToolCaller, session?: string, guard?: EffectGuard, workerGuard?: EffectGuard): Promise<TaskRun>;
   /** `check`: signed in? `post`: fill, verify and park for a confirm. Never submits. `preset` labels the record with the preset the recipe was resolved from. */
   publish(browserId: string, recipe: PublishRecipe, mode: PublishMode, caller?: ToolCaller, preset?: PresetRef, guard?: EffectGuard): Promise<PublishCheck | PublishRecord>;
-  /**
-   * The Post (the model's confirm or the View's button): re-verify, click submit exactly once, read the receipt from the page.
-   * `expect` binds the confirm to what the caller was shown: REQUIRED unless `caller` is "app", and when given (from any
-   * caller) it must equal the pending record's origin, profile and field values exactly, else nothing is clicked.
-   */
-  confirmPublish(browserId: string, publishId: string, caller?: ToolCaller, expect?: PublishExpectation, guard?: EffectGuard): Promise<PublishRecord>;
+  /** The Post (the model's confirm or the View's button): re-verify, click submit exactly once, read the receipt from the page. */
+  confirmPublish(browserId: string, publishId: string, caller?: ToolCaller, guard?: EffectGuard): Promise<PublishRecord>;
   cancelPublish(browserId: string, publishId: string, guard?: EffectGuard): Promise<PublishRecord>;
   /** The publish's record once it is terminal or `ms` has passed, whichever is first. */
   waitPublish(browserId: string, publishId: string, ms: number): Promise<PublishRecord>;

@@ -132,15 +132,15 @@
 			"source": "./packs/bluesky",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/bluesky-v0.1.0/bluesky-0.1.0.tgz",
-				"sha256": "ad86eed523e09600cac61531230ad540f0e3a4cd8ce0b1c98d050e0da51c7367",
-				"size": 27724
+				"url": "https://github.com/insodimension/dimension-community/releases/download/bluesky-v0.1.1/bluesky-0.1.1.tgz",
+				"sha256": "7b5d2ec35c05cf0fc94c92c33e2b9e96c8654cab6d62ff901059132858496c54",
+				"size": 25283
 			},
 			"pluginId": "bluesky",
 			"title": "Bluesky",
 			"icon": "packs/bluesky/assets/icon.svg",
-			"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish a post you approved.",
-			"version": "0.1.0",
+			"description": "Let your agent research Bluesky: search posts, read threads, profiles, feeds, starter packs, trends and your notifications, and publish posts from your account.",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -191,15 +191,15 @@
 			"source": "./packs/browser",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.22/browser-0.9.22.tgz",
-				"sha256": "7475faeb4297f69fc859276ed7293076d83b0ad46d0462b5830a8f3694a559f0",
-				"size": 2008810
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.23/browser-0.9.23.tgz",
+				"sha256": "3d2a6de4c7ad144381cd8cd88362e9602d0f18b2b17e3d6cb1af4560e63b4cc6",
+				"size": 1962535
 			},
 			"pluginId": "browser",
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.22",
+			"version": "0.9.23",
 			"author": {
 				"name": "Dimension"
 			},
@@ -619,15 +619,15 @@
 			"source": "./packs/discord",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.0/discord-0.2.0.tgz",
-				"sha256": "81f181b908480e7508dd2eb5518880001a1deed4165c0d9322afd228a88c6746",
-				"size": 27910
+				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.1/discord-0.2.1.tgz",
+				"sha256": "fd210bafcd9c58e3ce9091a97a1d5d7a4fee9e43eb2f171c139cd123bb8591fe",
+				"size": 26378
 			},
 			"pluginId": "discord",
 			"title": "Discord",
 			"icon": "packs/discord/assets/icon.svg",
 			"description": "Let your agent read, answer and run your own Discord server through a bot you create: messages, forum posts, search, invites, events and announcements.",
-			"version": "0.2.0",
+			"version": "0.2.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1363,15 +1363,15 @@
 			"source": "./packs/newsletter",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/newsletter-v0.1.0/newsletter-0.1.0.tgz",
-				"sha256": "984c5da3b26b82ec725c51ffbe52722c96362e18c73e1ad5342cd55996dde84d",
-				"size": 22303
+				"url": "https://github.com/insodimension/dimension-community/releases/download/newsletter-v0.1.1/newsletter-0.1.1.tgz",
+				"sha256": "addf4794d88b0d898e3feef78681690648ea08b23d7bde06304a46ebe3b9ba68",
+				"size": 21744
 			},
 			"pluginId": "newsletter",
 			"title": "Newsletter",
 			"icon": "packs/newsletter/assets/icon.svg",
-			"description": "Let your agent save approved newsletter issues as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
-			"version": "0.1.0",
+			"description": "Let your agent save the newsletter issues you choose as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1998,13 +1998,13 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.5.0/youtube-0.5.0.tgz",
-				"sha256": "406213c320be106b79cba659984cacdc30a3950d26318378d15339f7532368a3",
-				"size": 98416
+				"sha256": "7a635623b01c2154bec09df0ce87d5087b832090766238941d49aab69f856b05",
+				"size": 101927
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
-			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, apply approved title and thumbnail changes, and get a finished film ready to upload.",
+			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, change a posted video's title or thumbnail, and get a finished film ready to upload.",
 			"version": "0.5.0",
 			"author": {
 				"name": "Dimension"

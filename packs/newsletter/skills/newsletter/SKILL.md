@@ -1,6 +1,6 @@
 ---
 name: newsletter
-description: Save approved newsletter issues as unsent drafts in beehiiv, Kit, Buttondown or Ghost, and read issue stats and subscriber counts. Use when the person asks to put an issue into their newsletter tool, how an issue did, or how many subscribers they have.
+description: Save chosen newsletter issues as unsent drafts in beehiiv, Kit, Buttondown or Ghost, and read issue stats and subscriber counts. Use when the person asks to put an issue into their newsletter tool, how an issue did, or how many subscribers they have.
 ---
 
 # Newsletter (the person's own email provider)
@@ -16,7 +16,7 @@ own API key. You save drafts and read numbers; the person presses Send.
 | `newsletter_list_issues` | Drafts and sent issues, newest first, with ids. | no |
 | `newsletter_issue_stats` | One sent issue's numbers; anything the provider does not report says unknown. | no |
 | `newsletter_audience` | Subscriber counts (and growth on Kit). Never addresses. | no |
-| `newsletter_issue_draft` | Saves an UNSENT draft and returns where to open it. | every mode |
+| `newsletter_issue_draft` | Saves an UNSENT draft and returns where to open it. | no |
 
 With several providers connected, pass `provider`. A draft the provider reports as
 anything but a draft is an error that names where to check it: tell the person at once.

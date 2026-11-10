@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); apply board-approved title and thumbnail changes. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); change a posted video's title or thumbnail. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
@@ -12,10 +12,9 @@ YouTube Analytics API v2 and the YouTube Reporting API (OAuth, bring-your-own
 Google Cloud client). The agent searches, inspects videos and channels, browses
 and edits connected channels' playlists, reads comment threads, posts public
 comments/replies, reads every connected channel's own analytics and reach, and
-applies title and thumbnail changes the person approved on the Traction
-campaign board. Keep answers grounded in the real data the tools return — ids,
-view counts, published dates, comment text — never a guessed or reconstructed
-transcript or number.
+changes a posted video's title or thumbnail. Keep answers grounded in the real
+data the tools return — ids, view counts, published dates, comment text — never
+a guessed or reconstructed transcript or number.
 
 **Any number of channels.** Each Connect (Plugins → YouTube → Connect) adds the
 channel picked at Google's sign-in (a Google account or any brand account it
@@ -118,14 +117,13 @@ All native, always-on — no bash, no CLI, no MCP server:
   report jobs for each channel at the first session after it connects; YouTube
   backfills only 30 days before a job exists, and the first reports take up to
   48 hours. (read)
-- `youtube_update_video({ draftId, videoUrl, title? | thumbnailPath? })` —
-  apply an **approved** Traction `youtube-update` draft: a new title
-  (videos.update, resending the video's whole snippet so description, tags and
-  category stay) or a new thumbnail (thumbnails.set, PNG or JPEG ≤ 2 MB).
-  The video's owning channel is used. Refused with `publish_unapproved`, nothing changed, unless the board's
-  Approve covers this exact change on this exact video and the thumbnail file is
-  byte-identical to the approved one. An approval is spent once. Asks the
-  person every time. (write)
+- `youtube_update_video({ videoUrl, title? | thumbnailPath? })` — change a
+  posted video: a new title (videos.update, resending the video's whole snippet
+  so description, tags and category stay) or a new thumbnail (thumbnails.set,
+  PNG or JPEG ≤ 2 MB), as the channel that owns the video. Exactly one change per call. The session's permission
+  mode decides whether it asks; the tool asks nobody on its own. A clear
+  refusal means nothing changed; an unclear failure means it may be live, so
+  read the video with `youtube_get_videos` before trying again. (write)
 
 Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
 `youtube_forget_channel` and `youtube_update_video` are `write`-tier.
@@ -144,9 +142,9 @@ Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
   CTR on the connected channel's own videos. Analytics trail about two days and
   reach reports arrive daily, so for a video's first 48 hours read Studio in
   the Browser on the channel owner's signed-in profile.
-- "Change this video's title/thumbnail" → only through a Traction
-  `youtube-update` draft the person approves on the board, then
-  `youtube_update_video` with that draft's id and exactly its approved value.
+- "Change this video's title/thumbnail" → `youtube_update_video` with the
+  video's URL and the new title or thumbnail path. In Traction, the person's
+  pick on the campaign board is the go-ahead: apply it straight away.
   Test & Compare, pinned comments and end screens have no API: apply those in
   Studio with the Browser tools.
 - "Add this to my Watch Later–style playlist" → `youtube_list_playlists` to
@@ -198,8 +196,8 @@ than pretending:
 - **Video upload and most metadata edits through the API** — a finished film
   goes up through YouTube Studio in the person's own signed-in browser: see the
   `youtube-package`, `youtube-thumbnail` and `youtube-studio-upload` skills,
-  which need the Browser plugin. The only API edits are an approved title or
-  thumbnail (`youtube_update_video`).
+  which need the Browser plugin. The only API edits are a posted video's title
+  or thumbnail (`youtube_update_video`).
 - **Test & Compare, pinned comments, end screens** — no API exists; Studio only.
 - **Live chat** (`liveChat*`) — requires an active broadcast and long-poll
   streaming, which doesn't fit a request/response tool.

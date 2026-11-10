@@ -36,8 +36,8 @@ standard MCP and MCP Apps. No host internals, no browser fork.
   The kit is the one annotation component every View shares; the Browser adds only
   the page facts (`app/view/page-annotation.ts`).
 - **Acts when asked.** The agent session decides what to do — its permission mode
-  and its own questions to you govern consequential steps (except the publish
-  confirm, which always asks you). The browser never
+  and its own questions to you govern consequential steps, posting included. The
+  browser never
   second-guesses it. One safety property is kept: an action that errored after it
   was sent is reported `unknown` (it may have taken effect) and is never retried
   automatically.
@@ -360,17 +360,17 @@ build spaces get: `code` (the default) gives them `browser_run` and not the step
 `steps` the step tools only, `both` both. Every other space always keeps the step tools,
 and Traction and Video also get `browser_run` wherever the mode offers it.
 
-`browser_run` is an exec-tier tool: the host asks the person before each run, and a cell has full Node access in the server's worker as the person's own account. Giving it to the Traction and Video spaces is deliberate, and it widens what a session there can do to the machine and to any saved profile it opens. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers the step tools only.
+`browser_run` is an exec-tier tool: the session's permission mode decides whether the host asks before each run, and a cell has full Node access in the server's worker as the person's own account. Giving it to the Traction and Video spaces is deliberate, and it widens what a session there can do to the machine and to any saved profile it opens. `DIMENSION_BROWSER_MODEL_TOOLS=steps` offers the step tools only.
 
 | Offered to | Tools |
 |---|---|
 | Every space (4) | `browser_view`, `browser_read`, `browser_profiles`, `browser_close` |
-| The step tools (7): every space except code and build in `code` mode (`_meta["ai.insodimension/exceptSpaces"]`); every space in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` (asks the person every time) |
+| The step tools (7): every space except code and build in `code` mode (`_meta["ai.insodimension/exceptSpaces"]`); every space in `steps` and `both` mode | `browser_open`, `browser_state`, `browser_snapshot`, `browser_inspect`, `browser_screenshot`, `browser_act`, `browser_upload` |
 | Code, build, traction and video, in `code` and `both` mode (1) | `browser_run` |
-| Traction only (6; 9 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, `browser_submit` (asks the person every time), and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
+| Traction only (5; 8 with jev's key) | `browser_publish`, `browser_publish_presets`, `browser_publish_confirm`, `browser_publish_cancel`, `browser_publish_wait`, and, only with `TYPESAFE_API_KEY`: `browser_task`, `browser_task_wait`, `browser_task_cancel` |
 
 In the default `code` mode that is 5 tools for a code or build session (`browser_run` and the
-four every space has), 11 for any other space (chat, unreal, clients, …), 12 for Video, and 18 for Traction (21 with jev's key).
+four every space has), 11 for any other space (chat, unreal, clients, …), 12 for Video, and 17 for Traction (20 with jev's key).
 
 Waiting, tabs and page scripts are steps of `browser_act`, and the page log is a
 field of `browser_state`: every tool is paid for by every agent on every turn, so a
@@ -415,18 +415,14 @@ and a caller that never heard back would send the same submit again: it answers
 
 ### Uploading files
 
-Every upload asks the person once, with the files and the site.
 `browser_upload({ browserId, selector, paths, origin, frameOrigin? })` is offered
-wherever `browser_act` is and declares `_meta: { "ai.insodimension/approval": "prompt" }`,
-so the host asks before every call, in every permission mode (yolo included), and a
-harness that cannot ask has the call refused. Its Allow card
-(`ai.insodimension/approvalSummary`) reads "Send 2 files to https://example.com",
-"Into a frame from …" when the field is in a frame of another site, and every path:
-`paths` takes 1-3, the most the card lists in full. A page could try to steer the model
-into sending a local secret; the person sees exactly what would leave the machine and
-where, and nothing is sent until they allow it.
+wherever `browser_act` is and runs like any other step tool: the agent uploads
+itself, with no ask and no approval tier of its own (the host's permission mode is
+the only gate). `paths` takes 1-3. A page could try to steer the model into sending
+a local secret, so the tool tells the agent to send only files the user asked for
+or the task needs, and the checks below hold whatever it is told.
 
-What the card shows is what is sent. Each path must be absolute, a file, on this
+Each path must be absolute, a file, on this
 machine's own drives, and exactly the file's own path on disk: a UNC, `\\?\`, `\\.\` or
 `//` path is refused by its text before any filesystem call, a path through a symlink or
 junction is walked one link at a time and refused at a link to a network or device path
@@ -704,20 +700,18 @@ drafts, and the post is confirmed.
 2. **Your agent drafts and fills.** When there is something to post, the agent
    opens the compose page in that profile and fills in the text. Nothing is
    sent.
-3. **Post.** A bar at the bottom of the Browser View shows where the post goes
-   (the page and the profile) and exactly what will be posted, with **Post**
-   and **Cancel**. Your agent can confirm it itself (`browser_publish_confirm`),
-   but that ALWAYS asks you first, whatever your session's permission mode: an
-   Allow card names the exact site, profile and text it will post. (Under a
-   harness that can't guarantee that ask, Dimension refuses the agent's confirm
-   instead.) Or you press Post. While the bar waits, the agent can't otherwise
-   touch the page. After the post, its own link comes back to the agent as the
-   receipt.
+3. **Post.** Your agent posts it itself (`browser_publish_confirm`): nobody is
+   asked. Picking the draft (on Traction's campaign board, or in chat) is the
+   go-ahead. While it is parked, a bar at the bottom of the Browser View shows
+   where the post goes (the page and the profile) and exactly what will be
+   posted, with **Post** and **Cancel**: you may press Post first, or Cancel
+   to stop it. While the bar waits, the agent can't otherwise touch the page.
+   After the post, its own link comes back to the agent as the receipt.
 
 If you post it yourself with the site's own button instead, the bar can't
 know for sure, so it says "May have posted" and never posts a second copy.
 Nothing is posted until a confirm: your Post button, or the agent's
-`browser_publish_confirm` once you allow it.
+`browser_publish_confirm`.
 
 ## Publishing
 
@@ -759,31 +753,11 @@ as data, so the pack's code stays platform-agnostic:
   `composeUrl` (where the post goes). **Nothing is submitted.** The Browser View
   shows a confirm bar with that URL, the profile and every value. A confirm
   submits: the model's `browser_publish_confirm` or the bar's **Post** (the same
-  tool). The tool declares `_meta: { "ai.insodimension/approval": "prompt" }`,
-  so the host ALWAYS asks the human before the agent's call runs, in every permission mode
-  (yolo included); a harness that can't guarantee that ask has the call refused
-  by the Dimension host instead. The model MUST pass `expect: { origin, profile, values }`
-  copied exactly from the pending record (`values`: every field's value, in
-  field order), so the Allow card states where the post goes, as which profile,
-  and exactly what it says. A model call without `expect` fails
-  `expect_required`; any `expect` (from any caller) that differs from the
-  pending record fails `publish_mismatch`; either way nothing is clicked and the
-  publish stays pending. The View's Post may omit `expect`. The page is then
-  re-checked: another active tab, a different URL or a changed value fails with
-  nothing clicked. `browser_publish_cancel` drops it.
-- **Only a post a human approved goes out.** `mode: "post"` is refused
-  (`publish_unapproved`, before the compose page is opened) unless an unspent,
-  unexpired [publish approval](#publish-approvals) covers this exact post: the
-  site, the profile, the preset it goes through and every value, character for
-  character. The confirm checks again and SPENDS the approval before it re-reads
-  the page and clicks submit, for the View's Post too (a confirm that ends
-  `unknown` with no click, because the page was used meanwhile, leaves it spent;
-  then record `draft_failed` if the post is not up, so the user's Retry approves
-  it again). A text the human did not approve, an
-  edit of one that was, a different profile, site or preset (a recipe the
-  caller wrote is never the approved preset), an expired approval and a second
-  post of an approved one are all refused; nothing is typed or clicked by the
-  refusal.
+  tool), `browser_publish_confirm({ browserId, publishId })`. It carries no
+  approval tier and no echo token: the agent posts with no ask, and the
+  permission mode of the session is the only gate.
+  The page is then re-checked: another active tab, a different URL or a changed
+  value fails with nothing clicked. `browser_publish_cancel` drops it.
 - While a publish is pending the page is pinned: `browser_act`,
   `browser_task`, `browser_publish` and `browser_close` are refused
   (`publish_pending`) unless the host stamped the call as coming from the View.
@@ -849,115 +823,11 @@ user's comment that loads on the thread after submit could be taken as the
 receipt: the receipt checks the path shape and that the link was not on the
 page before submit, not who wrote the comment.
 
-### Publish approvals
+### Posting typed text
 
-A publish is only as trustworthy as the thing that approved it. The host's
-Allow card puts you in front of the agent's confirm, but it cannot tell you
-that the text is the one you approved elsewhere (on Traction's campaign board).
-An approval is that statement, written by a surface only you can click, and
-checked here before anything is typed or posted. This pack only reads and
-spends approvals; it never writes one.
-
-Where: `<root>/publish-approvals/` (`$INSO_HOME/browser/publish-approvals`, else
-`~/.inso/browser/publish-approvals`).
-
-- `<draftId>.json`: `{ "v": 1, "draftId", "nonce", "binding", "approvedAt",
-  "expiresAt" }`. `draftId` is `[A-Za-z0-9_-]{1,64}` and names the file;
-  `nonce` is 32 lowercase hex; `approvedAt` and `expiresAt` are ISO times at
-  most 24 hours apart. `binding` is the lowercase hex SHA-256 of
-  `JSON.stringify(["publish-approval/v1", origin, profile, preset, values])`:
-  `origin` is the recipe's origin (`https://x.com`), `profile` the saved browser
-  profile that posts, `preset` the name of the shipped preset the post goes
-  through (`"x-post"`; `null` for a recipe the caller wrote, whose selectors and
-  submit button nobody approved, so a surface that approves a preset post can
-  never have it posted through a recipe), `values` every field's value in order,
-  as `bindingOf` in `src/publish-approval.ts` computes it. A draft has at most
-  one entry; approving it again replaces the file with a fresh `nonce`. A file
-  that does not parse to exactly this shape is not an approval.
-- `<draftId>.<nonce>.used`: made exclusively (`wx`) by the confirm that is
-  about to click submit. That create is the lock: of any number of confirms,
-  browsers or callers exactly one spends an approval, and a spent approval is
-  never spendable again, whatever the post's outcome. It is removed only when
-  nothing was submitted (`failed`: the page changed, the click never went).
-
-Both `browser_publish` (`mode: "post"`) and `browser_publish_confirm` fail
-closed with `publish_unapproved`, in three flavours the message names: no
-approval covers this exact post, the approval expired (the agent records
-`draft_failed`; the user's Retry approves it again), or it was already used (the
-post may be up; never post it twice).
-
-Traction's board writes these for X posts through the `x-post` preset. The
-binding does not cover the page a `needsTarget` preset posts on
-(`reddit-comment`), so no surface should approve one before it does.
-
-### Judge-gated submits on the profiles Traction accounts post from
-
-Every other draft Traction's agents post is typed into the site's own page with
-`browser_act`. On a **gated profile** (below), a model's
-`click`, `Enter` or `Space` (the View is never gated) first reads every visible
-editable field on the page (frames and open shadow roots included). Sign-in and
-search fields (`email`, `password`, `tel` and `search` inputs, `autocomplete`
-username, email, tel, one-time-code or password, a field in a form with a
-password, a searchbox or combobox input) are left out. With typed text on the
-page:
-
-- **Exact approval.** When one live approved-fill record for this profile and
-  the page's origin holds every text on the page, the step runs with no card and
-  spends the record. The rest of that flow's clicks (Next, Save) pass while its
-  text stays on the page.
-- **Judge.** Otherwise the pack asks the host's judge over the
-  `ai.insodimension/submit-judge` extension (method
-  `ai.insodimension/submit-judge/ask`, only when the host advertises it), with
-  the profile, the origin, the texts on the page and the live approved drafts for
-  that profile. The host adds the person's own recent messages from the session.
-  A `consistent` verdict at confidence 0.8 or more runs the step.
-- **The person.** An `inconsistent` or less confident verdict, `unavailable`,
-  `no-evidence`, an error, a timeout or a host without the extension fails the
-  step `submit_needs_person` and clicks nothing. `browser_submit` then asks the
-  person on an Allow card in every mode, showing the profile, the site and the
-  text, checks the values it names are exactly the text on the page, and clicks.
-
-Text on the page is only ever what is judged, never evidence of approval.
-`browser_task` and `browser_run` refuse a gated profile, and `browser_submit`
-runs only on one.
-
-A profile is gated when its name starts with `traction-` (Traction's own
-`traction-<platform>-<handle>` profiles, always), or when the publishing
-surface names it in `<root>/publish-profiles.json`:
-`{ "v": 1, "profiles": ["godofrock", ...] }`. Traction writes that file from its
-board: every Browser profile a campaign account posts from by name
-(`campaign_profile_add` `about.browserProfile`) and the profile every approved
-draft not yet posted is bound to, so the person's own profile (`godofrock`,
-`personal`) is gated for as long as an account posts from it, before any
-approval exists, and ungated once no account and no live approval names it. The pack
-reads the file on a gate check, and when it changes on disk, only when its
-identity (inode, size, mtime) changed since the last read, so a check costs one
-`stat`, never a directory scan. It fails closed: a file that does not parse to
-this shape keeps the last list read, and while no list has been read from a file
-that exists (it never parsed, or it went missing after it was read) every saved
-profile but the relay is gated. Only a file that has never existed means no
-profile is named. A profile that becomes gated is let go at once: a
-`browser_task` running on it is stopped, and a `browser_run` cell that holds it
-loses its tabs and its browser (the cell using it is stopped with
-`publish_unapproved`). Gating is per profile, not per approval, on purpose: a
-profile gated only while an approval is live would let an agent post anything
-from the account the rest of the time. The cost is that `browser_task` and
-`browser_run` refuse that profile for every agent while an account posts from
-it; reading, signing in and the step tools work as before.
-
-The approved-fill record is `<draftId>.json` in the same folder:
-`{ "v": 2, "draftId", "nonce", "profile", "origins", "texts", "approvedAt",
-"expiresAt" }`. `profile` is the account's Browser profile (its own
-`browserProfile`, else `traction-<platform>-<handle>`);
-`origins` the sites it may be posted on (`https://news.ycombinator.com`, a
-`https://*.substack.com` wildcard, or `*` for a platform with no fixed site);
-`texts` every approved field value. Texts match after NFC, `\r\n` to `\n`,
-no-break space to space and a trim. Spent with the same `<draftId>.<nonce>.used`
-marker.
-
-What this does not cover: a process that can write files as you. An agent with
-a code runner or a file writer can write an approval, so a host that lends this
-pack to such an agent gets the Allow cards and nothing more.
+A post that no preset covers is typed into the site's own page with
+`browser_act` and submitted with a `click`, `Enter` or `Space`, on any profile,
+with no ask.
 
 ## Connection report
 

@@ -1,7 +1,7 @@
 {
 	"name": "@inso/discord",
 	"author": "Dimension",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Discord connector — read, search and post in your own server over the Discord REST API with your bot: forum posts, threads and tags, invites, events, announcements and AutoMod",
 	"type": "module",
 	"main": "index.ts",

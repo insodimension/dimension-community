@@ -1,19 +1,17 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveApproval } from "@oh-my-pi/pi-coding-agent/tools/approval";
 import { addReach, createReachReportTool, createVideoAnalyticsTool, ensureReachJobs, parseCsv } from "../analytics";
 import { channelFor, MISSING_ANALYTICS_SCOPE } from "../api";
-import { createUpdateVideoTool, snippetWithTitle, updateBinding } from "../update";
+import { createUpdateVideoTool, snippetWithTitle } from "../update";
 import { ALPHA, BETA, bearerOf, type ChannelSeed, channelIdOf, seedChannel } from "./channel-fixture";
 
-const ENV = ["HOME", "USERPROFILE", "INSO_HOME"] as const;
+const ENV = ["HOME", "USERPROFILE"] as const;
 const prior = Object.fromEntries(ENV.map(name => [name, process.env[name]]));
 const root = await mkdtemp(join(tmpdir(), "youtube-writes-"));
 const home = join(root, "home");
-const insoHome = join(root, "inso");
-const approvals = join(insoHome, "browser", "publish-approvals");
 const thumbs = join(root, "thumbs");
 const CONFIG_DIR = join(home, ".config", "dimension-youtube");
 const CHANNELS_DIR = join(CONFIG_DIR, "channels");
@@ -60,11 +58,8 @@ async function seedMain(refresh = MAIN.refresh): Promise<void> {
 }
 
 beforeEach(async () => {
-	process.env.INSO_HOME = insoHome;
-	await rm(insoHome, { recursive: true, force: true });
 	await rm(thumbs, { recursive: true, force: true });
 	await rm(CONFIG_DIR, { recursive: true, force: true });
-	await mkdir(approvals, { recursive: true });
 	await mkdir(thumbs, { recursive: true });
 	await seedMain();
 	calls = [];
@@ -85,60 +80,19 @@ afterAll(async () => {
 	await rm(root, { recursive: true, force: true });
 });
 
-function sha256Hex(data: string | Uint8Array): string {
-	return createHash("sha256").update(data).digest("hex");
+function jsonBody(call: Call): Record<string, unknown> {
+	return JSON.parse(String(call.body)) as Record<string, unknown>;
 }
 
-function titleValues(title: string): string[] {
-	return ["title", title];
-}
-
-function thumbnailValues(path: string, bytes: Uint8Array): string[] {
-	return ["thumbnail", JSON.stringify([path, sha256Hex(bytes)])];
-}
-
-interface Approval {
-	nonce: string;
-	marker: string;
-}
-
-async function approve(draftId: string, videoId: string, values: string[], over: { expired?: boolean } = {}): Promise<Approval> {
-	const nonce = randomBytes(16).toString("hex");
-	const now = Date.now();
-	const approvedAt = over.expired ? now - 2 * 3_600_000 : now - 1_000;
-	const expiresAt = over.expired ? now - 3_600_000 : now + 3_600_000;
-	await writeFile(
-		join(approvals, `${draftId}.json`),
-		JSON.stringify({
-			v: 1,
-			draftId,
-			nonce,
-			binding: sha256Hex(JSON.stringify(["publish-approval/v1", "https://www.youtube.com", videoId, "youtube_update_video", values])),
-			approvedAt: new Date(approvedAt).toISOString(),
-			expiresAt: new Date(expiresAt).toISOString(),
-		}),
-	);
-	return { nonce, marker: join(approvals, `${draftId}.${nonce}.used`) };
-}
-
-async function usedMarkers(): Promise<string[]> {
-	return (await readdir(approvals)).filter(name => name.endsWith(".used"));
-}
-
-async function exists(path: string): Promise<boolean> {
-	return readFile(path).then(
+function exists(path: string): Promise<boolean> {
+	return stat(path).then(
 		() => true,
 		() => false,
 	);
 }
 
-function jsonBody(call: Call): Record<string, unknown> {
-	return JSON.parse(String(call.body)) as Record<string, unknown>;
-}
-
 describe("youtube_update_video", () => {
 	const VIDEO = "dQw4w9WgXcQ";
-	const OTHER_VIDEO = "aaaaaaaaaaa";
 	const VIDEO_URL = `https://www.youtube.com/watch?v=${VIDEO}`;
 	const READ_SNIPPET = {
 		title: "Old title",
@@ -156,8 +110,8 @@ describe("youtube_update_video", () => {
 		return (createUpdateVideoTool() as unknown as Tool).execute("call-1", params);
 	}
 
-	function titleCall(title: string, draftId = "draft1", videoUrl = VIDEO_URL): Promise<{ content: { text: string }[] }> {
-		return update({ draftId, videoUrl, title });
+	function titleCall(title: string): Promise<{ content: { text: string }[] }> {
+		return update({ videoUrl: VIDEO_URL, title });
 	}
 
 	function serveVideo(put: () => Response = () => Response.json({ id: VIDEO })): void {
@@ -172,36 +126,19 @@ describe("youtube_update_video", () => {
 		return calls.map(call => `${call.method} ${call.url.pathname}`);
 	}
 
-	test("with no approval file the call is refused as unapproved and nothing is requested", async () => {
-		await expect(titleCall("New title")).rejects.toThrow(/publish_unapproved/);
-		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
+	test("its approval is the plain write tier with no card of its own, so the session's permission mode decides and yolo runs it", () => {
+		const tool = createUpdateVideoTool();
+		expect(tool.approval).toBe("write");
+		expect(tool.formatApprovalDetails).toBeUndefined();
+		const args = { videoUrl: VIDEO_URL, title: "New title" };
+		expect(resolveApproval(tool as Parameters<typeof resolveApproval>[0], args, "yolo").policy).toBe("allow");
+		expect(resolveApproval(tool as Parameters<typeof resolveApproval>[0], args, "write").policy).toBe("allow");
 	});
 
-	test("an approval minted for a different title is refused, nothing requested, approval unspent", async () => {
-		await approve("draft1", VIDEO, titleValues("A different title"));
-		await expect(titleCall("New title")).rejects.toThrow(/publish_unapproved/);
-		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
-	});
-
-	test("an approval minted for a different video is refused, nothing requested, approval unspent", async () => {
-		await approve("draft1", OTHER_VIDEO, titleValues("New title"));
-		await expect(titleCall("New title")).rejects.toThrow(/publish_unapproved/);
-		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
-	});
-
-	test("a draft id that could escape the approvals folder is refused before anything is read", async () => {
-		await expect(titleCall("New title", "../evil")).rejects.toThrow();
-		expect(calls).toEqual([]);
-	});
-
-	test("a matching title approval reads the snippet, then PUTs it whole with only the title changed, and spends the approval", async () => {
-		const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+	test("a title change reads the snippet, then PUTs it whole with only the title changed", async () => {
 		serveVideo();
 
-		await titleCall("New title");
+		const result = await titleCall("New title");
 
 		expect(summary()).toEqual(["GET /youtube/v3/videos", "PUT /youtube/v3/videos"]);
 		const [get, put] = calls;
@@ -217,140 +154,72 @@ describe("youtube_update_video", () => {
 			categoryId: "28",
 			defaultLanguage: "en",
 		});
-		expect(await exists(marker)).toBe(true);
+		expect(result.content[0]?.text).toContain('from "Old title" to "New title"');
 	});
 
-	test("the same approval cannot be spent twice: the second call is refused as already used and sends nothing", async () => {
-		await approve("draft1", VIDEO, titleValues("New title"));
-		serveVideo();
-		await titleCall("New title");
-		const before = calls.length;
-
-		await expect(titleCall("New title")).rejects.toThrow(/already used/);
-
-		expect(calls.length).toBe(before);
-		expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(1);
-	});
-
-	test("two simultaneous calls on one approval produce exactly one PUT", async () => {
-		await approve("draft1", VIDEO, titleValues("New title"));
-		serveVideo();
-
-		const results = await Promise.allSettled([titleCall("New title"), titleCall("New title")]);
-
-		expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-		const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-		expect(rejected).toHaveLength(1);
-		expect(String(rejected[0]?.reason)).toMatch(/already used/);
-		expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(1);
-	});
-
-	test("a clear 400 refusal on the PUT says the approval still stands, frees the approval, and a retry can spend it", async () => {
-		const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+	test("a clear 400 refusal on the PUT says nothing changed, and a retry goes through", async () => {
 		serveVideo(() => Response.json({ error: { message: "Invalid video title" } }, { status: 400 }));
 
-		await expect(titleCall("New title")).rejects.toThrow(/approval still stands/);
-		expect(await exists(marker)).toBe(false);
+		await expect(titleCall("New title")).rejects.toThrow(/Nothing was changed/);
 
 		serveVideo();
 		await titleCall("New title");
 		expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(2);
-		expect(await exists(marker)).toBe(true);
 	});
 
 	for (const status of [500, 429]) {
-		test(`an unclear ${status} on the PUT says the change may be live, keeps the approval spent, and refuses a retry`, async () => {
-			const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+		test(`an unclear ${status} on the PUT says the change may be live`, async () => {
 			serveVideo(() => Response.json({ error: { message: "Backend Error" } }, { status }));
 
 			await expect(titleCall("New title")).rejects.toThrow(/may be live/);
-			expect(await exists(marker)).toBe(true);
-
-			const before = calls.length;
-			await expect(titleCall("New title")).rejects.toThrow(/already used/);
-			expect(calls.length).toBe(before);
+			expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(1);
 		});
 	}
 
-	test("a video the channel cannot read leaves the approval unspent", async () => {
-		const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+	test("a video the channel cannot read is refused after the read, with nothing sent", async () => {
 		serve(() => Response.json({ items: [] }));
 
-		await expect(titleCall("New title")).rejects.toThrow();
+		await expect(titleCall("New title")).rejects.toThrow(/Nothing was changed/);
 
 		expect(summary()).toEqual(["GET /youtube/v3/videos"]);
-		expect(await exists(marker)).toBe(false);
 	});
 
-	test("an expired approval is refused as expired and nothing is requested", async () => {
-		await approve("draft1", VIDEO, titleValues("New title"), { expired: true });
-		await expect(titleCall("New title")).rejects.toThrow(/expired/);
+	test("a title of 101 characters is refused before any request, while 100 goes through", async () => {
+		await expect(titleCall("a".repeat(101))).rejects.toThrow();
 		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
-	});
 
-	test("a title of 101 characters is refused before any request even with a valid approval, while 100 goes through", async () => {
-		const tooLong = "a".repeat(101);
-		await approve("draft1", VIDEO, titleValues(tooLong));
-		await expect(titleCall(tooLong)).rejects.toThrow();
-		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
-
-		const longest = "a".repeat(100);
-		await approve("draft2", VIDEO, titleValues(longest));
 		serveVideo();
-		await titleCall(longest, "draft2");
+		await titleCall("a".repeat(100));
 		expect(summary()).toEqual(["GET /youtube/v3/videos", "PUT /youtube/v3/videos"]);
 	});
 
 	for (const title of ["Fast <b>build</b>", "a > b", "   "]) {
-		test(`the title ${JSON.stringify(title)} is refused before any request even with a valid approval`, async () => {
-			await approve("draft1", VIDEO, titleValues(title));
+		test(`the title ${JSON.stringify(title)} is refused before any request`, async () => {
 			await expect(titleCall(title)).rejects.toThrow();
 			expect(calls).toEqual([]);
-			expect(await usedMarkers()).toEqual([]);
 		});
 	}
 
-	test("passing both a title and a thumbnail path, or neither, is refused even with valid approvals", async () => {
+	test("passing both a title and a thumbnail path, or neither, is refused before any request", async () => {
 		const path = join(thumbs, "a.png");
-		const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
-		await writeFile(path, bytes);
-		await approve("draft1", VIDEO, titleValues("New title"));
-		await approve("draft2", VIDEO, thumbnailValues(path, bytes));
+		await writeFile(path, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
 
-		await expect(update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title", thumbnailPath: path })).rejects.toThrow();
-		await expect(update({ draftId: "draft2", videoUrl: VIDEO_URL, title: "New title", thumbnailPath: path })).rejects.toThrow();
-		await expect(update({ draftId: "draft1", videoUrl: VIDEO_URL })).rejects.toThrow();
+		await expect(update({ videoUrl: VIDEO_URL, title: "New title", thumbnailPath: path })).rejects.toThrow(/exactly one/);
+		await expect(update({ videoUrl: VIDEO_URL })).rejects.toThrow(/exactly one/);
 
 		expect(calls).toEqual([]);
-		expect(await usedMarkers()).toEqual([]);
 	});
 
 	describe("thumbnail", () => {
-		const BYTES_A = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
-		const BYTES_B = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 5]);
+		const BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
-		function thumbnailCall(path: string, draftId = "draft1"): Promise<{ content: { text: string }[] }> {
-			return update({ draftId, videoUrl: VIDEO_URL, thumbnailPath: path });
+		function thumbnailCall(path: string): Promise<{ content: { text: string }[] }> {
+			return update({ videoUrl: VIDEO_URL, thumbnailPath: path });
 		}
 
-		test("a file rewritten after Approve is refused and nothing is uploaded", async () => {
+		test("the file is uploaded once to the thumbnail endpoint as image/png with exactly its bytes", async () => {
 			const path = join(thumbs, "cover.png");
-			await writeFile(path, BYTES_A);
-			await approve("draft1", VIDEO, thumbnailValues(path, BYTES_A));
-			await writeFile(path, BYTES_B);
-
-			await expect(thumbnailCall(path)).rejects.toThrow(/publish_unapproved/);
-
-			expect(calls).toEqual([]);
-			expect(await usedMarkers()).toEqual([]);
-		});
-
-		test("an unchanged file is uploaded once to the thumbnail endpoint as image/png with exactly its bytes, and the approval is spent", async () => {
-			const path = join(thumbs, "cover.png");
-			await writeFile(path, BYTES_A);
-			const { marker } = await approve("draft1", VIDEO, thumbnailValues(path, BYTES_A));
+			await writeFile(path, BYTES);
 			serve(() => Response.json({ items: [{ default: { url: "https://i.ytimg.com/vi/x/default.jpg" } }] }));
 
 			await thumbnailCall(path);
@@ -361,41 +230,20 @@ describe("youtube_update_video", () => {
 			expect(`${upload?.url.host}${upload?.url.pathname}`).toBe("www.googleapis.com/upload/youtube/v3/thumbnails/set");
 			expect(upload?.url.searchParams.get("videoId")).toBe(VIDEO);
 			expect(upload?.headers.get("content-type")).toBe("image/png");
-			expect(Buffer.compare(Buffer.from(upload?.body as Uint8Array), Buffer.from(BYTES_A))).toBe(0);
-			expect(await exists(marker)).toBe(true);
+			expect(Buffer.compare(Buffer.from(upload?.body as Uint8Array), Buffer.from(BYTES))).toBe(0);
 		});
 
-		test("a clear 400 on the upload frees the approval; the same approval then uploads", async () => {
+		test("a clear 400 on the upload says nothing changed, and a retry uploads", async () => {
 			const path = join(thumbs, "cover.png");
-			await writeFile(path, BYTES_A);
-			const { marker } = await approve("draft1", VIDEO, thumbnailValues(path, BYTES_A));
+			await writeFile(path, BYTES);
 			serve(() => Response.json({ error: { message: "Invalid image" } }, { status: 400 }));
 
-			await expect(thumbnailCall(path)).rejects.toThrow(/approval still stands/);
-			expect(await exists(marker)).toBe(false);
+			await expect(thumbnailCall(path)).rejects.toThrow(/Nothing was changed/);
 
 			serve(() => Response.json({ items: [] }));
 			await thumbnailCall(path);
 			expect(calls).toHaveLength(2);
-			expect(await exists(marker)).toBe(true);
 		});
-	});
-});
-
-describe("updateBinding", () => {
-	test("golden vector: the title binding is the sha256 of the literal domain-separated JSON array", () => {
-		const literal = '["publish-approval/v1","https://www.youtube.com","dQw4w9WgXcQ","youtube_update_video",["title","New title"]]';
-		const expected = createHash("sha256").update(literal).digest("hex");
-
-		expect(updateBinding("dQw4w9WgXcQ", ["title", "New title"])).toBe(expected);
-		expect(expected).toBe("5f2f91d696703f2cd619f5012a891358e49992a906594e460a3b17cbb01c2697");
-	});
-
-	test("a different video or a different value changes the binding", () => {
-		const base = updateBinding("dQw4w9WgXcQ", ["title", "New title"]);
-		expect(updateBinding("aaaaaaaaaaa", ["title", "New title"])).not.toBe(base);
-		expect(updateBinding("dQw4w9WgXcQ", ["title", "New title."])).not.toBe(base);
-		expect(updateBinding("dQw4w9WgXcQ", ["thumbnail", "New title"])).not.toBe(base);
 	});
 });
 
@@ -716,22 +564,38 @@ describe("several channels connected", () => {
 
 		for (const owner of [ALPHA, BETA]) {
 			test(`a title change on a video owned by ${owner.title} reads and PUTs with ${owner.title}'s bearer`, async () => {
-				const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
 				serveVideoOwnedBy(owner.channelId);
 
-				await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" });
+				await update({ videoUrl: VIDEO_URL, title: "New title" });
 
 				expect(calls.map(call => call.method)).toEqual(["GET", "GET", "PUT"]);
 				expect(calls.slice(1).map(call => call.headers.get("authorization"))).toEqual([bearerOf(owner), bearerOf(owner)]);
-				expect(await exists(marker)).toBe(true);
 			});
 		}
 
-		test("a video owned by a channel that is not connected is refused naming that channel, and the approval stays unspent until it is connected", async () => {
-			const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+		test("a video private to the second channel is still found, read and changed with that channel's bearer", async () => {
+			serve(call => {
+				if (call.url.pathname === "/youtube/v3/videos" && call.method === "PUT") return Response.json({ id: VIDEO });
+				if (call.url.pathname !== "/youtube/v3/videos") throw new Error(`unexpected request ${call.method} ${call.url}`);
+				return call.headers.get("authorization") === bearerOf(BETA)
+					? ownerLookup({ channelId: BETA.channelId, channelTitle: BETA.title })
+					: Response.json({ items: [] });
+			});
+
+			await update({ videoUrl: VIDEO_URL, title: "New title" });
+
+			expect(calls.map(call => `${call.method} ${call.headers.get("authorization")}`)).toEqual([
+				`GET ${bearerOf(ALPHA)}`,
+				`GET ${bearerOf(BETA)}`,
+				`GET ${bearerOf(BETA)}`,
+				`PUT ${bearerOf(BETA)}`,
+			]);
+		});
+
+		test("a video owned by a channel that is not connected is refused naming that channel with nothing changed, and works once that channel is connected", async () => {
 			serveVideoOwnedBy(STRANGER.channelId);
 
-			const failure = await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" }).then(
+			const failure = await update({ videoUrl: VIDEO_URL, title: "New title" }).then(
 				() => null,
 				(error: Error) => error,
 			);
@@ -740,23 +604,19 @@ describe("several channels connected", () => {
 			expect(failure?.message).toContain("Owner channel");
 			expect(failure?.message).toMatch(/not connected/);
 			expect(calls.map(call => `${call.method} ${call.url.pathname}`)).toEqual(["GET /youtube/v3/videos"]);
-			expect(await exists(marker)).toBe(false);
-			expect(await usedMarkers()).toEqual([]);
 
 			await seedChannel(CONFIG_DIR, STRANGER);
 			calls = [];
-			await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" });
+			await update({ videoUrl: VIDEO_URL, title: "New title" });
 
 			expect(calls.at(-1)?.method).toBe("PUT");
 			expect(calls.at(-1)?.headers.get("authorization")).toBe(bearerOf(STRANGER));
-			expect(await exists(marker)).toBe(true);
 		});
 
 		test("a thumbnail upload for a video owned by Beta Studio carries Beta Studio's bearer", async () => {
 			const path = join(thumbs, "cover.png");
 			const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 			await writeFile(path, bytes);
-			const { marker } = await approve("draft1", VIDEO, thumbnailValues(path, bytes));
 			serve(call => {
 				if (call.url.pathname === "/youtube/v3/videos") return ownerLookup({ channelId: BETA.channelId, channelTitle: BETA.title });
 				if (call.url.pathname === "/upload/youtube/v3/thumbnails/set") return Response.json({ items: [] });
@@ -769,7 +629,7 @@ describe("several channels connected", () => {
 			expect(upload?.method).toBe("POST");
 			expect(upload?.url.pathname).toBe("/upload/youtube/v3/thumbnails/set");
 			expect(upload?.headers.get("authorization")).toBe(bearerOf(BETA));
-			expect(await exists(marker)).toBe(true);
+			expect(calls.map(call => call.method)).toEqual(["GET", "POST"]);
 		});
 	});
 

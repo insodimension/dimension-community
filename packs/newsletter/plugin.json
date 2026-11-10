@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "newsletter",
-	"version": "0.1.0",
-	"description": "Let your agent save approved newsletter issues as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
+	"version": "0.1.1",
+	"description": "Let your agent save the newsletter issues you choose as unsent drafts in your beehiiv, Kit, Buttondown or Ghost account, and read how each issue did. You always press Send yourself.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -27,7 +27,7 @@
 			"category": "connector",
 			"defaultEnabled": false,
 			"examples": [
-				"Save this week's approved issue as a draft in my newsletter tool so I can send it",
+				"Save this week's issue as a draft in my newsletter tool so I can send it",
 				"How did my last newsletter do? Clicks, unsubscribes and replies, not opens",
 				"How many subscribers do I have, and how many joined in the last 90 days?"
 			],
@@ -230,7 +230,7 @@
 				},
 				{
 					"name": "newsletter_issue_draft",
-					"description": "Save an approved issue as an UNSENT draft in the provider. Never sends or schedules; asks you first in every mode."
+					"description": "Save the chosen issue as an UNSENT draft in the provider. Never sends or schedules."
 				}
 			]
 		}
