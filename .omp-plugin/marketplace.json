@@ -46,15 +46,15 @@
 			"source": "./packs/artifactory-general-agent",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.4/artifactory-general-agent-0.5.4.tgz",
-				"sha256": "638ea3d923e0aaec583e7629703ff93949c1e2e770fc3857e1fcc3950aaaca8a",
-				"size": 289756
+				"url": "https://github.com/insodimension/dimension-community/releases/download/artifactory-general-agent-v0.5.5/artifactory-general-agent-0.5.5.tgz",
+				"sha256": "5c0836ce5c3a4633a5f44fb0c8856d0b36e0bfcc530414c0a305260d5e367045",
+				"size": 290671
 			},
 			"pluginId": "artifactory-general-agent",
 			"title": "General Agents",
 			"icon": "bot",
 			"description": "See every agent you can run as a card with its face and its week at a glance, open one to edit it, or ask the Machinist to draft a new one.",
-			"version": "0.5.4",
+			"version": "0.5.5",
 			"author": {
 				"name": "Dimension"
 			},
@@ -191,15 +191,15 @@
 			"source": "./packs/browser",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.21/browser-0.9.21.tgz",
-				"sha256": "afbb99530cd881916ab884f447765214464b099c475cb27c3502d83530d5bb42",
-				"size": 2006545
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.22/browser-0.9.22.tgz",
+				"sha256": "7475faeb4297f69fc859276ed7293076d83b0ad46d0462b5830a8f3694a559f0",
+				"size": 2008810
 			},
 			"pluginId": "browser",
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.21",
+			"version": "0.9.22",
 			"author": {
 				"name": "Dimension"
 			},
@@ -977,8 +977,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gmail-v0.3.1/gmail-0.3.1.tgz",
-				"sha256": "6242b3ffc220fdaac169cc81daa62a516c2b692f72894cf64884334350fb4acf",
-				"size": 41845
+				"sha256": "611e5af060f38eb1a66ee0992fba5057a7f1524b46a0332d78d099d6220e7b2c",
+				"size": 41820
 			},
 			"pluginId": "gmail",
 			"title": "Gmail",
@@ -1035,8 +1035,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/google-drive-v0.1.6/google-drive-0.1.6.tgz",
-				"sha256": "80c6e6fe324eaf9f5b7f93701a28c27460761221494bcdeb73ad8320470299db",
-				"size": 11338
+				"sha256": "0b7d004d9e80fbec01b7cafef8f8190b30f10ace53fb880ee186460620a3271b",
+				"size": 11327
 			},
 			"pluginId": "google-drive",
 			"title": "Google Drive",
@@ -1570,15 +1570,15 @@
 			"source": "./packs/simulator",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.6/simulator-0.1.6.tgz",
-				"sha256": "de2bcf52c03671398084e04b66dcac39e2eb6843bf186b0ceff8a89f04c30c87",
-				"size": 441005
+				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.7/simulator-0.1.7.tgz",
+				"sha256": "fcf6a999c1c78fbc90416dd4105457061c5b85d73149c695f23d6a66ce374692",
+				"size": 443224
 			},
 			"pluginId": "simulator",
 			"title": "Simulator",
 			"icon": "phone",
 			"description": "An Android phone emulator beside your chat that your agent can drive while you watch: tap, type, install and open apps.",
-			"version": "0.1.6",
+			"version": "0.1.7",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1708,15 +1708,15 @@
 			"source": "./packs/swiss-knife",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.2/swiss-knife-0.7.2.tgz",
-				"sha256": "8237c8642261b1e2877ff1a687d201d90bb080fb79d8e5e0c750e9b5ebc799db",
-				"size": 2255331
+				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.4/swiss-knife-0.7.4.tgz",
+				"sha256": "43a1df87b5dbad3d688853c3abb743e51c491a94e5153510764a82d1d375025e",
+				"size": 2269447
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
 			"icon": "packs/swiss-knife/assets/icon.webp",
 			"description": "A few small helpers in one switch: your agent can show you files as cards you can open and mark up, a library finds every file you have made, and it stops the agent adding code comments.",
-			"version": "0.7.2",
+			"version": "0.7.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1997,15 +1997,15 @@
 			"source": "./packs/youtube",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.3.2/youtube-0.3.2.tgz",
-				"sha256": "a106d462763afee1cbc67658124a93b58f3918881a26c51853bf1a014eb5ab33",
-				"size": 70709
+				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.4.1/youtube-0.4.1.tgz",
+				"sha256": "25c2fe6a823828b0422b844f05a845ec00c0686c1a9998b1421efea3c1e23629",
+				"size": 87853
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
-			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
-			"version": "0.3.2",
+			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
+			"version": "0.4.1",
 			"author": {
 				"name": "Dimension"
 			},

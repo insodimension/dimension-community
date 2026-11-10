@@ -285,15 +285,15 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path2) {
-  if (!path2)
+function getElementAtPath(obj, path3) {
+  if (!path3)
     return obj;
-  return path2.reduce((acc, key) => acc?.[key], obj);
+  return path3.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
-  const promises = keys.map((key) => promisesObj[key]);
-  return Promise.all(promises).then((results) => {
+  const promises2 = keys.map((key) => promisesObj[key]);
+  return Promise.all(promises2).then((results) => {
     const resolvedObj = {};
     for (let i = 0; i < keys.length; i++) {
       resolvedObj[keys[i]] = results[i];
@@ -616,11 +616,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path2, issues) {
+function prefixIssues(path3, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path2);
+    iss.path.unshift(path3);
     return iss;
   });
 }
@@ -837,16 +837,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path2 = []) => {
+  const processError = (error52, path3 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path3, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -873,17 +873,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path2 = []) => {
+  const processError = (error52, path3 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path2, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path3, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path2, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path3, ...issue2.path]);
       } else {
-        const fullpath = [...path2, ...issue2.path];
+        const fullpath = [...path3, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -915,8 +915,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path2 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path2) {
+  const path3 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path3) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -14345,13 +14345,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path2 = ref.slice(1).split("/").filter(Boolean);
-  if (path2.length === 0) {
+  const path3 = ref.slice(1).split("/").filter(Boolean);
+  if (path3.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path2[0] === defsKey) {
-    const key = path2[1];
+  if (path3[0] === defsKey) {
+    const key = path3[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -18321,8 +18321,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path2) {
-      let input = path2;
+    function removeDotSegments(path3) {
+      let input = path3;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -18574,8 +18574,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path2, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path2 && path2 !== "/" ? path2 : void 0;
+        const [path3, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -21974,12 +21974,12 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f2;
     };
-    function addFormats(ajv, list, fs, exportName) {
+    function addFormats(ajv, list, fs2, exportName) {
       var _a3;
       var _b;
       (_a3 = (_b = ajv.opts.code).formats) !== null && _a3 !== void 0 ? _a3 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f2 of list)
-        ajv.addFormat(f2, fs[f2]);
+        ajv.addFormat(f2, fs2[f2]);
     }
     module.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -23610,9 +23610,9 @@ var StdioServerTransport = class {
 };
 
 // src/server.ts
-import { readdir as readdir3, readFile as readFile4 } from "node:fs/promises";
+import { readdir as readdir3, readFile as readFile3 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname as extname2, join as join6 } from "node:path";
+import { extname as extname3, join as join7 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ../../../../node_modules/zod/v3/helpers/util.js
@@ -23974,8 +23974,8 @@ function getErrorMap2() {
 
 // ../../../../node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path2, errorMaps, issueData } = params;
-  const fullPath = [...path2, ...issueData.path || []];
+  const { data, path: path3, errorMaps, issueData } = params;
+  const fullPath = [...path3, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -24090,11 +24090,11 @@ var errorUtil;
 
 // ../../../../node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path2, key) {
+  constructor(parent, value, path3, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path2;
+    this._path = path3;
     this._key = key;
   }
   get path() {
@@ -31665,9 +31665,9 @@ function hasCode(error51, ...codes) {
 }
 
 // ../src/library/library.ts
-import { constants, statSync as statSync2 } from "node:fs";
-import { chmod as chmod2, mkdir as mkdir2, open as open2, realpath, stat } from "node:fs/promises";
-import { basename as basename3, isAbsolute, join as join3, resolve as resolve3 } from "node:path";
+import { constants, statSync as statSync3 } from "node:fs";
+import { chmod as chmod2, mkdir, open as open2, realpath, stat } from "node:fs/promises";
+import { basename as basename4, isAbsolute, join as join4, resolve as resolve3 } from "node:path";
 
 // ../../../../fraym/packages/driver/src/classify-file.ts
 var BINARY = { kind: "binary", mime: "application/octet-stream" };
@@ -31909,12 +31909,12 @@ var PALETTE = {
       ),
       rows: items({ k: "list", of: { k: "cell" }, min: 0, max: L.maxTableColumns }, L.maxTableRows)
     },
-    check(node, path2, issue2) {
+    check(node, path3, issue2) {
       const columns = Array.isArray(node.columns) ? node.columns.length : 0;
       const rows = Array.isArray(node.rows) ? node.rows : [];
       rows.forEach((row, index) => {
         if (Array.isArray(row) && row.length > columns) {
-          issue2(`${path2}.rows[${index}]`, `has ${row.length} cells but there are only ${columns} columns`);
+          issue2(`${path3}.rows[${index}]`, `has ${row.length} cells but there are only ${columns} columns`);
         }
       });
     }
@@ -31975,15 +31975,15 @@ var PALETTE = {
       ),
       "unit?": label(16)
     },
-    check(node, path2, issue2) {
+    check(node, path3, issue2) {
       const labels = Array.isArray(node.labels) ? node.labels.length : 0;
       const series = Array.isArray(node.series) ? node.series : [];
       if (String(node.kind).trim().toLowerCase() === "donut" && series.length > 1)
-        issue2(`${path2}.series`, "a donut takes exactly one series");
+        issue2(`${path3}.series`, "a donut takes exactly one series");
       series.forEach((entry, index) => {
         const values = isRecord(entry) && Array.isArray(entry.values) ? entry.values.length : labels;
         if (values !== labels)
-          issue2(`${path2}.series[${index}].values`, `has ${values} values but there are ${labels} labels`);
+          issue2(`${path3}.series[${index}].values`, `has ${values} values but there are ${labels} labels`);
       });
     }
   },
@@ -32076,8 +32076,8 @@ function isRecord2(value) {
 // src/fence.ts
 var pathApi = (platform) => platform === "win32" ? nodePath.win32 : nodePath.posix;
 var foldsCase = (platform) => platform === "win32" || platform === "darwin";
-var comparable = (path2, platform) => foldsCase(platform) ? path2.toLowerCase() : path2;
-var segmentsOf = (path2) => path2.toLowerCase().split(/[\\/]+/).filter((part) => part !== "");
+var comparable = (path3, platform) => foldsCase(platform) ? path3.toLowerCase() : path3;
+var segmentsOf = (path3) => path3.toLowerCase().split(/[\\/]+/).filter((part) => part !== "");
 var MANAGED_HOMES = [".inso", ".inso-dev"];
 var MANAGED_FOLDERS = ["vault", "machinist"];
 function configuredRoots(env, home, platform) {
@@ -32154,9 +32154,37 @@ var ENVIRONMENT_FILE = /^(?:\.env.*|.*\.env)$/;
 var OTHER_SECRET_FILE = /^(?:client_secret.*\.json|.*\.tfstate(?:\.backup)?|.*\.kubeconfig|.*\.secret\.json)$/;
 var DATABASE_FILE = /\.(?:db|sqlite3?)(?:-wal|-shm|-journal)?$/;
 var ENGINE_HOME = /^\.(?:inso|omp)(?:-[a-z0-9._-]+)?$/;
-function denyReason(path2) {
-  const segments = segmentsOf(path2);
-  const base = segments[segments.length - 1] ?? "";
+var DURABLE_COPY_SUFFIX = /^\.(?:bak|corrupt-[a-z0-9-]+|shrink-[a-z0-9-]+\.bak|\d+\.[0-9a-f-]+\.(?:tmp|move|aside))$/;
+var DURABLE_COPY_SUFFIX_DOTS = 3;
+var LONGEST_FILE_NAME = 255;
+var BLOB_SIDECAR = /^[a-f0-9]{64}\.[a-z0-9][a-z0-9._-]{0,31}$/;
+function withoutDurableCopySuffixes(name) {
+  let end = name.length;
+  strip: for (; ; ) {
+    let farthest = end;
+    for (let dots = 0; dots < DURABLE_COPY_SUFFIX_DOTS; dots++) {
+      const dot = farthest > 0 ? name.lastIndexOf(".", farthest - 1) : -1;
+      if (dot <= 0) break;
+      farthest = dot;
+    }
+    for (let dot = farthest; dot >= 0 && dot < end; dot = name.indexOf(".", dot + 1)) {
+      if (DURABLE_COPY_SUFFIX.test(name.slice(dot, end))) {
+        end = dot;
+        continue strip;
+      }
+    }
+    return name.slice(0, end);
+  }
+}
+function isBlobSidecar(segments, blobsAt) {
+  const name = segments[blobsAt + 1] ?? "";
+  return segments[blobsAt] === "blobs" && segments.length === blobsAt + 2 && BLOB_SIDECAR.test(name) && withoutDurableCopySuffixes(name) === name && !DATABASE_FILE.test(name);
+}
+function denyReason(path3, { allowBlobCopy = false } = {}) {
+  const segments = segmentsOf(path3);
+  const named = segments[segments.length - 1] ?? "";
+  if (named.length > LONGEST_FILE_NAME) return `its name is longer than ${LONGEST_FILE_NAME} characters, which no file can be`;
+  const base = withoutDurableCopySuffixes(named);
   for (const segment of segments) if (Object.hasOwn(SECRET_DIRECTORIES, segment)) return `it is inside a credentials folder (${segment})`;
   for (const secret of SECRET_PATHS) {
     for (let at = 0; at + secret.length <= segments.length; at++) {
@@ -32170,12 +32198,14 @@ function denyReason(path2) {
     if (!ENGINE_HOME.test(segments[at] ?? "")) continue;
     const next = segments[at + 1];
     if (next === "agent" || next === "profiles" && segments[at + 3] === "agent") {
+      if (allowBlobCopy && isBlobSidecar(segments, next === "agent" ? at + 2 : at + 4)) continue;
       return "it is the engine's agent state (credentials, sessions and databases)";
     }
     if (DATABASE_FILE.test(base)) return "it is a database inside an engine home";
   }
   return void 0;
 }
+var PROBE_BLOB_DIGEST = "0".repeat(64);
 function textRefusal(requested, platform, what = "viewable") {
   if (platform !== "win32") return void 0;
   if (/^[\\/]{2}[.?][\\/]/.test(requested)) return `Windows device paths (\\\\.\\ and \\\\?\\) are not ${what}`;
@@ -32190,7 +32220,7 @@ function createFence(options2) {
   const platform = options2.platform ?? process.platform;
   const api = pathApi(platform);
   const resolveReal = options2.realpath ?? nativeRealpath;
-  const isRegularFile = options2.isFile ?? (async (path2) => (await nativeStat(path2)).isFile());
+  const isRegularFile = options2.isFile ?? (async (path3) => (await nativeStat(path3)).isFile());
   const log = options2.log ?? (() => void 0);
   const extra = (options2.roots ?? []).filter((root) => api.isAbsolute(root)).map((root) => api.resolve(root));
   const roots = [.../* @__PURE__ */ new Set([...configuredRoots(options2.env ?? {}, options2.home, platform), ...extra])];
@@ -32216,8 +32246,8 @@ function createFence(options2) {
     log(`refused ${JSON.stringify(requested)}: ${cause}`);
     return refuse(outside(requested));
   };
-  async function nearestReal(path2) {
-    for (let current = api.dirname(path2); ; current = api.dirname(current)) {
+  async function nearestReal(path3) {
+    for (let current = api.dirname(path3); ; current = api.dirname(current)) {
       try {
         return await resolveReal(current);
       } catch {
@@ -32259,26 +32289,32 @@ function createFence(options2) {
     const refused = textRefusal(requested, platform);
     if (refused !== void 0) return refuse(refused);
     const lexical = api.resolve(requested);
-    const early = denyReason(lexical);
-    if (early !== void 0) return refuse(`refused to open "${requested}": ${early}`);
     const lent = readGrant(meta3)?.read ?? [];
+    const lentText = lent.some((file2) => comparable(file2, platform) === comparable(lexical, platform));
+    const early = denyReason(lexical, { allowBlobCopy: lent.length > 0 });
+    if (early !== void 0) return refuse(`refused to open "${requested}": ${early}`);
     let real;
     try {
       real = await resolveReal(lexical);
     } catch (error51) {
       const code = error51 instanceof Error && "code" in error51 && typeof error51.code === "string" ? error51.code : void 0;
+      const unlentCopy2 = lentText ? void 0 : denyReason(lexical);
+      if (unlentCopy2 !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy2}`);
       const anchor = await nearestReal(lexical);
-      const within2 = lent.some((file2) => comparable(file2, platform) === comparable(lexical, platform)) || options2.indexed?.isLent(lexical) === true || anchor !== void 0 && [...roots, ...await realRoots()].some((root) => insideRoot(anchor, root, platform));
+      const within2 = lentText || options2.indexed?.isLent(lexical) === true || anchor !== void 0 && [...roots, ...await realRoots()].some((root) => insideRoot(anchor, root, platform));
       if (!within2) return refuseOutside(requested, `it does not resolve (${code ?? "unknown error"})`);
       if (code === "ENOENT" || code === "ENOTDIR") return refuse(`no such file: "${requested}"`);
       if (code === "EACCES" || code === "EPERM") return refuse(`"${requested}" cannot be read: permission denied`);
       return refuse(`"${requested}" cannot be resolved${code ? ` (${code})` : ""}`);
     }
+    const lentFile = await isLent(real, lent);
+    const unlentCopy = lentFile ? void 0 : denyReason(lexical);
+    if (unlentCopy !== void 0) return refuse(`refused to open "${requested}": ${unlentCopy}`);
     const allowed = await realRoots();
-    if (!allowed.some((root) => insideRoot(real, root, platform)) && !await isLent(real, lent) && !await isIndexed(real)) {
+    if (!allowed.some((root) => insideRoot(real, root, platform)) && !lentFile && !await isIndexed(real)) {
       return refuseOutside(requested, `it resolves to ${JSON.stringify(real)}`);
     }
-    const denied = denyReason(real);
+    const denied = denyReason(real, { allowBlobCopy: lentFile });
     if (denied !== void 0) return refuse(`refused to open "${requested}": ${denied}`);
     return { ok: true, real };
   }
@@ -32327,14 +32363,35 @@ function adapt(db) {
 }
 var PRIVATE_FILE_MODE = 384;
 var DATABASE_FILE_SUFFIXES = ["", "-wal", "-shm"];
+var BUSY_TIMEOUT_MS = 2e3;
 async function openDriver(file2) {
   if (process.platform !== "win32") await (await open(file2, "a", PRIVATE_FILE_MODE)).close();
+  let db;
   if (typeof Bun !== "undefined") {
     const { Database } = await import("bun:sqlite");
-    return adapt(new Database(file2, { create: true }));
+    db = adapt(new Database(file2, { create: true }));
+  } else {
+    const { DatabaseSync } = await import("node:sqlite");
+    db = adapt(new DatabaseSync(file2));
   }
-  const { DatabaseSync } = await import("node:sqlite");
-  return adapt(new DatabaseSync(file2));
+  try {
+    configureConnection(db);
+  } catch (error51) {
+    db.close();
+    throw error51;
+  }
+  return db;
+}
+function configureConnection(db) {
+  db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}; PRAGMA foreign_keys = ON;`);
+  const journal = db.prepare("PRAGMA journal_mode = WAL");
+  let journalMode;
+  try {
+    journalMode = journal.get()?.journal_mode;
+  } finally {
+    journal.finalize();
+  }
+  db.exec(`PRAGMA synchronous = ${journalMode === "wal" ? "NORMAL" : "FULL"}`);
 }
 async function restrictDatabaseFiles(file2) {
   if (process.platform === "win32") return;
@@ -32354,8 +32411,8 @@ function engineHome(env, userHome) {
   if (explicit) return resolve(explicit);
   return resolve(userHome, env.PI_CONFIG_DIR?.trim() || ".inso");
 }
-function pathKey(path2, platform = process.platform) {
-  const slashed = platform === "win32" ? path2.replaceAll("\\", "/") : path2;
+function pathKey(path3, platform = process.platform) {
+  const slashed = platform === "win32" ? path3.replaceAll("\\", "/") : path3;
   return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
 }
 
@@ -32988,12 +33045,6 @@ function commentFromRecord(record2) {
 // ../src/library/schema.ts
 var SCHEMA_VERSION = 3;
 var DISCARDED_RETENTION_MS = 30 * 24 * 60 * 60 * 1e3;
-var CONNECTION = `
-PRAGMA busy_timeout = 2000;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA foreign_keys = ON;
-`;
 var SCHEMA = `
 CREATE TABLE artifacts(
   id TEXT PRIMARY KEY,
@@ -33085,7 +33136,6 @@ function upgrade(db, workspaceOf) {
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }
 function prepareDatabase(db, now, workspaceOf) {
-  db.exec(CONNECTION);
   if (readVersion(db) < SCHEMA_VERSION) {
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -33141,20 +33191,20 @@ var WINDOWS_RECYCLE = [
   "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"
 ].join("\n");
 var MACOS_FINDER = ["on run argv", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', "end run"];
-function commandFor(path2, platform) {
+function commandFor(path3, platform) {
   if (platform === "win32") {
     const encoded = Buffer.from(WINDOWS_RECYCLE, "utf16le").toString("base64");
     return {
       program: "powershell.exe",
       args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-      env: { [PATH_VARIABLE]: path2 },
+      env: { [PATH_VARIABLE]: path3 },
       tool: "PowerShell"
     };
   }
   if (platform === "darwin") {
-    return { program: "osascript", args: [...MACOS_FINDER.flatMap((line) => ["-e", line]), path2], tool: "Finder" };
+    return { program: "osascript", args: [...MACOS_FINDER.flatMap((line) => ["-e", line]), path3], tool: "Finder" };
   }
-  return { program: "gio", args: ["trash", "--", path2], tool: "gio" };
+  return { program: "gio", args: ["trash", "--", path3], tool: "gio" };
 }
 async function run(program, args, options2) {
   try {
@@ -33172,8 +33222,8 @@ async function run(program, args, options2) {
     throw error51;
   }
 }
-async function moveToTrash(path2, platform = process.platform) {
-  const command = commandFor(path2, platform);
+async function moveToTrash(path3, platform = process.platform) {
+  const command = commandFor(path3, platform);
   let outcome;
   try {
     outcome = await run(command.program, command.args, { timeout: TRASH_TIMEOUT_MS, ...command.env === void 0 ? {} : { env: command.env } });
@@ -33185,9 +33235,9 @@ async function moveToTrash(path2, platform = process.platform) {
     throw new LibraryError(`${command.tool} could not move the file to the trash${detail === "" ? "" : `: ${detail}`}`);
   }
 }
-async function defaultTrash(path2) {
+async function defaultTrash(path3) {
   try {
-    const outcome = await run("git", ["ls-files", "--error-unmatch", "--", basename(path2)], { timeout: GIT_TIMEOUT_MS, cwd: dirname(path2) });
+    const outcome = await run("git", ["ls-files", "--error-unmatch", "--", basename(path3)], { timeout: GIT_TIMEOUT_MS, cwd: dirname(path3) });
     return outcome.code !== 0;
   } catch {
     return true;
@@ -33195,9 +33245,224 @@ async function defaultTrash(path2) {
 }
 
 // ../src/library/thumbs.ts
+import { readdir, rm } from "node:fs/promises";
+import { join as join2 } from "node:path";
+
+// ../../../lib/durable-file.mjs
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
+var BACKUP_SUFFIX = ".bak";
+var RENAME_RETRY_CODES = { EPERM: true, EBUSY: true, EACCES: true };
+var RENAME_BACKOFF_MS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256];
+var syncSleepCell = new Int32Array(new SharedArrayBuffer(4));
+var foldersHaveNoFsync = process.platform === "win32";
+var filesHaveNoModes = process.platform === "win32";
+var DurableFileUnreadableError = class extends Error {
+  constructor(filePath, reason, quarantinedAt) {
+    super(
+      `${filePath} could not be read (${reason}) and has no readable backup; it was left in place${quarantinedAt ? ` and copied to ${quarantinedAt}` : ""}. Restore it before writing.`
+    );
+    this.name = "DurableFileUnreadableError";
+    this.filePath = filePath;
+    this.reason = reason;
+    this.quarantinedAt = quarantinedAt;
+  }
+};
+function backupPathOf(filePath) {
+  return `${filePath}${BACKUP_SUFFIX}`;
+}
+function parseJsonBytes(bytes) {
+  return JSON.parse(bytes.toString("utf8"));
+}
+var codeOf = (error51) => typeof error51 === "object" && error51 !== null ? error51.code : void 0;
+var isMissing = (error51) => codeOf(error51) === "ENOENT";
+var isHeldByAnotherProcess = (error51) => Object.hasOwn(RENAME_RETRY_CODES, codeOf(error51));
+var stagingPathOf = (filePath) => `${filePath}.${process.pid}.${randomBytes2(4).toString("hex")}.tmp`;
+var toBuffer = (data) => typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+function defectOf(bytes) {
+  if (bytes.length === 0) return "zero-length";
+  for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
+  return "NUL-filled";
+}
+function parsesWhole(bytes, parse3) {
+  if (defectOf(bytes) !== void 0) return false;
+  try {
+    parse3(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var permissionsOf = (stats) => stats === void 0 || filesHaveNoModes ? void 0 : stats.mode & 511;
+async function existingMode(filePath) {
+  if (filesHaveNoModes) return void 0;
+  try {
+    return permissionsOf(await fs.promises.stat(filePath));
+  } catch (error51) {
+    if (isMissing(error51)) return void 0;
+    throw error51;
+  }
+}
+var narrowerMode = (left, right) => left === void 0 ? right : right === void 0 ? left : left & right;
+async function fsyncDirectory(directory) {
+  if (foldersHaveNoFsync) return;
+  let handle;
+  try {
+    handle = await fs.promises.open(directory, "r");
+    await handle.sync();
+  } catch {
+    return;
+  } finally {
+    await handle?.close();
+  }
+}
+async function stage(stagedPath, bytes, mode) {
+  const handle = await fs.promises.open(stagedPath, "wx", mode);
+  try {
+    if (mode !== void 0 && !filesHaveNoModes) await handle.chmod(mode);
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function renameOverHeldTarget(from, to) {
+  for (const backoffMs of RENAME_BACKOFF_MS) {
+    try {
+      await fs.promises.rename(from, to);
+      return;
+    } catch (error51) {
+      if (!isHeldByAnotherProcess(error51)) throw error51;
+    }
+    await new Promise((resolve4) => setTimeout(resolve4, backoffMs));
+  }
+  await fs.promises.rename(from, to);
+}
+async function publish(targetPath, bytes, mode) {
+  const stagedPath = stagingPathOf(targetPath);
+  try {
+    await stage(stagedPath, bytes, mode);
+    await renameOverHeldTarget(stagedPath, targetPath);
+  } catch (error51) {
+    await fs.promises.rm(stagedPath, { force: true });
+    throw error51;
+  }
+}
+async function readPrevious(filePath) {
+  let handle;
+  try {
+    handle = await fs.promises.open(filePath, "r");
+  } catch (error51) {
+    if (isMissing(error51)) return void 0;
+    throw error51;
+  }
+  try {
+    return { mode: permissionsOf(await handle.stat()), bytes: await handle.readFile() };
+  } finally {
+    await handle.close();
+  }
+}
+async function writeFileAtomic(filePath, data, options2 = {}) {
+  const directory = path.dirname(filePath);
+  await fs.promises.mkdir(directory, { recursive: true });
+  const bytes = toBuffer(data);
+  const backup = options2.backup;
+  if (backup === void 0) {
+    await publish(filePath, bytes, options2.mode ?? await existingMode(filePath));
+  } else {
+    const previous = await readPrevious(filePath);
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
+      await publish(backupPathOf(filePath), previous.bytes, narrowerMode(options2.mode, previous.mode));
+    }
+    await publish(filePath, bytes, options2.mode ?? previous?.mode);
+  }
+  await fsyncDirectory(directory);
+}
+async function readIfPresent(filePath) {
+  try {
+    return await fs.promises.readFile(filePath);
+  } catch (error51) {
+    if (isMissing(error51)) return void 0;
+    throw error51;
+  }
+}
+var quarantineName = (filePath, stats) => `${filePath}.corrupt-${stats ? Math.trunc(stats.mtimeMs).toString(36) : Date.now().toString(36)}`;
+var describeFailure = (error51) => error51 instanceof Error ? error51.message : String(error51);
+async function quarantine(filePath, bytes) {
+  try {
+    const stats = await fs.promises.stat(filePath).catch(() => void 0);
+    const target = quarantineName(filePath, stats);
+    const existing = await fs.promises.lstat(target).catch((error51) => {
+      if (isMissing(error51)) return void 0;
+      throw error51;
+    });
+    if (existing === void 0) await publish(target, bytes, permissionsOf(stats));
+    return target;
+  } catch (error51) {
+    console.error(`Could not keep a copy of the unreadable ${filePath}: ${describeFailure(error51)}`);
+    return void 0;
+  }
+}
+function parseBytes(bytes, parse3) {
+  const defect = defectOf(bytes);
+  if (defect !== void 0) return { ok: false, reason: defect };
+  try {
+    return { ok: true, value: parse3(bytes) };
+  } catch (error51) {
+    return { ok: false, reason: describeFailure(error51) };
+  }
+}
+function recoverFromBackup(filePath, reason, quarantinedAt, backup, parse3) {
+  const restored = backup === void 0 ? void 0 : parseBytes(backup, parse3);
+  const kept = quarantinedAt ? ` (kept as ${quarantinedAt})` : "";
+  if (restored?.ok) {
+    console.error(`${filePath} was unreadable (${reason})${kept}; read from its backup.`);
+    return restored.value;
+  }
+  console.error(`${filePath} is unreadable (${reason})${kept} and has no readable backup.`);
+  throw new DurableFileUnreadableError(filePath, reason, quarantinedAt);
+}
+async function readDurableFile(filePath, parse3, options2 = {}) {
+  const bytes = await readIfPresent(filePath);
+  if (bytes === void 0) {
+    const backup = await readIfPresent(backupPathOf(filePath));
+    if (backup === void 0) return void 0;
+    return recoverFromBackup(filePath, "missing while its backup exists", void 0, backup, parse3);
+  }
+  const parsed = parseBytes(bytes, parse3);
+  if (parsed.ok) return parsed.value;
+  const quarantinedAt = options2.keepDamagedCopy === false ? void 0 : await quarantine(filePath, bytes);
+  return recoverFromBackup(filePath, parsed.reason, quarantinedAt, await readIfPresent(backupPathOf(filePath)), parse3);
+}
+async function removeDurableFile(filePath) {
+  const directory = path.dirname(filePath);
+  await fs.promises.rm(backupPathOf(filePath), { force: true });
+  await fsyncDirectory(directory);
+  await fs.promises.rm(filePath, { force: true });
+  await fsyncDirectory(directory);
+}
+async function removeSecretCopies(filePath) {
+  const directory = path.dirname(filePath);
+  const quarantinePrefix = `${path.basename(filePath)}.corrupt-`;
+  const entries = await fs.promises.readdir(directory).catch((error51) => {
+    if (isMissing(error51)) return [];
+    throw error51;
+  });
+  const copies = [backupPathOf(filePath), ...entries.filter((name) => name.startsWith(quarantinePrefix)).map((name) => path.join(directory, name))];
+  for (const copy of copies) await fs.promises.rm(copy, { force: true });
+}
+async function writeSecretFileAtomic(filePath, data, options2 = {}) {
+  await writeFileAtomic(filePath, data, { mode: options2.mode });
+  await removeSecretCopies(filePath);
+  await fsyncDirectory(path.dirname(filePath));
+}
+async function removeSecretFile(filePath) {
+  const directory = path.dirname(filePath);
+  await removeSecretCopies(filePath);
+  await fs.promises.rm(filePath, { force: true });
+  await fsyncDirectory(directory);
+}
 
 // ../src/thumbnail.ts
 var MAX_THUMB_BYTES = 150 * 1024;
@@ -33217,16 +33482,8 @@ async function writeThumb(directory, id2, bytes, mime) {
     throw new LibraryError(`a thumbnail is 1 byte to ${MAX_THUMB_BYTES} bytes; this one is ${bytes.length}`);
   }
   if (!matchesMime(bytes, mime)) throw new LibraryError(`the thumbnail bytes are not ${mime}`);
-  await mkdir(directory, { recursive: true });
   const name = `${id2}.${EXTENSIONS[mime]}`;
-  const staging = join(directory, `${name}.${randomBytes2(6).toString("hex")}.tmp`);
-  try {
-    await writeFile(staging, bytes);
-    await rename(staging, join(directory, name));
-  } catch (error51) {
-    await rm(staging, { force: true });
-    throw error51;
-  }
+  await writeFileAtomic(join2(directory, name), bytes);
   await removeThumbs(directory, id2, name);
   return name;
 }
@@ -33239,12 +33496,12 @@ async function removeThumbs(directory, id2, keep) {
     throw error51;
   }
   const own = entries.filter((entry) => entry !== keep && entry.startsWith(`${id2}.`));
-  await Promise.all(own.map((entry) => rm(join(directory, entry), { force: true })));
+  await Promise.all(own.map((entry) => rm(join2(directory, entry), { force: true })));
 }
 
 // ../src/library/workspace-root.ts
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename as basename2, dirname as dirname2, join as join2, relative, resolve as resolve2 } from "node:path";
+import { existsSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
+import { basename as basename3, dirname as dirname3, join as join3, relative, resolve as resolve2 } from "node:path";
 var SESSION_ORIGIN_FILE = "inso-session-origin";
 var MAX_HOPS = 4;
 var RELOAD_MIN_MS = 5e3;
@@ -33253,8 +33510,8 @@ var OwnersFile = external_exports.object({
   owners: external_exports.record(external_exports.string(), external_exports.object({ root: external_exports.string().min(1), origin: external_exports.string().min(1), mapsSubpaths: external_exports.boolean().optional() }).loose())
 }).loose();
 function createWorkspaceResolver(options2) {
-  const projectsFile = options2.projectsFile ?? join2(options2.home, "projects.json");
-  const ledgerFile = join2(options2.home, "worktree-owners.json");
+  const projectsFile = options2.projectsFile ?? join3(options2.home, "projects.json");
+  const ledgerFile = join3(options2.home, "worktree-owners.json");
   const now = options2.now ?? Date.now;
   const placed = /* @__PURE__ */ new Map();
   let roots = [];
@@ -33297,13 +33554,13 @@ function ownershipChain(start, owners) {
       const gone = recordedOwnerOf(owners, home);
       if (gone === void 0 || existsSync(gone.root)) break;
       chain.push({ path: home, at: comparable2(home), worktree: comparable2(gone.root) });
-      home = gone.mapsSubpaths ? join2(gone.origin, relative(gone.root, home)) : resolve2(gone.origin);
+      home = gone.mapsSubpaths ? join3(gone.origin, relative(gone.root, home)) : resolve2(gone.origin);
       continue;
     }
     chain.push({ path: home, at: comparable2(home), worktree: comparable2(linked.root) });
-    const origin = readText(join2(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
+    const origin = readText(join3(linked.gitDir, SESSION_ORIGIN_FILE))?.trim();
     const mapsSubpaths = !origin || comparable2(origin) === comparable2(linked.mainCheckout);
-    home = mapsSubpaths ? join2(linked.mainCheckout, relative(linked.root, home)) : resolve2(origin);
+    home = mapsSubpaths ? join3(linked.mainCheckout, relative(linked.root, home)) : resolve2(origin);
   }
   chain.push({ path: home, at: comparable2(home) });
   return chain;
@@ -33321,14 +33578,14 @@ function recordedOwnerOf(owners, cwd) {
 function linkedWorktreeOf(cwd) {
   let dir = cwd;
   for (; ; ) {
-    const dotGit = join2(dir, ".git");
+    const dotGit = join3(dir, ".git");
     const entry = entryAt(dotGit);
     if (entry === "directory") return void 0;
     if (entry === "file") {
       const linked = readLinkedWorktree(dir, dotGit);
       if (linked !== "not-linked") return linked;
     }
-    const parent = dirname2(dir);
+    const parent = dirname3(dir);
     if (parent === dir) return void 0;
     dir = parent;
   }
@@ -33337,11 +33594,11 @@ function readLinkedWorktree(root, dotGit) {
   const gitDirRef = /^gitdir:\s*(.+)$/m.exec(readText(dotGit) ?? "")?.[1]?.trim();
   if (!gitDirRef) return "not-linked";
   const gitDir = resolve2(root, gitDirRef);
-  const commonRef = readText(join2(gitDir, "commondir"))?.trim();
+  const commonRef = readText(join3(gitDir, "commondir"))?.trim();
   if (!commonRef) return "not-linked";
   const commonDir = resolve2(gitDir, commonRef);
-  const configured = coreWorktree(readText(join2(commonDir, "config")));
-  const mainCheckout = configured ? resolve2(commonDir, configured) : basename2(commonDir) === ".git" ? dirname2(commonDir) : void 0;
+  const configured = coreWorktree(readText(join3(commonDir, "config")));
+  const mainCheckout = configured ? resolve2(commonDir, configured) : basename3(commonDir) === ".git" ? dirname3(commonDir) : void 0;
   return mainCheckout ? { root, gitDir, mainCheckout } : void 0;
 }
 function coreWorktree(config2) {
@@ -33362,7 +33619,7 @@ function coreWorktree(config2) {
 function readRoots(file2) {
   const parsed = ProjectsFile.safeParse(readJson(file2));
   if (!parsed.success) return [];
-  return parsed.data.projects.map(({ path: path2 }) => ({ path: resolve2(path2), base: comparable2(path2) })).sort((left, right) => right.base.length - left.base.length);
+  return parsed.data.projects.map(({ path: path3 }) => ({ path: resolve2(path3), base: comparable2(path3) })).sort((left, right) => right.base.length - left.base.length);
 }
 function readOwners(file2) {
   const parsed = OwnersFile.safeParse(readJson(file2));
@@ -33376,9 +33633,9 @@ function comparable2(value) {
 function within(inner, outer) {
   return inner === outer || inner.startsWith(`${outer}/`);
 }
-function entryAt(path2) {
+function entryAt(path3) {
   try {
-    const entry = statSync(path2, { throwIfNoEntry: false });
+    const entry = statSync2(path3, { throwIfNoEntry: false });
     return entry?.isDirectory() ? "directory" : entry ? "file" : void 0;
   } catch {
     return void 0;
@@ -33386,7 +33643,7 @@ function entryAt(path2) {
 }
 function fileStamp(file2) {
   try {
-    const stat5 = statSync(file2);
+    const stat5 = statSync2(file2);
     return `${stat5.mtimeMs}:${stat5.size}`;
   } catch {
     return "";
@@ -33394,14 +33651,14 @@ function fileStamp(file2) {
 }
 function readJson(file2) {
   try {
-    return JSON.parse(readFileSync(file2, "utf8"));
+    return JSON.parse(readFileSync2(file2, "utf8"));
   } catch {
     return void 0;
   }
 }
 function readText(file2) {
   try {
-    return readFileSync(file2, "utf8");
+    return readFileSync2(file2, "utf8");
   } catch {
     return void 0;
   }
@@ -33501,12 +33758,12 @@ async function createLibrary(options2) {
   const now = options2.now ?? Date.now;
   const platform = options2.platform ?? process.platform;
   const revokeRemote2 = options2.revokeRemote ?? revokeRemote;
-  const trashFile = options2.trash ?? ((path2) => moveToTrash(path2, platform));
-  const directory = join3(options2.home, "artifacts");
-  const thumbsDirectory = join3(directory, "thumbs");
-  await mkdir2(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  const trashFile = options2.trash ?? ((path3) => moveToTrash(path3, platform));
+  const directory = join4(options2.home, "artifacts");
+  const thumbsDirectory = join4(directory, "thumbs");
+  await mkdir(thumbsDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
   if (process.platform !== "win32") await chmod2(directory, PRIVATE_DIRECTORY_MODE);
-  const databaseFile = join3(directory, "library.db");
+  const databaseFile = join4(directory, "library.db");
   const workspaceOf = createWorkspaceResolver({ home: options2.home, ...options2.projectsFile === void 0 ? {} : { projectsFile: options2.projectsFile } });
   const db = await openDriver(databaseFile);
   try {
@@ -33683,7 +33940,7 @@ async function createLibrary(options2) {
       if (!opened.isFile()) throw refuse2("it is not a regular file");
       const head = Buffer.allocUnsafe(Math.min(HEAD_BYTES, opened.size));
       const { bytesRead } = await handle.read(head, 0, head.length, 0);
-      const { kind, mime } = classifyFile(basename3(real), head.subarray(0, bytesRead));
+      const { kind, mime } = classifyFile(basename4(real), head.subarray(0, bytesRead));
       facts = { kind, mime, size: opened.size, mtimeMs: opened.mtimeMs };
     } finally {
       await handle.close();
@@ -33697,7 +33954,7 @@ async function createLibrary(options2) {
       newId(moment),
       real,
       key,
-      basename3(real),
+      basename4(real),
       title,
       note,
       tags === void 0 ? null : JSON.stringify(tags),
@@ -33886,7 +34143,7 @@ async function createLibrary(options2) {
   function restore(id2) {
     const row = requireRow(id2);
     if (row.state !== "discarded") return itemOf(row);
-    const present = statSync2(row.path, { throwIfNoEntry: false })?.isFile() === true;
+    const present = statSync3(row.path, { throwIfNoEntry: false })?.isFile() === true;
     sql("UPDATE artifacts SET state = ?, discarded_at = NULL WHERE id = ?").run(present ? "live" : "missing", id2);
     return itemOf(requireRow(id2));
   }
@@ -33959,7 +34216,7 @@ async function createLibrary(options2) {
     setThumb,
     thumbPath(id2) {
       const name = sql("SELECT thumb FROM artifacts WHERE id = ? AND state != 'discarded'").get(id2)?.thumb;
-      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join3(thumbsDirectory, name) : void 0;
+      return name !== null && name !== void 0 && THUMB_FILE_NAME.test(name) ? join4(thumbsDirectory, name) : void 0;
     },
     isLent(realPath) {
       return sql("SELECT 1 AS lent FROM artifacts WHERE path_key = ? AND state != 'discarded'").get(pathKey(realPath, platform)) !== void 0;
@@ -34012,13 +34269,13 @@ var renewedMediaSchema = external_exports.object({ alive: external_exports.boole
 // src/chunk.ts
 var nativeFs = { stat: stat2, open: open3 };
 var OPEN_FLAGS = constants2.O_RDONLY | (constants2.O_NONBLOCK ?? 0);
-async function readRange(path2, offset, length, fs = nativeFs) {
+async function readRange(path3, offset, length, fs2 = nativeFs) {
   if (!Number.isSafeInteger(offset) || offset < 0) throw new RangeError(`offset must be a non-negative integer, got ${offset}`);
   if (!Number.isSafeInteger(length) || length < 0 || length > MAX_CHUNK_BYTES) {
     throw new RangeError(`length must be an integer from 0 to ${MAX_CHUNK_BYTES}, got ${length}`);
   }
-  if (!(await fs.stat(path2)).isFile()) throw new Error("not a regular file");
-  const handle = await fs.open(path2, OPEN_FLAGS);
+  if (!(await fs2.stat(path3)).isFile()) throw new Error("not a regular file");
+  const handle = await fs2.open(path3, OPEN_FLAGS);
   try {
     const stats = await handle.stat();
     if (!stats.isFile()) throw new Error("not a regular file");
@@ -34035,8 +34292,8 @@ async function readRange(path2, offset, length, fs = nativeFs) {
     await handle.close();
   }
 }
-async function readChunk(path2, offset, length) {
-  const { bytes, size } = await readRange(path2, offset, length);
+async function readChunk(path3, offset, length) {
+  const { bytes, size } = await readRange(path3, offset, length);
   return {
     base64: bytes.toString("base64"),
     offset,
@@ -34047,7 +34304,7 @@ async function readChunk(path2, offset, length) {
 }
 
 // src/tool-support.ts
-import { basename as basename4 } from "node:path";
+import { basename as basename5 } from "node:path";
 
 // src/kind.ts
 var KIND_HEAD_BYTES = 8192;
@@ -34215,7 +34472,7 @@ async function openViewedFile(fence, request, meta3) {
   if (!verdict.ok) return failure(verdict.reason);
   try {
     const head = await readRange(verdict.real, 0, KIND_HEAD_BYTES);
-    const shown = request.filename ?? basename4(verdict.real);
+    const shown = request.filename ?? basename5(verdict.real);
     const file2 = {
       path: verdict.real,
       filename: shown,
@@ -34240,7 +34497,7 @@ var WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: true
 var DESTROYS = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true };
 var THUMB_BASE64_LIMIT = Math.ceil(MAX_THUMB_BYTES * 4 / 3) + 8;
 var id = external_exports.string().min(1).max(64);
-var path = external_exports.string().min(1).max(4096);
+var path2 = external_exports.string().min(1).max(4096);
 async function answer(run2) {
   try {
     const { text: text2, data } = await run2();
@@ -34257,7 +34514,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
       title: "Library",
       description: "Open the artifact library beside the conversation: every file shown or made, searchable, with shares and comments.",
       inputSchema: {
-        workspace: path.optional().describe("Show only this workspace's artifacts"),
+        workspace: path2.optional().describe("Show only this workspace's artifacts"),
         query: external_exports.string().max(200).optional().describe("Start with this search")
       },
       annotations: READ_ONLY,
@@ -34279,7 +34536,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
         q: external_exports.string().max(200).optional(),
         kinds: external_exports.array(external_exports.enum(PRESENTED_KINDS)).max(PRESENTED_KINDS.length).optional(),
         tags: external_exports.array(external_exports.string().max(100)).max(MAX_TAGS).optional(),
-        workspace: path.optional(),
+        workspace: path2.optional(),
         state: external_exports.enum(["live", "discarded"]).optional(),
         starred: external_exports.boolean().optional(),
         shared: external_exports.boolean().optional(),
@@ -34301,7 +34558,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
     {
       title: "Library facets",
       description: "Counts for the Library's filter column.",
-      inputSchema: { workspace: path.optional(), state: external_exports.enum(["live", "discarded"]).optional() },
+      inputSchema: { workspace: path2.optional(), state: external_exports.enum(["live", "discarded"]).optional() },
       annotations: READ_ONLY,
       _meta: APP_ONLY
     },
@@ -34359,7 +34616,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
     {
       title: "Add a file to the library",
       description: "A person adds one file by path. Secrets are refused.",
-      inputSchema: { path },
+      inputSchema: { path: path2 },
       annotations: WRITES,
       _meta: APP_ONLY
     },
@@ -34411,7 +34668,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
     {
       title: "The artifact at a path",
       description: "The library's live artifact for a file the View has open, with its links, so a document tab wears the same Share and Comments as the library's page; `item` is null for a file the library does not hold.",
-      inputSchema: { path },
+      inputSchema: { path: path2 },
       annotations: READ_ONLY,
       _meta: APP_ONLY
     },
@@ -34475,7 +34732,7 @@ function registerLibraryTools(server2, { library, fence, media }) {
 import { randomBytes as randomBytes3 } from "node:crypto";
 import { constants as constants3 } from "node:fs";
 import { open as open4, readFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { extname as extname2 } from "node:path";
 import { createServer } from "node:http";
 import { pipeline } from "node:stream/promises";
 var MAX_LEASES = 64;
@@ -34491,8 +34748,8 @@ var THUMB_ROUTE = /^\/thumbs\/([a-f0-9]{48})\/([A-Za-z0-9]{8,40})(?:\?.*)?$/;
 function matchesRevision(info, size, mtimeMs) {
   return info.size === size && info.mtimeMs === mtimeMs;
 }
-async function admitRecording(fence, path2, size, mtimeMs, meta3) {
-  const verdict = await fence.check(path2, meta3);
+async function admitRecording(fence, path3, size, mtimeMs, meta3) {
+  const verdict = await fence.check(path3, meta3);
   if (!verdict.ok) throw new Error(verdict.reason);
   const head = await readRange(verdict.real, 0, KIND_HEAD_BYTES);
   if (!matchesRevision(head, size, mtimeMs)) throw new Error("The file changed. Open it again.");
@@ -34573,13 +34830,13 @@ async function startMediaServer(fence, now = Date.now, thumbs) {
       res.writeHead(405, { Allow: "GET, HEAD" }).end();
       return;
     }
-    const path2 = capability === thumbCapability ? thumbs?.thumbPath(id2) : void 0;
-    const type = path2 === void 0 ? void 0 : THUMB_CONTENT_TYPES[extname(path2).slice(1)];
-    if (path2 === void 0 || type === void 0) {
+    const path3 = capability === thumbCapability ? thumbs?.thumbPath(id2) : void 0;
+    const type = path3 === void 0 ? void 0 : THUMB_CONTENT_TYPES[extname2(path3).slice(1)];
+    if (path3 === void 0 || type === void 0) {
       res.writeHead(404).end();
       return;
     }
-    const bytes = await readFile(path2);
+    const bytes = await readFile(path3);
     res.writeHead(200, {
       "Content-Type": type,
       "Content-Length": bytes.length,
@@ -34674,7 +34931,7 @@ async function startMediaServer(fence, now = Date.now, thumbs) {
   return {
     origin,
     thumbBase: `${origin}/thumbs/${thumbCapability}`,
-    async acquire(path2, size, mtimeMs, meta3, token) {
+    async acquire(path3, size, mtimeMs, meta3, token) {
       if (closing !== void 0) throw new Error("The recording server is closed.");
       if (!MEDIA_TOKEN_PATTERN.test(token) || leases.has(token) || pendingAdmissions.has(token)) throw new Error("Invalid recording capability.");
       if (releasedTokens.has(token)) throw new Error("Recording opening was cancelled.");
@@ -34685,7 +34942,7 @@ async function startMediaServer(fence, now = Date.now, thumbs) {
       const admission = { cancelled: false };
       pendingAdmissions.set(token, admission);
       try {
-        const lease = await admitRecording(fence, path2, size, mtimeMs, meta3);
+        const lease = await admitRecording(fence, path3, size, mtimeMs, meta3);
         if (admission.cancelled) throw new Error("Recording opening was cancelled.");
         lease.lastSeen = now();
         leases.set(token, lease);
@@ -34780,7 +35037,7 @@ var HostClient = class {
     this.#fetch = options2.fetch ?? fetch;
     this.#retry = options2.retry ?? DEFAULT_RETRY;
   }
-  async call(method, path2, init = {}) {
+  async call(method, path3, init = {}) {
     const headers = {};
     if (init.bearer !== void 0) headers.authorization = `Bearer ${init.bearer}`;
     if (init.accept !== void 0) headers.accept = init.accept;
@@ -34796,7 +35053,7 @@ var HostClient = class {
     const signal = init.signal === void 0 ? timeout : AbortSignal.any([init.signal, timeout]);
     let response;
     try {
-      response = await this.#fetch(`${this.baseUrl}${path2}`, { method, headers, signal, ...body === void 0 ? {} : { body } });
+      response = await this.#fetch(`${this.baseUrl}${path3}`, { method, headers, signal, ...body === void 0 ? {} : { body } });
     } catch (error51) {
       if (init.signal?.aborted) throw error51;
       throw new HostRequestError(`could not reach ${new URL(this.baseUrl).host}: ${timeout.aborted ? "the request timed out" : errorMessage(error51)}`, 0);
@@ -34902,47 +35159,41 @@ var HostClient = class {
 };
 
 // src/share/hosts.ts
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 
 // src/share/fs-json.ts
-import { mkdir as mkdir3, readFile as readFile2, rename as rename2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname3 } from "node:path";
-import { randomBytes as randomBytes4 } from "node:crypto";
 var StoredFileError = class extends Error {
   name = "StoredFileError";
 };
-async function readJsonFile(path2, schema) {
-  let text2;
-  try {
-    text2 = await readFile2(path2, "utf8");
-  } catch (error51) {
-    if (hasCode(error51, "ENOENT")) return void 0;
-    throw error51;
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(text2);
-  } catch {
-    throw new StoredFileError(`${path2} is not valid JSON`);
-  }
-  const checked = schema.safeParse(parsed);
-  if (!checked.success) {
-    const issue2 = checked.error.issues[0];
-    throw new StoredFileError(`${path2} is not valid: ${issue2?.path.join(".") || "(root)"} ${issue2?.message ?? ""}`.trim());
-  }
-  return checked.data;
+function storedJsonParser(path3, schema) {
+  return (bytes) => {
+    let parsed;
+    try {
+      parsed = parseJsonBytes(bytes);
+    } catch {
+      throw new StoredFileError(`${path3} is not valid JSON`);
+    }
+    const checked = schema.safeParse(parsed);
+    if (!checked.success) {
+      const issue2 = checked.error.issues[0];
+      throw new StoredFileError(`${path3} is not valid: ${issue2?.path.join(".") || "(root)"} ${issue2?.message ?? ""}`.trim());
+    }
+    return checked.data;
+  };
 }
-async function writePrivateJsonFile(path2, value) {
-  await mkdir3(dirname3(path2), { recursive: true });
-  const staged = `${path2}.${randomBytes4(6).toString("hex")}.tmp`;
+async function readJsonFile(path3, schema, { holdsSecret = false } = {}) {
   try {
-    await writeFile2(staged, `${JSON.stringify(value, null, "	")}
-`, { mode: 384 });
-    await rename2(staged, path2);
+    return await readDurableFile(path3, storedJsonParser(path3, schema), { keepDamagedCopy: !holdsSecret });
   } catch (error51) {
-    await rm2(staged, { force: true });
+    if (error51 instanceof DurableFileUnreadableError) throw new StoredFileError(error51.message);
     throw error51;
   }
+}
+function writePrivateJsonFile(path3, schema, value, { holdsSecret = false } = {}) {
+  const text2 = `${JSON.stringify(value, null, "	")}
+`;
+  if (holdsSecret) return writeSecretFileAtomic(path3, text2, { mode: 384 });
+  return writeFileAtomic(path3, text2, { mode: 384, backup: { parse: storedJsonParser(path3, schema) } });
 }
 
 // src/share/hosts.ts
@@ -35017,15 +35268,15 @@ var HostStore = class {
   path;
   #queue = Promise.resolve();
   constructor(home) {
-    this.path = join4(home, "artifacts", "hosts.json");
+    this.path = join5(home, "artifacts", "hosts.json");
   }
   async read() {
-    return await readJsonFile(this.path, hostsFileSchema) ?? { hosts: [] };
+    return await readJsonFile(this.path, hostsFileSchema, { holdsSecret: true }) ?? { hosts: [] };
   }
   #update(change) {
     const run2 = this.#queue.then(async () => {
       const { file: file2, result } = change(await this.read());
-      await writePrivateJsonFile(this.path, file2);
+      await writePrivateJsonFile(this.path, hostsFileSchema, file2, { holdsSecret: true });
       return result;
     });
     this.#queue = run2.catch(() => void 0);
@@ -35269,7 +35520,7 @@ var CommentSync = class {
 };
 
 // src/share/directory.ts
-import { randomBytes as randomBytes5 } from "node:crypto";
+import { randomBytes as randomBytes4 } from "node:crypto";
 var PROBE_TTL_MS = 3e4;
 var P2P_NAME = "From this computer";
 var CLOUD_NAME = "Dimension cloud";
@@ -35423,7 +35674,7 @@ var HostDirectory = class {
       throw new HostConfigError(`${discovery.name} did not answer the connection check: ${errorMessage(error51)}`);
     }
     const stored = await this.store.add({
-      id: `h_${randomBytes5(5).toString("hex")}`,
+      id: `h_${randomBytes4(5).toString("hex")}`,
       kind: target.kind,
       name: discovery.name,
       baseUrl: target.baseUrl,
@@ -35704,8 +35955,8 @@ var OPEN_FLAGS3 = constants4.O_RDONLY | (constants4.O_NONBLOCK ?? 0);
 function plainChunkBytes(size, index) {
   return Math.max(0, Math.min(ASP_CHUNK_BYTES, size - index * ASP_CHUNK_BYTES));
 }
-async function openChunkSource(path2) {
-  const handle = await open5(path2, OPEN_FLAGS3);
+async function openChunkSource(path3) {
+  const handle = await open5(path3, OPEN_FLAGS3);
   try {
     const first = await handle.stat();
     if (!first.isFile()) throw new Error("only a regular file can be shared");
@@ -35738,14 +35989,14 @@ async function openChunkSource(path2) {
 }
 
 // src/share/manifest.ts
-import { readFile as readFile3 } from "node:fs/promises";
+import { readFile as readFile2 } from "node:fs/promises";
 var MAX_NAME_CHARS = 255;
 var MAX_TITLE_CHARS2 = 500;
 async function posterOf(library, artifactId2) {
-  const path2 = library.thumbPath(artifactId2);
-  if (path2 === void 0) return void 0;
+  const path3 = library.thumbPath(artifactId2);
+  if (path3 === void 0) return void 0;
   try {
-    const bytes = await readFile3(path2);
+    const bytes = await readFile2(path3);
     return bytes.length > 0 && bytes.length <= ASP_MAX_POSTER_BYTES ? bytes.toString("base64") : void 0;
   } catch {
     return void 0;
@@ -36383,8 +36634,8 @@ var P2pRuntime = class {
 };
 
 // src/share/p2p-store.ts
-import { readdir as readdir2, rm as rm3 } from "node:fs/promises";
-import { join as join5 } from "node:path";
+import { readdir as readdir2 } from "node:fs/promises";
+import { join as join6 } from "node:path";
 var STATE_ID_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 var shareStateSchema = external_exports.object({
   version: external_exports.number().int().positive(),
@@ -36404,12 +36655,12 @@ var P2pStore = class {
   #dir;
   #tunnelPath;
   constructor(home) {
-    this.#dir = join5(home, "artifacts", "p2p");
-    this.#tunnelPath = join5(home, "artifacts", "tunnel.json");
+    this.#dir = join6(home, "artifacts", "p2p");
+    this.#tunnelPath = join6(home, "artifacts", "tunnel.json");
   }
   #sharePath(id2) {
     if (!STATE_ID_PATTERN.test(id2)) throw new StoredFileError("a share id contains characters that cannot name a file");
-    return join5(this.#dir, `${id2}.json`);
+    return join6(this.#dir, `${id2}.json`);
   }
   async readShare(id2) {
     try {
@@ -36420,10 +36671,10 @@ var P2pStore = class {
     }
   }
   writeShare(id2, state) {
-    return writePrivateJsonFile(this.#sharePath(id2), state);
+    return writePrivateJsonFile(this.#sharePath(id2), shareStateSchema, state);
   }
   removeShare(id2) {
-    return rm3(this.#sharePath(id2), { force: true });
+    return removeDurableFile(this.#sharePath(id2));
   }
   async shareIds() {
     try {
@@ -36435,22 +36686,22 @@ var P2pStore = class {
   }
   async readTunnel() {
     try {
-      return await readJsonFile(this.#tunnelPath, tunnelSchema);
+      return await readJsonFile(this.#tunnelPath, tunnelSchema, { holdsSecret: true });
     } catch (error51) {
       if (error51 instanceof StoredFileError) return void 0;
       throw error51;
     }
   }
   writeTunnel(credentials) {
-    return writePrivateJsonFile(this.#tunnelPath, credentials);
+    return writePrivateJsonFile(this.#tunnelPath, tunnelSchema, credentials, { holdsSecret: true });
   }
   clearTunnel() {
-    return rm3(this.#tunnelPath, { force: true });
+    return removeSecretFile(this.#tunnelPath);
   }
 };
 
 // src/share/shares.ts
-import { randomBytes as randomBytes6 } from "node:crypto";
+import { randomBytes as randomBytes5 } from "node:crypto";
 import { stat as stat4 } from "node:fs/promises";
 import { userInfo } from "node:os";
 
@@ -36663,7 +36914,7 @@ var ShareService = class {
     if (!info.isFile()) throw new ShareError("only a regular file can be shared");
     const fingerprint = { size: info.size, mtimeMs: info.mtimeMs };
     return this.#options.p2p.withTunnel(async (session) => {
-      const id2 = encodeBase64Url(randomBytes6(16));
+      const id2 = encodeBase64Url(randomBytes5(16));
       const now = this.#now();
       const row = {
         id: id2,
@@ -36732,7 +36983,7 @@ var ShareService = class {
       await this.#upload(item.id, sessionKey, session, client, source);
       const createdAt = this.#now();
       const row = {
-        id: encodeBase64Url(randomBytes6(16)),
+        id: encodeBase64Url(randomBytes5(16)),
         artifactId: item.id,
         host: host.id,
         remoteId: session.pending.remoteId,
@@ -37217,7 +37468,7 @@ async function createViewerServer(options2 = {}) {
     }
   }
   try {
-    const html = await readFile4(join6(viewDir, "index.html"), "utf8");
+    const html = await readFile3(join7(viewDir, "index.html"), "utf8");
     media = await startMediaServer(fence, Date.now, library);
     share = library === void 0 ? void 0 : startShareRuntime({ library, fence, home });
     server2.server.onclose = () => {
@@ -37238,13 +37489,13 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
   }));
   for (const entry of await readdir3(viewDir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() || entry.name === "index.html") continue;
-    const mimeType = MIME[extname2(entry.name)];
+    const mimeType = MIME[extname3(entry.name)];
     if (mimeType === void 0) throw new Error(`Unsupported viewer View asset: ${entry.name}`);
-    const path2 = join6(entry.parentPath, entry.name);
-    const relative2 = path2.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
+    const path3 = join7(entry.parentPath, entry.name);
+    const relative2 = path3.slice(viewDir.replace(/[\\/]$/, "").length + 1).replaceAll("\\", "/");
     const uri = `ui://viewer/${relative2}`;
     server2.registerResource(relative2, uri, { mimeType }, async () => {
-      const bytes = await readFile4(path2);
+      const bytes = await readFile3(path3);
       return {
         contents: [TEXT_MIME[mimeType] ? { uri, mimeType, text: bytes.toString("utf8") } : { uri, mimeType, blob: bytes.toString("base64") }]
       };
@@ -37264,7 +37515,7 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: { ui: { resourceUri: VIEWER_VIEW_URI } }
     },
-    ({ path: path2, filename, annotate }, extra) => openViewedFile(fence, { path: path2, filename, annotate }, extra._meta)
+    ({ path: path3, filename, annotate }, extra) => openViewedFile(fence, { path: path3, filename, annotate }, extra._meta)
   );
   K3(
     server2,
@@ -37280,8 +37531,8 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       _meta: APP_ONLY
     },
-    async ({ path: path2, offset, length }, extra) => {
-      const verdict = await fence.check(path2, extra._meta);
+    async ({ path: path3, offset, length }, extra) => {
+      const verdict = await fence.check(path3, extra._meta);
       if (!verdict.ok) return failure(verdict.reason);
       try {
         const chunk = await readChunk(verdict.real, offset, length);
@@ -37290,7 +37541,7 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
           structuredContent: { ...chunk }
         };
       } catch (error51) {
-        return failure(`"${path2}" cannot be read: ${describeError(error51)}`);
+        return failure(`"${path3}" cannot be read: ${describeError(error51)}`);
       }
     }
   );
@@ -37298,9 +37549,9 @@ async function registerViewer(server2, { fence, html, viewDir, media, library })
     inputSchema: { path: external_exports.string().min(1).max(4096), size: external_exports.number().int().nonnegative(), mtimeMs: external_exports.number(), token: mediaTokenSchema },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     _meta: APP_ONLY
-  }, async ({ path: path2, size, mtimeMs, token }, extra) => {
+  }, async ({ path: path3, size, mtimeMs, token }, extra) => {
     try {
-      const source = await media.acquire(path2, size, mtimeMs, extra._meta, token);
+      const source = await media.acquire(path3, size, mtimeMs, extra._meta, token);
       return { content: [{ type: "text", text: "Recording ready for range playback." }], structuredContent: { ...source } };
     } catch (error51) {
       return failure(describeError(error51));

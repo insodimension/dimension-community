@@ -7,10 +7,11 @@
 // Precedence mirrors that catalog too: installed packs, then the workspace
 // (`.inso/`, then legacy `.omp/`), then the user's own agents — first wins by
 // name.
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { type Dirent } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { writeFileAtomic } from "../../../lib/durable-file.mjs";
 import {
 	agentHomeWorkspaceId,
 	GENERAL_AGENT_FILE,
@@ -509,12 +510,9 @@ export async function saveAgent(options: SaveOptions): Promise<SaveOutcome> {
 		}
 	}
 
-	const temp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
 	try {
-		await writeFile(temp, content, { encoding: "utf8", flag: "wx" });
-		await rename(temp, path);
+		await writeFileAtomic(path, content);
 	} catch (error) {
-		await rm(temp, { force: true });
 		// A claimed-but-unwritten directory would block the next attempt at this name.
 		if (target.create) await rm(dir, { recursive: true, force: true });
 		throw error;

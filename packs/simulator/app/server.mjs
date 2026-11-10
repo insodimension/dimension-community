@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 // src/server.ts
 import { readFile } from "node:fs/promises";
 import { homedir as homedir4 } from "node:os";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -85,9 +85,9 @@ function nodeProbe(init) {
     homes: init.homes ?? candidateHomes({ env, platform, osHome: homedir(), accountHome: accountHome() }),
     sdkPathSetting: init.sdkPathSetting ?? null,
     exists: existsSync,
-    list: (path) => {
+    list: (path2) => {
       try {
-        return readdirSync(path, { withFileTypes: true }).map((entry) => ({ name: entry.name, dir: entry.isDirectory() }));
+        return readdirSync(path2, { withFileTypes: true }).map((entry) => ({ name: entry.name, dir: entry.isDirectory() }));
       } catch {
         return [];
       }
@@ -104,13 +104,13 @@ function resolveToolchain(probe) {
   const note = (tool, entry) => {
     if (!tried[tool].includes(entry)) tried[tool].push(entry);
   };
-  const look = (tool, path) => {
-    note(tool, path);
-    return probe.exists(path);
+  const look = (tool, path2) => {
+    note(tool, path2);
+    return probe.exists(path2);
   };
   const onPath = (tool, command) => {
-    const path = probe.env.PATH ?? probe.env.Path ?? "";
-    const folders = path.split(windows ? ";" : ":").filter((folder) => folder !== "");
+    const path2 = probe.env.PATH ?? probe.env.Path ?? "";
+    const folders = path2.split(windows ? ";" : ":").filter((folder) => folder !== "");
     const names = windows ? [`${command}.exe`, `${command}.cmd`, `${command}.bat`] : [command];
     note(tool, `PATH (${folders.length} folder${folders.length === 1 ? "" : "s"}, for ${names.join(" / ")})`);
     for (const folder of folders) {
@@ -230,8 +230,8 @@ function explainAdbFailure(serial, stderr) {
 var Adb = class {
   path;
   #timeoutMs;
-  constructor(path, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    this.path = path;
+  constructor(path2, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    this.path = path2;
     this.#timeoutMs = timeoutMs;
   }
   /** Run `adb [-s serial] ...args`; resolves with raw stdout bytes. */
@@ -1309,12 +1309,12 @@ var AndroidBackend = class {
   }
   #adb() {
     const toolchain = this.#deps.toolchain();
-    const path = toolchain.adb;
-    if (path === null) fail("missing_adb", `adb is not installed or not found. ${fixFor(toolchain, "adb")}`);
-    let adb = this.#adbs.get(path);
+    const path2 = toolchain.adb;
+    if (path2 === null) fail("missing_adb", `adb is not installed or not found. ${fixFor(toolchain, "adb")}`);
+    let adb = this.#adbs.get(path2);
     if (adb === void 0) {
-      adb = new Adb(path);
-      this.#adbs.set(path, adb);
+      adb = new Adb(path2);
+      this.#adbs.set(path2, adb);
     }
     return adb;
   }
@@ -1807,16 +1807,16 @@ function avdHome() {
   if (env.ANDROID_USER_HOME) return join2(env.ANDROID_USER_HOME, "avd");
   return join2(homedir2(), ".android", "avd");
 }
-function readTextOrNull(path) {
+function readTextOrNull(path2) {
   try {
-    return readFileSync(path, "utf8");
+    return readFileSync(path2, "utf8");
   } catch {
     return null;
   }
 }
-function readLogTail(path) {
+function readLogTail(path2) {
   try {
-    const fd = openSync(path, "r");
+    const fd = openSync(path2, "r");
     try {
       const size = fstatSync(fd).size;
       const length = Math.min(size, 64 * 1024);
@@ -1836,29 +1836,195 @@ function delay2(ms) {
   return promise;
 }
 
-// src/fleet.ts
-import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-function fileOwnershipStore(path) {
-  return {
-    read: () => {
-      try {
-        const parsed = JSON.parse(readFileSync2(path, "utf8"));
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(
-          (entry) => typeof entry === "object" && entry !== null && (entry.serial === null || typeof entry.serial === "string") && typeof entry.avd === "string" && isEmulatorPid(entry.pid) && Number.isFinite(entry.startedAt) && Number.isFinite(entry.bootedAt) && Number.isSafeInteger(entry.ownerPid) && entry.ownerPid > 0 && Number.isFinite(entry.ownerStartedAt)
-        );
-      } catch {
-        return [];
-      }
-    },
-    write: (records) => {
-      mkdirSync2(dirname(path), { recursive: true });
-      const temp = `${path}.${process.pid}.tmp`;
-      writeFileSync(temp, JSON.stringify(records, null, 2));
-      renameSync(temp, path);
+// ../../lib/durable-file.mjs
+import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+var BACKUP_SUFFIX = ".bak";
+var RENAME_RETRY_CODES = { EPERM: true, EBUSY: true, EACCES: true };
+var RENAME_BACKOFF_MS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256];
+var syncSleepCell = new Int32Array(new SharedArrayBuffer(4));
+var foldersHaveNoFsync = process.platform === "win32";
+var filesHaveNoModes = process.platform === "win32";
+var DurableFileUnreadableError = class extends Error {
+  constructor(filePath, reason, quarantinedAt) {
+    super(
+      `${filePath} could not be read (${reason}) and has no readable backup; it was left in place${quarantinedAt ? ` and copied to ${quarantinedAt}` : ""}. Restore it before writing.`
+    );
+    this.name = "DurableFileUnreadableError";
+    this.filePath = filePath;
+    this.reason = reason;
+    this.quarantinedAt = quarantinedAt;
+  }
+};
+function backupPathOf(filePath) {
+  return `${filePath}${BACKUP_SUFFIX}`;
+}
+function parseJsonBytes(bytes) {
+  return JSON.parse(bytes.toString("utf8"));
+}
+var codeOf = (error) => typeof error === "object" && error !== null ? error.code : void 0;
+var isMissing = (error) => codeOf(error) === "ENOENT";
+var isHeldByAnotherProcess = (error) => Object.hasOwn(RENAME_RETRY_CODES, codeOf(error));
+var stagingPathOf = (filePath) => `${filePath}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+var toBuffer = (data) => typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+function defectOf(bytes) {
+  if (bytes.length === 0) return "zero-length";
+  for (let index = 0; index < bytes.length; index++) if (bytes[index] !== 0) return void 0;
+  return "NUL-filled";
+}
+function parsesWhole(bytes, parse) {
+  if (defectOf(bytes) !== void 0) return false;
+  try {
+    parse(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var permissionsOf = (stats) => stats === void 0 || filesHaveNoModes ? void 0 : stats.mode & 511;
+var narrowerMode = (left, right) => left === void 0 ? right : right === void 0 ? left : left & right;
+function fsyncDirectorySync(directory) {
+  if (foldersHaveNoFsync) return;
+  let descriptor;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch {
+    return;
+  } finally {
+    if (descriptor !== void 0) fs.closeSync(descriptor);
+  }
+}
+function stageSync(stagedPath, bytes, mode) {
+  const descriptor = fs.openSync(stagedPath, "wx", mode);
+  try {
+    if (mode !== void 0 && !filesHaveNoModes) fs.fchmodSync(descriptor, mode);
+    let offset = 0;
+    while (offset < bytes.length) offset += fs.writeSync(descriptor, bytes, offset, bytes.length - offset);
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+function renameOverHeldTargetSync(from, to) {
+  for (const backoffMs of RENAME_BACKOFF_MS) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (error) {
+      if (!isHeldByAnotherProcess(error)) throw error;
     }
+    Atomics.wait(syncSleepCell, 0, 0, backoffMs);
+  }
+  fs.renameSync(from, to);
+}
+function publishSync(targetPath, bytes, mode) {
+  const stagedPath = stagingPathOf(targetPath);
+  try {
+    stageSync(stagedPath, bytes, mode);
+    renameOverHeldTargetSync(stagedPath, targetPath);
+  } catch (error) {
+    fs.rmSync(stagedPath, { force: true });
+    throw error;
+  }
+}
+function readPreviousSync(filePath) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(filePath, "r");
+  } catch (error) {
+    if (isMissing(error)) return void 0;
+    throw error;
+  }
+  try {
+    return { mode: permissionsOf(fs.fstatSync(descriptor)), bytes: fs.readFileSync(descriptor) };
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+function writeFileAtomicSync(filePath, data, options = {}) {
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const bytes = toBuffer(data);
+  const backup = options.backup;
+  if (backup === void 0) {
+    publishSync(filePath, bytes, options.mode ?? permissionsOf(fs.statSync(filePath, { throwIfNoEntry: false })));
+  } else {
+    const previous = readPreviousSync(filePath);
+    if (previous !== void 0 && parsesWhole(previous.bytes, backup.parse)) {
+      publishSync(backupPathOf(filePath), previous.bytes, narrowerMode(options.mode, previous.mode));
+    }
+    publishSync(filePath, bytes, options.mode ?? previous?.mode);
+  }
+  fsyncDirectorySync(directory);
+}
+function readIfPresentSync(filePath) {
+  try {
+    return fs.readFileSync(filePath);
+  } catch (error) {
+    if (isMissing(error)) return void 0;
+    throw error;
+  }
+}
+var quarantineName = (filePath, stats) => `${filePath}.corrupt-${stats ? Math.trunc(stats.mtimeMs).toString(36) : Date.now().toString(36)}`;
+var describeFailure = (error) => error instanceof Error ? error.message : String(error);
+function quarantineSync(filePath, bytes) {
+  try {
+    const stats = fs.statSync(filePath, { throwIfNoEntry: false });
+    const target = quarantineName(filePath, stats);
+    if (fs.lstatSync(target, { throwIfNoEntry: false }) === void 0) publishSync(target, bytes, permissionsOf(stats));
+    return target;
+  } catch (error) {
+    console.error(`Could not keep a copy of the unreadable ${filePath}: ${describeFailure(error)}`);
+    return void 0;
+  }
+}
+function parseBytes(bytes, parse) {
+  const defect = defectOf(bytes);
+  if (defect !== void 0) return { ok: false, reason: defect };
+  try {
+    return { ok: true, value: parse(bytes) };
+  } catch (error) {
+    return { ok: false, reason: describeFailure(error) };
+  }
+}
+function recoverFromBackup(filePath, reason, quarantinedAt, backup, parse) {
+  const restored = backup === void 0 ? void 0 : parseBytes(backup, parse);
+  const kept = quarantinedAt ? ` (kept as ${quarantinedAt})` : "";
+  if (restored?.ok) {
+    console.error(`${filePath} was unreadable (${reason})${kept}; read from its backup.`);
+    return restored.value;
+  }
+  console.error(`${filePath} is unreadable (${reason})${kept} and has no readable backup.`);
+  throw new DurableFileUnreadableError(filePath, reason, quarantinedAt);
+}
+function readDurableFileSync(filePath, parse, options = {}) {
+  const bytes = readIfPresentSync(filePath);
+  if (bytes === void 0) {
+    const backup = readIfPresentSync(backupPathOf(filePath));
+    if (backup === void 0) return void 0;
+    return recoverFromBackup(filePath, "missing while its backup exists", void 0, backup, parse);
+  }
+  const parsed = parseBytes(bytes, parse);
+  if (parsed.ok) return parsed.value;
+  const quarantinedAt = options.keepDamagedCopy === false ? void 0 : quarantineSync(filePath, bytes);
+  return recoverFromBackup(filePath, parsed.reason, quarantinedAt, readIfPresentSync(backupPathOf(filePath)), parse);
+}
+
+// src/fleet.ts
+function fileOwnershipStore(path2) {
+  return {
+    read: () => (readDurableFileSync(path2, parseRecordList) ?? []).filter(
+      (entry) => typeof entry === "object" && entry !== null && (entry.serial === null || typeof entry.serial === "string") && typeof entry.avd === "string" && isEmulatorPid(entry.pid) && Number.isFinite(entry.startedAt) && Number.isFinite(entry.bootedAt) && Number.isSafeInteger(entry.ownerPid) && entry.ownerPid > 0 && Number.isFinite(entry.ownerStartedAt)
+    ),
+    write: (records) => writeFileAtomicSync(path2, JSON.stringify(records, null, 2), { backup: { parse: parseRecordList } })
   };
+}
+function parseRecordList(bytes) {
+  const parsed = parseJsonBytes(bytes);
+  if (!Array.isArray(parsed)) throw new Error("the ownership record is not a list");
+  return parsed;
 }
 var defaultSchedule = (run2, ms) => {
   const handle = setTimeout(run2, ms);
@@ -1921,7 +2087,7 @@ var Fleet = class {
   }
   async #adoptOrphans() {
     const backend = this.#deps.backend;
-    const records = this.#deps.store.read();
+    const records = this.#readRecords() ?? [];
     let changed = false;
     for (const record of records) {
       if (record.ownerPid !== this.#pid && await this.#ownerRunning(record)) continue;
@@ -1974,9 +2140,19 @@ var Fleet = class {
   }
   /** This pack's records, plus those of OTHER pack processes that are still running. A dead owner's record was adopted (then it is ours) or dropped by `reconcile`: it is never carried forward. */
   #persist() {
+    const stored = this.#readRecords();
+    if (stored === void 0) return;
     const mine = [...this.#owned.values()];
-    const others = this.#deps.store.read().filter((record) => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some((own) => own.pid === record.pid && own.startedAt === record.startedAt));
+    const others = stored.filter((record) => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some((own) => own.pid === record.pid && own.startedAt === record.startedAt));
     this.#deps.store.write([...others, ...mine]);
+  }
+  #readRecords() {
+    try {
+      return this.#deps.store.read();
+    } catch (error) {
+      this.#deps.log(`[sim] the ownership file could not be read, so it is left as it is: ${error instanceof Error ? error.message : String(error)}`);
+      return void 0;
+    }
   }
   async boot(request, waitMs) {
     await this.reconcile();
@@ -2195,7 +2371,7 @@ var Fleet = class {
 
 // src/relay/relay.ts
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/backend.ts
 var DEFAULT_VIDEO_OPTIONS = { maxSize: 1280, maxFps: 30, bitRate: 4e6 };
@@ -2867,7 +3043,7 @@ var FrameRelay = class {
       downgraded = "scrcpy-server was not found, so there is no live video; showing still pictures.";
     }
     const port = await this.#ensureListening();
-    const token = randomBytes(24).toString("base64url");
+    const token = randomBytes2(24).toString("base64url");
     const entry = { serial, mode, timer: void 0 };
     this.#tokens.set(token, entry);
     this.#armToken(token, entry);
@@ -2991,7 +3167,7 @@ Content-Length: 0\r
 // src/settings.ts
 import { readFileSync as readFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 var GPU_MODES = ["auto", "host", "swiftshader_indirect", "angle_indirect"];
 var DEFAULT_SETTINGS = { maxDevices: 2, idleMinutes: 15, sdkPath: null, gpu: "auto" };
 var GROUP = "simulator";
@@ -3031,9 +3207,9 @@ function positiveInt(value, fallback, min, max) {
 var nodeSettingsSource = () => ({
   env: process.env,
   home: homedir3(),
-  readFile: (path) => {
+  readFile: (path2) => {
     try {
-      return readFileSync3(path, "utf8");
+      return readFileSync3(path2, "utf8");
     } catch {
       return null;
     }
@@ -3041,8 +3217,8 @@ var nodeSettingsSource = () => ({
 });
 function agentConfigPath(source) {
   const dir = source.env.PI_CODING_AGENT_DIR;
-  if (dir) return join3(dir, "config.yml");
-  return join3(source.home, source.env.PI_CONFIG_DIR || ".omp", "agent", "config.yml");
+  if (dir) return join4(dir, "config.yml");
+  return join4(source.home, source.env.PI_CONFIG_DIR || ".omp", "agent", "config.yml");
 }
 function readSettings(source = nodeSettingsSource()) {
   const text = source.readFile(agentConfigPath(source));
@@ -3125,9 +3301,9 @@ async function createSimulatorServer(options = {}) {
   const settings = options.settings ?? (() => readSettings(nodeSettingsSource()));
   const leased = leasedToolchain(settings);
   const toolchain = options.toolchain ?? (() => leased.current());
-  const dataDir = options.dataDir ?? join4(process.env.INSO_HOME ?? join4(homedir4(), ".inso"), "simulator");
-  const backend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join4(dataDir, "logs"), gpu: () => settings().gpu });
-  const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join4(dataDir, "owned.json")), log });
+  const dataDir = options.dataDir ?? join5(process.env.INSO_HOME ?? join5(homedir4(), ".inso"), "simulator");
+  const backend = options.backend ?? new AndroidBackend({ toolchain, log, logDir: join5(dataDir, "logs"), gpu: () => settings().gpu });
+  const fleet = options.fleet ?? new Fleet({ backend, settings, store: fileOwnershipStore(join5(dataDir, "owned.json")), log });
   const relay = options.relay ?? new FrameRelay({
     backend,
     log,

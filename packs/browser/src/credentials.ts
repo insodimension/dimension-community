@@ -38,9 +38,10 @@
 import { spawnSync } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes, randomInt } from "node:crypto";
 import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
+import { fsyncDirectorySync, readDurableFileSync, writeFileAtomicSync } from "../../../lib/durable-file.mjs";
 import { CREDENTIAL_MODES, type CredentialRequest } from "./contracts.js";
-import { fail, writeJsonAtomic } from "./store.js";
+import { fail } from "./store.js";
 
 const FILE = "credentials.json";
 const KEY_FILE = "credentials.key";
@@ -139,7 +140,7 @@ export class CredentialKey {
     if (this.#holdsSealedStores()) fail("credentials_unreadable", NO_KEY);
     mkdirSync(this.#rootDir, { recursive: true, mode: 0o700 });
     const text = `${randomBytes(32).toString("base64")}\n`;
-    const staging = `${this.#file}.${randomBytes(6).toString("hex")}.tmp`;
+    const staging = `${this.#file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
     try {
       closeSync(openSync(staging, "wx", 0o600));
       onlyTheUser(staging);
@@ -163,7 +164,7 @@ export class CredentialKey {
     } finally {
       rmSync(staging, { force: true });
     }
-    syncFolder(this.#rootDir);
+    fsyncDirectorySync(this.#rootDir);
     if (this.#load() !== text) fail("credentials_unreadable", "the key that protects saved passwords could not be made whole");
     return text;
   }
@@ -190,11 +191,11 @@ export class CredentialKey {
     }
     return names.some((name) => {
       try {
-        const store = JSON.parse(readFileSync(join(profiles, name, FILE), "utf8")) as { version?: unknown; origins?: unknown } | null;
-        if (store?.version === 2) return true;
-        return typeof store?.origins === "object" && store.origins !== null && Object.values(store.origins).some((value) => typeof value === "string" && SEALED.test(value));
+        const store = readStore(join(profiles, name, FILE));
+        if (store === undefined) return false;
+        if (store.version === 2) return true;
+        return Object.values(store.origins).some((value) => SEALED.test(value));
       } catch {
-        // No store, or one that read() refuses on its own account.
         return false;
       }
     });
@@ -206,20 +207,6 @@ function keyFrom(text: string): Buffer {
   const key = Buffer.from(text.trim(), "base64");
   if (key.length !== 32) fail("credentials_unreadable", BAD_KEY);
   return key;
-}
-
-/** Flush a folder's new entry to disk where the platform lets a folder be opened (Windows does not; its journal covers a rename). */
-function syncFolder(dir: string): void {
-  try {
-    const fd = openSync(dir, "r");
-    try {
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    /* not supported here */
-  }
 }
 
 /**
@@ -260,7 +247,44 @@ function open(sealed: string, origin: string, key: Buffer): string {
 function write(file: string, origins: Record<string, string>, key: CredentialKey): void {
   const sealed: Record<string, string> = {};
   for (const [origin, password] of Object.entries(origins)) sealed[origin] = seal(password, origin, key.get());
-  writeJsonAtomic(dirname(file), basename(file), { version: 2, origins: sealed });
+  writeFileAtomicSync(file, `${JSON.stringify({ version: 2, origins: sealed })}\n`, { mode: 0o600, backup: { parse: parseSealedStore } });
+}
+
+interface StoredCredentials {
+  readonly version: unknown;
+  readonly origins: Record<string, string>;
+}
+
+function parseJsonDocument(bytes: Buffer): unknown {
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error("not JSON");
+  }
+}
+
+function storeShape(parsed: unknown): StoredCredentials {
+  const version = (parsed as { version?: unknown } | null)?.version;
+  const origins = (parsed as { origins?: unknown } | null)?.origins;
+  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) fail("credentials_unreadable", UNREADABLE);
+  if (version !== 1 && version !== 2 && version !== undefined) fail("credentials_unreadable", UNREADABLE);
+  return { version, origins: origins as Record<string, string> };
+}
+
+function parseSealedStore(bytes: Buffer): StoredCredentials {
+  const store = storeShape(parseJsonDocument(bytes));
+  if (store.version !== 2) throw new Error("not a sealed store");
+  return store;
+}
+
+function readStore(file: string): StoredCredentials | undefined {
+  let parsed: unknown;
+  try {
+    parsed = readDurableFileSync(file, parseJsonDocument, { keepDamagedCopy: false });
+  } catch {
+    fail("credentials_unreadable", UNREADABLE);
+  }
+  return parsed === undefined ? undefined : storeShape(parsed);
 }
 
 /** Plain-text stores already said to be unencryptable, by file: said once, not at every read. */
@@ -272,21 +296,9 @@ const unmigrated = new Set<string>();
  * next read tries again.
  */
 function read(file: string, key: CredentialKey): Record<string, string> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    // Never echo the file: it holds the values this module exists to keep.
-    fail("credentials_unreadable", UNREADABLE);
-  }
-  // A file of any other shape is refused, never treated as empty: the next
-  // sign-up would rewrite it and silently drop every password it held.
-  const version = (parsed as { version?: unknown } | null)?.version;
-  const origins = (parsed as { origins?: unknown } | null)?.origins;
-  if (!origins || typeof origins !== "object" || Array.isArray(origins) || Object.values(origins).some((v) => typeof v !== "string")) fail("credentials_unreadable", UNREADABLE);
-  const stored = origins as Record<string, string>;
-  if (version !== 1 && version !== 2 && version !== undefined) fail("credentials_unreadable", UNREADABLE);
+  const store = readStore(file);
+  if (store === undefined) return {};
+  const { version, origins: stored } = store;
   // Version 1 is plain text, but a value in one that is sealed is opened, never taken for the password: a server from before this one
   // (it ignores `version` and writes back everything it read, ciphertext included) may have signed up on a profile this one had sealed.
   const clear: Record<string, string> = {};

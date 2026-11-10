@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { textRefusal } from "../src/present";
 import * as fence from "../viewer/src/fence";
 
-const { denyReason } = fence;
+const { blobCopyExtension, denyReason } = fence;
 
 // `present` and the viewer's fence share ONE deny table, `viewer/src/fence.ts`: present imports
 // it and bundles it into dist/index.mjs. This file holds that table to what it promises: a corpus
@@ -98,6 +98,17 @@ const DENIED: Record<string, string[]> = {
 		"/home/me/.inso/vault/locker/audit.log",
 		"D:\\Brain\\LOCKER\\anything.txt",
 		"/backups/vault-2026/_locker.json",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.corrupt-1787117067954",
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-2026-11-09t00-00-00-000z.bak",
+		"/home/me/.inso/vault/notes.db.corrupt-k3x9",
+	],
+	"staged copies of a secret file's backup, quarantine copy or key": [
+		"C:\\Users\\Me\\AppData\\Local\\Inso\\activation.json.bak.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/browser/credentials.json.corrupt-k3x9.4242.1a2b3c4d.tmp",
+		"/home/me/.inso/auth.json.shrink-x.bak.12.ab12cd34.tmp",
+		"/home/me/.inso/browser/credentials.key.4242.a1b2c3d4e5f6.tmp",
 	],
 };
 
@@ -126,6 +137,9 @@ const ALLOWED = [
 	"/home/me/docs/envelope.png",
 	"/home/me/agent/photo.png",
 	"C:\\Work\\reports\\a.png",
+	"/home/me/docs/activation.json.md",
+	"/home/me/docs/notes.txt.bak",
+	"/home/me/docs/notes.txt.bak.4242.1a2b3c4d.tmp",
 ];
 
 describe("denyReason refuses credentials, keys and engine state", () => {
@@ -147,6 +161,113 @@ describe("denyReason refuses credentials, keys and engine state", () => {
 
 describe("denyReason leaves ordinary files alone", () => {
 	for (const path of ALLOWED) test(`allows ${path}`, () => expect(denyReason(path)).toBeUndefined());
+});
+
+const BLOB = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+describe("denyReason and the copy a card opens, which lives in the engine's blob store", () => {
+	const OPENABLE = [
+		`/home/me/.inso/agent/blobs/${BLOB}.png`,
+		`/home/me/.inso/profiles/p1/agent/blobs/${BLOB}.jpg`,
+		`/home/me/.inso-dev/agent/blobs/${BLOB}.pdf`,
+		`/home/me/.omp/agent/blobs/${BLOB}.md`,
+		`C:\\Users\\Me\\.inso\\agent\\blobs\\${BLOB}.png`,
+		`C:\\Users\\Me\\.INSO-DEV\\PROFILES\\p1\\AGENT\\BLOBS\\${BLOB.toUpperCase()}.PNG`,
+		`/home/me/.inso/agent/blobs/${BLOB}.tar.gz`,
+		`/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(32)}`,
+	];
+	for (const path of OPENABLE) test(`opens ${path} once it is lent`, () => expect(denyReason(path, { allowBlobCopy: true })).toBeUndefined());
+	for (const path of OPENABLE) test(`refuses ${path} unless it is lent`, () => expect(denyReason(path), path).toMatch(/agent state/));
+
+	const REFUSED: { name: string; path: string; category: RegExp }[] = [
+		{ name: "the same blob with no extension", path: `/home/me/.inso/agent/blobs/${BLOB}`, category: /agent state/ },
+		{ name: "a copy nested below the blobs folder", path: `/home/me/.inso/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "a copy nested below a profile's blobs folder", path: `/home/me/.inso/profiles/p1/agent/blobs/nested/${BLOB}.png`, category: /agent state/ },
+		{ name: "the blobs folder itself", path: "/home/me/.inso/agent/blobs", category: /agent state/ },
+		{ name: "another file of the agent", path: "/home/me/.inso/agent/agent.db", category: /agent state/ },
+		{ name: "a hash-shaped name outside the blobs folder", path: `/home/me/.inso/agent/sessions/${BLOB}.png`, category: /agent state/ },
+		{ name: "a name one digit short of a hash", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}.png`, category: /agent state/ },
+		{ name: "a name one digit over a hash", path: `/home/me/.inso/agent/blobs/${BLOB}0.png`, category: /agent state/ },
+		{ name: "a name that is not hex", path: `/home/me/.inso/agent/blobs/${BLOB.slice(1)}g.png`, category: /agent state/ },
+		{ name: "a database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db`, category: /agent state/ },
+		{ name: "a sqlite database under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.sqlite`, category: /agent state/ },
+		{ name: "a database journal under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.db-wal`, category: /agent state/ },
+		{ name: "a durable backup of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.bak`, category: /agent state/ },
+		{ name: "a quarantined copy of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.corrupt-k3x9`, category: /agent state/ },
+		{ name: "a staged write of a blob", path: `/home/me/.inso/agent/blobs/${BLOB}.png.4242.1a2b3c4d.tmp`, category: /agent state/ },
+		{ name: "an extension over 32 characters", path: `/home/me/.inso/agent/blobs/${BLOB}.${"a".repeat(33)}`, category: /agent state/ },
+		{ name: "an extension that starts with a dot", path: `/home/me/.inso/agent/blobs/${BLOB}..png`, category: /agent state/ },
+		{ name: "a private key under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.pem`, category: /private key/ },
+		{ name: "an environment file under a blob's name", path: `/home/me/.inso/agent/blobs/${BLOB}.env`, category: /environment file/ },
+		{ name: "a blob inside a credentials folder", path: `/home/me/.ssh/.inso/agent/blobs/${BLOB}.png`, category: /credentials folder/ },
+	];
+	for (const { name, path, category } of REFUSED) test(`still refuses ${name}, even lent`, () => expect(denyReason(path, { allowBlobCopy: true }), path).toMatch(category));
+});
+
+describe("blobCopyExtension: the extension a presented file's copy would carry, when the fence would lend it", () => {
+	test.each<readonly [string, string]>([
+		["SHOT.PNG", "png"],
+		["report.pdf", "pdf"],
+		["archive.tar.gz", "gz"],
+		["notes.md", "md"],
+		[`longest.${"a".repeat(32)}`, "a".repeat(32)],
+	])("%s is copied as .%s", (fileName, extension) => {
+		expect(blobCopyExtension(fileName)).toBe(extension);
+	});
+
+	test.each<readonly [string, string]>([
+		["no extension", "Makefile"],
+		["a trailing dot", "notes."],
+		["a space in the extension", "odd.with space"],
+		["an extension over 32 characters", `too-long.${"a".repeat(33)}`],
+		["a database", "data.db"],
+		["a sqlite database", "data.sqlite"],
+		["a sqlite3 database", "data.sqlite3"],
+		["a database journal", "data.db-wal"],
+		["a private key", "key.pem"],
+		["an environment file", "prod.env"],
+		["a durable backup extension", "notes.bak"],
+	])("%s gets no copy: %s", (_name, fileName) => {
+		expect(blobCopyExtension(fileName)).toBeUndefined();
+	});
+
+	test("an extension it returns is one the fence lends, once the host lent it", () => {
+		for (const fileName of ["a.png", "a.tar.gz", "a.md", `a.${"b".repeat(32)}`]) {
+			const extension = blobCopyExtension(fileName);
+			expect(denyReason(`/home/me/.inso/agent/blobs/${BLOB}.${extension}`, { allowBlobCopy: true }), fileName).toBeUndefined();
+		}
+	});
+});
+
+describe("denyReason on long names: durable-copy suffixes are stripped in linear time and no name past 255 characters is opened", () => {
+	const TIME_BUDGET_MS = 50;
+
+	function timed(path: string): { reason: string | undefined; elapsedMs: number } {
+		const started = performance.now();
+		const reason = denyReason(path);
+		return { reason, elapsedMs: performance.now() - started };
+	}
+
+	test("a 100 000-character chain of staged-copy suffixes is refused within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/${".1.1.tmp".repeat(12_500)}x`);
+		expect(reason).toMatch(/longer than 255 characters/);
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a 256-character name is refused, a 255-character one is not", () => {
+		expect(denyReason(`/home/me/docs/${"a".repeat(256)}`)).toMatch(/longer than 255 characters/);
+		expect(denyReason(`/home/me/docs/${"a".repeat(255)}`)).toBeUndefined();
+	});
+
+	test("a 248-character chain of suffixes over a plain name is opened, within the budget", () => {
+		const { reason, elapsedMs } = timed(`/home/me/docs/notes${".1.ab.tmp".repeat(26)}${".bak".repeat(2)}x`);
+		expect(reason).toBeUndefined();
+		expect(elapsedMs).toBeLessThan(TIME_BUDGET_MS);
+	});
+
+	test("a secret under 62 stacked backups is still refused as the secret", () => {
+		expect(denyReason(`/home/me/docs/.env${".bak".repeat(62)}`)).toMatch(/environment file/);
+	});
 });
 
 describe("every entry of the deny tables refuses the thing it names", () => {

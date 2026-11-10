@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.3.2",
-	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, and get a finished film ready to upload.",
+	"version": "0.4.1",
+	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -45,6 +45,12 @@
 						"urlLabel": "Open the API Library"
 					},
 					{
+						"title": "Enable the YouTube Analytics API and the YouTube Reporting API",
+						"detail": "Same Library page: enable \"YouTube Analytics API\" and \"YouTube Reporting API\". They give your agent watch time, retention, traffic sources, thumbnail impressions and click-through rate for your own channel. Already connected before? Reconnect so the plugin can ask for analytics access.",
+						"url": "https://console.cloud.google.com/apis/library/youtubereporting.googleapis.com",
+						"urlLabel": "Open the Reporting API"
+					},
+					{
 						"title": "Publish the OAuth consent screen (In production)",
 						"detail": "Google Auth Platform → Audience → Publish app. A client left in \"Testing\" gets refresh tokens that expire after 7 days, so the connection silently dies every week. For your own account, publishing needs no Google review; you may see an \"unverified app\" warning at sign-in, which is expected for your own client.",
 						"url": "https://console.cloud.google.com/auth/audience",
@@ -76,7 +82,8 @@
 					"tokenUrl": "https://oauth2.googleapis.com/token",
 					"scopes": [
 						"https://www.googleapis.com/auth/youtube",
-						"https://www.googleapis.com/auth/youtube.force-ssl"
+						"https://www.googleapis.com/auth/youtube.force-ssl",
+						"https://www.googleapis.com/auth/yt-analytics.readonly"
 					],
 					"usePkce": true,
 					"extraAuthParams": {
@@ -164,6 +171,24 @@
 					"use": "summary",
 					"icon": "youtube",
 					"title": "Channel stats"
+				},
+				{
+					"match": "youtube_reach_report",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Reach report"
+				},
+				{
+					"match": "youtube_video_analytics",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Video analytics"
+				},
+				{
+					"match": "youtube_update_video",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Update video"
 				}
 			],
 			"skillCard": {
@@ -208,6 +233,18 @@
 				{
 					"name": "youtube_channel_stats",
 					"description": "Read a channel's public statistics by @handle, channel id, or your own: subscribers, views, video count, and its uploads playlist."
+				},
+				{
+					"name": "youtube_reach_report",
+					"description": "Thumbnail impressions and click-through rate for your channel's videos, by video or by traffic source, from YouTube's daily reach reports."
+				},
+				{
+					"name": "youtube_video_analytics",
+					"description": "One of your videos in YouTube Analytics: views, engaged views, watch time, average view duration and percentage, traffic sources and the retention curve."
+				},
+				{
+					"name": "youtube_update_video",
+					"description": "Change a posted video's title or thumbnail, only as approved on the Traction campaign board. Asks you every time."
 				}
 			]
 		}

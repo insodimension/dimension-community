@@ -7,12 +7,13 @@
  *  emulators are found again at the next start only when they are provably the
  *  ones it spawned.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnedProcess, StopOptions, StopOutcome } from "../src/backend";
 import { DEFAULT_SETTINGS, type SimulatorSettings } from "../src/settings";
+import { DurableFileUnreadableError } from "../../../lib/durable-file.mjs";
 import { Fleet, fileOwnershipStore, type OwnedRecord, type OwnershipStore, type Timer } from "../src/fleet";
 import { until } from "./fake-android-tools";
 import { type FakeBoot, FakeBackend, emulatorDevice } from "./fake-backend";
@@ -26,6 +27,7 @@ class MemoryStore implements OwnershipStore {
   records: OwnedRecord[];
   readonly writes: OwnedRecord[][] = [];
   failure: Error | null = null;
+  readFailure: Error | null = null;
   refusedWrites = 0;
 
   constructor(initial: readonly OwnedRecord[] = []) {
@@ -33,6 +35,7 @@ class MemoryStore implements OwnershipStore {
   }
 
   read(): OwnedRecord[] {
+    if (this.readFailure !== null) throw this.readFailure;
     return [...this.records];
   }
 
@@ -714,6 +717,15 @@ describe("a crashed pack's emulators", () => {
     await until(() => !r.store.records.some(item => item.pid === stale.pid), "the stale record to be dropped by the second proof", 2_000);
     expect(r.store.records.map(item => item.avd).sort()).toEqual(["Pixel_A", "Pixel_B"]);
   });
+
+  test("an ownership file that cannot be read still lets the pack boot, and is never overwritten while it cannot be read", async () => {
+    const r = rig();
+    r.store.readFailure = new Error("owned.json is unreadable (torn) and has no readable backup.");
+    await bootUp(r, "Pixel_A", "emulator-5556");
+    expect(r.fleet.owned().map(record => record.serial)).toEqual(["emulator-5556"]);
+    expect(r.store.writes).toEqual([]);
+    expect(r.logs.some(line => line.includes("the ownership file could not be read"))).toBe(true);
+  });
 });
 
 describe("fileOwnershipStore", () => {
@@ -729,12 +741,36 @@ describe("fileOwnershipStore", () => {
 
   const valid: OwnedRecord = { serial: "emulator-5556", avd: "Pixel_A", pid: 4100, startedAt: T0, bootedAt: T0, ownerPid: PACK_PID, ownerStartedAt: T0 };
 
-  test("a file that is missing, corrupt or not a list reads as nothing owned: never a reason to refuse a boot", () => {
+  test("a missing file reads as nothing owned", () => {
     expect(fileOwnershipStore(join(dir, "missing.json")).read()).toEqual([]);
-    writeFileSync(join(dir, "corrupt.json"), "{ not json");
-    expect(fileOwnershipStore(join(dir, "corrupt.json")).read()).toEqual([]);
-    writeFileSync(join(dir, "object.json"), JSON.stringify({ pid: 1 }));
-    expect(fileOwnershipStore(join(dir, "object.json")).read()).toEqual([]);
+  });
+
+  test("a file that is corrupt or not a list, with no backup, is refused rather than read as nothing owned, so it is never written over", () => {
+    const stderr = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      writeFileSync(join(dir, "corrupt.json"), "{ not json");
+      expect(() => fileOwnershipStore(join(dir, "corrupt.json")).read()).toThrow(DurableFileUnreadableError);
+      writeFileSync(join(dir, "object.json"), JSON.stringify({ pid: 1 }));
+      expect(() => fileOwnershipStore(join(dir, "object.json")).read()).toThrow(DurableFileUnreadableError);
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  test("a torn file is read from the copy the last write kept, so a crash mid-write never forgets an emulator the pack booted", () => {
+    const path = join(dir, "owned.json");
+    const store = fileOwnershipStore(path);
+    const starting: OwnedRecord = { ...valid, serial: null, pid: 4200 };
+    store.write([valid]);
+    store.write([valid, starting]);
+    writeFileSync(path, '[{"serial":');
+    const stderr = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(store.read()).toEqual([valid]);
+    } finally {
+      stderr.mockRestore();
+    }
+    expect(readdirSync(dir).filter(name => name.startsWith("owned.json.corrupt-"))).toHaveLength(1);
   });
 
   test("a record from before ownership was by process (no pid or start time) cannot be verified, so it is not read", () => {

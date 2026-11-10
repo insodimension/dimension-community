@@ -609,3 +609,43 @@ describe("the sealed store, as it is written", () => {
 		expect(onDisk(rootDir, "Kept-Plain_1#fixture")).toBe(false);
 	});
 });
+
+describe("a torn store", () => {
+	test("is read from the sealed copy the last write kept, and a plain-text store never becomes that copy", async () => {
+		const { rootDir, profileDir, file, key } = await fresh();
+		writeFileSync(file, `${JSON.stringify({ version: 1, origins: { [SHOP]: "Plain-Old_1#fixture" } })}\n`);
+		savedPasswords(profileDir, key);
+		expect(existsSync(`${file}.bak`)).toBe(false);
+		const minted = resolveCredential(profileDir, { origin: BANK, mode: "signup" }, key).password;
+		expect(onDisk(rootDir, "Plain-Old_1#fixture")).toBe(false);
+		expect(JSON.parse(readFileSync(`${file}.bak`, "utf8")).version).toBe(2);
+
+		writeFileSync(file, readFileSync(file, "utf8").slice(0, 40));
+		const saying = spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			expect(readCredentials(profileDir, key)).toEqual({ [SHOP]: "Plain-Old_1#fixture" });
+			expect(saying.mock.calls.some(([message]) => String(message).includes("read from its backup"))).toBe(true);
+			expect(saying.mock.calls.some(([message]) => String(message).includes("Plain-Old_1#fixture") || String(message).includes(minted))).toBe(false);
+		} finally {
+			saying.mockRestore();
+		}
+	});
+
+	test("a damaged plain-text store is read from the sealed copy and is never copied aside, so its plain text stays in that one file", async () => {
+		const { rootDir, profileDir, file, key } = await fresh();
+		resolveCredential(profileDir, { origin: SHOP, mode: "signup" }, key);
+		resolveCredential(profileDir, { origin: BANK, mode: "signup" }, key);
+		expect(JSON.parse(readFileSync(`${file}.bak`, "utf8")).version).toBe(2);
+		const torn = `${JSON.stringify({ version: 1, origins: { [SHOP]: "Torn-Plain_9#fixture", [BANK]: "x" } })}`.slice(0, -10);
+		writeFileSync(file, torn);
+		const saying = spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			expect(Object.keys(readCredentials(profileDir, key))).toEqual([SHOP]);
+		} finally {
+			saying.mockRestore();
+		}
+		expect(readdirSync(profileDir).filter((name) => name.startsWith("credentials.json.corrupt-"))).toEqual([]);
+		expect(everythingUnder(rootDir).filter((bytes) => bytes.includes(Buffer.from("Torn-Plain_9#fixture", "utf8")))).toHaveLength(1);
+		expect(readFileSync(file, "utf8")).toBe(torn);
+	});
+});

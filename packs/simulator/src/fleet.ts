@@ -22,8 +22,7 @@
 //               started since is never mistaken for ours.
 //   exit        `shutdown()` stops what the pack booted.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { parseJsonBytes, readDurableFileSync, writeFileAtomicSync } from "../../../lib/durable-file.mjs";
 import type { BootHandle, BootObserver, DeviceBackend, StopOptions, StopOutcome } from "./backend";
 import { type BootRequest, type DeviceInfo, fail } from "./contracts";
 import type { SimulatorSettings } from "./settings";
@@ -46,37 +45,30 @@ export interface OwnershipStore {
   write(records: readonly OwnedRecord[]): void;
 }
 
-/** A JSON file, written atomically. A missing or corrupt file reads as "nothing owned": never a reason to refuse a boot. A record from before ownership was by process (no pid or start time) cannot be verified, so it reads as nothing too. */
 export function fileOwnershipStore(path: string): OwnershipStore {
   return {
-    read: () => {
-      try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter(
-          (entry): entry is OwnedRecord =>
-            typeof entry === "object" &&
-            entry !== null &&
-            (entry.serial === null || typeof entry.serial === "string") &&
-            typeof entry.avd === "string" &&
-            isEmulatorPid(entry.pid) &&
-            Number.isFinite(entry.startedAt) &&
-            Number.isFinite(entry.bootedAt) &&
-            Number.isSafeInteger(entry.ownerPid) &&
-            entry.ownerPid > 0 &&
-            Number.isFinite(entry.ownerStartedAt),
-        );
-      } catch {
-        return [];
-      }
-    },
-    write: records => {
-      mkdirSync(dirname(path), { recursive: true });
-      const temp = `${path}.${process.pid}.tmp`;
-      writeFileSync(temp, JSON.stringify(records, null, 2));
-      renameSync(temp, path);
-    },
+    read: () =>
+      (readDurableFileSync(path, parseRecordList) ?? []).filter(
+        (entry): entry is OwnedRecord =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry.serial === null || typeof entry.serial === "string") &&
+          typeof entry.avd === "string" &&
+          isEmulatorPid(entry.pid) &&
+          Number.isFinite(entry.startedAt) &&
+          Number.isFinite(entry.bootedAt) &&
+          Number.isSafeInteger(entry.ownerPid) &&
+          (entry.ownerPid as number) > 0 &&
+          Number.isFinite(entry.ownerStartedAt),
+      ),
+    write: records => writeFileAtomicSync(path, JSON.stringify(records, null, 2), { backup: { parse: parseRecordList } }),
   };
+}
+
+function parseRecordList(bytes: Buffer): Array<{ readonly [field in keyof OwnedRecord]?: unknown } | null> {
+  const parsed = parseJsonBytes(bytes);
+  if (!Array.isArray(parsed)) throw new Error("the ownership record is not a list");
+  return parsed;
 }
 
 export interface Timer {
@@ -192,7 +184,7 @@ export class Fleet {
 
   async #adoptOrphans(): Promise<void> {
     const backend = this.#deps.backend;
-    const records = this.#deps.store.read();
+    const records = this.#readRecords() ?? [];
     let changed = false;
     for (const record of records) {
       if (record.ownerPid !== this.#pid && (await this.#ownerRunning(record))) continue;
@@ -251,9 +243,20 @@ export class Fleet {
 
   /** This pack's records, plus those of OTHER pack processes that are still running. A dead owner's record was adopted (then it is ours) or dropped by `reconcile`: it is never carried forward. */
   #persist(): void {
+    const stored = this.#readRecords();
+    if (stored === undefined) return;
     const mine = [...this.#owned.values()];
-    const others = this.#deps.store.read().filter(record => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some(own => own.pid === record.pid && own.startedAt === record.startedAt));
+    const others = stored.filter(record => record.ownerPid !== this.#pid && this.#siblingRunning(record) && !mine.some(own => own.pid === record.pid && own.startedAt === record.startedAt));
     this.#deps.store.write([...others, ...mine]);
+  }
+
+  #readRecords(): OwnedRecord[] | undefined {
+    try {
+      return this.#deps.store.read();
+    } catch (error) {
+      this.#deps.log(`[sim] the ownership file could not be read, so it is left as it is: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
   }
 
   async boot(request: BootRequest, waitMs: number): Promise<BootOutcome> {

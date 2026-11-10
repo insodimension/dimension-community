@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "simulator",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "An Android phone emulator beside your chat that your agent can drive while you watch: tap, type, install and open apps.",
 	"keywords": [
 		"simulator",

@@ -19,9 +19,9 @@
 //
 // A project-tier agent has only the sibling: it belongs to one project, so it
 // has no home and no workspace copy.
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { writeFileAtomic } from "../../../lib/durable-file.mjs";
 import { agentHomeWorkspaceId, derivesAgentHome, GENERAL_AGENT_FILE, GENERAL_AGENTS_DIR } from "@dimension/sdk/general-agent";
 import type { AgentHome, AgentInstructions, AgentSource, InstructionFile, InstructionsSaved } from "./contracts.js";
 import { LEGACY_DIR, listAgents, pathsOf, type Roots, revisionOf, SaveRefused, WRITE_DIR } from "./store.js";
@@ -179,14 +179,6 @@ export async function saveInstructions(roots: Roots, name: string, text: string,
 	if (target.revision !== revision) {
 		throw new SaveRefused(`${name}'s standing instructions changed since they were opened here: the file was edited elsewhere, or its home was set up since, so a save would land somewhere else. Reopen them so nothing written since is lost.`);
 	}
-	const temp = join(dirname(target.path), `.${basename(target.path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
-	try {
-		await mkdir(dirname(target.path), { recursive: true });
-		await writeFile(temp, text === "" || text.endsWith("\n") ? text : `${text}\n`, { encoding: "utf8", flag: "wx" });
-		await rename(temp, target.path);
-	} catch (error) {
-		await rm(temp, { force: true });
-		throw error;
-	}
+	await writeFileAtomic(target.path, text === "" || text.endsWith("\n") ? text : `${text}\n`);
 	return { path: target.path, kind: target.kind };
 }
