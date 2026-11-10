@@ -1,6 +1,6 @@
 ---
 name: simulator
-description: Drive an Android emulator the user can watch beside the chat — boot it, screenshot, tap by label, swipe, type, press keys, open URLs, install and launch apps, read the screen as a UI tree. Use to test a mobile app, reproduce a bug on a phone, walk a flow, or "look at the emulator". Emulators only: a physical phone is the person's own device and is refused unless they named it.
+description: Drive an Android emulator the user can watch beside the chat — boot it, screenshot, tap by label, swipe, type, press keys, open URLs, install and launch apps, read the screen as a UI tree. Use to test a mobile app, reproduce a bug on a phone, walk a flow, or "look at the emulator". A physical phone is the person's own device: it is never picked by default; drive it only when the person named it.
 ---
 
 # Simulator

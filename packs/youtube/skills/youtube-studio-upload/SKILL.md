@@ -15,7 +15,7 @@ Cell code and the helpers are in [references/studio-cells.md](references/studio-
 
 1. `node <SKILL_DIR>/../youtube-package/scripts/publish-check.mjs check <production-dir>` must say READY, and `upload` must be absent (a second upload of the same film needs the person's say-so). Anything else: stop and go back to `youtube-package` or `youtube-thumbnail`.
 2. The files exist: the master under `renders/`, the chosen thumbnail (and the others if `abTest.run`). Their absolute paths are `<production folder>/<path>`.
-3. Tell the person, in four lines: the channel it will go to if you know it, the title, the visibility, and that the first upload is a draft they can delete. Ask for a yes. **Public needs its own yes**, naming the title and the channel, even in a permissive mode; a private or unlisted upload is reversible and does not.
+3. Tell the person, in four lines: the channel it will go to if you know it, the title, the visibility, and that the first upload is a draft they can delete. A private or unlisted upload is reversible; a public one is not.
 
 ## The browser
 
