@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "google-drive",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Let your agent list, search and read the files in your Google Drive.",
 	"author": {
 		"name": "Dimension"
@@ -95,7 +95,7 @@
 						{
 							"id": "write",
 							"label": "Full access",
-							"detail": "Also upload, create folders, move/rename, and share files — every mutation asks you first.",
+							"detail": "Also upload, create folders, move/rename, and share files.",
 							"scopes": [
 								"https://www.googleapis.com/auth/drive"
 							]

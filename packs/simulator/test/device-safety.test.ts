@@ -1,13 +1,12 @@
 /** WHAT BREAKS IN THE PRODUCT IF THIS GOES RED: an agent asked to use an
  *  EMULATOR drives the owner's own phone. That happened once for real (the only
  *  adb device was a USB phone, IV2201, and the serial may be left out), so the
- *  rules here are the whole safety net: anything that cannot be shown to be an
- *  emulator is a phone, a phone is never picked for you, and acting on one takes
- *  two keys (the call's allowPhysical AND the user's setting).
+ *  rules here are the safety net: anything that cannot be shown to be an
+ *  emulator is a phone, and a phone is never picked for you.
  */
 import { describe, expect, test } from "bun:test";
 import type { DeviceKind, DeviceState } from "../src/contracts";
-import { classifyDevice, physicalAccessRefusal, redactSerial, type SelectableDevice, selectDefaultDevice } from "../src/device-safety";
+import { classifyDevice, type SelectableDevice, selectDefaultDevice } from "../src/device-safety";
 
 const PHONE = "QGL78HORAISCWGVS";
 
@@ -37,38 +36,6 @@ describe("classifyDevice", () => {
   }
 });
 
-describe("physicalAccessRefusal", () => {
-  const keys = [
-    { callAllows: false, settingAllows: false },
-    { callAllows: true, settingAllows: false },
-    { callAllows: false, settingAllows: true },
-  ];
-  for (const key of keys) {
-    test(`a phone is refused with the call key ${key.callAllows ? "on" : "off"} and the setting ${key.settingAllows ? "on" : "off"}, and the refusal names both keys`, () => {
-      const refusal = physicalAccessRefusal({ serial: PHONE, kind: "physical", ...key });
-      expect(refusal).not.toBeNull();
-      expect(refusal).toContain(PHONE);
-      expect(refusal).toContain("allowPhysical: true");
-      expect(refusal).toContain("simulator.allowPhysical");
-      // It says which key is missing, so the model does not retry the wrong one.
-      expect(refusal).toContain(key.callAllows ? "passes allowPhysical: true" : "does not pass allowPhysical");
-      expect(refusal).toContain(key.settingAllows ? "setting is on" : "setting is off");
-    });
-  }
-
-  test("a phone is allowed only with both keys", () => {
-    expect(physicalAccessRefusal({ serial: PHONE, kind: "physical", callAllows: true, settingAllows: true })).toBeNull();
-  });
-
-  test("an emulator is never refused, whatever the keys", () => {
-    for (const callAllows of [false, true]) {
-      for (const settingAllows of [false, true]) {
-        expect(physicalAccessRefusal({ serial: "emulator-5554", kind: "emulator", callAllows, settingAllows })).toBeNull();
-      }
-    }
-  });
-});
-
 describe("selectDefaultDevice: what a call that left serial out can mean", () => {
   test("the owner's phone as the ONLY adb device is not picked: this is the live-run incident", () => {
     const pick = selectDefaultDevice([selectable(PHONE, "physical", "online", "IV2201")], undefined);
@@ -77,8 +44,7 @@ describe("selectDefaultDevice: what a call that left serial out can mean", () =>
     expect(pick.code).toBe("no_emulator");
     // The refusal points the model at the way out, and tells it the phone is not the answer.
     expect(pick.message).toContain("device_boot");
-    expect(pick.message).toContain(`****${PHONE.slice(-4)}`);
-    expect(pick.message).not.toContain(PHONE);
+    expect(pick.message).toContain(PHONE);
     expect(pick.message).toContain("never picked for you");
   });
 
@@ -121,16 +87,4 @@ describe("selectDefaultDevice: what a call that left serial out can mean", () =>
     expect(pick.ok).toBe(false);
     if (!pick.ok) expect(pick.code).toBe("no_emulator");
   });
-});
-
-describe("redactSerial", () => {
-  const rows: { name: string; serial: string; masked: string }[] = [
-    { name: "a USB phone's hardware serial", serial: PHONE, masked: "****WGVS" },
-    { name: "a phone attached over the network, address and port", serial: "192.168.1.20:5555", masked: "****5555" },
-  ];
-  for (const row of rows) {
-    test(`${row.name} is shown as four stars and its last four characters, so it can be told apart and not read out`, () => {
-      expect(redactSerial(row.serial)).toBe(row.masked);
-    });
-  }
 });

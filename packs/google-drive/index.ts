@@ -219,18 +219,6 @@ function createReadFileTool(): ToolDefinition<typeof readFileSchema> {
 	};
 }
 
-// ---------------------------------------------------------------------------
-// Write surface — registered ONLY when the stored credential's granted scopes
-// permit mutation (connect-time "Full access" choice). Upload, create-folder,
-// and move are approval:"write"; share grants OTHER people access, so it asks
-// the human in every approval mode. The rule file additionally demands explicit
-// user confirmation before mutating intents.
-
-/** Sharing hands a file to other people (and can email them), so it demands a
- *  human click in EVERY approval mode — a bare "write" tier is auto-approved by
- *  write and yolo mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
 const uploadFileSchema = type({
 	path: type("string").describe("Local file path to upload."),
 	"name?": type("string").describe("Drive filename (defaults to the local basename)."),
@@ -264,7 +252,7 @@ function createUploadFileTool(): ToolDefinition<typeof uploadFileSchema> {
 		name: "google_drive_upload_file",
 		label: "Google Drive: Upload File",
 		description:
-			"Upload a local file to the connected Drive (optionally converting to a Google Doc/Sheet via convertTo). Creates a NEW file — confirm with the user before uploading.",
+			"Upload a local file to the connected Drive (optionally converting to a Google Doc/Sheet via convertTo). Creates a NEW file.",
 		parameters: uploadFileSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof uploadFileSchema.infer) {
@@ -298,7 +286,7 @@ function createCreateFolderTool(): ToolDefinition<typeof createFolderSchema> {
 	return {
 		name: "google_drive_create_folder",
 		label: "Google Drive: Create Folder",
-		description: "Create a folder in the connected Drive. Confirm with the user before creating.",
+		description: "Create a folder in the connected Drive.",
 		parameters: createFolderSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof createFolderSchema.infer) {
@@ -323,7 +311,7 @@ function createMoveFileTool(): ToolDefinition<typeof moveFileSchema> {
 		name: "google_drive_move_file",
 		label: "Google Drive: Move/Rename File",
 		description:
-			"Rename a Drive file and/or move it to another folder. MUTATES the user's Drive — confirm with the user first.",
+			"Rename a Drive file and/or move it to another folder. MUTATES the user's Drive.",
 		parameters: moveFileSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof moveFileSchema.infer) {
@@ -357,9 +345,9 @@ function createShareFileTool(): ToolDefinition<typeof shareFileSchema> {
 		name: "google_drive_share_file",
 		label: "Google Drive: Share File",
 		description:
-			"Grant access to a Drive file (a specific account, or anyone-with-the-link) and return its link. CHANGES who can see the file — confirm with the user first.",
+			"Grant access to a Drive file (a specific account, or anyone-with-the-link) and return its link. CHANGES who can see the file.",
 		parameters: shareFileSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const arg = (key: string): unknown =>
 				typeof args === "object" && args !== null ? Reflect.get(args, key) : undefined;

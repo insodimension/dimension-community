@@ -1,10 +1,3 @@
-// Public, unretractable X writes (post, thread, DM, delete) must stop for a human
-// click in EVERY approval mode, yolo included — a bare "write" tier is
-// auto-approved there. The gate is decided by the engine's own `resolveApproval`
-// (the pack's `@oh-my-pi/pi-coding-agent` peer), fed the tool exactly as the
-// default-exported factory registers it. The approval card is what the human
-// reads before clicking, so it must carry everything that goes out, verbatim.
-//
 // `CONFIG_TARGET` is derived from `homedir()` at module load, so HOME is pointed
 // at a temp dir around the dynamic import only: the account tests swap the
 // stored credential there and stub `fetch`, never touching the real token.
@@ -13,7 +6,6 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveApproval } from "@oh-my-pi/pi-coding-agent/tools/approval";
 
 const home = await mkdtemp(join(tmpdir(), "dimension-x-approval-"));
 const tokenDir = join(home, ".config", "dimension-x");
@@ -90,21 +82,6 @@ function card(name: string, args: unknown, session: Session = tools): string {
 	if (!format) throw new Error(`${name} has no approval card`);
 	return format(args).join("\n");
 }
-
-const yolo = (name: string, args: unknown) =>
-	resolveApproval(tool(name) as Parameters<typeof resolveApproval>[0], args, "yolo").policy;
-
-test("publishing, deleting and DMing prompt the human even in yolo mode", () => {
-	expect(yolo("x_post", { text: "shipping today" })).toBe("prompt");
-	expect(yolo("x_post", { text: "agreed", replyTo: "1790000000000000000" })).toBe("prompt");
-	expect(yolo("x_thread", { posts: ["one", "two"] })).toBe("prompt");
-	expect(yolo("x_dm", { username: "@someone", text: "hi" })).toBe("prompt");
-	expect(yolo("x_delete", { post: "1790000000000000000" })).toBe("prompt");
-});
-
-test("a private bookmark stays auto-approved in yolo mode", () => {
-	expect(yolo("x_bookmark", { post: "1790000000000000000" })).toBe("allow");
-});
 
 test("the x_post card shows the whole text, untruncated, and the post it replies to", () => {
 	const text = `${"long form update, every word matters. ".repeat(10)}END-OF-POST`;

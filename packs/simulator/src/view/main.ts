@@ -52,8 +52,7 @@ async function main(): Promise<void> {
   let selection: Selection = { serial: null, booting: null, notes: [] };
   let selectedAvd: string | null = null;
   let attached: string | null = null;
-  let attachedPhysical = false;
-  /** "Show physical devices": off at every start. Only the person turns it on, and only then (and with the setting on) does the pane list a phone. */
+  /** "Show physical devices": off at every start. Only the person turns it on, and only then does the pane list a phone. */
   let showPhysical = false;
   let shell: Shell | null = null;
   let chrome: Chrome | null = null;
@@ -83,7 +82,6 @@ async function main(): Promise<void> {
   function detach(): void {
     stream?.stop();
     attached = null;
-    attachedPhysical = false;
     shell?.status(null);
     chrome?.update({ status: null });
   }
@@ -94,9 +92,8 @@ async function main(): Promise<void> {
     const owner = client;
     const next = shell;
     attached = device.serial;
-    attachedPhysical = device.kind === "physical";
     stream ??= new LiveStream(next.canvas, {
-      acquire: (mode: StreamMode) => owner.stream(attached ?? device.serial, mode, attachedPhysical),
+      acquire: (mode: StreamMode) => owner.stream(attached ?? device.serial, mode),
       onSize: (width, height) => {
         next.aspect(width, height);
         chrome?.update({ frame: { width, height } });

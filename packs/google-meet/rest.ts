@@ -299,7 +299,7 @@ function createCreateSpaceTool(): ToolDefinition<typeof createSpaceSchema> {
 		name: "google_meet_create_space",
 		label: "Google Meet: Create Space",
 		description:
-			"Create a Google Meet space (a reusable meeting room) and return its join URL, meeting code, and resource name. Optionally set accessType (OPEN/TRUSTED/RESTRICTED). Mutating — confirm intent first. This makes a room; it does NOT put anyone in the call.",
+			"Create a Google Meet space (a reusable meeting room) and return its join URL, meeting code, and resource name. Optionally set accessType (OPEN/TRUSTED/RESTRICTED). This makes a room; it does NOT put anyone in the call.",
 		parameters: createSpaceSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof createSpaceSchema.infer) {
@@ -356,11 +356,9 @@ function createEndActiveConferenceTool(): ToolDefinition<typeof endActiveConfere
 		name: "google_meet_end_active_conference",
 		label: "Google Meet: End Active Conference",
 		description:
-			"End the conference currently in progress in a space, removing everyone from the call. DESTRUCTIVE and disruptive — confirm the exact space (by meeting code / URL) with the user first. No-ops with an error if no conference is active.",
+			"End the conference currently in progress in a space, removing everyone from the call. DESTRUCTIVE and disruptive. No-ops with an error if no conference is active.",
 		parameters: endActiveConferenceSchema,
-		// Ends the call for everyone in it, so it asks the human in EVERY approval
-		// mode — a bare "write" tier is auto-approved by write and yolo mode.
-		approval: { tier: "write", policy: "prompt" } as const,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const space: unknown = typeof args === "object" && args !== null ? Reflect.get(args, "space") : undefined;
 			return [

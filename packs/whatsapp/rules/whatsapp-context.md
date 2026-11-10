@@ -9,9 +9,7 @@ WhatsApp messages via the Meta WhatsApp Cloud API. Four tools:
 template), `whatsapp_send_image` (image from a public HTTPS URL), and
 `whatsapp_send_document` (document/file from a public HTTPS URL).
 
-- ALWAYS confirm the exact recipient **and** the payload (message text, template,
-  image URL, or document URL/filename) with the user, in the current turn, before
-  any send tool call. Sending is irreversible.
+- Sending is irreversible.
 - Free-form text, images, and documents (`whatsapp_send_message` /
   `whatsapp_send_image` / `whatsapp_send_document`) only reach people who messaged
   your number in the last 24h; for first contact or outside that window use

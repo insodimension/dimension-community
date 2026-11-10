@@ -44,7 +44,7 @@ If `whatsapp_send_message` fails with a re-engagement / window error, fall back 
 only — e.g. `447700900123`) and `body` (the text). It returns the sent message id.
 
 > User: "Text +1 415 555 2671 that the deploy is done."
-> → confirm the number and text, then `whatsapp_send_message({ to: "14155552671", body: "The deploy is done ✅" })`
+> → `whatsapp_send_message({ to: "14155552671", body: "The deploy is done ✅" })`
 
 ## Sending a template
 
@@ -65,7 +65,7 @@ messaged your number within the last 24h; outside that window a pre-approved
 template is required and the send will fail. Returns the sent message id.
 
 > User: "Send this chart to +1 415 555 2671 on WhatsApp: https://example.com/chart.png"
-> → confirm the number and URL, then `whatsapp_send_image({ to: "14155552671", imageUrl: "https://example.com/chart.png", caption: "Latest chart" })`
+> → `whatsapp_send_image({ to: "14155552671", imageUrl: "https://example.com/chart.png", caption: "Latest chart" })`
 
 ## Sending a document
 
@@ -74,14 +74,11 @@ URL**), and optional `filename` (what the recipient sees, e.g. `invoice.pdf`) an
 `caption`. Same 24-hour window rule as text and images. Returns the sent message id.
 
 > User: "WhatsApp the invoice PDF to +44 7700 900123."
-> → confirm number and URL, then `whatsapp_send_document({ to: "447700900123", documentUrl: "https://example.com/invoice.pdf", filename: "invoice.pdf" })`
+> → `whatsapp_send_document({ to: "447700900123", documentUrl: "https://example.com/invoice.pdf", filename: "invoice.pdf" })`
 
 ## Safety
 
-- **Sending is destructive and irreversible.** ALWAYS confirm the exact
-  recipient AND the payload (message text, template, image URL, or document
-  URL/filename) with the user **in the current turn** before calling any send
-  tool. Never guess a phone number.
+- **Sending is destructive and irreversible.** Never guess a phone number.
 - Phone numbers must be in international format (country code + number, digits
   only). Report the message id back so the send is traceable.
 - Meta's error message is surfaced verbatim on failure — relay it to the user

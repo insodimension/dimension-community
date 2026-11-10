@@ -19,10 +19,8 @@ and pass the flags it returns.
 - **Never read the browser's cookies for X** and never ask for
   `auth_token`/`ct0`. Posts older than 7 days and analytics are read on x.com
   in the Browser pack's signed-in profile, a few page loads per task.
-- **Confirm the exact text AND target with the user before every write**
-  (`x_post`, `x_thread`, `x_delete`, `x_dm`). Each is public or sent for real,
-  immediate, attributed to the user, and cannot be silently undone. Show the
-  draft; get an explicit yes in the current turn.
+- `x_post`, `x_thread`, `x_delete` and `x_dm` are public or sent for real,
+  immediate, attributed to the user, and cannot be silently undone.
 - **Programmatic replies are restricted by X policy**: only reply via `x_post
   { replyTo }` when the original author @mentioned or quoted the user.
   Otherwise **draft the reply and let the user send it** — that is always

@@ -498,35 +498,9 @@ describe("which devices are phones", () => {
     ],
   };
 
-  const kinds: { serial: string; kind: "emulator" | "physical"; why: string }[] = [
-    { serial: PHONE, kind: "physical", why: "the owner's USB phone, with the properties it reports" },
-    { serial: "ZX1PROBEFAIL", kind: "physical", why: "a device whose properties could not be read is a phone: fail safe" },
-    { serial: "UNAUTH0001", kind: "physical", why: "an unauthorized device cannot be asked, and is a phone" },
-    { serial: "NETPHONE:5555", kind: "physical", why: "a phone attached over Wi-Fi" },
-    { serial: "10.0.0.9:5555", kind: "emulator", why: "an emulator attached over the network, by its properties" },
-    { serial: "emulator-5554", kind: "emulator", why: "an emulator by its own name" },
-  ];
-  for (const row of kinds) {
-    test(`kindOf ${row.serial}: ${row.kind} (${row.why})`, async () => {
-      const { backend } = rig(world);
-      expect(await backend.kindOf(row.serial, true)).toBe(row.kind);
-    });
-  }
-
-  test("an emulator by its serial needs no round trip to the device", async () => {
+  test("the device list tells emulators from phones, and the owner's phone is never called an emulator", async () => {
     const { backend } = rig(world);
-    await backend.kindOf("emulator-5554");
-    expect(tools.calls()).toEqual([]);
-  });
-
-  test("a serial that is not attached is reported as not connected", async () => {
-    const { backend } = rig(world);
-    await expect(backend.kindOf("NOT-ATTACHED")).rejects.toMatchObject({ code: "not_connected" });
-  });
-
-  test("the device list carries the same verdicts, and the owner's phone is never called an emulator", async () => {
-    const { backend } = rig(world);
-    const listed = await backend.list({ probePhysical: true });
+    const listed = await backend.list();
     expect(Object.fromEntries(listed.map(device => [device.serial, device.kind]))).toEqual({
       [PHONE]: "physical",
       "emulator-5554": "emulator",
@@ -536,30 +510,26 @@ describe("which devices are phones", () => {
       "NETPHONE:5555": "physical",
     });
   });
+});
 
-  test("a list without probing runs no shell on anything that is not an emulator, and builds the phone's entry from adb's own fields", async () => {
+describe("naming a device the pack acts on", () => {
+  const world: FakeWorld = { avds: [AVD], devices: [{ serial: PHONE, state: "device", model: "IV2201", probe: probeOutput({ model: "IV2201", hardware: "qcom", characteristics: "default" }) }, PERSON] };
+
+  test("an emulator by its serial needs no round trip to the device", async () => {
     const { backend } = rig(world);
-    const listed = await backend.list();
-
-    const shelled = new Set(tools.calls().filter(call => call.args[0] === "shell").map(call => call.serial));
-    expect([...shelled]).toEqual(["emulator-5554"]);
-    expect(listed.find(device => device.serial === PHONE)).toMatchObject({ kind: "physical", state: "online", name: "IV2201", androidVersion: null, display: null, density: null });
-    expect(Object.fromEntries(listed.map(device => [device.serial, device.kind]))).toEqual({
-      [PHONE]: "physical",
-      "emulator-5554": "emulator",
-      ZX1PROBEFAIL: "physical",
-      UNAUTH0001: "physical",
-      "10.0.0.9:5555": "physical",
-      "NETPHONE:5555": "physical",
-    });
+    await backend.ensureConnected("emulator-5554");
+    expect(tools.calls()).toEqual([]);
   });
 
-  test("a kind asked for without probing runs no shell, so an emulator on the network is a phone until both keys are on", async () => {
+  test("an attached phone is found in adb's own listing and nothing is run on it", async () => {
     const { backend } = rig(world);
-    expect(await backend.kindOf("10.0.0.9:5555")).toBe("physical");
-    expect(await backend.kindOf(PHONE)).toBe("physical");
+    await backend.ensureConnected(PHONE);
     expect(tools.calls().filter(call => call.args[0] === "shell")).toEqual([]);
-    expect(await backend.kindOf("10.0.0.9:5555", true)).toBe("emulator");
+  });
+
+  test("a serial that is not attached is reported as not connected", async () => {
+    const { backend } = rig(world);
+    await expect(backend.ensureConnected("NOT-ATTACHED")).rejects.toMatchObject({ code: "not_connected" });
   });
 });
 

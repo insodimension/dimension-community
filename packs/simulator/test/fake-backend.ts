@@ -2,7 +2,7 @@
 // behind it. It records every call that ACTS on a device, so a test can say
 // "nothing touched the phone" rather than "a mock was called with these args".
 
-import type { BootHandle, BootObserver, DeviceBackend, ListOptions, OwnedProcess, ResolvedBoot, RunningEmulator, StopOptions, StopOutcome, VideoStream } from "../src/backend";
+import type { BootHandle, BootObserver, DeviceBackend, OwnedProcess, ResolvedBoot, RunningEmulator, StopOptions, StopOutcome, VideoStream } from "../src/backend";
 import { type DeviceInfo, fail, type KeyName, type Screenshot, type UiNode, type UiSnapshot } from "../src/contracts";
 import type { Size } from "../src/shared/pointer";
 
@@ -52,24 +52,17 @@ export class FakeBackend implements DeviceBackend {
   readonly boots: FakeBoot[] = [];
   readonly stops: { process: OwnedProcess; serial: string | null }[] = [];
   readonly stopOptions: (StopOptions | undefined)[] = [];
-  readonly listOptions: ListOptions[] = [];
-  readonly probed: string[] = [];
   readonly waitBootedCalls: string[] = [];
   waitBootedHold: Promise<void> | null = null;
   #nextPid = 4000;
   #uiReads = 0;
 
-  async list(options: ListOptions = {}): Promise<DeviceInfo[]> {
-    this.listOptions.push(options);
-    if (options.probePhysical === true) for (const device of this.devices) if (device.kind === "physical") this.probed.push(`list ${device.serial}`);
+  async list(): Promise<DeviceInfo[]> {
     return [...this.devices];
   }
 
-  async kindOf(serial: string, probeShell = false): Promise<DeviceInfo["kind"]> {
-    const device = this.devices.find(candidate => candidate.serial === serial);
-    if (device === undefined) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
-    if (probeShell && device.kind === "physical") this.probed.push(`kindOf ${serial}`);
-    return device.kind;
+  async ensureConnected(serial: string): Promise<void> {
+    if (!this.devices.some(candidate => candidate.serial === serial)) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
   }
 
   async avds(): Promise<string[]> {

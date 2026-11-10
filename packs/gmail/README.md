@@ -10,7 +10,7 @@ Dimension server.
 |---|---|---|
 | `gmail_list_messages` | Lists a folder: id, read state, date, sender, recipient, subject. Up to 50. | None: read-only |
 | `gmail_read_message` | Reads one message's headers and text, cut at 20,000 characters. The message stays unread. | None: read-only |
-| `gmail_send_email` | Sends one plain-text email: `to`, `cc`, `subject`, `body`, `inReplyTo`. No Bcc, attachments or HTML. | You approve every call, in every mode |
+| `gmail_send_email` | Sends one plain-text email: `to`, `cc`, `subject`, `body`, `inReplyTo`. No Bcc, attachments or HTML. | Write tier: your permission mode decides |
 
 All three take an optional `account`, which is a himalaya account name, passed as
 `--account`. Without it, himalaya's default account is used. The approval card for a send

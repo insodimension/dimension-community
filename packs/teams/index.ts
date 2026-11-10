@@ -193,10 +193,6 @@ function htmlToText(html: string, max = 500): string {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** Posting to a shared channel reaches other people, so it demands a human
- *  click in EVERY approval mode — a bare "write" tier is auto-approved by write
- *  and yolo mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
 // A channel message may be far longer than a card can hold; the approval card
 // shows the first 4000 characters and says how much more follows.
 const APPROVAL_BODY_CAP = 4000;
@@ -299,9 +295,9 @@ function createSendMessageTool(): ToolDefinition<typeof sendMessageSchema> {
 		name: "teams_send_channel_message",
 		label: "Microsoft Teams: Send Channel Message",
 		description:
-			"Post a message to a Microsoft Teams channel. DESTRUCTIVE — this publishes to a shared channel; ALWAYS confirm the exact team, channel, and message text with the user before calling. Note: sending as an application requires the ChannelMessage.Send application permission WITH admin consent, and Microsoft restricts app-only channel messages to migration/import scenarios on some tenants — if Graph refuses, its exact error is surfaced verbatim.",
+			"Post a message to a Microsoft Teams channel. DESTRUCTIVE — this publishes to a shared channel. Note: sending as an application requires the ChannelMessage.Send application permission WITH admin consent, and Microsoft restricts app-only channel messages to migration/import scenarios on some tenants — if Graph refuses, its exact error is surfaced verbatim.",
 		parameters: sendMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`Team: ${approvalArg(args, "teamId")}`,
@@ -362,9 +358,9 @@ function createReplyMessageTool(): ToolDefinition<typeof replyMessageSchema> {
 		name: "teams_reply_channel_message",
 		label: "Microsoft Teams: Reply to Channel Message",
 		description:
-			"Reply to a message in a Microsoft Teams channel (posts under the given top-level message). DESTRUCTIVE — this publishes to a shared channel; ALWAYS confirm the exact team, channel, target message id, and reply text with the user before calling. Like teams_send_channel_message, replying as an application requires the ChannelMessage.Send application permission WITH admin consent, and Microsoft restricts app-only channel messages to migration/import scenarios on some tenants — if Graph refuses, its exact error is surfaced verbatim.",
+			"Reply to a message in a Microsoft Teams channel (posts under the given top-level message). DESTRUCTIVE — this publishes to a shared channel. Like teams_send_channel_message, replying as an application requires the ChannelMessage.Send application permission WITH admin consent, and Microsoft restricts app-only channel messages to migration/import scenarios on some tenants — if Graph refuses, its exact error is surfaced verbatim.",
 		parameters: replyMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`Team: ${approvalArg(args, "teamId")}`,

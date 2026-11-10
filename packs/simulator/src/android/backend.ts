@@ -5,8 +5,8 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
-import type { BootHandle, BootObserver, DeviceBackend, ListOptions, OwnedProcess, ResolvedBoot, RunningEmulator, StopOptions, StopOutcome, VideoStream, VideoStreamHandlers, VideoStreamOptions } from "../backend";
-import { type DeviceInfo, type DeviceKind, type DeviceState, fail, type KeyName, type Screenshot, type UiSnapshot } from "../contracts";
+import type { BootHandle, BootObserver, DeviceBackend, OwnedProcess, ResolvedBoot, RunningEmulator, StopOptions, StopOutcome, VideoStream, VideoStreamHandlers, VideoStreamOptions } from "../backend";
+import { type DeviceInfo, type DeviceState, fail, type KeyName, type Screenshot, type UiSnapshot } from "../contracts";
 import { classifyDevice } from "../device-safety";
 import type { Size } from "../shared/pointer";
 import type { GpuMode } from "../settings";
@@ -207,7 +207,7 @@ export class AndroidBackend implements DeviceBackend {
     return this.#deps.toolchain().scrcpyServer !== null;
   }
 
-  async list(options: ListOptions = {}): Promise<DeviceInfo[]> {
+  async list(): Promise<DeviceInfo[]> {
     const adb = this.#adb();
     const devices = await adb.devices();
     const live = new Set(devices.map(device => device.serial));
@@ -216,8 +216,8 @@ export class AndroidBackend implements DeviceBackend {
       devices.map(async (device): Promise<DeviceInfo> => {
         const base = { serial: device.serial, platform: "android" as const, owned: false, live: false, viewers: 0 };
         const emulator = consolePortOf(device.serial) !== null;
-        if (device.state !== "device" || (!emulator && options.probePhysical !== true)) {
-          const state: DeviceState = device.state === "device" ? "online" : device.state === "unauthorized" ? "unauthorized" : "offline";
+        if (device.state !== "device") {
+          const state: DeviceState = device.state === "unauthorized" ? "unauthorized" : "offline";
           const name = (emulator ? await this.#consoleAvd(adb, device.serial) : null) ?? device.model ?? device.serial;
           return { ...base, kind: classifyDevice({ serial: device.serial }), state, name, androidVersion: null, display: null, density: null };
         }
@@ -239,15 +239,11 @@ export class AndroidBackend implements DeviceBackend {
     );
   }
 
-  async kindOf(serial: string, probeShell = false): Promise<DeviceKind> {
+  async ensureConnected(serial: string): Promise<void> {
     // An emulator names itself `emulator-<console port>`: the common case needs no round trip.
-    if (classifyDevice({ serial }) === "emulator") return "emulator";
-    const adb = this.#adb();
-    const listed = (await adb.devices()).find(device => device.serial === serial);
+    if (classifyDevice({ serial }) === "emulator") return;
+    const listed = (await this.#adb().devices()).find(device => device.serial === serial);
     if (listed === undefined) fail("not_connected", `${serial} is not connected. Run device_list to see what is, or device_boot to start an emulator.`);
-    if (listed.state !== "device" || !probeShell) return classifyDevice({ serial });
-    const probe = await adb.shell(serial, PROBE_COMMAND, { timeoutMs: 10_000 }).then(parseProbe, () => null);
-    return classifyDevice({ serial, ...probe });
   }
 
   async #probe(adb: Adb, serial: string): Promise<Probe> {

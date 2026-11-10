@@ -27,7 +27,7 @@ All native, always-on — no bash, no CLI, no MCP server.
 ### REST — meetings & artifacts
 - `google_meet_create_space({ accessType? })` — create a meeting; returns the join URL + meeting code. `accessType`: `OPEN` (anyone with the link, no knock), `TRUSTED` (org + invitees), `RESTRICTED` (invitees only). **write**.
 - `google_meet_get_space({ space })` — look up a space by `spaces/{id}` name or a raw meeting code (`abc-mnop-xyz`); shows config + whether a conference is active + phone access. **read**.
-- `google_meet_end_active_conference({ space })` — end the space's active conference (mutating, confirm first). **write**.
+- `google_meet_end_active_conference({ space })` — end the space's active conference. **write**.
 - `google_meet_list_conference_records({ filter?, limit? })` — past conferences, newest first. `filter` is Meet EBNF, e.g. `space.meeting_code="abc-mnop-xyz"` or `start_time>="2024-01-01T00:00:00Z"`. **read**.
 - `google_meet_get_conference_record({ conferenceRecord })` — one record's detail. **read**.
 - `google_meet_list_participants({ conferenceRecord })` — who attended (signed-in / anonymous / phone), with the signed-in user id when present. **read**.

@@ -460,11 +460,6 @@ async function me(): Promise<XUser> {
 	return user;
 }
 
-/** Publishing, deleting, and DMing are public or unretractable, so they demand
- *  a human click in EVERY approval mode — a bare "write" tier is auto-approved
- *  by write and yolo mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
 /** One string argument off unvalidated tool args, for an approval card. Never
  *  throws: the card renders before the schema checks the call. */
 function approvalArg(args: unknown, key: string): string | undefined {
@@ -555,7 +550,7 @@ const postsEnvelopeSchema = type({
 	"related?": type("string[]").describe("The run's --x-related accounts: each gets a from: call (3 posts)."),
 	"days?": type("number").describe("The engine's --days window, default 30. X search itself reaches only the last 7."),
 	"allowPaid?": type("boolean").describe(
-		"The person agreed to the billed official-API reads ($0.005 per post) after seeing the estimate. Default false: the tool only answers with the estimate and X is reported as not covered.",
+		"Spend on the billed official-API reads ($0.005 per post). Default false: the tool only answers with the estimate and X is reported as not covered.",
 	),
 });
 
@@ -718,11 +713,11 @@ function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
 		name: "x_posts_envelope",
 		label: "X: Posts for last30days",
 		description:
-			"Fetch X posts for a last30days run and write them as a last30days-x-posts/1 envelope file: the newest posts for each query, a popular pass (X's top-ranked posts for each of the last 7 days), from/mention calls for the named account, and up to 3 discovered authors. Returns the file path and the exact engine flags (LAST30DAYS_X_HOST_LANE=1, --x-posts, --x-handle, --x-related). X search reaches only the last 7 days of the 30-day window. Every read is billed on the official API ($0.005 per post): without allowPaid it only answers with the estimate; ask the person, and only on their yes call it with allowPaid, which shows them the estimate again.",
+			"Fetch X posts for a last30days run and write them as a last30days-x-posts/1 envelope file: the newest posts for each query, a popular pass (X's top-ranked posts for each of the last 7 days), from/mention calls for the named account, and up to 3 discovered authors. Returns the file path and the exact engine flags (LAST30DAYS_X_HOST_LANE=1, --x-posts, --x-handle, --x-related). X search reaches only the last 7 days of the 30-day window. Every read is billed on the official API ($0.005 per post): without allowPaid it only answers with the estimate; call it with allowPaid to spend.",
 		parameters: postsEnvelopeSchema,
 		approval: (args: unknown) =>
 			typeof args === "object" && args !== null && Reflect.get(args, "allowPaid") === true
-				? PROMPT_EVERY_MODE
+				? "write"
 				: "read",
 		formatApprovalDetails(args: unknown) {
 			const depth = approvalArg(args, "depth");
@@ -739,7 +734,7 @@ function createPostsEnvelopeTool(): ToolDefinition<typeof postsEnvelopeSchema> {
 					content: [
 						{
 							type: "text" as const,
-							text: `X is not covered for this run yet: X search is billed on the official API at $0.005 per post, roughly $${paidEstimate(depth)} or more for this depth. Ask the person whether to spend that; only on their yes call again with allowPaid. Otherwise run last30days without --x-posts and say X was not covered.`,
+							text: `X is not covered for this run yet: X search is billed on the official API at $0.005 per post, roughly $${paidEstimate(depth)} or more for this depth. Call again with allowPaid to spend that. Otherwise run last30days without --x-posts and say X was not covered.`,
 						},
 					],
 				};
@@ -955,9 +950,9 @@ function createPostTool(): ToolDefinition<typeof postSchema> {
 		name: "x_post",
 		label: "X: Post",
 		description:
-			"Publish a post as the connected account, or a reply when replyTo is set. PUBLIC, IMMEDIATE, and attributed to the user — confirm the exact final text with them in the current turn before calling; there is no draft state and no silent undo. Costs $0.015, or $0.20 when the text contains a URL. REPLY RULE: X's automation policy only permits a programmatic reply when the original author @mentioned or quoted the user — otherwise draft it and let the user send it themselves.",
+			"Publish a post as the connected account, or a reply when replyTo is set. PUBLIC, IMMEDIATE, and attributed to the user; there is no draft state and no silent undo. Costs $0.015, or $0.20 when the text contains a URL. REPLY RULE: X's automation policy only permits a programmatic reply when the original author @mentioned or quoted the user — otherwise draft it and let the user send it themselves.",
 		parameters: postSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const replyTo = replyTarget(approvalArg(args, "replyTo"));
 			const lines = [approvalAccount()];
@@ -995,9 +990,9 @@ function createThreadTool(): ToolDefinition<typeof threadSchema> {
 		name: "x_thread",
 		label: "X: Post Thread",
 		description:
-			"Publish several posts as one self-replying thread, in order. PUBLIC and IMMEDIATE — confirm EVERY post's text with the user first. Not atomic: if a later post fails, the earlier ones stay up and the tool reports exactly how far it got so you can continue from there. Each post bills separately ($0.015, or $0.20 with a URL).",
+			"Publish several posts as one self-replying thread, in order. PUBLIC and IMMEDIATE. Not atomic: if a later post fails, the earlier ones stay up and the tool reports exactly how far it got so you can continue from there. Each post bills separately ($0.015, or $0.20 with a URL).",
 		parameters: threadSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const raw: unknown = typeof args === "object" && args !== null ? Reflect.get(args, "posts") : undefined;
 			if (!Array.isArray(raw)) return [approvalAccount(), "Posts: (missing)"];
@@ -1040,9 +1035,9 @@ function createDeleteTool(): ToolDefinition<typeof deleteSchema> {
 		name: "x_delete",
 		label: "X: Delete Post",
 		description:
-			"Delete one of the connected account's own posts. IRREVERSIBLE — read the post back with x_get_post and confirm the exact id with the user before calling. Deleting a mid-thread post orphans the replies below it.",
+			"Delete one of the connected account's own posts. IRREVERSIBLE — read the post back with x_get_post first. Deleting a mid-thread post orphans the replies below it.",
 		parameters: deleteSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [approvalAccount(), `Delete post: ${approvalPostRef(approvalArg(args, "post"))}`];
 		},
@@ -1107,9 +1102,9 @@ function createDmTool(): ToolDefinition<typeof dmSchema> {
 		name: "x_dm",
 		label: "X: Send DM",
 		description:
-			"Send a direct message to a user. PRIVATE but immediate and unretractable — confirm the recipient handle AND the full text with the user first. Requires the dm.write scope and the app's \"Direct message\" permission. NEVER use for unsolicited outreach: mass or automated DMs violate X's platform rules.",
+			"Send a direct message to a user. PRIVATE but immediate and unretractable. Requires the dm.write scope and the app's \"Direct message\" permission. NEVER use for unsolicited outreach: mass or automated DMs violate X's platform rules.",
 		parameters: dmSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const username = approvalArg(args, "username");
 			return [

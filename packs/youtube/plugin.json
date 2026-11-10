@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
@@ -216,7 +216,7 @@
 				},
 				{
 					"name": "youtube_playlist_add",
-					"description": "Add a video to one of your playlists. Mutating — confirm the playlist and video first."
+					"description": "Add a video to one of your playlists. Mutating."
 				},
 				{
 					"name": "youtube_list_comments",
@@ -224,7 +224,7 @@
 				},
 				{
 					"name": "youtube_post_comment",
-					"description": "Post a public comment or reply as your channel. Asks you every time; at most 5 a day, and never the same text twice."
+					"description": "Post a public comment or reply as your channel. At most 5 a day, and never the same text twice."
 				},
 				{
 					"name": "youtube_get_captions",

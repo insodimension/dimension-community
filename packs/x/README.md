@@ -2,7 +2,7 @@
 
 ## What it is
 
-An X (Twitter) connector for your agent over the official X API v2: it reads your mentions, your posts, threads, profiles and the last 7 days of search, and posts, replies, threads, bookmarks and DMs as your account when you approve each one.
+An X (Twitter) connector for your agent over the official X API v2: it reads your mentions, your posts, threads, profiles and the last 7 days of search, and posts, replies, threads, bookmarks and DMs as your account.
 
 ## What it contains
 
@@ -19,7 +19,7 @@ Off by default; turn it on in Plugins. It needs your own X developer app (OAuth 
 - **Every call costs money.** As of 2026-11-06: $0.001 per post for your own mentions, posts and bookmarks; $0.005 per post for search, threads and timelines; $0.015 a post, $0.20 with a link. `x_usage` shows your reads against the monthly cap.
 - **Search reaches 7 days.** Older posts are read on x.com in the Browser.
 - **Nothing reads your browser's cookies.** The earlier free read lane, which took x.com cookies from Safari, Chrome or Firefox, was removed on 2026-11-06.
-- **Posting, deleting and DMs ask you every time**, in every approval mode; the card shows the exact text and target. X restricts replies sent through the API to posts that mention or quote you.
+- **Posting, deleting and DMs are write-tier**: your permission mode decides whether you are asked, and the card shows the exact text and target. X restricts replies sent through the API to posts that mention or quote you.
 - **Like, follow and quote-post do not exist**: X removed them from self-serve API tiers on 2026-04-20.
 
 ## Build and test

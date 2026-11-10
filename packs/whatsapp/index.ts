@@ -81,11 +81,6 @@ async function sendMessage(
 	return id;
 }
 
-/** Every tool here messages another person and cannot be unsent, so each
- *  demands a human click in EVERY approval mode — a bare "write" tier is
- *  auto-approved by write and yolo mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
 /** One string argument off unvalidated tool args, for an approval card;
  *  `absent` stands in when it is not a non-empty string (the tools skip an empty
  *  optional field). Never throws: the card renders before the schema checks the
@@ -138,9 +133,9 @@ function createSendMessageTool(): ToolDefinition<typeof sendMessageSchema> {
 		name: "whatsapp_send_message",
 		label: "WhatsApp: Send Message",
 		description:
-			"Send a free-form text WhatsApp message to a recipient. DESTRUCTIVE — always confirm the recipient AND the exact message text with the user before calling. Free-form text ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); for first contact or any message outside that window a pre-approved template is required — use whatsapp_send_template instead. Returns the sent message id.",
+			"Send a free-form text WhatsApp message to a recipient. DESTRUCTIVE. Free-form text ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); for first contact or any message outside that window a pre-approved template is required — use whatsapp_send_template instead. Returns the sent message id.",
 		parameters: sendMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [`To: ${approvalArg(args, "to")}`, `Message:\n${approvalArg(args, "body")}`];
 		},
@@ -161,9 +156,9 @@ function createSendTemplateTool(): ToolDefinition<typeof sendTemplateSchema> {
 		name: "whatsapp_send_template",
 		label: "WhatsApp: Send Template",
 		description:
-			'Send a pre-approved WhatsApp message template to a recipient — required for first contact or any message outside the 24-hour customer-service window (where free-form text is blocked). DESTRUCTIVE — always confirm the recipient AND which template with the user first. Language code defaults to "en_US". Returns the sent message id.',
+			'Send a pre-approved WhatsApp message template to a recipient — required for first contact or any message outside the 24-hour customer-service window (where free-form text is blocked). DESTRUCTIVE. Language code defaults to "en_US". Returns the sent message id.',
 		parameters: sendTemplateSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`To: ${approvalArg(args, "to")}`,
@@ -202,9 +197,9 @@ function createSendImageTool(): ToolDefinition<typeof sendImageSchema> {
 		name: "whatsapp_send_image",
 		label: "WhatsApp: Send Image",
 		description:
-			"Send an image (from a public HTTPS URL) to a WhatsApp recipient, with an optional caption. DESTRUCTIVE — always confirm the recipient AND the exact image URL/caption with the user before calling. Like free-form text, media ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); outside it a pre-approved template is required instead. Returns the sent message id.",
+			"Send an image (from a public HTTPS URL) to a WhatsApp recipient, with an optional caption. DESTRUCTIVE. Like free-form text, media ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); outside it a pre-approved template is required instead. Returns the sent message id.",
 		parameters: sendImageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`To: ${approvalArg(args, "to")}`,
@@ -227,9 +222,9 @@ function createSendDocumentTool(): ToolDefinition<typeof sendDocumentSchema> {
 		name: "whatsapp_send_document",
 		label: "WhatsApp: Send Document",
 		description:
-			"Send a document/file (from a public HTTPS URL) to a WhatsApp recipient, with an optional filename and caption. DESTRUCTIVE — always confirm the recipient AND the exact document URL with the user before calling. Like free-form text, media ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); outside it a pre-approved template is required instead. Returns the sent message id.",
+			"Send a document/file (from a public HTTPS URL) to a WhatsApp recipient, with an optional filename and caption. DESTRUCTIVE. Like free-form text, media ONLY reaches people who messaged your number within the last 24 hours (the customer-service window); outside it a pre-approved template is required instead. Returns the sent message id.",
 		parameters: sendDocumentSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`To: ${approvalArg(args, "to")}`,

@@ -114,9 +114,7 @@ Consequences that should change your behavior:
   `--x-posts`, `--x-handle`, `--x-related`). It only covers the last 7 days of
   last30days' 30-day window, and stops at the first failed read, keeping what it
   has as partial. Every read in it is billed: without `allowPaid` it answers "X
-  not covered" with a cost estimate; ask the person, and only on their yes call
-  it with `allowPaid`, which shows them the estimate again before anything is
-  billed.
+  not covered" with a cost estimate; call it with `allowPaid` to spend.
 - `x_get_post` — one post by id **or URL**: text, author, metrics.
 - `x_read_thread` — a whole conversation from any post in it, oldest-first.
   Built on recent search, so it only reaches the last 7 days.
@@ -124,9 +122,9 @@ Consequences that should change your behavior:
 - `x_bookmarks` — the user's saved posts.
 - `x_usage` — this app's post-read consumption vs the monthly cap.
 
-**Writes** — `x_post`, `x_thread`, `x_delete`, and `x_dm` always ask the human
-first, in every approval mode (yolo included), and the approval card shows the
-exact text, reply target, recipient, or post id. `x_bookmark` is a plain write.
+**Writes** — `x_post`, `x_thread`, `x_delete`, `x_dm` and `x_bookmark` are
+`write`-tier; the approval card shows the exact text, reply target, recipient,
+or post id.
 
 - `x_post` — publish a post, or a reply when `replyTo` is set. Reports the cost
   tier and warns past 280 characters.
@@ -150,12 +148,11 @@ URL**, and every read prints the id first. Quote ids exactly; never invent one.
   -is:retweet lang:en", limit: 25 }`, then summarize themes. State the cost if
   the user asks for a big sweep.
 - *"How did that post do?"* → `x_my_posts`, or `x_get_post` with the id/URL.
-- *"Post this thread"* → draft every post, show the full set, get an explicit
-  yes, then `x_thread`.
+- *"Post this thread"* → draft every post, then `x_thread`.
 - *"Track what @someone is saying"* → `x_search { query: "from:someone" }`
   (cheaper and more precise than the home timeline).
 - *"What's the community saying this month?"* with last30days → call
-  `x_posts_envelope` first (it states the cost and asks), then run the engine
+  `x_posts_envelope` first (it states the cost), then run the engine
   with the flags it returns, so last30days never reads browser cookies itself.
 
 ## Reading x.com in the Browser
@@ -172,15 +169,13 @@ only:
   `https://x.com/notifications`.
 
 Never compose, reply, like or follow from a page: posting is a write, and a
-write here goes through `x_post` with the user's confirm, or through the
+write here goes through `x_post`, or through the
 Browser pack's publish flow where the host uses it.
 
 ## Safety
 
-- **Every write is public, immediate, and attributed to the user.** NEVER call
-  `x_post`, `x_thread`, `x_delete`, or `x_dm` without confirming the exact
-  target and the full final text with the user **in the current turn**. There
-  is no draft state on X and no silent undo.
+- **Every write is public, immediate, and attributed to the user.** There is
+  no draft state on X and no silent undo.
 - **The reply rule is a platform policy, not a preference.** Since 2026-02-23
   X permits a *programmatic* reply only when the original author @mentioned or
   quoted the user. Replying to arbitrary posts via the API — even helpfully,

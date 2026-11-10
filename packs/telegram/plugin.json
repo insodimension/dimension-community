@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "telegram",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Let your agent send Telegram messages, read new ones and look at chats, using a bot you create.",
 	"author": {
 		"name": "Dimension"
@@ -130,7 +130,7 @@
 			"tools": [
 				{
 					"name": "telegram_send_message",
-					"description": "Send a text message to a Telegram chat via the bot. Destructive — confirm recipient and text first. Returns the sent message_id."
+					"description": "Send a text message to a Telegram chat via the bot. Destructive. Returns the sent message_id."
 				},
 				{
 					"name": "telegram_get_updates",
@@ -142,23 +142,23 @@
 				},
 				{
 					"name": "telegram_reply_message",
-					"description": "Reply to a specific message in a chat (threads under the original). Destructive — confirm chat_id, the message_id, and reply text first. Returns the sent message_id."
+					"description": "Reply to a specific message in a chat (threads under the original). Destructive. Returns the sent message_id."
 				},
 				{
 					"name": "telegram_edit_message",
-					"description": "Replace the text of a message the bot itself sent. Cannot edit other users' messages. Destructive — confirm chat_id, message_id, and new text first."
+					"description": "Replace the text of a message the bot itself sent. Cannot edit other users' messages. Destructive."
 				},
 				{
 					"name": "telegram_delete_message",
-					"description": "Delete a message from a chat. Irreversible — demand explicit confirmation of chat_id and message_id. Bot's own any time; others' only within 48h and with admin rights."
+					"description": "Delete a message from a chat. Irreversible. Bot's own any time; others' only within 48h and with admin rights."
 				},
 				{
 					"name": "telegram_pin_message",
-					"description": "Pin a message to the top of a chat, or unpin it when unpin=true. Needs 'pin messages' admin rights in groups. Confirm chat_id, message_id, and pin/unpin first."
+					"description": "Pin a message to the top of a chat, or unpin it when unpin=true. Needs 'pin messages' admin rights in groups."
 				},
 				{
 					"name": "telegram_send_photo",
-					"description": "Send a photo to a chat by https:// URL with an optional caption. Destructive — confirm recipient, photo URL, and caption first. Returns the sent message_id."
+					"description": "Send a photo to a chat by https:// URL with an optional caption. Destructive. Returns the sent message_id."
 				}
 			]
 		}

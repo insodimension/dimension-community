@@ -8,14 +8,11 @@ Google account's Drive. No CLI, no MCP server. The tool surface depends on the
 access level chosen at connect time:
 
 - **Read-only connection** (default): `google_drive_list_files`,
-  `google_drive_read_file`. Nothing can be mutated — no destructive-action
-  confirmation is needed for these two.
+  `google_drive_read_file`. Nothing can be mutated.
 - **Full-access connection** additionally mounts `google_drive_upload_file`,
   `google_drive_create_folder`, `google_drive_move_file`,
   `google_drive_share_file`. Every one of these MUTATES the user's Drive or its
-  sharing — confirm the exact action with the user BEFORE calling any of them
-  (what file, where, shared with whom). Sharing with "anyone with the link"
-  needs an explicit user OK, always.
+  sharing.
 
 - `query` is Drive search syntax (`name contains '...'`, `mimeType = '...'`),
   not free text — see the skill's `references/setup.md` cookbook.

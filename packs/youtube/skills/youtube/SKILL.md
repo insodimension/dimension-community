@@ -72,14 +72,13 @@ All native, always-on — no bash, no CLI, no MCP server:
   uploads playlist is its channel id with `UC` replaced by `UU`, which shows how
   often it posts, at 1 unit instead of a search. (read)
 - `youtube_playlist_add({ playlistId, videoId })` — add a video to one of your
-  playlists (**mutating, confirm first**). (write)
+  playlists (**mutating**). (write)
 - `youtube_list_comments({ videoId, limit? })` — top-level comment threads,
   plain text, most-relevant first: `[commentId] author (likes, replies)` + body.
   Quote the comment id to reply. (read)
 - `youtube_post_comment({ text, videoId? | parentCommentId? })` — post a **new
   top-level comment** (`videoId`) OR a **reply** to an existing comment
-  (`parentCommentId`) — exactly one. **Public, mutating, confirm first.** Asks
-  the person in every mode. Refused after 5 comments in a UTC day, and refused
+  (`parentCommentId`) — exactly one. **Public, mutating.** Refused after 5 comments in a UTC day, and refused
   when the text shares 80% of its words with any earlier comment: YouTube's spam
   policy names repetitive comments. (write)
 - `youtube_get_captions({ videoId })` — list the caption **tracks** for a video
@@ -112,7 +111,7 @@ All native, always-on — no bash, no CLI, no MCP server:
   person every time. (write)
 
 Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment` and
-`youtube_update_video` are `write`-tier and prompt for confirmation.
+`youtube_update_video` are `write`-tier.
 
 ## Usage patterns
 
@@ -134,12 +133,11 @@ Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment` and
   Test & Compare, pinned comments and end screens have no API: apply those in
   Studio with the Browser tools.
 - "Add this to my Watch Later–style playlist" → `youtube_list_playlists` to
-  resolve the title → its id, confirm, then `youtube_playlist_add`.
+  resolve the title → its id, then `youtube_playlist_add`.
 - "What are people saying about this video?" → `youtube_list_comments`, then
   summarize the returned threads (quote comment ids, not paraphrased authors).
 - "Reply to that comment" → get the comment id from `youtube_list_comments`,
-  confirm the exact reply text, then `youtube_post_comment({ parentCommentId,
-  text })`.
+  then `youtube_post_comment({ parentCommentId, text })`.
 - "How big is this channel?" → `youtube_channel_stats` (by `@handle`, a
   channel id, or none for the user's own channel).
 
@@ -154,14 +152,12 @@ couldn't download.
 
 ## Safety
 
-- **Comments are public and permanent-ish.** Before `youtube_post_comment`,
-  confirm the exact target (video id, or the parent comment id and its author)
-  and the **full comment text** with the user. It posts under the connected
+- **Comments are public and permanent-ish.** `youtube_post_comment` posts under the connected
   account's real identity and is visible to everyone; it cannot be silently
   undone from here.
-- **Playlist edits are real.** Before `youtube_playlist_add`, confirm the exact
-  playlist (by **title**, resolved via `youtube_list_playlists`) and the video —
-  adding to the wrong playlist is the common mistake.
+- **Playlist edits are real.** Resolve the playlist by **title** via
+  `youtube_list_playlists` before `youtube_playlist_add` — adding to the wrong
+  playlist is the common mistake.
 - Resolve names to ids with a read tool (`youtube_search`,
   `youtube_list_playlists`) rather than guessing an id.
 - The tools surface Google's own `error.message` verbatim — read it

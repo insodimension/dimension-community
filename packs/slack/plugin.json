@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "slack",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"description": "Let your agent use Slack two ways: as a bot app you add to channels, or as you through your own account. Connect one or both.",
 	"author": {
 		"name": "Dimension"
@@ -213,7 +213,7 @@
 								{
 									"id": "send",
 									"label": "Read and send",
-									"detail": "Everything above, plus sending and scheduling messages and adding reactions, as you. In Ask and Write mode every send asks you first (Always allow on the card stops it asking for the rest of that session); in Full access nothing asks.",
+									"detail": "Everything above, plus sending and scheduling messages and adding reactions, as you.",
 									"scopes": [
 										"channels:history",
 										"channels:read",
@@ -439,7 +439,7 @@
 				},
 				{
 					"name": "slack_act",
-					"description": "Run one Slack tool that changes Slack as you: send, schedule, react, create. DESTRUCTIVE: in Ask and Write mode you are asked to approve each call (Always allow on the card waives that for the rest of the session); in Full access nothing asks."
+					"description": "Run one Slack tool that changes Slack as you: send, schedule, react, create. DESTRUCTIVE."
 				}
 			]
 		}

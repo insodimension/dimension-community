@@ -15,7 +15,7 @@ Cell code and the helpers are in [references/studio-cells.md](references/studio-
 
 1. `node <SKILL_DIR>/../youtube-package/scripts/publish-check.mjs check <production-dir>` must say READY, and `upload` must be absent (a second upload of the same film needs the person's say-so). Anything else: stop and go back to `youtube-package` or `youtube-thumbnail`.
 2. The files exist: the master under `renders/`, the chosen thumbnail (and the others if `abTest.run`). Their absolute paths are `<production folder>/<path>`.
-3. Tell the person, in four lines: the channel it will go to if you know it, the title, the visibility, and that the first upload is a draft they can delete. Ask for a yes. **Public needs its own yes**, naming the title and the channel, even in a permissive mode; a private or unlisted upload is reversible and does not.
+3. Tell the person, in four lines: the channel it will go to if you know it, the title, the visibility, and that the first upload is a draft they can delete. A private or unlisted upload is reversible; a public one is not.
 
 ## The browser
 
@@ -31,7 +31,7 @@ Follow [references/studio-cells.md](references/studio-cells.md): open Studio, de
 
 What each setting comes from in `publish.json`: `title.chosen`, `description.text`, `thumbnail.chosen`, `settings.madeForKids` (false), `settings.ageRestricted`, `settings.paidPromotion`, `settings.alteredContent.disclose`, `tags`, `settings.language`, `settings.category`, `settings.license`, `settings.allowEmbedding`, `settings.notifySubscribers`, `settings.visibility`.
 
-- **Playlist.** If `settings.playlist` is set and the YouTube connector is connected, use it after the upload: `youtube_list_playlists` to find the exact title, confirm, then `youtube_playlist_add`. It is steadier than Studio's menu. Not connected: do it in Studio and read it back.
+- **Playlist.** If `settings.playlist` is set and the YouTube connector is connected, use it after the upload: `youtube_list_playlists` to find the exact title, then `youtube_playlist_add`. It is steadier than Studio's menu. Not connected: do it in Studio and read it back.
 - **Captions.** On the Video elements page, the Subtitles row takes the SRT (`captions.file`) as an upload with timing ([studio-cells.md](references/studio-cells.md) §7). Check the first cues' times in the editor against the SRT, then read the language row on the Subtitles page after the upload. If it does not take, say so and leave the file path for the person.
 - **A/B test.** Only if `thumbnail.abTest.run`. Studio offers it on desktop for channels with advanced features and not for private videos; if the control is missing, say so and keep the chosen thumbnail.
 - **End screen.** Set it in the editor only if the person asked; it needs a film of 25 s or more.
@@ -48,9 +48,9 @@ What each setting comes from in `publish.json`: `title.chosen`, `description.tex
 
 ## Stop and ask
 
-Stop, say what you saw, and ask when: Studio shows a sign-in or verification step; there is more than one channel and the person has not named one; the page shows an upload limit; a field will not read back after one retry; a dialog you did not expect appears; Checks reports a claim; the person's `visibility` was `public` and they have not said yes in this conversation.
+Stop, say what you saw, and ask when: Studio shows a sign-in or verification step; there is more than one channel and the person has not named one; the page shows an upload limit; a field will not read back after one retry; a dialog you did not expect appears; Checks reports a claim.
 
-A thumbnail limit, or "verify your phone number" for custom thumbnails, stops the thumbnail only: press Cancel, finish the rest at the visibility they approved, record the thumbnail row as `ok: false` with what the page showed, and tell them. Verifying the phone is theirs; once it is done, the thumbnail goes on from the edit page and its row is read back again.
+A thumbnail limit, or "verify your phone number" for custom thumbnails, stops the thumbnail only: press Cancel, finish the rest at the package's visibility, record the thumbnail row as `ok: false` with what the page showed, and tell them. Verifying the phone is theirs; once it is done, the thumbnail goes on from the edit page and its row is read back again.
 
 ## With the step tools instead of `browser_run`
 
@@ -64,4 +64,4 @@ A session with the step tools (`browser_open`, `browser_snapshot`, `browser_act`
 
 ## What you leave behind
 
-A video on the channel at the visibility the person approved, `upload` in `receipts/publish.json` that `check` accepts, and an answer with the link and the readback table.
+A video on the channel at the package's visibility, `upload` in `receipts/publish.json` that `check` accepts, and an answer with the link and the readback table.

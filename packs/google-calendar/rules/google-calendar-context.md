@@ -10,11 +10,8 @@ the connected Google account's calendar (no CLI, no MCP server):
 `google_calendar_create_event`, `google_calendar_update_event`,
 `google_calendar_delete_event`.
 
-- **Confirm before writing.** `create`, `update`, and `delete` are mutating —
-  state the exact change (summary, time, timezone, calendar) and get the user's
-  go-ahead before calling them.
 - **Delete needs the exact event named.** Deletion is irreversible. First read
-  the event (`google_calendar_get_event`) and confirm the specific event by its
+  the event (`google_calendar_get_event`) and identify the specific event by its
   summary and start time — never delete on a guessed event id.
 - **Preserve fields you weren't asked to change.** `google_calendar_update_event`
   patches only the fields you pass, so leave the rest out to keep title,

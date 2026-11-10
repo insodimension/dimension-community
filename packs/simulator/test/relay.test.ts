@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, setSystemTime, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import http from "node:http";
 import { Duplex } from "node:stream";
@@ -7,17 +7,14 @@ import type { Screenshot } from "../src/contracts";
 import { FrameRelay, type RelayOptions } from "../src/relay/relay";
 import { decodeFrame, FrameTag, type MediaFrame, type StreamMode } from "../src/shared/frame-protocol";
 import { until } from "./fake-android-tools";
-import { FakeBackend, PHONE_SERIAL, phoneDevice } from "./fake-backend";
-import { type Answer, connectServer, serverFolder } from "./mcp-session";
+import { FakeBackend } from "./fake-backend";
 
 const EMULATOR = "emulator-5554";
-const PHONE = PHONE_SERIAL;
 const NEVER_MS = 600_000;
 const PATIENCE_MS = 5_000;
-const CONTROL_TICKS = 5;
 const CLIENT_KEY = "dGhlIHNhbXBsZSBub25jZQ==";
 const REFUSED_SOCKET_GONE_MS = 1_000;
-const TIMING = { stopGraceMs: 25, physicalRecheckMs: 10, tokenIdleMs: NEVER_MS } as const;
+const TIMING = { stopGraceMs: 25, tokenIdleMs: NEVER_MS } as const;
 
 const STALE_CONFIG = Buffer.from([0, 0, 0, 1, 0x67, 0x11]);
 const STALE_KEY = Buffer.from([0, 0, 0, 1, 0x65, 0x11]);
@@ -73,6 +70,8 @@ class LiveBackend extends FakeBackend {
   override liveAvailable(): boolean {
     return true;
   }
+
+  override async ensureConnected(): Promise<void> {}
 
   override openStream(serial: string, _options: VideoStreamOptions, handlers: VideoStreamHandlers): Promise<VideoStream> {
     const encoder = new FakeEncoder(serial);
@@ -265,17 +264,10 @@ class Wire {
   }
 }
 
-interface Setting {
-  allowed: boolean;
-  throws: boolean;
-  asked: number;
-}
-
 interface Rig {
   readonly relay: FrameRelay;
   readonly backend: LiveBackend;
   readonly logs: string[];
-  readonly setting: Setting;
   connect(serial: string, mode?: StreamMode): Promise<Wire>;
 }
 
@@ -285,18 +277,11 @@ const backends: LiveBackend[] = [];
 function rig(over: Partial<RelayOptions> = {}): Rig {
   const backend = new LiveBackend();
   const logs: string[] = [];
-  const setting: Setting = { allowed: true, throws: false, asked: 0 };
   const relay = new FrameRelay({
     backend,
     log: line => void logs.push(line),
     onViewers: () => undefined,
     onActivity: () => undefined,
-    authorize: async serial => (serial === PHONE ? "physical" : "emulator"),
-    physicalPermitted: () => {
-      setting.asked += 1;
-      if (setting.throws) throw new Error("the settings cannot be read");
-      return setting.allowed;
-    },
     ...TIMING,
     ...over,
   });
@@ -306,9 +291,8 @@ function rig(over: Partial<RelayOptions> = {}): Rig {
     relay,
     backend,
     logs,
-    setting,
     connect: async (serial, mode = "h264") => {
-      const grant = await relay.mint(serial, mode, serial === PHONE);
+      const grant = await relay.mint(serial, mode);
       return Wire.open({ url: grant.url });
     },
   };
@@ -366,7 +350,7 @@ describe("a stream token opens exactly one socket", () => {
   test("the same URL a second time is refused, while the first socket is up and after it has left", async () => {
     const r = rig();
     await r.connect(EMULATOR);
-    const grant = await r.relay.mint(EMULATOR, "h264", false);
+    const grant = await r.relay.mint(EMULATOR, "h264");
 
     const first = await Wire.open({ url: grant.url });
     expect(first.status).toBe(101);
@@ -392,7 +376,7 @@ describe("a stream token opens exactly one socket", () => {
   test("a token nobody connects with expires, and a late connect is refused while the listener still serves others", async () => {
     const r = rig({ tokenIdleMs: 150 });
     await r.connect(EMULATOR);
-    const grant = await r.relay.mint(EMULATOR, "h264", false);
+    const grant = await r.relay.mint(EMULATOR, "h264");
     await within(() => r.relay.snapshot().tokens === 0, "the unused token to expire");
 
     expect((await Wire.open({ url: grant.url })).status).toBe(404);
@@ -407,7 +391,7 @@ describe("a stream token opens exactly one socket", () => {
   for (const row of REFUSALS) {
     test(`${row.name} is refused ${row.status} and the token stays good for the real View`, async () => {
       const r = rig();
-      const grant = await r.relay.mint(EMULATOR, "h264", false);
+      const grant = await r.relay.mint(EMULATOR, "h264");
 
       expect((await Wire.open({ url: grant.url, ...row.target })).status).toBe(row.status);
       expect((await Wire.open({ url: grant.url })).status).toBe(101);
@@ -416,7 +400,7 @@ describe("a stream token opens exactly one socket", () => {
 
   test("the sandboxed View sends Origin: null and is let in", async () => {
     const r = rig();
-    const grant = await r.relay.mint(EMULATOR, "h264", false);
+    const grant = await r.relay.mint(EMULATOR, "h264");
 
     expect((await Wire.open({ url: grant.url, origin: "null" })).status).toBe(101);
   });
@@ -433,7 +417,7 @@ describe("a request target the pack cannot parse", () => {
   for (const row of TARGETS) {
     test(`${row.name} is answered 404 before anything else, and the listener keeps serving the real token`, async () => {
       const r = rig();
-      const grant = await r.relay.mint(EMULATOR, "h264", false);
+      const grant = await r.relay.mint(EMULATOR, "h264");
       const token = new URL(grant.url).pathname.split("/").pop() ?? "";
 
       expect((await Wire.open({ url: grant.url, path: row.path(token) })).status).toBe(404);
@@ -443,7 +427,7 @@ describe("a request target the pack cannot parse", () => {
 
   test("a socket error after a refused upgrade is handled and tears the socket down: a reset peer cannot take the pack down", async () => {
     const r = rig();
-    const grant = await r.relay.mint(EMULATOR, "h264", false);
+    const grant = await r.relay.mint(EMULATOR, "h264");
     const refused = await Wire.open({ url: grant.url, host: "evil.example" });
     expect(refused.status).toBe(403);
 
@@ -459,7 +443,7 @@ describe("a request target the pack cannot parse", () => {
   for (const row of SILENT_CLIENT_REFUSALS) {
     test(`${row.name} is refused ${row.status} and its socket is destroyed by the pack even though the client never closes its own side; the real token still gets in`, async () => {
       const r = rig();
-      const grant = await r.relay.mint(EMULATOR, "h264", false);
+      const grant = await r.relay.mint(EMULATOR, "h264");
 
       const refused = await Wire.open({ url: grant.url, clientNeverCloses: true, ...row.target });
       expect(refused.status).toBe(row.status);
@@ -487,7 +471,7 @@ describe("a request target the pack cannot parse", () => {
 
   test("an upgrade followed in the same segment by an unmasked frame is closed as a protocol error and attaches no viewer: no encoder starts for it, nothing is left listening, and the next View is served", async () => {
     const r = rig();
-    const grant = await r.relay.mint(EMULATOR, "h264", false);
+    const grant = await r.relay.mint(EMULATOR, "h264");
     const unmaskedTextFrame = Buffer.from([0x81, 0x01, 0x78]);
 
     const doomed = await Wire.open({ url: grant.url, head: unmaskedTextFrame });
@@ -502,119 +486,6 @@ describe("a request target the pack cannot parse", () => {
     await startAt(r, 0);
     expect(r.backend.starts).toHaveLength(1);
     expect(r.relay.viewerCount(EMULATOR)).toBe(1);
-  });
-});
-
-describe("driving a physical phone follows the setting while a pane is open", () => {
-  test("turning the setting off ends the phone's socket and stops its encoder with no input from the View, and leaves emulator viewers alone", async () => {
-    const r = rig({ stopGraceMs: NEVER_MS });
-    const emulatorPane = await r.connect(EMULATOR);
-    await liveEncoder(r, 0);
-    const phonePane = await r.connect(PHONE);
-    const phone = await liveEncoder(r, 1);
-    expect(phonePane.status).toBe(101);
-
-    r.setting.allowed = false;
-    await within(() => phonePane.closed, "the phone's socket to be closed");
-
-    expect(phonePane.closeCode).toBe(1011);
-    expect(phonePane.endedReason).toBeDefined();
-    await within(() => phone.encoder.closes === 1, "the phone's encoder to stop");
-    expect(r.relay.viewerCount(EMULATOR)).toBe(1);
-    expect(r.backend.starts[0]?.encoder.closes).toBe(0);
-    expect(emulatorPane.closed).toBe(false);
-  });
-
-  test("a settings read that throws counts as not allowed: the open pane is closed and a new one is refused", async () => {
-    const r = rig({ stopGraceMs: NEVER_MS });
-    const open = await r.connect(PHONE);
-    const grant = await r.relay.mint(PHONE, "h264", true);
-
-    r.setting.throws = true;
-    await within(() => open.closed, "the open phone pane to be closed");
-
-    expect((await Wire.open({ url: grant.url })).status).toBe(403);
-  });
-
-  test("a new pane is refused while the setting is off, and the token it was refused with works once it is back on", async () => {
-    const r = rig();
-    const grant = await r.relay.mint(PHONE, "h264", true);
-
-    r.setting.allowed = false;
-    expect((await Wire.open({ url: grant.url })).status).toBe(403);
-
-    r.setting.allowed = true;
-    expect((await Wire.open({ url: grant.url })).status).toBe(101);
-  });
-
-  test("with only emulator viewers the setting is never asked about", async () => {
-    const r = rig();
-    const control = rig();
-    await r.connect(EMULATOR);
-    await control.connect(PHONE);
-
-    await within(() => control.setting.asked >= CONTROL_TICKS, "the control relay's recheck to run several times");
-
-    expect(r.setting.asked).toBe(0);
-  });
-
-  test("the recheck stops with the last phone pane", async () => {
-    const r = rig();
-    const control = rig();
-    const pane = await r.connect(PHONE);
-    await control.connect(PHONE);
-    await within(() => r.setting.asked >= 2, "the recheck to run");
-
-    pane.close();
-    await within(() => r.relay.viewerCount(PHONE) === 0, "the phone pane to leave");
-    const asked = r.setting.asked;
-    const controlAsked = control.setting.asked;
-    await within(() => control.setting.asked >= controlAsked + CONTROL_TICKS, "the control relay's recheck to run several times");
-
-    expect(r.setting.asked).toBe(asked);
-  });
-
-  test("the recheck keeps running while another phone pane is still open", async () => {
-    const r = rig();
-    const first = await r.connect(PHONE);
-    const second = await r.connect(PHONE);
-    await within(() => r.setting.asked >= 2, "the recheck to run");
-
-    first.close();
-    await within(() => r.relay.viewerCount(PHONE) === 1, "the first phone pane to leave");
-    r.setting.allowed = false;
-
-    await within(() => second.closed, "the remaining phone pane to be closed");
-  });
-
-  test("an input after the setting went off is not forwarded to the phone, ends the pane, and stops the encoder", async () => {
-    const r = rig({ physicalRecheckMs: NEVER_MS, stopGraceMs: NEVER_MS });
-    const pane = await r.connect(PHONE);
-    const { encoder } = await liveEncoder(r, 0);
-
-    pane.send(JSON.stringify({ t: "k", key: "home" }));
-    await within(() => encoder.keys.length === 1, "the permitted key to reach the phone");
-
-    r.setting.allowed = false;
-    pane.send(JSON.stringify({ t: "k", key: "back" }));
-    await within(() => pane.closed, "the pane to be closed");
-
-    expect(encoder.keys).toEqual(["home"]);
-    await within(() => encoder.closes === 1, "the encoder to stop");
-  });
-
-  test("a still-picture pane on a phone: an input after the setting went off never reaches the phone", async () => {
-    const r = rig({ physicalRecheckMs: NEVER_MS });
-    const pane = await r.connect(PHONE, "shot");
-
-    pane.send(JSON.stringify({ t: "k", key: "home" }));
-    await within(() => r.backend.acts.includes(`key ${PHONE} home`), "the permitted key to reach the phone");
-
-    r.setting.allowed = false;
-    pane.send(JSON.stringify({ t: "k", key: "back" }));
-    await within(() => pane.closed, "the pane to be closed");
-
-    expect(r.backend.acts.filter(act => act.startsWith("key "))).toEqual([`key ${PHONE} home`]);
   });
 });
 
@@ -711,46 +582,5 @@ describe("the still-picture poller", () => {
 
     await within(() => r.backend.shotCalls >= 2, "the poller to take another picture for the late viewer");
     expect(second.status).toBe(101);
-  });
-});
-
-function nextTurn(): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setImmediate(resolve);
-  return promise;
-}
-
-function streamUrlOf(answer: Answer): string {
-  const structured = answer.structured;
-  if (typeof structured !== "object" || structured === null || !("url" in structured) || typeof structured.url !== "string") throw new Error(`device_stream gave no url: ${answer.text}`);
-  return structured.url;
-}
-
-describe("the pack's own reading of the physical-phone setting", () => {
-  test("turning it off stops a View's next input from reaching the phone even when the wall clock has stepped back since it was last read", async () => {
-    const folder = serverFolder();
-    const backend = new FakeBackend();
-    backend.devices = [phoneDevice()];
-    const settings = { allowPhysical: true };
-    const session = await connectServer(folder, backend, settings);
-
-    try {
-      const grant = await session.call("device_stream", { serial: PHONE, mode: "shot", allowPhysical: true }, { "ai.insodimension/caller": "app" });
-      const view = await Wire.open({ url: streamUrlOf(grant) });
-      expect(view.status).toBe(101);
-
-      setSystemTime(new Date(Date.now() - 10 * 60_000));
-      settings.allowPhysical = false;
-      view.send(JSON.stringify({ t: "k", key: "home" }));
-      await nextTurn();
-      setSystemTime();
-
-      expect(view.endedReason ?? "no ended message was sent").toContain("simulator.allowPhysical");
-      expect(backend.acts.filter(act => act.startsWith("key "))).toEqual([]);
-    } finally {
-      setSystemTime();
-      await session.close();
-      folder.dispose();
-    }
   });
 });

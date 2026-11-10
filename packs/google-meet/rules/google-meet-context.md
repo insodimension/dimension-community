@@ -20,8 +20,6 @@ transcribe (`google_meet_join`, `google_meet_live_status`,
 - **Announce the bot.** `google_meet_join` enters a real call with other people and
   there is no automatic consent announcement — remind the user to announce it (or
   announce it yourself in the meeting) before treating the transcript as fair game.
-- **Confirm before mutating.** `create_space` and `end_active_conference` change
-  real state — state the plan (and the exact space for end-conference) first.
 - **Conference records need Workspace.** Reading past-meeting records, recordings,
   and transcripts generally requires a Google Workspace account with Meet artifacts
   enabled. A personal Gmail can create spaces and live-transcribe but has no

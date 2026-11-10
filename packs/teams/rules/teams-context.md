@@ -8,14 +8,10 @@ ON Teams via Microsoft Graph (Azure AD app, app-only): list the teams in your
 tenant, list a team's channels, read a channel's recent messages, post or reply
 to a channel message, and list a team's members.
 
-- ALWAYS confirm the exact team, channel, **and** the full message text with the
-  user before calling `teams_send_channel_message` — posting is public and
-  destructive. Show the drafted message when intent is ambiguous.
+- `teams_send_channel_message` posts publicly and cannot be taken back.
 - Resolve names to IDs first: `teams_list_teams` → `teams_list_channels` → send.
   Quote the exact team/channel IDs in summaries.
-- ALWAYS confirm the exact team, channel, target message id, **and** the full
-  reply text before calling `teams_reply_channel_message` — replying is public
-  and destructive, exactly like sending. Show the drafted reply when ambiguous.
+- `teams_reply_channel_message` is public and destructive, exactly like sending.
 - `teams_read_channel_messages` and `teams_list_members` are read-only but expose
   channel content and the member roster — fetch only what the user asked for and
   quote message ids so the reply target is unambiguous.

@@ -10,10 +10,9 @@ Google account's YouTube: `youtube_search`, `youtube_get_videos`,
 `youtube_channel_stats`, `youtube_video_analytics`, `youtube_reach_report`,
 `youtube_update_video`.
 
-- **Confirm before writing.** `youtube_playlist_add` and `youtube_post_comment`
-  are mutating. A comment is **public** under the channel's name: state the
-  exact target and the full text and get the user's go-ahead. The tool refuses
-  a sixth comment in a UTC day and any text that repeats an earlier comment.
+- `youtube_playlist_add` and `youtube_post_comment` are mutating. A comment is
+  **public** under the channel's name. The tool refuses a sixth comment in a UTC
+  day and any text that repeats an earlier comment.
 - **Video changes go through the board.** `youtube_update_video` changes a
   posted video's title or thumbnail only with an approved Traction
   `youtube-update` draft: pass its draft id and exactly the approved value. A

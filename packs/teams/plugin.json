@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "teams",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"description": "Let your agent list your Microsoft Teams teams and channels and post messages to a channel.",
 	"author": {
 		"name": "Dimension"
@@ -133,7 +133,7 @@
 				},
 				{
 					"name": "teams_send_channel_message",
-					"description": "Post a message to a Teams channel. DESTRUCTIVE — confirm team, channel, and text first. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
+					"description": "Post a message to a Teams channel. DESTRUCTIVE. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
 				},
 				{
 					"name": "teams_read_channel_messages",
@@ -141,7 +141,7 @@
 				},
 				{
 					"name": "teams_reply_channel_message",
-					"description": "Reply to a message in a Teams channel. DESTRUCTIVE — confirm team, channel, target message, and text first. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
+					"description": "Reply to a message in a Teams channel. DESTRUCTIVE. App-only sending needs ChannelMessage.Send with admin consent and may be tenant-restricted."
 				},
 				{
 					"name": "teams_list_members",

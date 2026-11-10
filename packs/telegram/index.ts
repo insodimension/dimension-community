@@ -134,11 +134,6 @@ function chatLabel(chat: TelegramChat): string {
 	return name || String(chat.id);
 }
 
-/** Sending, republishing, and deleting in a chat reach other people or cannot
- *  be undone, so they demand a human click in EVERY approval mode — a bare
- *  "write" tier is auto-approved by write and yolo mode. */
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
-
 /** One argument off unvalidated tool args, for an approval card; `absent`
  *  stands in when it is not a string or number. Never throws: the card renders
  *  before the schema checks the call. Shown in full — Telegram caps a message
@@ -217,9 +212,9 @@ function createSendMessageTool(): ToolDefinition<typeof sendMessageSchema> {
 		name: "telegram_send_message",
 		label: "Telegram: Send Message",
 		description:
-			"Send a text message to a Telegram chat via the bot. DESTRUCTIVE — confirm the exact recipient (chat_id) AND the message text with the user before calling. Returns the sent message_id.",
+			"Send a text message to a Telegram chat via the bot. DESTRUCTIVE. Returns the sent message_id.",
 		parameters: sendMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [`Chat: ${approvalArg(args, "chatId")}`, `Message:\n${approvalArg(args, "text")}`];
 		},
@@ -298,9 +293,9 @@ function createReplyMessageTool(): ToolDefinition<typeof replyMessageSchema> {
 		name: "telegram_reply_message",
 		label: "Telegram: Reply to Message",
 		description:
-			"Reply to a specific message in a chat (threads under the original via reply_parameters). DESTRUCTIVE — confirm the exact chat_id, the message_id being replied to, AND the reply text with the user before calling. Returns the sent message_id.",
+			"Reply to a specific message in a chat (threads under the original via reply_parameters). DESTRUCTIVE. Returns the sent message_id.",
 		parameters: replyMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`Chat: ${approvalArg(args, "chatId")}`,
@@ -324,9 +319,9 @@ function createEditMessageTool(): ToolDefinition<typeof editMessageSchema> {
 		name: "telegram_edit_message",
 		label: "Telegram: Edit Message",
 		description:
-			"Replace the text of a message the bot ITSELF sent (editMessageText). A bot cannot edit other users' messages. DESTRUCTIVE — confirm the exact chat_id, message_id, and new text with the user before calling. Returns the edited message_id.",
+			"Replace the text of a message the bot ITSELF sent (editMessageText). A bot cannot edit other users' messages. DESTRUCTIVE. Returns the edited message_id.",
 		parameters: editMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`Chat: ${approvalArg(args, "chatId")}`,
@@ -350,9 +345,9 @@ function createDeleteMessageTool(): ToolDefinition<typeof deleteMessageSchema> {
 		name: "telegram_delete_message",
 		label: "Telegram: Delete Message",
 		description:
-			"Delete a message from a chat (deleteMessage). IRREVERSIBLE — the message is gone for everyone. Demand explicit confirmation of the exact chat_id AND message_id before calling. The bot can delete its OWN messages any time; other users' messages only within 48h of posting and only with 'delete messages' admin rights in the group. Returns confirmation.",
+			"Delete a message from a chat (deleteMessage). IRREVERSIBLE — the message is gone for everyone. The bot can delete its OWN messages any time; other users' messages only within 48h of posting and only with 'delete messages' admin rights in the group. Returns confirmation.",
 		parameters: deleteMessageSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [`Chat: ${approvalArg(args, "chatId")}`, `Delete message: ${approvalArg(args, "messageId")}`];
 		},
@@ -372,7 +367,7 @@ function createPinMessageTool(): ToolDefinition<typeof pinMessageSchema> {
 		name: "telegram_pin_message",
 		label: "Telegram: Pin Message",
 		description:
-			"Pin a message to the top of a chat (pinChatMessage), or unpin it when unpin=true (unpinChatMessage). In groups/channels the bot needs 'pin messages' admin rights. Confirm the exact chat_id, message_id, and whether pinning or unpinning with the user before calling. Returns confirmation.",
+			"Pin a message to the top of a chat (pinChatMessage), or unpin it when unpin=true (unpinChatMessage). In groups/channels the bot needs 'pin messages' admin rights. Returns confirmation.",
 		parameters: pinMessageSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof pinMessageSchema.infer) {
@@ -402,9 +397,9 @@ function createSendPhotoTool(): ToolDefinition<typeof sendPhotoSchema> {
 		name: "telegram_send_photo",
 		label: "Telegram: Send Photo",
 		description:
-			"Send a photo to a chat by https:// URL (sendPhoto), with an optional caption. DESTRUCTIVE — confirm the exact recipient (chat_id), the photo URL, AND any caption with the user before calling. Returns the sent message_id.",
+			"Send a photo to a chat by https:// URL (sendPhoto), with an optional caption. DESTRUCTIVE. Returns the sent message_id.",
 		parameters: sendPhotoSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			return [
 				`Chat: ${approvalArg(args, "chatId")}`,

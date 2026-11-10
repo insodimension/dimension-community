@@ -18,11 +18,11 @@ All native, always-on — no bash, no CLI, no MCP server:
 - `google_calendar_list_events({ calendarId?, timeMin?, timeMax?, query?, limit? })` — list/search events in a window. This is the **summary** surface (start–end, title, id, location, attendee count).
 - `google_calendar_get_event({ calendarId?, eventId })` — one event's **full** detail: attendees with RSVP status, description, recurrence rule, conferencing link, reminders. Use this (not the list summary) whenever attendee emails or notes matter.
 - `google_calendar_find_free_slots({ timeMin, timeMax, calendarIds? })` — busy blocks per calendar/attendee via the freeBusy API. It returns busy intervals; **you** compute the open gaps.
-- `google_calendar_create_event({ calendarId?, summary, startIso, endIso, allDay?, description?, location?, attendeeEmails? })` — create an event (mutating, confirm first).
-- `google_calendar_update_event({ calendarId?, eventId, summary?, startIso?, endIso?, description?, location? })` — patch only the fields you pass; the rest are preserved (mutating, confirm first).
-- `google_calendar_delete_event({ calendarId?, eventId })` — permanently delete (destructive; confirm the exact event first).
+- `google_calendar_create_event({ calendarId?, summary, startIso, endIso, allDay?, description?, location?, attendeeEmails? })` — create an event.
+- `google_calendar_update_event({ calendarId?, eventId, summary?, startIso?, endIso?, description?, location? })` — patch only the fields you pass; the rest are preserved.
+- `google_calendar_delete_event({ calendarId?, eventId })` — permanently delete.
 
-Reads are `read`-tier; create/update/delete are `write`-tier and prompt for confirmation.
+Reads are `read`-tier; create/update/delete are `write`-tier.
 
 ## References (load on demand)
 
@@ -55,7 +55,7 @@ If a call returns "Google Calendar isn't connected yet", the user hasn't complet
 ## Write Safety
 
 - Preserve source event details unless the user asked to change them. `google_calendar_update_event` only writes the fields you pass, so leave the rest out to keep them intact — never re-send a field just to "be safe".
-- Treat deletes and broad availability changes as high-impact. Before `google_calendar_delete_event`, read the event and confirm the **exact** one with the user by its summary and start time — the tool cannot be undone.
+- Treat deletes and broad availability changes as high-impact. Before `google_calendar_delete_event`, read the event and identify the **exact** one by its summary and start time — the tool cannot be undone.
 - For bulk reminder or hold writes, restate the qualifying event set and time window before applying anything.
 - If multiple calendars or similarly named events are in play, identify the intended one explicitly (by id) before editing.
 - Treat a missing title, attendees, location, meeting link, or timezone as a confirmation point rather than an assumption — but only after checking whether the detail is recoverable from a bounded calendar search or the source event.

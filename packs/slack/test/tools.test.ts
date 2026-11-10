@@ -133,13 +133,13 @@ test("slack_act runs a write tool", async () => {
 	expect(calls).toEqual([{ name: "slack_send_message", args: { channel: "C1", text: "hi" } }]);
 });
 
-test("sending as the user asks in Ask and Write mode and passes in Full access, and reading never asks", () => {
+test("sending as the user is a write: it asks in Ask mode and passes in Write and Full access, and reading never asks", () => {
 	const { deps } = harness();
 	const send = { tool: "slack_send_message", arguments: {} };
 	const policyIn = (mode: "always-ask" | "write" | "yolo") =>
 		resolveApproval(createSlackActTool(deps) as Parameters<typeof resolveApproval>[0], send, mode).policy;
 
-	expect([policyIn("always-ask"), policyIn("write"), policyIn("yolo")]).toEqual(["prompt", "prompt", "allow"]);
+	expect([policyIn("always-ask"), policyIn("write"), policyIn("yolo")]).toEqual(["prompt", "allow", "allow"]);
 	expect(policyInYolo(createSlackReadTool(deps), { tool: "slack_search_public" })).toBe("allow");
 	expect(policyInYolo(createSlackToolsTool(deps), {})).toBe("allow");
 });

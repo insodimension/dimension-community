@@ -6,7 +6,7 @@
 // macOS-host backend that implements this same interface with `xcrun simctl`; see
 // the README for why it is not here.
 
-import type { BootRequest, DeviceInfo, DeviceKind, KeyName, Screenshot, UiSnapshot, VideoPacket } from "./contracts";
+import type { BootRequest, DeviceInfo, KeyName, Screenshot, UiSnapshot, VideoPacket } from "./contracts";
 import type { Size } from "./shared/pointer";
 
 export interface VideoStreamOptions {
@@ -71,10 +71,6 @@ export interface RunningEmulator {
 
 export type StopOutcome = "stopped" | "already-exited";
 
-export interface ListOptions {
-  readonly probePhysical?: boolean;
-}
-
 export interface StopOptions {
   readonly avd: string;
   readonly graceMs?: number;
@@ -84,8 +80,8 @@ export interface StopOptions {
 export interface DeviceBackend {
   readonly platform: "android";
 
-  list(options?: ListOptions): Promise<DeviceInfo[]>;
-  kindOf(serial: string, probeShell?: boolean): Promise<DeviceKind>;
+  list(): Promise<DeviceInfo[]>;
+  ensureConnected(serial: string): Promise<void>;
   /** Bootable virtual devices (AVD names). */
   avds(): Promise<string[]>;
   /** Start a virtual device. Does not wait for it to finish booting: see `BootHandle.ready`. */

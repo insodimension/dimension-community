@@ -22,7 +22,6 @@ function clampLimit(v: number | undefined, def: number, max: number): number {
 	return Math.min(Math.max(v ?? def, 1), max);
 }
 
-const PROMPT_EVERY_MODE = { tier: "write", policy: "prompt" } as const;
 const APPROVAL_BODY_CAP = 4000;
 
 function approvalArg(args: unknown, key: string): string | undefined {
@@ -375,7 +374,7 @@ function createPlaylistAddTool(): ToolDefinition<typeof playlistAddSchema> {
 		name: "youtube_playlist_add",
 		label: "YouTube: Add to Playlist",
 		description:
-			"Add a video to one of your playlists. Mutating — confirm the exact playlist (by title) and video with the user first. The playlist must be one the connected account owns.",
+			"Add a video to one of your playlists. Mutating. The playlist must be one the connected account owns.",
 		parameters: playlistAddSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof playlistAddSchema.infer) {
@@ -507,9 +506,9 @@ function createPostCommentTool(): ToolDefinition<typeof postCommentSchema> {
 	return {
 		name: "youtube_post_comment",
 		label: "YouTube: Post Comment",
-		description: `Post a PUBLIC comment. Pass videoId to post a new top-level comment on a video, OR parentCommentId to reply to an existing comment (from youtube_list_comments) — exactly one. PUBLICLY VISIBLE under the channel's name and asks the person every time. Refused after ${COMMENTS_PER_DAY} comments in a UTC day, and refused when the text repeats (80% of its words) any comment posted before: YouTube's spam policy names repetitive comments.`,
+		description: `Post a PUBLIC comment. Pass videoId to post a new top-level comment on a video, OR parentCommentId to reply to an existing comment (from youtube_list_comments) — exactly one. PUBLICLY VISIBLE under the channel's name. Refused after ${COMMENTS_PER_DAY} comments in a UTC day, and refused when the text repeats (80% of its words) any comment posted before: YouTube's spam policy names repetitive comments.`,
 		parameters: postCommentSchema,
-		approval: PROMPT_EVERY_MODE,
+		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const videoId = approvalArg(args, "videoId");
 			const parent = approvalArg(args, "parentCommentId");

@@ -1,8 +1,8 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "gmail",
-	"version": "0.3.0",
-	"description": "Let your agent read and search your email, and send messages from your mailbox once you approve each one.",
+	"version": "0.3.1",
+	"description": "Let your agent read and search your email, and send messages from your mailbox.",
 	"author": {
 		"name": "Dimension"
 	},
@@ -102,7 +102,7 @@
 				},
 				{
 					"name": "gmail_send_email",
-					"description": "Send one plain-text email from your mailbox, from the account you name or else the default one. The only way the agent sends mail: you approve the exact message and the account first, and it can't be unsent."
+					"description": "Send one plain-text email from your mailbox, from the account you name or else the default one. The only way the agent sends mail, and it can't be unsent."
 				}
 			]
 		}
