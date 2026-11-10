@@ -7,15 +7,23 @@ description: Search YouTube; inspect up to 50 videos per call and channels by ha
 
 ## Overview
 
-Act on YouTube through twelve tools backed by the YouTube Data API v3, the
+Act on YouTube through fourteen tools backed by the YouTube Data API v3, the
 YouTube Analytics API v2 and the YouTube Reporting API (OAuth, bring-your-own
 Google Cloud client). The agent searches, inspects videos and channels, browses
-and edits the connected account's playlists, reads comment threads, posts
-public comments/replies, reads the connected channel's own analytics and reach,
-and applies title and thumbnail changes the person approved on the Traction
+and edits connected channels' playlists, reads comment threads, posts public
+comments/replies, reads every connected channel's own analytics and reach, and
+applies title and thumbnail changes the person approved on the Traction
 campaign board. Keep answers grounded in the real data the tools return — ids,
 view counts, published dates, comment text — never a guessed or reconstructed
 transcript or number.
+
+**Any number of channels.** Each Connect (Plugins → YouTube → Connect) adds the
+channel picked at Google's sign-in (a Google account or any brand account it
+manages); connect again to add the next. `youtube_channels` lists them. A tool
+that acts on a video (`youtube_video_analytics`, `youtube_update_video`,
+`youtube_reach_report` with `videoId`) uses the channel that owns the video, so
+no channel is named. A tool that acts *as* a channel (playlists, comments) takes
+`channel` (title, @handle or id) when more than one is connected.
 
 ## Setup
 
@@ -38,17 +46,17 @@ after 7 days (Google's OAuth documentation), so the connection dies every week.
 For your own client no review is needed; an "unverified app" notice at sign-in
 is expected.
 
-If a call returns "YouTube isn't connected yet", the user hasn't finished the
-OAuth flow — point them at **Plugins → YouTube → Set up**. On an auth error, use
-**Plugins → YouTube → Reconnect**.
+If a call says no channel is connected, the user hasn't finished the OAuth flow
+— point them at **Plugins → YouTube → Connect**. On an auth error for one
+channel, connect that channel again.
 
 **Scopes:** `https://www.googleapis.com/auth/youtube` (manage playlists, read
 channel/video data, update your videos) + `https://www.googleapis.com/auth/youtube.force-ssl`
 (required to read and post comments) + `https://www.googleapis.com/auth/yt-analytics.readonly`
 (Analytics and Reporting reads). Enable the **YouTube Analytics API** and the
-**YouTube Reporting API** in the same Cloud project. A connection made before
+**YouTube Reporting API** in the same Cloud project. A channel connected before
 plugin 0.4.0 lacks the analytics scope: the analytics tools say so, and the fix
-is **Plugins → YouTube → Reconnect**.
+is to connect that channel again.
 
 ## Tools
 
@@ -65,18 +73,18 @@ All native, always-on — no bash, no CLI, no MCP server:
   duration, privacy, made-for-kids and altered/synthetic flags, public views,
   likes and comments, and the time they were read. One id adds the channel,
   tags and description. (read)
-- `youtube_list_playlists({ limit? })` — the connected account's own playlists:
-  id, title, item count, privacy status. Grab a playlist id here. (read)
+- `youtube_list_playlists({ limit?, channel? })` — a connected channel's own
+  playlists: id, title, item count, privacy status. Grab a playlist id here. (read)
 - `youtube_list_playlist_items({ playlistId, limit? })` — the videos in a
   playlist: position, video id, title, channel, publish date. A channel's
   uploads playlist is its channel id with `UC` replaced by `UU`, which shows how
   often it posts, at 1 unit instead of a search. (read)
-- `youtube_playlist_add({ playlistId, videoId })` — add a video to one of your
-  playlists (**mutating**). (write)
+- `youtube_playlist_add({ playlistId, videoId, channel? })` — add a video to one
+  of that channel's playlists (**mutating**). (write)
 - `youtube_list_comments({ videoId, limit? })` — top-level comment threads,
   plain text, most-relevant first: `[commentId] author (likes, replies)` + body.
   Quote the comment id to reply. (read)
-- `youtube_post_comment({ text, videoId? | parentCommentId? })` — post a **new
+- `youtube_post_comment({ text, videoId? | parentCommentId?, channel? })` — post a **new
   top-level comment** (`videoId`) OR a **reply** to an existing comment
   (`parentCommentId`) — exactly one. **Public, mutating.** Refused after 5 comments in a UTC day, and refused
   when the text shares 80% of its words with any earlier comment: YouTube's spam
@@ -85,33 +93,39 @@ All native, always-on — no bash, no CLI, no MCP server:
   (language, name, kind). See "Captions & transcripts". (read)
 - `youtube_channel_stats({ handle? | channelId? })` — subscribers, total views,
   video count and the uploads playlist id, by `@handle` or channel id; omit
-  both for your own channel. (read)
+  both for every connected channel. (read)
+- `youtube_channels()` — every connected channel: title, @handle, id, when it
+  was connected. (read)
+- `youtube_forget_channel({ channel })` — remove a connected channel's stored
+  sign-in from this machine. (write)
 
-- `youtube_video_analytics({ videoId, startDate?, endDate? })` — one of the
-  connected channel's videos (default the last 28 days): views, engaged views,
+- `youtube_video_analytics({ videoId, startDate?, endDate? })` — a video on any
+  connected channel, read with the owning channel's sign-in (default the last 28 days): views, engaged views,
   watch time, average view duration and average percentage viewed; views,
   engaged views and watch time by traffic source (YouTube reports no average
   duration or percentage per source; the tool shows watch time over views); and
   the retention curve (audienceWatchRatio and relativeRetentionPerformance at
   1/10/25/50/75/90/100%). Retention is not broken down by traffic source in the
   API. (read)
-- `youtube_reach_report({ videoId?, days?, bySource? })` — thumbnail
+- `youtube_reach_report({ videoId?, channel?, days?, bySource? })` — thumbnail
   impressions and impressions CTR from the Reporting API's daily reach reports
   (`channel_reach_basic_a1`; with `bySource`, `channel_reach_combined_a1` by
-  traffic source). The plugin creates both report jobs at the first session
-  after the channel connects; YouTube backfills only 30 days before a job
-  exists, and the first reports take up to 48 hours. (read)
+  traffic source). A `videoId` reports on its own channel; otherwise one
+  `channel`, or every connected channel, a section each. The plugin creates both
+  report jobs for each channel at the first session after it connects; YouTube
+  backfills only 30 days before a job exists, and the first reports take up to
+  48 hours. (read)
 - `youtube_update_video({ draftId, videoUrl, title? | thumbnailPath? })` —
   apply an **approved** Traction `youtube-update` draft: a new title
   (videos.update, resending the video's whole snippet so description, tags and
   category stay) or a new thumbnail (thumbnails.set, PNG or JPEG ≤ 2 MB).
-  Refused with `publish_unapproved`, nothing changed, unless the board's
+  The video's owning channel is used. Refused with `publish_unapproved`, nothing changed, unless the board's
   Approve covers this exact change on this exact video and the thumbnail file is
   byte-identical to the approved one. An approval is spent once. Asks the
   person every time. (write)
 
-Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment` and
-`youtube_update_video` are `write`-tier.
+Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
+`youtube_forget_channel` and `youtube_update_video` are `write`-tier.
 
 ## Usage patterns
 

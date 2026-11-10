@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.4.1",
+	"version": "0.5.0",
 	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read your channel's analytics and reach, apply approved title and thumbnail changes, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
@@ -88,7 +88,7 @@
 					"usePkce": true,
 					"extraAuthParams": {
 						"access_type": "offline",
-						"prompt": "consent"
+						"prompt": "select_account consent"
 					}
 				},
 				"configTarget": "~/.config/dimension-youtube/token.json",
@@ -173,6 +173,18 @@
 					"title": "Channel stats"
 				},
 				{
+					"match": "youtube_channels",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Channels"
+				},
+				{
+					"match": "youtube_forget_channel",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Forget channel"
+				},
+				{
 					"match": "youtube_reach_report",
 					"use": "summary",
 					"icon": "youtube",
@@ -232,7 +244,15 @@
 				},
 				{
 					"name": "youtube_channel_stats",
-					"description": "Read a channel's public statistics by @handle, channel id, or your own: subscribers, views, video count, and its uploads playlist."
+					"description": "Read a channel's public statistics by @handle or channel id, or every channel you connected: subscribers, views, video count, and its uploads playlist."
+				},
+				{
+					"name": "youtube_channels",
+					"description": "List the YouTube channels you connected. Connect again to add another; each one is watched on its own."
+				},
+				{
+					"name": "youtube_forget_channel",
+					"description": "Remove one connected channel's sign-in from this machine."
 				},
 				{
 					"name": "youtube_reach_report",

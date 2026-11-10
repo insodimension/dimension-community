@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addReach, createReachReportTool, createVideoAnalyticsTool, ensureReachJobs, parseCsv } from "../analytics";
-import { MISSING_ANALYTICS_SCOPE } from "../api";
+import { channelFor, MISSING_ANALYTICS_SCOPE } from "../api";
 import { createUpdateVideoTool, snippetWithTitle, updateBinding } from "../update";
+import { ALPHA, BETA, bearerOf, type ChannelSeed, channelIdOf, seedChannel } from "./channel-fixture";
 
 const ENV = ["HOME", "USERPROFILE", "INSO_HOME"] as const;
 const prior = Object.fromEntries(ENV.map(name => [name, process.env[name]]));
@@ -15,8 +16,9 @@ const insoHome = join(root, "inso");
 const approvals = join(insoHome, "browser", "publish-approvals");
 const thumbs = join(root, "thumbs");
 const CONFIG_DIR = join(home, ".config", "dimension-youtube");
-const TOKEN_FILE = join(CONFIG_DIR, "token.json");
-const REACH_JOBS_FILE = join(CONFIG_DIR, "reach-jobs.json");
+const CHANNELS_DIR = join(CONFIG_DIR, "channels");
+const REACH_JOBS_DIR = join(CONFIG_DIR, "reach-jobs");
+const MAIN: ChannelSeed = { channelId: channelIdOf("main"), title: "Main", access: "tok", refresh: "refresh-A" };
 
 beforeAll(() => {
 	process.env.HOME = home;
@@ -53,19 +55,18 @@ function serve(handler: Handler): void {
 	}) as typeof fetch;
 }
 
-async function writeToken(refresh = "refresh-A"): Promise<void> {
-	await mkdir(CONFIG_DIR, { recursive: true });
-	await writeFile(TOKEN_FILE, JSON.stringify({ access: "tok", refresh, expires: Date.now() + 24 * 3_600_000, clientId: "c" }));
+async function seedMain(refresh = MAIN.refresh): Promise<void> {
+	await seedChannel(CONFIG_DIR, { ...MAIN, refresh });
 }
 
 beforeEach(async () => {
 	process.env.INSO_HOME = insoHome;
 	await rm(insoHome, { recursive: true, force: true });
 	await rm(thumbs, { recursive: true, force: true });
-	await rm(REACH_JOBS_FILE, { force: true });
+	await rm(CONFIG_DIR, { recursive: true, force: true });
 	await mkdir(approvals, { recursive: true });
 	await mkdir(thumbs, { recursive: true });
-	await writeToken();
+	await seedMain();
 	calls = [];
 	serve(call => {
 		throw new Error(`unexpected request ${call.method} ${call.url}`);
@@ -515,7 +516,7 @@ describe("youtube_reach_report", () => {
 			],
 		});
 
-		const ensured = await ensureReachJobs();
+		const ensured = await ensureReachJobs(await channelFor(undefined));
 
 		expect(posts()).toEqual(["channel_reach_combined_a1"]);
 		expect(ensured.created).toEqual(["channel_reach_combined_a1"]);
@@ -525,12 +526,12 @@ describe("youtube_reach_report", () => {
 
 	test("reconnecting a different account does not reuse the remembered jobs", async () => {
 		serveReporting();
-		await ensureReachJobs();
+		await ensureReachJobs(await channelFor(undefined));
 		expect(posts()).toHaveLength(2);
 
-		await writeToken("refresh-B");
+		await seedMain("refresh-B");
 		serveReporting({ jobs: [] });
-		const again = await ensureReachJobs();
+		const again = await ensureReachJobs(await channelFor(undefined));
 
 		expect(again.created).toHaveLength(2);
 		expect(posts()).toHaveLength(4);
@@ -677,5 +678,255 @@ describe("youtube_video_analytics", () => {
 		serve(() => Response.json({ error: { message: "Insufficient Permission: Request had insufficient authentication scopes." } }, { status: 403 }));
 
 		await expect(analytics({ videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" })).rejects.toThrow(MISSING_ANALYTICS_SCOPE);
+	});
+});
+
+describe("several channels connected", () => {
+	const VIDEO = "dQw4w9WgXcQ";
+	const VIDEO_URL = `https://www.youtube.com/watch?v=${VIDEO}`;
+	const REPORTING = "youtubereporting.googleapis.com";
+	const BASIC = "channel_reach_basic_a1";
+	const COMBINED = "channel_reach_combined_a1";
+	const CSV_HEADER = "date,channel_id,video_id,video_thumbnail_impressions,video_thumbnail_impressions_ctr";
+
+	beforeEach(async () => {
+		await rm(CHANNELS_DIR, { recursive: true, force: true });
+		await seedChannel(CONFIG_DIR, ALPHA);
+		await seedChannel(CONFIG_DIR, BETA);
+	});
+
+	function ownerLookup(owner: { channelId: string; channelTitle: string }): Response {
+		return Response.json({ items: [{ id: VIDEO, snippet: { ...owner, title: "Old title", description: "Body", categoryId: "28" } }] });
+	}
+
+	describe("youtube_update_video", () => {
+		const STRANGER = { channelId: channelIdOf("stranger"), title: "Stranger", access: "tok-stranger", refresh: "ref-stranger" };
+
+		function update(params: Record<string, unknown>): Promise<{ content: { text: string }[] }> {
+			return (createUpdateVideoTool() as unknown as Tool).execute("call-1", params);
+		}
+
+		function serveVideoOwnedBy(ownerId: string): void {
+			serve(call => {
+				if (call.url.pathname === "/youtube/v3/videos" && call.method === "GET") return ownerLookup({ channelId: ownerId, channelTitle: "Owner channel" });
+				if (call.url.pathname === "/youtube/v3/videos" && call.method === "PUT") return Response.json({ id: VIDEO });
+				throw new Error(`unexpected request ${call.method} ${call.url}`);
+			});
+		}
+
+		for (const owner of [ALPHA, BETA]) {
+			test(`a title change on a video owned by ${owner.title} reads and PUTs with ${owner.title}'s bearer`, async () => {
+				const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+				serveVideoOwnedBy(owner.channelId);
+
+				await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" });
+
+				expect(calls.map(call => call.method)).toEqual(["GET", "GET", "PUT"]);
+				expect(calls.slice(1).map(call => call.headers.get("authorization"))).toEqual([bearerOf(owner), bearerOf(owner)]);
+				expect(await exists(marker)).toBe(true);
+			});
+		}
+
+		test("a video owned by a channel that is not connected is refused naming that channel, and the approval stays unspent until it is connected", async () => {
+			const { marker } = await approve("draft1", VIDEO, titleValues("New title"));
+			serveVideoOwnedBy(STRANGER.channelId);
+
+			const failure = await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" }).then(
+				() => null,
+				(error: Error) => error,
+			);
+
+			expect(failure?.message).toContain(STRANGER.channelId);
+			expect(failure?.message).toContain("Owner channel");
+			expect(failure?.message).toMatch(/not connected/);
+			expect(calls.map(call => `${call.method} ${call.url.pathname}`)).toEqual(["GET /youtube/v3/videos"]);
+			expect(await exists(marker)).toBe(false);
+			expect(await usedMarkers()).toEqual([]);
+
+			await seedChannel(CONFIG_DIR, STRANGER);
+			calls = [];
+			await update({ draftId: "draft1", videoUrl: VIDEO_URL, title: "New title" });
+
+			expect(calls.at(-1)?.method).toBe("PUT");
+			expect(calls.at(-1)?.headers.get("authorization")).toBe(bearerOf(STRANGER));
+			expect(await exists(marker)).toBe(true);
+		});
+
+		test("a thumbnail upload for a video owned by Beta Studio carries Beta Studio's bearer", async () => {
+			const path = join(thumbs, "cover.png");
+			const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+			await writeFile(path, bytes);
+			const { marker } = await approve("draft1", VIDEO, thumbnailValues(path, bytes));
+			serve(call => {
+				if (call.url.pathname === "/youtube/v3/videos") return ownerLookup({ channelId: BETA.channelId, channelTitle: BETA.title });
+				if (call.url.pathname === "/upload/youtube/v3/thumbnails/set") return Response.json({ items: [] });
+				throw new Error(`unexpected request ${call.method} ${call.url}`);
+			});
+
+			await update({ draftId: "draft1", videoUrl: VIDEO_URL, thumbnailPath: path });
+
+			const upload = calls.at(-1);
+			expect(upload?.method).toBe("POST");
+			expect(upload?.url.pathname).toBe("/upload/youtube/v3/thumbnails/set");
+			expect(upload?.headers.get("authorization")).toBe(bearerOf(BETA));
+			expect(await exists(marker)).toBe(true);
+		});
+	});
+
+	describe("youtube_reach_report", () => {
+		interface Fixture {
+			reports?: Record<string, unknown[]>;
+			downloads?: Record<string, string>;
+		}
+
+		function reach(params: Record<string, unknown> = {}): Promise<{ content: { text: string }[] }> {
+			return (createReachReportTool() as unknown as Tool).execute("call-1", params);
+		}
+
+		function jobOf(seed: ChannelSeed, reportTypeId: string): string {
+			return `${seed.access}-${reportTypeId}`;
+		}
+
+		function serveReporting(fixture: Fixture = {}): void {
+			serve(call => {
+				const path = call.url.pathname;
+				if (call.url.host === "www.googleapis.com" && path === "/youtube/v3/videos") return ownerLookup({ channelId: BETA.channelId, channelTitle: BETA.title });
+				if (call.url.host !== REPORTING) throw new Error(`unexpected request ${call.method} ${call.url}`);
+				if (path === "/v1/jobs" && call.method === "GET") return Response.json({});
+				if (path === "/v1/jobs" && call.method === "POST") {
+					const { reportTypeId } = jsonBody(call) as { reportTypeId: string };
+					const access = (call.headers.get("authorization") ?? "").replace("Bearer ", "");
+					return Response.json({ id: `${access}-${reportTypeId}`, reportTypeId, createTime: "2026-11-09T00:00:00Z" });
+				}
+				const listing = /^\/v1\/jobs\/([^/]+)\/reports$/.exec(path);
+				if (listing && call.method === "GET") return Response.json({ reports: fixture.reports?.[listing[1] ?? ""] ?? [] });
+				const download = fixture.downloads?.[path];
+				if (download !== undefined) return new Response(download);
+				throw new Error(`unexpected request ${call.method} ${call.url}`);
+			});
+		}
+
+		function createdBy(seed: ChannelSeed): string[] {
+			return calls
+				.filter(call => call.method === "POST" && call.url.pathname === "/v1/jobs" && call.headers.get("authorization") === bearerOf(seed))
+				.map(call => jsonBody(call).reportTypeId as string)
+				.sort();
+		}
+
+		test("with no arguments each channel gets its own section and creates its own two jobs with its own bearer", async () => {
+			serveReporting();
+
+			const text = (await reach()).content[0]?.text ?? "";
+
+			expect(createdBy(ALPHA)).toEqual([BASIC, COMBINED]);
+			expect(createdBy(BETA)).toEqual([BASIC, COMBINED]);
+			const alphaAt = text.indexOf(ALPHA.channelId);
+			expect(alphaAt).toBeGreaterThanOrEqual(0);
+			expect(text.indexOf(BETA.channelId)).toBeGreaterThan(alphaAt);
+			expect(text.match(/no channel_reach_basic_a1 reports yet/g)).toHaveLength(2);
+			expect((await readdir(REACH_JOBS_DIR)).sort()).toEqual([`${ALPHA.channelId}.json`, `${BETA.channelId}.json`].sort());
+			for (const seed of [ALPHA, BETA]) {
+				const cached = JSON.parse(await readFile(join(REACH_JOBS_DIR, `${seed.channelId}.json`), "utf-8"));
+				expect(cached.jobs[BASIC].id).toBe(jobOf(seed, BASIC));
+				expect(cached.jobs[COMBINED].id).toBe(jobOf(seed, COMBINED));
+			}
+			expect(await exists(join(CONFIG_DIR, "reach-jobs.json"))).toBe(false);
+		});
+
+		test("a second call reads each channel's cached jobs and creates or lists none", async () => {
+			serveReporting();
+			await reach();
+			const before = calls.length;
+
+			await reach();
+
+			expect(calls.slice(before).filter(call => call.url.pathname === "/v1/jobs")).toEqual([]);
+			expect(calls.slice(before).length).toBeGreaterThan(0);
+		});
+
+		test("each section carries only its own channel's numbers, fetched with its own bearer", async () => {
+			const day = (seed: ChannelSeed, media: string) => ({
+				id: `r-${seed.access}`,
+				startTime: "2026-11-01T08:00:00Z",
+				createTime: "2026-11-02T09:00:00Z",
+				downloadUrl: `https://${REPORTING}/v1/media/${media}`,
+			});
+			serveReporting({
+				reports: { [jobOf(ALPHA, BASIC)]: [day(ALPHA, "alpha")], [jobOf(BETA, BASIC)]: [day(BETA, "beta")] },
+				downloads: {
+					"/v1/media/alpha": `${CSV_HEADER}\n20261101,${ALPHA.channelId},aaaaaaaaaaa,100,0.10\n`,
+					"/v1/media/beta": `${CSV_HEADER}\n20261101,${BETA.channelId},bbbbbbbbbbb,300,0.02\n`,
+				},
+			});
+
+			const text = (await reach()).content[0]?.text ?? "";
+
+			const alphaAt = text.indexOf(ALPHA.channelId);
+			const betaAt = text.indexOf(BETA.channelId);
+			const alphaSection = text.slice(alphaAt, betaAt);
+			const betaSection = text.slice(betaAt);
+			expect(alphaSection).toMatch(/aaaaaaaaaaa\s+impressions 100\s+CTR 10\.00%/);
+			expect(alphaSection).not.toContain("bbbbbbbbbbb");
+			expect(betaSection).toMatch(/bbbbbbbbbbb\s+impressions 300\s+CTR 2\.00%/);
+			expect(betaSection).not.toContain("aaaaaaaaaaa");
+			const bearerAt = (needle: string) => calls.find(call => call.url.pathname.includes(needle))?.headers.get("authorization");
+			expect(bearerAt("/v1/media/alpha")).toBe(bearerOf(ALPHA));
+			expect(bearerAt("/v1/media/beta")).toBe(bearerOf(BETA));
+			expect(bearerAt(`/v1/jobs/${jobOf(ALPHA, BASIC)}/reports`)).toBe(bearerOf(ALPHA));
+			expect(bearerAt(`/v1/jobs/${jobOf(BETA, BASIC)}/reports`)).toBe(bearerOf(BETA));
+		});
+
+		test("channel selects one channel by @handle and touches no other", async () => {
+			serveReporting();
+
+			const text = (await reach({ channel: "@betastudio" })).content[0]?.text ?? "";
+
+			expect(text).toContain(BETA.channelId);
+			expect(text).not.toContain(ALPHA.channelId);
+			expect(calls.length).toBeGreaterThan(0);
+			expect(calls.every(call => call.headers.get("authorization") === bearerOf(BETA))).toBe(true);
+			expect(await exists(join(REACH_JOBS_DIR, `${ALPHA.channelId}.json`))).toBe(false);
+		});
+
+		test("a video id reports on the channel that owns it only", async () => {
+			serveReporting();
+
+			const text = (await reach({ videoId: VIDEO_URL })).content[0]?.text ?? "";
+
+			expect(calls[0]?.url.pathname).toBe("/youtube/v3/videos");
+			const reporting = calls.filter(call => call.url.host === REPORTING);
+			expect(reporting.length).toBeGreaterThan(0);
+			expect(reporting.every(call => call.headers.get("authorization") === bearerOf(BETA))).toBe(true);
+			expect(createdBy(ALPHA)).toEqual([]);
+			expect(text).toContain(BETA.channelId);
+			expect(text).not.toContain(ALPHA.channelId);
+		});
+
+		test("an unknown channel is refused before any request", async () => {
+			serveReporting();
+
+			await expect(reach({ channel: "@nobody" })).rejects.toThrow(/No connected channel is "@nobody"/);
+
+			expect(calls).toEqual([]);
+		});
+	});
+
+	describe("youtube_video_analytics", () => {
+		test("every query carries the bearer of the channel that owns the video", async () => {
+			serve(call => {
+				if (call.url.pathname === "/youtube/v3/videos") return ownerLookup({ channelId: BETA.channelId, channelTitle: BETA.title });
+				if (call.url.host !== "youtubeanalytics.googleapis.com") throw new Error(`unexpected request ${call.method} ${call.url}`);
+				const dimensions = call.url.searchParams.get("dimensions");
+				return dimensions
+					? Response.json({ columnHeaders: [{ name: dimensions }, { name: "views" }], rows: [] })
+					: Response.json({ columnHeaders: [{ name: "views" }], rows: [[0]] });
+			});
+
+			await (createVideoAnalyticsTool() as unknown as Tool).execute("call-1", { videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" });
+
+			const queries = calls.filter(call => call.url.host === "youtubeanalytics.googleapis.com");
+			expect(queries).toHaveLength(3);
+			expect([...new Set(queries.map(call => call.headers.get("authorization")))]).toEqual([bearerOf(BETA)]);
+		});
 	});
 });

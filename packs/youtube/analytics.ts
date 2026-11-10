@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { configFile, freshAccessToken, googleJson, readCredential, videoIdOf } from "./api";
+import { type ConnectedChannel, channelFor, channelLabel, configFile, connectedChannels, googleJson, NOT_CONNECTED, ownerOfVideo, tokenOf, videoIdOf } from "./api";
 
 const REPORTING_API = "https://youtubereporting.googleapis.com/v1";
 const ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2/reports";
-const REACH_JOBS_FILE = "reach-jobs.json";
+const REACH_JOBS_DIR = "reach-jobs";
 const REACH_REPORT_TYPES = ["channel_reach_basic_a1", "channel_reach_combined_a1"] as const;
 type ReachReportType = (typeof REACH_REPORT_TYPES)[number];
 const DAY_MS = 24 * 60 * 60_000;
@@ -67,9 +67,13 @@ async function reportingJson<T>(path: string, accessToken: string, op: string, i
 	return googleJson<T>(`${REPORTING_API}${path}`, accessToken, `YouTube Reporting ${op}`, init);
 }
 
-async function readReachJobs(): Promise<ReachJobs | undefined> {
+function reachJobsFile(channelId: string): string {
+	return configFile(join(REACH_JOBS_DIR, `${channelId}.json`));
+}
+
+async function readReachJobs(channelId: string): Promise<ReachJobs | undefined> {
 	try {
-		const parsed = reachJobsRecord(JSON.parse(await readFile(configFile(REACH_JOBS_FILE), "utf-8")));
+		const parsed = reachJobsRecord(JSON.parse(await readFile(reachJobsFile(channelId), "utf-8")));
 		return parsed instanceof type.errors ? undefined : parsed;
 	} catch {
 		return undefined;
@@ -81,22 +85,28 @@ export interface EnsuredReachJobs {
 	readonly created: readonly ReachReportType[];
 }
 
-let pendingReachJobs: Promise<EnsuredReachJobs> | undefined;
+const pendingReachJobs = new Map<string, Promise<EnsuredReachJobs>>();
 
-export function ensureReachJobs(): Promise<EnsuredReachJobs> {
-	pendingReachJobs ??= loadOrCreateReachJobs().finally(() => {
-		pendingReachJobs = undefined;
-	});
-	return pendingReachJobs;
+export function ensureReachJobs(channel: ConnectedChannel): Promise<EnsuredReachJobs> {
+	let pending = pendingReachJobs.get(channel.channelId);
+	if (!pending) {
+		pending = loadOrCreateReachJobs(channel).finally(() => pendingReachJobs.delete(channel.channelId));
+		pendingReachJobs.set(channel.channelId, pending);
+	}
+	return pending;
 }
 
-async function loadOrCreateReachJobs(): Promise<EnsuredReachJobs> {
-	const credential = createHash("sha256").update((await readCredential()).refresh).digest("hex").slice(0, 16);
-	const known = await readReachJobs();
+export async function ensureAllReachJobs(): Promise<void> {
+	for (const channel of await connectedChannels()) await ensureReachJobs(channel).catch(() => undefined);
+}
+
+async function loadOrCreateReachJobs(channel: ConnectedChannel): Promise<EnsuredReachJobs> {
+	const credential = createHash("sha256").update(channel.refresh).digest("hex").slice(0, 16);
+	const known = await readReachJobs(channel.channelId);
 	if (known?.credential === credential && REACH_REPORT_TYPES.every(id => known.jobs[id] !== undefined)) {
 		return { jobs: known.jobs as EnsuredReachJobs["jobs"], created: [] };
 	}
-	const accessToken = await freshAccessToken();
+	const accessToken = await tokenOf(channel);
 	const listed = await reportingJson<{ jobs?: ReportingJob[] }>("/jobs", accessToken, "jobs.list");
 	const jobs: Record<string, { id: string; createTime?: string }> = {};
 	for (const job of listed.jobs ?? []) {
@@ -114,7 +124,7 @@ async function loadOrCreateReachJobs(): Promise<EnsuredReachJobs> {
 		jobs[reportTypeId] = { id: job.id, createTime: job.createTime ?? new Date().toISOString() };
 		created.push(reportTypeId);
 	}
-	const file = configFile(REACH_JOBS_FILE);
+	const file = reachJobsFile(channel.channelId);
 	await mkdir(dirname(file), { recursive: true });
 	await writeFile(file, JSON.stringify({ credential, jobs }, null, 2));
 	return { jobs: jobs as EnsuredReachJobs["jobs"], created };
@@ -199,70 +209,79 @@ function reachLine(label: string, totals: ReachTotals): string {
 }
 
 const reachReportSchema = type({
-	"videoId?": type("string").describe("A video id or URL to report on alone; omit for the channel's top videos by impressions."),
+	"videoId?": type("string").describe("A video id or URL to report on alone (its own channel is used); omit for each channel's top videos by impressions."),
+	"channel?": type("string").describe("One connected channel (title, @handle or id); omit for every connected channel."),
 	"days?": type("number").describe(`Days back to read, default ${DEFAULT_DAYS}, at most ${MAX_REACH_DAYS} (YouTube keeps reports 60 days).`),
 	"bySource?": type("boolean").describe("Break impressions and CTR down by traffic source (the combined reach report) instead of by video."),
 });
+type ReachParams = typeof reachReportSchema.infer;
+
+async function reachSection(channel: ConnectedChannel, params: ReachParams, videoId: string | undefined): Promise<string[]> {
+	const heading = channelLabel(channel);
+	const ensured = await ensureReachJobs(channel);
+	const reportType: ReachReportType = params.bySource ? "channel_reach_combined_a1" : "channel_reach_basic_a1";
+	const job = ensured.jobs[reportType];
+	const days = Math.min(Math.max(Math.round(params.days ?? DEFAULT_DAYS), 1), MAX_REACH_DAYS);
+	const since = new Date(Date.now() - days * DAY_MS);
+	const accessToken = await tokenOf(channel);
+	const reports = await latestReportsSince(job.id, since, accessToken);
+	if (reports.length === 0) {
+		const started = job.createTime ? ` (job created ${job.createTime})` : "";
+		return [
+			`${heading}: no ${reportType} reports yet${started}. YouTube generates the first ones within 48 hours of the job, then one a day; read Studio until then.`,
+		];
+	}
+	const totals = new Map<string, ReachTotals>();
+	const perDay = new Map<string, ReachTotals>();
+	for (let start = 0; start < reports.length; start += PARALLEL_DOWNLOADS) {
+		const batch = reports.slice(start, start + PARALLEL_DOWNLOADS);
+		const downloaded = await Promise.all(batch.map(report => downloadRows(report, accessToken)));
+		downloaded.forEach((rows, index) => {
+			const day = batch[index]?.startTime.slice(0, 10) ?? "?";
+			for (const row of rows) {
+				if (videoId && row.video_id !== videoId) continue;
+				const key = params.bySource
+					? (TRAFFIC_SOURCE_NAMES[row.traffic_source_type ?? ""] ?? `source ${row.traffic_source_type}`)
+					: (row.video_id ?? "?");
+				addReach(totals, key, row);
+				if (videoId) addReach(perDay, row.date ?? day, row);
+			}
+		});
+	}
+	const first = reports[0]?.startTime.slice(0, 10);
+	const last = reports.at(-1)?.startTime.slice(0, 10);
+	const ranked = [...totals.entries()].sort((a, b) => b[1].impressions - a[1].impressions);
+	return [
+		`${heading} — ${reportType}: ${reports.length} daily reports, ${first} to ${last}${videoId ? `, video ${videoId}` : ""}.`,
+		...(ranked.length === 0
+			? ["No impressions in these reports."]
+			: ranked.slice(0, videoId || params.bySource ? ranked.length : TOP_VIDEOS).map(([key, value]) => reachLine(key, value))),
+		...(videoId && perDay.size > 0
+			? ["By day:", ...[...perDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => reachLine(`  ${day}`, value))]
+			: []),
+	];
+}
 
 export function createReachReportTool(): ToolDefinition<typeof reachReportSchema> {
 	return {
 		name: "youtube_reach_report",
 		label: "YouTube: Reach report",
 		description:
-			"Thumbnail impressions and impressions click-through rate for the connected channel's videos, from the YouTube Reporting API reach reports (channel_reach_basic_a1, and channel_reach_combined_a1 by traffic source). Daily reports, Pacific days, arriving about a day late; YouTube starts them only once the job exists, with 30 days of history, so the first ones can take up to 48 hours. Studio stays the only source for a video's first 48 hours.",
+			"Thumbnail impressions and impressions click-through rate for connected channels' videos, from the YouTube Reporting API reach reports (channel_reach_basic_a1, and channel_reach_combined_a1 by traffic source). A video id reports that video on the channel that owns it; otherwise one channel, or every connected channel. Daily reports, Pacific days, arriving about a day late; YouTube starts them only once a channel's job exists, with 30 days of history, so the first ones can take up to 48 hours. Studio stays the only source for a video's first 48 hours.",
 		parameters: reachReportSchema,
 		approval: "read" as const,
-		async execute(_toolCallId: string, params: typeof reachReportSchema.infer) {
-			const ensured = await ensureReachJobs();
-			const reportType: ReachReportType = params.bySource ? "channel_reach_combined_a1" : "channel_reach_basic_a1";
-			const job = ensured.jobs[reportType];
-			const days = Math.min(Math.max(Math.round(params.days ?? DEFAULT_DAYS), 1), MAX_REACH_DAYS);
-			const since = new Date(Date.now() - days * DAY_MS);
-			const accessToken = await freshAccessToken();
-			const reports = await latestReportsSince(job.id, since, accessToken);
-			if (reports.length === 0) {
-				const started = job.createTime ? ` (job created ${job.createTime})` : "";
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `No ${reportType} reports yet${started}. YouTube generates the first ones within 48 hours of the job, then one a day; read Studio until then.`,
-						},
-					],
-				};
-			}
+		async execute(_toolCallId: string, params: ReachParams) {
 			const videoId = params.videoId ? videoIdOf(params.videoId) : undefined;
-			const totals = new Map<string, ReachTotals>();
-			const perDay = new Map<string, ReachTotals>();
-			for (let start = 0; start < reports.length; start += PARALLEL_DOWNLOADS) {
-				const batch = reports.slice(start, start + PARALLEL_DOWNLOADS);
-				const downloaded = await Promise.all(batch.map(report => downloadRows(report, accessToken)));
-				downloaded.forEach((rows, index) => {
-					const day = batch[index]?.startTime.slice(0, 10) ?? "?";
-					for (const row of rows) {
-						if (videoId && row.video_id !== videoId) continue;
-						const key = params.bySource
-							? (TRAFFIC_SOURCE_NAMES[row.traffic_source_type ?? ""] ?? `source ${row.traffic_source_type}`)
-							: (row.video_id ?? "?");
-						addReach(totals, key, row);
-						if (videoId) addReach(perDay, row.date ?? day, row);
-					}
-				});
-			}
-			const first = reports[0]?.startTime.slice(0, 10);
-			const last = reports.at(-1)?.startTime.slice(0, 10);
-			const ranked = [...totals.entries()].sort((a, b) => b[1].impressions - a[1].impressions);
-			const lines = [
-				`${reportType}: ${reports.length} daily reports, ${first} to ${last}${videoId ? `, video ${videoId}` : ""}.`,
-				...(ranked.length === 0
-					? ["No impressions in these reports."]
-					: ranked.slice(0, videoId || params.bySource ? ranked.length : TOP_VIDEOS).map(([key, value]) => reachLine(key, value))),
-				...(videoId && perDay.size > 0
-					? ["By day:", ...[...perDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => reachLine(`  ${day}`, value))]
-					: []),
-				"CTR is clicks over impressions, weighted by impressions across days.",
-			];
-			return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+			const channels = videoId
+				? [await ownerOfVideo(videoId)]
+				: params.channel
+					? [await channelFor(params.channel)]
+					: await connectedChannels();
+			if (channels.length === 0) throw new Error(NOT_CONNECTED);
+			const sections: string[] = [];
+			for (const channel of channels) sections.push(...(await reachSection(channel, params, videoId)), "");
+			sections.push("CTR is clicks over impressions, weighted by impressions across days.");
+			return { content: [{ type: "text" as const, text: sections.join("\n") }] };
 		},
 	};
 }
@@ -295,7 +314,7 @@ export function createVideoAnalyticsTool(): ToolDefinition<typeof videoAnalytics
 		name: "youtube_video_analytics",
 		label: "YouTube: Video analytics",
 		description:
-			"One of the connected channel's videos in YouTube Analytics (API v2): views, engaged views, watch time, average view duration and average percentage viewed; views, engaged views and watch time by traffic source; and the audience retention curve (audienceWatchRatio). Analytics trails by about two days, so Studio is the only source for a video's first 48 hours.",
+			"A video on any connected channel (the channel that owns it is used) in YouTube Analytics (API v2): views, engaged views, watch time, average view duration and average percentage viewed; views, engaged views and watch time by traffic source; and the audience retention curve (audienceWatchRatio). Analytics trails by about two days, so Studio is the only source for a video's first 48 hours.",
 		parameters: videoAnalyticsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof videoAnalyticsSchema.infer) {
@@ -303,7 +322,7 @@ export function createVideoAnalyticsTool(): ToolDefinition<typeof videoAnalytics
 			const endDate = params.endDate ?? new Date().toISOString().slice(0, 10);
 			const startDate = params.startDate ?? new Date(Date.now() - DEFAULT_DAYS * DAY_MS).toISOString().slice(0, 10);
 			if (!DATE.test(startDate) || !DATE.test(endDate)) throw new Error("startDate and endDate are YYYY-MM-DD.");
-			const accessToken = await freshAccessToken();
+			const accessToken = await tokenOf(await ownerOfVideo(videoId));
 			const filters = `video==${videoId}`;
 			const [totals, sources, retention] = await Promise.all([
 				analyticsQuery(

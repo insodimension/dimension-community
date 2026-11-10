@@ -1,17 +1,14 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { videoIdOf } from "../api";
 import youtubeExtension, { commentRefusal } from "../index";
+import { channelIdOf, seedChannel } from "./channel-fixture";
 
 const home = await mkdtemp(join(tmpdir(), "dimension-youtube-"));
 const configDir = join(home, ".config", "dimension-youtube");
-await mkdir(configDir, { recursive: true });
-await writeFile(
-	join(configDir, "token.json"),
-	JSON.stringify({ access: "a", refresh: "r", expires: Date.now() + 3_600_000, clientId: "c" }),
-);
+await seedChannel(configDir, { channelId: channelIdOf("main"), title: "Main", access: "a", refresh: "r" });
 const priorHome = process.env.HOME;
 const priorUserProfile = process.env.USERPROFILE;
 

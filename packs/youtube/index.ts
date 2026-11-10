@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { createReachReportTool, createVideoAnalyticsTool, ensureReachJobs } from "./analytics";
-import { configFile, freshAccessToken, videoIdOf, youtubeJson } from "./api";
+import { createReachReportTool, createVideoAnalyticsTool, ensureAllReachJobs } from "./analytics";
+import { anyToken, channelFor, channelLabel, channelToken, configFile, connectedChannels, forgetChannel, NOT_CONNECTED, videoIdOf, youtubeJson } from "./api";
 import { createUpdateVideoTool } from "./update";
 
 const MAX_DESCRIPTION_CHARS = 4_000;
@@ -165,8 +165,13 @@ const getVideosSchema = type({
 	),
 });
 
+const CHANNEL_PARAM = type("string").describe(
+	"Which connected channel: its title, @handle or channel id (see youtube_channels). Needed only when several channels are connected.",
+);
+
 const listPlaylistsSchema = type({
 	"limit?": type("number").describe("Max playlists, default 25, capped at 50."),
+	"channel?": CHANNEL_PARAM,
 });
 
 const listPlaylistItemsSchema = type({
@@ -175,8 +180,9 @@ const listPlaylistItemsSchema = type({
 });
 
 const playlistAddSchema = type({
-	playlistId: type("string").describe("Target playlist id (from youtube_list_playlists) — must be one you own."),
+	playlistId: type("string").describe("Target playlist id (from youtube_list_playlists) — must be one the channel owns."),
 	videoId: type("string").describe("Video id to add."),
+	"channel?": CHANNEL_PARAM,
 });
 
 const listCommentsSchema = type({
@@ -190,6 +196,7 @@ const postCommentSchema = type({
 	"parentCommentId?": type("string").describe(
 		"Post a REPLY to this existing comment id (from youtube_list_comments). Provide this OR videoId.",
 	),
+	"channel?": CHANNEL_PARAM.describe("Which connected channel posts it: its title, @handle or channel id. Needed only when several channels are connected."),
 });
 
 const getCaptionsSchema = type({
@@ -201,6 +208,12 @@ const channelStatsSchema = type({
 	"handle?": type("string").describe("Channel handle to read, with or without the @ (e.g. @mkbhd)."),
 });
 
+const channelsSchema = type({});
+
+const forgetChannelSchema = type({
+	channel: type("string").describe("The connected channel to remove: its title, @handle or channel id."),
+});
+
 function createSearchTool(): ToolDefinition<typeof searchSchema> {
 	return {
 		name: "youtube_search",
@@ -210,7 +223,7 @@ function createSearchTool(): ToolDefinition<typeof searchSchema> {
 		parameters: searchSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof searchSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await anyToken();
 			const limit = clampLimit(params.limit, 10, 50);
 			const search = new URLSearchParams({
 				part: "snippet",
@@ -284,7 +297,7 @@ function createGetVideosTool(): ToolDefinition<typeof getVideosSchema> {
 			if (ids.length > MAX_VIDEO_IDS) throw new Error(`Pass at most ${MAX_VIDEO_IDS} video ids per call.`);
 			const payload = await youtubeJson<{ items?: VideoItem[] }>(
 				`/videos?part=snippet,statistics,contentDetails,status&id=${ids.map(encodeURIComponent).join(",")}`,
-				await freshAccessToken(),
+				await anyToken(),
 				"videos.list",
 			);
 			const items = payload.items ?? [];
@@ -310,7 +323,7 @@ function createListPlaylistsTool(): ToolDefinition<typeof listPlaylistsSchema> {
 		parameters: listPlaylistsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof listPlaylistsSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await channelToken(params.channel);
 			const limit = clampLimit(params.limit, 25, 50);
 			const payload = await youtubeJson<{ items?: PlaylistSummary[] }>(
 				`/playlists?part=snippet,contentDetails,status&mine=true&maxResults=${limit}`,
@@ -342,7 +355,7 @@ function createListPlaylistItemsTool(): ToolDefinition<typeof listPlaylistItemsS
 		parameters: listPlaylistItemsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof listPlaylistItemsSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await anyToken();
 			const limit = clampLimit(params.limit, 25, 50);
 			const payload = await youtubeJson<{ items?: PlaylistItem[] }>(
 				`/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(params.playlistId)}&maxResults=${limit}`,
@@ -378,7 +391,7 @@ function createPlaylistAddTool(): ToolDefinition<typeof playlistAddSchema> {
 		parameters: playlistAddSchema,
 		approval: "write" as const,
 		async execute(_toolCallId: string, params: typeof playlistAddSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await channelToken(params.channel);
 			const body = {
 				snippet: {
 					playlistId: params.playlistId,
@@ -416,7 +429,7 @@ function createListCommentsTool(): ToolDefinition<typeof listCommentsSchema> {
 		parameters: listCommentsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof listCommentsSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await anyToken();
 			const limit = clampLimit(params.limit, 20, 100);
 			const search = new URLSearchParams({
 				part: "snippet",
@@ -533,7 +546,7 @@ function createPostCommentTool(): ToolDefinition<typeof postCommentSchema> {
 			const ledger = await readCommentLedger();
 			const refusal = commentRefusal(ledger, params.text, new Date());
 			if (refusal) throw new Error(refusal);
-			const accessToken = await freshAccessToken();
+			const accessToken = await channelToken(params.channel);
 			if (hasParent) {
 				const created = await youtubeJson<{ id?: string; snippet?: CommentSnippet }>(
 					"/comments?part=snippet",
@@ -594,7 +607,7 @@ function createGetCaptionsTool(): ToolDefinition<typeof getCaptionsSchema> {
 		parameters: getCaptionsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof getCaptionsSchema.infer) {
-			const accessToken = await freshAccessToken();
+			const accessToken = await anyToken();
 			const payload = await youtubeJson<{ items?: CaptionItem[] }>(
 				`/captions?part=snippet&videoId=${encodeURIComponent(params.videoId)}`,
 				accessToken,
@@ -629,47 +642,81 @@ function createChannelStatsTool(): ToolDefinition<typeof channelStatsSchema> {
 		name: "youtube_channel_stats",
 		label: "YouTube: Channel Stats",
 		description:
-			"Read a channel's public statistics — subscribers, total views, video count, stamped with the time read. Pass handle (@name) or channelId for any channel; omit both for the connected account's own channel. Its uploads playlist (UC→UU) gives its recent videos at 1 unit.",
+			"Read channels' public statistics — subscribers, total views, video count, stamped with the time read. Pass handle (@name) or channelId for any channel; omit both for every connected channel. Each channel's uploads playlist (UC→UU) gives its recent videos at 1 unit.",
 		parameters: channelStatsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof channelStatsSchema.infer) {
 			if (params.channelId && params.handle) throw new Error("Pass channelId or handle, not both.");
 			const handle = params.handle?.trim().replace(/^@?/, "@");
+			const connected = params.channelId || handle ? [] : await connectedChannels();
 			const selector = params.channelId
 				? `id=${encodeURIComponent(params.channelId)}`
 				: handle
 					? `forHandle=${encodeURIComponent(handle)}`
-					: "mine=true";
-			const accessToken = await freshAccessToken();
+					: `id=${connected.map(channel => channel.channelId).join(",")}`;
+			if (!params.channelId && !handle && connected.length === 0) throw new Error(NOT_CONNECTED);
+			const accessToken = await anyToken();
 			const payload = await youtubeJson<{ items?: ChannelItem[] }>(
 				`/channels?part=snippet,statistics&${selector}`,
 				accessToken,
 				"channels.list",
 			);
-			const ch = payload.items?.[0];
-			if (!ch) {
+			const items = payload.items ?? [];
+			if (items.length === 0) {
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: params.channelId
-								? `No channel found for id ${params.channelId}.`
-								: handle
-									? `No channel found for handle ${handle}.`
-									: "No channel on this account.",
+							text: params.channelId ? `No channel found for id ${params.channelId}.` : `No channel found for handle ${handle}.`,
 						},
 					],
 				};
 			}
-			const st = ch.statistics;
-			const subs = st?.hiddenSubscriberCount ? "hidden" : (st?.subscriberCount ?? "?");
-			const lines = [
-				`${ch.snippet?.title ?? "(untitled channel)"}  [${ch.id ?? "?"}]${ch.snippet?.customUrl ? `  ${ch.snippet.customUrl}` : ""}`,
-				`Subscribers: ${subs}  Views: ${st?.viewCount ?? "?"}  Videos: ${st?.videoCount ?? "?"}`,
-				...(ch.id?.startsWith("UC") ? [`Uploads playlist: UU${ch.id.slice(2)}`] : []),
-				`Read ${new Date().toISOString()}.`,
-			];
-			return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+			const lines = items.flatMap(ch => {
+				const st = ch.statistics;
+				const subs = st?.hiddenSubscriberCount ? "hidden" : (st?.subscriberCount ?? "?");
+				return [
+					`${ch.snippet?.title ?? "(untitled channel)"}  [${ch.id ?? "?"}]${ch.snippet?.customUrl ? `  ${ch.snippet.customUrl}` : ""}`,
+					`Subscribers: ${subs}  Views: ${st?.viewCount ?? "?"}  Videos: ${st?.videoCount ?? "?"}`,
+					...(ch.id?.startsWith("UC") ? [`Uploads playlist: UU${ch.id.slice(2)}`] : []),
+				];
+			});
+			return { content: [{ type: "text" as const, text: [...lines, `Read ${new Date().toISOString()}.`].join("\n") }] };
+		},
+	};
+}
+
+function createChannelsTool(): ToolDefinition<typeof channelsSchema> {
+	return {
+		name: "youtube_channels",
+		label: "YouTube: Channels",
+		description:
+			"List every YouTube channel connected to this plugin: title, @handle, channel id and when it was connected. Each Connect (Plugins → YouTube → Connect) adds the channel picked at Google's sign-in; tools that act on a video use the channel that owns it, and tools that act as a channel take its title, handle or id.",
+		parameters: channelsSchema,
+		approval: "read" as const,
+		async execute() {
+			const channels = await connectedChannels();
+			const text =
+				channels.length === 0
+					? NOT_CONNECTED
+					: channels.map(channel => `${channelLabel(channel)}  connected ${channel.connectedAt.slice(0, 10)}`).join("\n");
+			return { content: [{ type: "text" as const, text }] };
+		},
+	};
+}
+
+function createForgetChannelTool(): ToolDefinition<typeof forgetChannelSchema> {
+	return {
+		name: "youtube_forget_channel",
+		label: "YouTube: Forget channel",
+		description:
+			"Remove a connected channel from this plugin: its stored sign-in is deleted here (revoke the app's access in the Google account's security settings to end it at Google too). Connect again to add it back.",
+		parameters: forgetChannelSchema,
+		approval: "write" as const,
+		async execute(_toolCallId: string, params: typeof forgetChannelSchema.infer) {
+			const channel = await channelFor(params.channel);
+			await forgetChannel(channel);
+			return { content: [{ type: "text" as const, text: `Removed ${channelLabel(channel)}.` }] };
 		},
 	};
 }
@@ -684,10 +731,12 @@ export default function youtubeExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createPostCommentTool());
 	pi.registerTool(createGetCaptionsTool());
 	pi.registerTool(createChannelStatsTool());
+	pi.registerTool(createChannelsTool());
+	pi.registerTool(createForgetChannelTool());
 	pi.registerTool(createReachReportTool());
 	pi.registerTool(createVideoAnalyticsTool());
 	pi.registerTool(createUpdateVideoTool());
 	pi.on("session_start", () => {
-		void ensureReachJobs().catch(() => undefined);
+		void ensureAllReachJobs().catch(() => undefined);
 	});
 }

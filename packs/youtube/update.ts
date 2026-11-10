@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { freshAccessToken, googleError, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
+import { googleError, ownerOfVideo, tokenOf, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
 
 const BINDING_DOMAIN = "publish-approval/v1";
 const UPDATE_ORIGIN = "https://www.youtube.com";
@@ -168,7 +168,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 				const title = params.title;
 				checkTitle(title);
 				const spend = await claimApproval(params.draftId, updateBinding(videoId, ["title", title]), Date.now());
-				const accessToken = await freshAccessToken();
+				const accessToken = await tokenOf(await ownerOfVideo(videoId));
 				const listed = await youtubeFetch(`/videos?part=snippet&id=${videoId}`, accessToken);
 				const current = (await listed.json().catch(() => null)) as { items?: { snippet?: VideoSnippet }[] } | null;
 				const snippet = current?.items?.[0]?.snippet;
@@ -197,7 +197,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 				updateBinding(videoId, ["thumbnail", JSON.stringify([path, thumbnail.sha256])]),
 				Date.now(),
 			);
-			const accessToken = await freshAccessToken();
+			const accessToken = await tokenOf(await ownerOfVideo(videoId));
 			const release = await spend();
 			await applyChange(
 				await fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
