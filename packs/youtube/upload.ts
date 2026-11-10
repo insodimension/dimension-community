@@ -2,8 +2,8 @@ import { open, readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute } from "node:path";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
-import { channelFor, channelLabel, googleError, tokenOf, YOUTUBE_API, youtubeJson } from "./api";
-import { checkTitle, readThumbnail, THUMBNAIL_UPLOAD } from "./update";
+import { channelFor, channelLabel, googleError, tokenOf, youtubeFetch, youtubeJson } from "./api";
+import { checkTitle, readThumbnail, setThumbnail } from "./update";
 
 const VIDEO_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos";
 const CAPTION_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/captions";
@@ -184,12 +184,13 @@ function videoResource(params: UploadParams): object {
 	};
 }
 
-function isTransient(status: number): boolean {
-	return status >= 500 || status === 408 || status === 429;
-}
-
 async function refusal(response: Response): Promise<string> {
 	return googleError(await response.json().catch(() => null), `${response.status} ${response.statusText}`);
+}
+
+function nothingUploaded(error: unknown): never {
+	const message = error instanceof Error ? error.message : String(error);
+	throw new Error(message.endsWith(NOTHING_UPLOADED) ? message : `${message} ${NOTHING_UPLOADED}`);
 }
 
 async function startSession(accessToken: string, params: UploadParams, size: number, mime: string): Promise<string> {
@@ -205,9 +206,13 @@ async function startSession(accessToken: string, params: UploadParams, size: num
 		body: JSON.stringify(videoResource(params)),
 	});
 	if (!response.ok) throw new Error(`YouTube refused to start the upload: ${await refusal(response)}. ${NOTHING_UPLOADED}`);
-	const session = response.headers.get("location");
-	if (!session) throw new Error(`YouTube started the upload but named no upload address. ${NOTHING_UPLOADED}`);
-	return session;
+	const location = response.headers.get("location");
+	if (!location) throw new Error(`YouTube started the upload but named no upload address. ${NOTHING_UPLOADED}`);
+	const session = URL.canParse(location) ? new URL(location) : undefined;
+	if (session?.protocol !== "https:" || session.hostname !== "www.googleapis.com") {
+		throw new Error(`The upload address YouTube named (${location}) is not on https://www.googleapis.com, so nothing was sent to it. ${NOTHING_UPLOADED}`);
+	}
+	return session.href;
 }
 
 function nextOffset(range: string | null): number {
@@ -220,11 +225,43 @@ async function outcomeOf(response: Response): Promise<ChunkOutcome> {
 		return { done: true, video: ((await response.json().catch(() => null)) ?? {}) as UploadedVideo };
 	}
 	if (response.status === 308) return { done: false, next: nextOffset(response.headers.get("range")) };
-	if (isTransient(response.status)) return { retry: await refusal(response) };
+	if (response.status >= 500 || response.status === 408 || response.status === 429) return { retry: await refusal(response) };
 	if (response.status === 404 || response.status === 410) {
 		throw new Error("The upload session expired before the file finished, so YouTube has no video from it. Call again to upload from the start.");
 	}
 	throw new Error(`YouTube refused the upload part way: ${await refusal(response)}. The file did not finish, so YouTube has no video from it.`);
+}
+
+async function putRange(session: string, bearer: () => Promise<string>, range: string, signal: AbortSignal | undefined, body?: Buffer): Promise<ChunkOutcome> {
+	let response: Response;
+	try {
+		response = await fetch(session, {
+			method: "PUT",
+			headers: { Authorization: `Bearer ${await bearer()}`, "Content-Range": range },
+			redirect: "manual",
+			signal,
+			...(body === undefined ? {} : { body }),
+		});
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		return { retry: error instanceof Error ? error.message : String(error) };
+	}
+	return outcomeOf(response);
+}
+
+async function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+	const { promise, resolve, reject } = Promise.withResolvers<void>();
+	const timer = setTimeout(resolve, ms);
+	const abort = (): void => {
+		clearTimeout(timer);
+		reject(signal?.reason);
+	};
+	signal?.addEventListener("abort", abort, { once: true });
+	try {
+		await promise;
+	} finally {
+		signal?.removeEventListener("abort", abort);
+	}
 }
 
 function backoffMs(failures: number): number {
@@ -235,17 +272,18 @@ function megabytes(bytes: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
-async function sendFile(
-	session: string,
-	bearer: () => Promise<string>,
-	path: string,
-	size: number,
-	signal: AbortSignal | undefined,
-	progress: (sent: number) => void,
-	retryDelayMs: (failures: number) => number,
-): Promise<UploadedVideo> {
+interface Transfer {
+	readonly path: string;
+	readonly size: number;
+	readonly signal: AbortSignal | undefined;
+	readonly progress: (sent: number) => void;
+	readonly retryDelayMs: (failures: number) => number;
+}
+
+async function sendFile(session: string, bearer: () => Promise<string>, transfer: Transfer): Promise<UploadedVideo> {
+	const { path, size, signal } = transfer;
 	const handle = await open(path, "r");
-	const buffer = Buffer.alloc(Math.min(CHUNK_BYTES, size));
+	const buffer = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, size));
 	let offset = 0;
 	let failures = 0;
 	let probe = false;
@@ -253,27 +291,13 @@ async function sendFile(
 		for (;;) {
 			signal?.throwIfAborted();
 			let outcome: ChunkOutcome;
-			try {
-				if (probe) {
-					outcome = await outcomeOf(
-						await fetch(session, { method: "PUT", headers: { Authorization: `Bearer ${await bearer()}`, "Content-Range": `bytes */${size}` }, signal }),
-					);
-				} else {
-					const length = Math.min(CHUNK_BYTES, size - offset);
-					const { bytesRead } = await handle.read(buffer, 0, length, offset);
-					if (bytesRead !== length) throw new Error(`${path} changed while it was uploading. Call again once the file is final.`);
-					outcome = await outcomeOf(
-						await fetch(session, {
-							method: "PUT",
-							headers: { Authorization: `Bearer ${await bearer()}`, "Content-Range": `bytes ${offset}-${offset + length - 1}/${size}` },
-							body: buffer.subarray(0, length),
-							signal,
-						}),
-					);
-				}
-			} catch (error) {
-				if (signal?.aborted || !(error instanceof TypeError)) throw error;
-				outcome = { retry: error.message };
+			if (probe) {
+				outcome = await putRange(session, bearer, `bytes */${size}`, signal);
+			} else {
+				const length = Math.min(CHUNK_BYTES, size - offset);
+				const { bytesRead } = await handle.read(buffer, 0, length, offset);
+				if (bytesRead !== length) throw new Error(`${path} changed while it was uploading. Call again once the file is final.`);
+				outcome = await putRange(session, bearer, `bytes ${offset}-${offset + length - 1}/${size}`, signal, buffer.subarray(0, length));
 			}
 			if (!("retry" in outcome) && !outcome.done && (outcome.next >= size || (!probe && outcome.next <= offset))) {
 				outcome = { retry: outcome.next >= size ? "YouTube has the whole file but has not finished the video" : "YouTube kept none of the last part" };
@@ -286,16 +310,14 @@ async function sendFile(
 					);
 				}
 				probe = true;
-				const pause = Promise.withResolvers<void>();
-				setTimeout(pause.resolve, retryDelayMs(failures));
-				await pause.promise;
+				await pause(transfer.retryDelayMs(failures), signal);
 				continue;
 			}
 			if (outcome.done) return outcome.video;
 			if (outcome.next > offset) failures = 0;
 			probe = false;
 			offset = outcome.next;
-			progress(offset);
+			transfer.progress(offset);
 		}
 	} finally {
 		await handle.close();
@@ -315,24 +337,89 @@ function multipartCaption(videoId: string, language: string, bytes: Uint8Array<A
 	};
 }
 
-function readbackOf(params: UploadParams, video: UploadedVideo | undefined): ReadbackRow[] {
+function row(field: string, expected: string, actual: string | undefined, ok: boolean): ReadbackRow {
+	return { field, expected, actual: actual ?? "(not returned)", ok };
+}
+
+function readbackOf(params: UploadParams, video: UploadedVideo): ReadbackRow[] {
+	const status = video.status ?? {};
 	const expectedPrivacy = params.publishAt !== undefined ? "private" : (params.visibility ?? "public");
-	const rows: ReadbackRow[] = [
-		{ field: "title", expected: params.title, actual: video?.snippet?.title ?? "(not returned)", ok: video?.snippet?.title === params.title },
-		{ field: "visibility", expected: expectedPrivacy, actual: video?.status?.privacyStatus ?? "(not returned)", ok: video?.status?.privacyStatus === expectedPrivacy },
-		{
-			field: "madeForKids",
-			expected: String(params.madeForKids),
-			actual: String(video?.status?.selfDeclaredMadeForKids ?? video?.status?.madeForKids ?? "(not returned)"),
-			ok: (video?.status?.selfDeclaredMadeForKids ?? video?.status?.madeForKids) === params.madeForKids,
-		},
+	const kids = status.selfDeclaredMadeForKids ?? status.madeForKids;
+	const rows = [
+		row("title", params.title, video.snippet?.title, video.snippet?.title === params.title),
+		row("visibility", expectedPrivacy, status.privacyStatus, status.privacyStatus === expectedPrivacy),
+		row("madeForKids", String(params.madeForKids), kids === undefined ? undefined : String(kids), kids === params.madeForKids),
 	];
 	if (params.publishAt !== undefined) {
 		const expected = new Date(params.publishAt).toISOString();
-		const actual = video?.status?.publishAt;
-		rows.push({ field: "publishAt", expected, actual: actual ?? "(not returned)", ok: actual !== undefined && Date.parse(actual) === Date.parse(expected) });
+		rows.push(row("publishAt", expected, status.publishAt, status.publishAt !== undefined && Date.parse(status.publishAt) === Date.parse(expected)));
 	}
 	return rows;
+}
+
+async function stepFailure(sent: Promise<Response>): Promise<string | undefined> {
+	const response = await sent.catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
+	if (typeof response === "string") return response;
+	return response.ok ? undefined : refusal(response);
+}
+
+interface FollowUps {
+	readonly rows: ReadbackRow[];
+	readonly notes: string[];
+}
+
+async function followUpsOf(
+	params: UploadParams,
+	videoId: string,
+	token: string,
+	thumbnail: { bytes: Uint8Array<ArrayBuffer>; mime: string } | undefined,
+	captions: Uint8Array<ArrayBuffer> | undefined,
+): Promise<FollowUps> {
+	const rows: ReadbackRow[] = [];
+	const notes: string[] = [];
+	if (thumbnail && params.thumbnailPath) {
+		const failed = await stepFailure(setThumbnail(videoId, token, thumbnail));
+		rows.push(row("thumbnail", params.thumbnailPath, failed === undefined ? params.thumbnailPath : `not set: ${failed}`, failed === undefined));
+		if (failed !== undefined) notes.push("Thumbnail NOT set. The video is up: set it with youtube_update_video, never by uploading again. A channel that is not phone-verified cannot use custom thumbnails.");
+	}
+	if (params.playlistId) {
+		const failed = await stepFailure(
+			youtubeFetch("/playlistItems?part=snippet", token, {
+				method: "POST",
+				body: JSON.stringify({ snippet: { playlistId: params.playlistId, resourceId: { kind: "youtube#video", videoId } } }),
+			}),
+		);
+		rows.push(row("playlist", params.playlistId, failed === undefined ? params.playlistId : `not added: ${failed}`, failed === undefined));
+		if (failed !== undefined) notes.push(`NOT added to playlist ${params.playlistId}. Add it with youtube_playlist_add.`);
+	}
+	if (captions && params.captionsPath) {
+		const language = params.captionsLanguage ?? params.language ?? "";
+		const part = multipartCaption(videoId, language, captions);
+		const failed = await stepFailure(
+			fetch(`${CAPTION_UPLOAD}?part=snippet&uploadType=multipart`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}`, "Content-Type": part.contentType },
+				body: part.body,
+			}),
+		);
+		rows.push(row("captions", `${params.captionsPath} (${language})`, failed === undefined ? `${params.captionsPath} (${language})` : `not added: ${failed}`, failed === undefined));
+		if (failed !== undefined) notes.push(`Captions NOT added. The video is up: add ${params.captionsPath} in Studio (Subtitles, upload file, with timing).`);
+	}
+	return { rows, notes };
+}
+
+function approvalDetails(args: unknown): string[] | undefined {
+	const parsed = uploadSchema(args);
+	if (parsed instanceof type.errors) return undefined;
+	return [
+		`File: ${parsed.filePath}`,
+		`Channel: ${parsed.channel ?? "the connected channel (refused if several are connected)"}`,
+		`Title: ${parsed.title}`,
+		`Visibility: ${parsed.publishAt ? `private, public at ${parsed.publishAt}` : (parsed.visibility ?? "public")}`,
+		`Made for kids: ${parsed.madeForKids ? "yes" : "no"}`,
+		...(parsed.thumbnailPath ? [`Thumbnail: ${parsed.thumbnailPath}`] : []),
+		...(parsed.captionsPath ? [`Captions: ${parsed.captionsPath}`] : []),
+	];
 }
 
 export function createUploadVideoTool(retryDelayMs: (failures: number) => number = backoffMs): ToolDefinition<typeof uploadSchema, UploadDetails> {
@@ -340,84 +427,50 @@ export function createUploadVideoTool(retryDelayMs: (failures: number) => number
 		name: "youtube_upload_video",
 		label: "YouTube: Upload video",
 		description:
-			"Upload a video file to a connected channel through the YouTube Data API (a resumable upload that survives a dropped connection), then read it back. It goes up public unless visibility or publishAt says otherwise, with the title, description, tags, category, audience, altered-content answer, language and licence given; optionally sets a custom thumbnail, adds it to a playlist and adds a caption file. It runs under the session's permission mode and asks nobody on its own. Every check runs before a byte is sent; once the video exists a failed thumbnail, playlist or caption step is reported and never uploads it again. Upload a film once: after an unclear failure list the channel's uploads before calling again. End screens, cards and Test & Compare have no API: set those in Studio. Uploads use their own quota of 100 a day per Google Cloud project.",
+			"Upload a video file to a connected channel through the YouTube Data API (a resumable upload that survives a dropped connection), then read it back. It goes up public unless visibility or publishAt says otherwise, with the title, description, tags, category, audience, altered-content answer, language and licence given; optionally sets a custom thumbnail, adds it to a playlist and adds a caption file. It runs under the session's permission mode and asks nobody on its own. Every check runs before a byte is sent, and an error ending \"Nothing was uploaded.\" means no video exists; once the video exists a failed thumbnail, playlist or caption step is reported as a read-back row and never uploads it again. Upload a film once: after any other failure list the channel's uploads before calling again. End screens, cards and Test & Compare have no API: set those in Studio. Uploads use their own quota of 100 a day per Google Cloud project.",
 		parameters: uploadSchema,
 		approval: "write",
+		formatApprovalDetails: approvalDetails,
 		async execute(_toolCallId: string, params: UploadParams, signal, onUpdate) {
 			checkMetadata(params);
 			const file = await videoFile(params.filePath);
 			const thumbnail = params.thumbnailPath === undefined ? undefined : await readThumbnail(params.thumbnailPath, NOTHING_UPLOADED);
 			const captions = params.captionsPath === undefined ? undefined : await captionFile(params.captionsPath);
-			const channel = await channelFor(params.channel);
-			const session = await startSession(await tokenOf(channel), params, file.size, file.mime);
-			const uploaded = await sendFile(
-				session,
-				() => tokenOf(channel),
-				params.filePath,
-				file.size,
+			const channel = await channelFor(params.channel).catch(nothingUploaded);
+			const session = await tokenOf(channel)
+				.then(token => startSession(token, params, file.size, file.mime))
+				.catch(nothingUploaded);
+			const uploaded = await sendFile(session, () => tokenOf(channel), {
+				path: params.filePath,
+				size: file.size,
 				signal,
-				sent => onUpdate?.({ content: [{ type: "text", text: `Uploaded ${megabytes(sent)} of ${megabytes(file.size)} (${Math.floor((sent / file.size) * 100)}%).` }] }),
+				progress: sent => onUpdate?.({ content: [{ type: "text", text: `Uploaded ${megabytes(sent)} of ${megabytes(file.size)} (${Math.floor((sent / file.size) * 100)}%).` }] }),
 				retryDelayMs,
-			);
+			});
 			const videoId = uploaded.id;
 			if (!videoId) throw new Error("YouTube finished the upload but returned no video id. List the channel's uploads before calling again.");
 			const url = `https://youtu.be/${videoId}`;
-			const followUps: string[] = [];
 			const token = await tokenOf(channel);
+			const followUps = await followUpsOf(params, videoId, token, thumbnail, captions);
 			if (uploaded.status?.uploadStatus === "rejected" || uploaded.status?.uploadStatus === "failed") {
-				followUps.push(`YouTube ${uploaded.status.uploadStatus} the file: ${uploaded.status.rejectionReason ?? uploaded.status.failureReason ?? "no reason given"}.`);
-			}
-			if (thumbnail) {
-				const response = await fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${token}`, "Content-Type": thumbnail.mime },
-					body: new Blob([thumbnail.bytes], { type: thumbnail.mime }),
-				}).catch((error: unknown) => error);
-				followUps.push(
-					response instanceof Response && response.ok
-						? `Thumbnail set from ${params.thumbnailPath}.`
-						: `Thumbnail NOT set (${response instanceof Response ? await refusal(response) : String(response)}). The video is up: set it with youtube_update_video, never by uploading again. A channel that is not phone-verified cannot use custom thumbnails.`,
-				);
-			}
-			if (params.playlistId) {
-				const added = await youtubeJson(`/playlistItems?part=snippet`, token, "playlistItems.insert", {
-					method: "POST",
-					body: JSON.stringify({ snippet: { playlistId: params.playlistId, resourceId: { kind: "youtube#video", videoId } } }),
-				}).then(
-					() => `Added to playlist ${params.playlistId}.`,
-					(error: unknown) => `NOT added to playlist ${params.playlistId} (${error instanceof Error ? error.message : String(error)}). Add it with youtube_playlist_add.`,
-				);
-				followUps.push(added);
-			}
-			if (captions && params.captionsPath) {
-				const language = params.captionsLanguage ?? params.language ?? "";
-				const part = multipartCaption(videoId, language, captions);
-				const response = await fetch(`${CAPTION_UPLOAD}?part=snippet&uploadType=multipart`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${token}`, "Content-Type": part.contentType },
-					body: part.body,
-				}).catch((error: unknown) => error);
-				followUps.push(
-					response instanceof Response && response.ok
-						? `Captions (${language}) added from ${params.captionsPath}.`
-						: `Captions NOT added (${response instanceof Response ? await refusal(response) : String(response)}). The video is up: add ${params.captionsPath} in Studio (Subtitles, upload file, with timing).`,
-				);
+				followUps.notes.unshift(`YouTube ${uploaded.status.uploadStatus} the file: ${uploaded.status.rejectionReason ?? uploaded.status.failureReason ?? "no reason given"}.`);
 			}
 			const listed = await youtubeJson<{ items?: UploadedVideo[] }>(`/videos?part=snippet,status&id=${videoId}`, token, "videos.list").catch(() => undefined);
-			const readback = readbackOf(params, listed?.items?.[0] ?? uploaded);
-			const visibility = listed?.items?.[0]?.status?.privacyStatus ?? uploaded.status?.privacyStatus ?? "unknown";
-			const publishAt = listed?.items?.[0]?.status?.publishAt ?? uploaded.status?.publishAt;
+			const current = listed?.items?.[0] ?? uploaded;
+			const readback = [...readbackOf(params, current), ...followUps.rows];
+			const visibility = current.status?.privacyStatus ?? "unknown";
+			const publishAt = current.status?.publishAt;
 			const when = publishAt ? `, scheduled to go public at ${publishAt}` : "";
 			const lines = [
 				`Uploaded "${params.title}" to ${channelLabel(channel)}: ${url} (${visibility}${when}).`,
 				"Read back:",
-				...readback.map(row => `- ${row.field}: ${row.ok ? "ok" : `MISMATCH, expected ${row.expected}`} (${row.actual})`),
-				...followUps.map(line => `- ${line}`),
+				...readback.map(entry => `- ${entry.field}: ${entry.ok ? "ok" : `MISMATCH, expected ${entry.expected}`} (${entry.actual})`),
+				...followUps.notes.map(line => `- ${line}`),
 				"YouTube is still processing it; HD versions can take a while to appear.",
 			];
 			return {
 				content: [{ type: "text" as const, text: lines.join("\n") }],
-				details: { videoId, url, channelId: channel.channelId, visibility, ...(publishAt ? { publishAt } : {}), readback, followUps },
+				details: { videoId, url, channelId: channel.channelId, visibility, ...(publishAt ? { publishAt } : {}), readback, followUps: followUps.notes },
 			};
 		},
 	};

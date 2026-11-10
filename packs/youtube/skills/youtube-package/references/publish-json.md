@@ -69,7 +69,7 @@ Path: `<production>/receipts/publish.json`. The production id is the folder name
   "captions": { "file": "renders/captions-en.srt", "language": "en", "source": "export_edl srt", "reviewed": true },
 
   "settings": {
-    "visibility": "unlisted",                     // unlisted | public | private | scheduled (+ scheduledAt)
+    "visibility": "public",                       // public | unlisted | private | scheduled (+ scheduledAt)
     "madeForKids": false,
     "ageRestricted": false,
     "category": "Science & Technology",           // Studio's own names
@@ -93,7 +93,7 @@ Path: `<production>/receipts/publish.json`. The production id is the folder name
   "shorts": [ { "title": "A cut is a file", "fromSeconds": 20, "toSeconds": 70, "hook": "The cut is a file.", "hashtags": ["#VideoEditing"] } ],
 
   "upload": {                                      // written by youtube-studio-upload
-    "videoId": "abcdefghijk", "url": "https://youtu.be/abcdefghijk", "visibility": "unlisted", "uploadedAt": "...",
+    "videoId": "abcdefghijk", "url": "https://youtu.be/abcdefghijk", "visibility": "public", "uploadedAt": "...",
     "profile": "the saved browser profile the person chose",
     "readback": [ { "field": "title", "expected": "...", "actual": "...", "ok": true } ],
     "oembed": { "status": 200, "title": "..." }

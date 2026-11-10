@@ -13,7 +13,7 @@ A finished film goes to YouTube as one package: the words around it, the decisio
 
 - **The script decides the arithmetic.** Chapters from the edit's markers, the 10 s minimum, the byte budgets, the file hashes, whether every generated asset has a verdict. A model gets these wrong without noticing; do not do them in your head.
 - **You decide the words.** The title, the hook, which claims to link, what the film's AI use looks like to a viewer.
-- **The person decides what is theirs to decide.** Whether a voice is theirs, whether a clip is fair to use, public or unlisted, whether to run an A/B test, who the film is for. Put the facts in front of them, ask once, record the answer.
+- **The person decides what is theirs to decide.** Whether a voice is theirs, whether a clip is fair to use, whether to run an A/B test, who the film is for. Put the facts in front of them, ask once, record the answer. Visibility is not one of these: it is public unless the person or the campaign said otherwise.
 
 ## Inputs, and when to stop
 
@@ -37,7 +37,7 @@ Read these from the production folder (its name is the production id):
 3. **Description.** A hook that names what the film shows with the main phrase in its first 150 characters, then the chapters block, then sources, then credits, then at most three hashtags. One plain line about AI when the film carries the label.
 4. **Sources and credits.** Each claim that rests on a page gets its link from `receipts/claims.json`. Each asset that needs a credit has its credit line in the description word for word; each commentary clip also has its source URL. [references/disclosure-and-credits.md](references/disclosure-and-credits.md).
 5. **Disclosure.** Assess every generated, commentary or unknown asset against YouTube's AI-use rules, show the person the result, record verdicts. Same reference.
-6. **Tags, captions, language, settings.** Tags may be empty. Captions are the film's own SRT, read against the script. Choose the category from Studio's names. `madeForKids` is `false`; a film for children is a different job. Default `visibility` to `unlisted` unless the person said public or a time.
+6. **Tags, captions, language, settings.** Tags may be empty. Captions are the film's own SRT, read against the script. Choose the category from Studio's names. `madeForKids` is `false`; a film for children is a different job. `visibility` is `public` unless the person or the campaign said unlisted, private or a time.
 7. **Plans.** `shorts[]` for cut-downs (up to 180 s each) and `endScreen` when the film is 25 s or more. A/B test plan comes with the thumbnail, and only when the person chose to run a test; one thumbnail is a normal package.
 8. **Write** `receipts/publish.json` (schema and a worked example: [references/publish-json.md](references/publish-json.md)). Copy `master` from the final render receipt: path, duration, `editRevision`, receipt path, `output.sha256`.
 9. **Check.** `node <SKILL_DIR>/scripts/publish-check.mjs check <production-dir> --stage package`. Fix every error; read every warning and either fix it or write down why it stays in your answer. The package stage skips thumbnails because they do not exist yet.

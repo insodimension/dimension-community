@@ -1,6 +1,6 @@
 ---
 name: youtube-studio-upload
-description: "Upload a finished film to YouTube from a checked receipts/publish.json: with a connected YouTube channel in one youtube_upload_video call, otherwise through Studio in the person's own signed-in browser; set title, description, thumbnail, audience, altered-content answer, tags and visibility, read every field back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
+description: "Upload a finished film to YouTube from a checked receipts/publish.json: with a connected YouTube channel in one youtube_upload_video call, otherwise through Studio in the person's own signed-in browser; set title, description, thumbnail, audience, altered-content answer, tags and visibility, read the result back, and record the video id. Use when the package and thumbnails are READY and someone says upload it, put it on YouTube, publish the film, or run the Studio upload. Not for writing the package (youtube-package) or the thumbnail (youtube-thumbnail)."
 ---
 
 # YouTube upload
@@ -15,7 +15,7 @@ Cell code and the helpers are in [references/studio-cells.md](references/studio-
 
 1. `node <SKILL_DIR>/../youtube-package/scripts/publish-check.mjs check <production-dir>` must say READY, and `upload` must be absent (a second upload of the same film needs the person's say-so). Anything else: stop and go back to `youtube-package` or `youtube-thumbnail`.
 2. The files exist: the master under `renders/`, the chosen thumbnail (and the others if `abTest.run`). Their absolute paths are `<production folder>/<path>`.
-3. Tell the person in one line: the channel, the title and the visibility. It goes up at `settings.visibility`; a package that names none goes up public, unless the person or the campaign said otherwise.
+3. Tell the person in one line: the channel, the title and `settings.visibility`.
 
 ## With the connector: one call
 
@@ -27,7 +27,7 @@ Cell code and the helpers are in [references/studio-cells.md](references/studio-
 - `thumbnailPath`: the chosen variant's absolute path; `playlistId`: resolve `settings.playlist` with `youtube_list_playlists`; `captionsPath` and `captionsLanguage`: `captions.file` and `captions.language` when a file is set.
 - `channel`: when several are connected and the person or campaign named one.
 
-Write `upload` from the result's `details`: `videoId`, `url`, `visibility` (`scheduled` when you passed `publishAt`, since YouTube holds it private until then), `uploadedAt` (now), `channelId`, `readback` (each row as returned), and `profile: "youtube connector"`. Then run `check` and say the link, the visibility and every follow-up the tool reported. A thumbnail, playlist or caption line marked NOT is fixed with `youtube_update_video`, `youtube_playlist_add` or Studio, never by uploading again. An end screen or an A/B test the package asks for still goes through Studio on the edit page for that id (below). Without the connector, continue with the browser.
+Write `upload` from the result's `details`: `videoId`, `url`, `visibility` (`scheduled` when you passed `publishAt`, since YouTube holds it private until then), `uploadedAt` (now), `channelId`, `readback` (each row as returned: title, visibility, audience, schedule, and a row for each thumbnail, playlist and caption step), and `profile: "youtube connector"`. Then run `check`: a step that failed is a row with `ok: false`, which `check` refuses until it is fixed with `youtube_update_video`, `youtube_playlist_add` or Studio (never by uploading again) and the row read back again. Say the link and the visibility. An end screen or an A/B test the package asks for still goes through Studio on the edit page for that id (below). Without the connector, continue with the browser.
 
 ## The browser
 

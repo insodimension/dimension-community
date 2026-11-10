@@ -4,7 +4,7 @@ import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/ext
 import { type } from "arktype";
 import { googleError, ownerOfVideo, tokenOf, videoIdOf, YOUTUBE_API, youtubeFetch } from "./api";
 
-export const THUMBNAIL_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
+const THUMBNAIL_UPLOAD = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set";
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const TITLE_MAX_CHARS = 100;
 const THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
@@ -54,6 +54,14 @@ export async function readThumbnail(path: string, outcome: string): Promise<{ by
 	);
 	if (bytes.byteLength > THUMBNAIL_MAX_BYTES) throw new Error(`${path} is ${bytes.byteLength} bytes; YouTube thumbnails are at most 2 MB. ${outcome}`);
 	return { bytes, mime };
+}
+
+export function setThumbnail(videoId: string, accessToken: string, thumbnail: { bytes: Uint8Array<ArrayBuffer>; mime: string }): Promise<Response> {
+	return fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
+		method: "POST",
+		headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": thumbnail.mime },
+		body: thumbnail.bytes,
+	});
 }
 
 function isClearRefusal(status: number): boolean {
@@ -111,14 +119,7 @@ export function createUpdateVideoTool(): ToolDefinition<typeof updateSchema> {
 			const path = params.thumbnailPath ?? "";
 			const thumbnail = await readThumbnail(path, "Nothing was changed.");
 			const accessToken = await tokenOf(await ownerOfVideo(videoId));
-			await applyChange(
-				await fetch(`${THUMBNAIL_UPLOAD}?videoId=${videoId}&uploadType=media`, {
-					method: "POST",
-					headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": thumbnail.mime },
-					body: new Blob([thumbnail.bytes], { type: thumbnail.mime }),
-				}),
-				"thumbnail change",
-			);
+			await applyChange(await setThumbnail(videoId, accessToken, thumbnail), "thumbnail change");
 			return { content: [{ type: "text" as const, text: `Thumbnail of ${receipt} set to ${path}.` }] };
 		},
 	};

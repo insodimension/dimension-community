@@ -201,6 +201,12 @@
 					"use": "summary",
 					"icon": "youtube",
 					"title": "Update video"
+				},
+				{
+					"match": "youtube_upload_video",
+					"use": "summary",
+					"icon": "youtube",
+					"title": "Upload video"
 				}
 			],
 			"skillCard": {
@@ -265,6 +271,10 @@
 				{
 					"name": "youtube_update_video",
 					"description": "Change a posted video's title or thumbnail, one change per call. Your session's permission mode decides whether it asks."
+				},
+				{
+					"name": "youtube_upload_video",
+					"description": "Upload a video file to a connected channel (resumable) and read it back; public unless told otherwise. Your session's permission mode decides whether it asks."
 				}
 			]
 		}

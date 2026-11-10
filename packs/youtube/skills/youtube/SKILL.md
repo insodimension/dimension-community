@@ -1,6 +1,6 @@
 ---
 name: youtube
-description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); change a posted video's title or thumbnail. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, or act on YouTube videos, channels, playlists, or comments.
+description: Search YouTube; inspect up to 50 videos per call and channels by handle; browse and add to connected channels' playlists; read comment threads and post public comments/replies; read every connected channel's analytics (watch time, retention, traffic sources) and reach (thumbnail impressions, CTR); upload a video file to a connected channel; change a posted video's title or thumbnail. Native youtube_* tools (no CLI, no MCP server). Use when the user asks to find, summarize, measure, upload, or act on YouTube videos, channels, playlists, or comments.
 ---
 
 # YouTube
@@ -133,9 +133,11 @@ All native, always-on — no bash, no CLI, no MCP server:
   private and YouTube publishes it at that time. `category` takes Studio's name
   or the numeric id (default People & Blogs). `alteredContent` is Studio's AI
   use answer (`containsSyntheticMedia`). Every check runs before a byte is
-  sent. Once the video exists, a failed thumbnail, playlist or caption step is
-  reported in the answer and never re-uploads. `details` holds `videoId`,
-  `url`, `channelId`, `visibility`, `publishAt` and `readback` for
+  sent; an error ending "Nothing was uploaded." means no video exists. Once the
+  video exists, a failed thumbnail, playlist or caption step is a read-back row
+  with `ok: false` and never re-uploads. `details` holds `videoId`, `url`,
+  `channelId`, `visibility`, `publishAt` and `readback` (title, visibility,
+  audience, schedule, and each thumbnail, playlist and caption step) for
   `receipts/publish.json`. (write)
 
 Reads are `read`-tier; `youtube_playlist_add`, `youtube_post_comment`,
