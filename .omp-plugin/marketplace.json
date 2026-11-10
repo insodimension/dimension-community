@@ -1998,8 +1998,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.6.0/youtube-0.6.0.tgz",
-				"sha256": "f150ef5e1293fef85e65405c77de5b6426639555e93ea86ef68a1abb83ae6bf9",
-				"size": 118634
+				"sha256": "26928a3ea601412926fbb77fc9b5f42edbd64346919ec08222de250ff7cd00b5",
+				"size": 122354
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
