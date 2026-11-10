@@ -1,0 +1,254 @@
+{
+ "channel": "channel",
+ "rules": [
+  {
+   "id": "deadpan",
+   "text": "Deadpan, never cringe",
+   "check": "judge",
+   "severity": "gate"
+  },
+  {
+   "id": "no-hr-music",
+   "text": "No HR or corporate music: beds 88-100 BPM, minor, minimal, no hooks or build-ups. A bed you approved in your music ledger passes: your yes is the measure this proxy stands in for",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-from-library",
+   "text": "The bed is a media-library music entry or a track in your music ledger's `approved`; never a motion_score render",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-approved",
+   "text": "Every bed's file (by sha256) is in your music ledger's `approved`: your own yes for the track, or a bed made for this film (`approved_by: \"made for this film\"` and `film`; it counts for that film only), judged by ear in the render; a bed you rejected fails with your words even when it is also approved",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-under-voice",
+   "text": "Under the narration the bed sits at least 12 LU below the voice, measured on the voice and music stems",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-ducks-under-memes",
+   "text": "Under every meme that plays its own sound the bed ducks at least 6 dB below its level under the narration, or is silent",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-drops-under-memes",
+   "text": "Under every meme that plays its own sound the bed sits at least 18 LU below the meme's line, or is silent, so the line plays clear",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "music-no-vocals",
+   "text": "No vocals in a bed: silero VAD finds a voice in under 5% of the track (instrumental beds measured 0%, a sung track 85%)",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-text-walls",
+   "text": "No text walls: >=12 unspoken on-screen words under a different sentence",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "real-sources",
+   "text": "Real X/Reddit posts and real people, captured with source and date",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "safe-corners",
+   "text": "Nothing important in the 10% edge band",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-clipped-text",
+   "text": "No cut-off text: in every held state of a picture, no visible word or captured page line is cut by a card, a window, the stage or the frame",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "tag-clear-of-text",
+   "text": "Tags, stickers and chips never lie over other text: in every held state, none covers more than 10% of a visible word or page line",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-end-card",
+   "text": "No end card; credits go in the YouTube description",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-lower-thirds",
+   "text": "No lower thirds everywhere: a source label shows once, small, about 2 s",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-fireship",
+   "text": "No Fireship footage or mention",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "min-720p",
+   "text": "Every source at least 720p",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-whole-line",
+   "text": "A meme plays its whole spoken line, setup included, cut on silence in the clip source; a payoff word alone is not a meme",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "one-per-franchise",
+   "text": "No film, show, game or creator supplies more than one meme in a film; a callback reusing the same asset counts once, and so does one meme row played in parts",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-meme-tags",
+   "text": "No credit or source tag on a meme; credits go in the description",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-meme-grids",
+   "text": "No captioned meme grids",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "narration-cut-in-silence",
+   "text": "The narration is cut only in silence, never on live speech",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "brand-voice",
+   "text": "Every take the cut plays is the brand's voice, one {voiceId, modelId} pair for the whole cut, recorded per take in voice/jobs.json: the pair the brand kit declares in <brand>/brand/voice.json, else the default voice in Settings (Media generation). A take on another voice or model fails, naming the take, and a cut that mixes pairs fails; with no brand voice and no Settings default, or a take with no recorded pair, the rule is unchecked, so the cut blocks. A film never changes the voice model to fit time: another model makes a cloned voice sound like someone else; fix length in the script",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-sfx-on-words",
+   "text": "No sound effect over a narration word",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-stops-at-sentence-end",
+   "text": "A meme stops the narration only at a sentence end",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-dead-air",
+   "text": "No 1 s run without narration or sound near voice level",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "show-dont-tell",
+   "text": "Show, don't tell: while the narration speaks, the picture changes at least every 5 s (a new picture, a motion-graphic reveal, a meme or clip). A sticker or label is not a change. A page shown as a receipt holds at most 4 s before something explains it",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-scene-replay",
+   "text": "A motion-graphic scene never snaps back to a frame it already showed: a scene the next line keeps continues from its settled state instead of rebuilding from scratch. Measured on the render; 1 s or more fails",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "first-laugh-by-4s",
+   "text": "The cold open lands its first meme or punch within 4 s",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "statement-not-asked",
+   "text": "A written statement is never voiced as a question: the render's transcript ends no statement with a question mark",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "no-blank-stage",
+   "text": "No blank screen: never 1.5 s or more of an empty stage or a motion-graphic title with nothing revealed yet",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "analogy-in-motion",
+   "text": "An extended analogy (the spine's anchor_world) is shown as a motion-graphic scene that acts it out, never one still photo",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "never-explain-the-joke",
+   "text": "Deadpan never labels its own joke: no 'that part is our joke', 'just kidding', 'joking aside'. A fairness caveat is stated plainly as a fact",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-is-the-audience",
+   "text": "A meme voices what the target audience feels at that moment, not what the subject or the narrator feels: 'nice' over an 80% margin is the subject's reaction, not the viewer's",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on your marks ledger; advisory until it reaches recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "meme-canonical-version",
+   "text": "A meme template is used in its most widely recognised version: its library entry's canonical.is is true, from evidence (library_tag canonical {is, basis}, the Know Your Meme page or most-viewed upload) or your switch on the Library page; an entry without canonical fails",
+   "check": "code",
+   "severity": "gate"
+  },
+  {
+   "id": "meme-has-a-setup",
+   "text": "Every meme lands something the narration just set up; a viewer can say why it is there. No meme as decoration",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on your marks ledger; advisory until it reaches recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "picture-is-understood",
+   "text": "A picture depicts the fact the line says, so the floor viewer understands it without explanation; no riddle metaphors (an animal standing for an institution)",
+   "check": "judge",
+   "severity": "advisory",
+   "calibration": "framework/g11.calibrate on your marks ledger; advisory until it reaches recall >= 0.9 with <= 25% false alarms."
+  },
+  {
+   "id": "analogy-stays-in-its-world",
+   "text": "The film's analogy (spine anchor_world) is acted out only in the world it sets up: its objects never wander into a new setting or story the analogy and the narration never named. Judged per narrator line on the frames-only reader's description: kit g11plan.seen_judged at K-9.",
+   "check": "judge",
+   "severity": "gate",
+   "calibration": "framework/g11.calibrate on your marks ledger, slow model, 3-vote majority; measured on the house calibration set at 3/3 rejected caught and 1/128 approved lines falsely failed."
+  }
+ ],
+ "banned_strings": [
+  "step one",
+  "step two",
+  "robot movies",
+  "buckle up",
+  "let's dive in",
+  "game-changer",
+  "in today's video",
+  "smash that like",
+  "without further ado",
+  "fellow kids",
+  "our joke",
+  "that's the joke",
+  "that is the joke",
+  "just kidding",
+  "joking aside"
+ ]
+}

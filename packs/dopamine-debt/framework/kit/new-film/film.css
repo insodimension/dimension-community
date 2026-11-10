@@ -1,0 +1,20 @@
+:root{--ground:#0b0c0f;--ink:#eceae4;--cream:#eceae4;--accent:#ffa31a;--red:#ff4d3d;--blue:#8b909c;--green:#ffa31a;--color-ground:#0b0c0f;--color-ink:#eceae4;--color-accent:#ffa31a;--mg-ground:var(--ground)}
+html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:var(--ground)}
+#root{position:relative;width:1920px;height:1080px;overflow:hidden;font-family:'IBM Plex Sans',sans-serif}
+.stage{position:absolute;inset:0;background:radial-gradient(ellipse 65% 55% at 50% 42%,#1a1d24 0,var(--ground) 72%)}
+.stage:before{content:"";position:absolute;inset:0;box-shadow:inset 0 0 320px 90px #000000b0}
+.stage:after{content:"";position:absolute;inset:0;background-image:linear-gradient(#ffffff06 1px,transparent 1px),linear-gradient(90deg,#ffffff06 1px,transparent 1px);background-size:48px 48px}
+.rcpt{position:absolute;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 2px #2a2f3a,0 40px 90px #000c}
+.rcpt-chip{position:absolute;background:#12141a;color:var(--ink);border:2px solid var(--accent);border-radius:8px;padding:4px 14px;font:500 28px 'IBM Plex Mono';white-space:nowrap}
+.rcpt-ring{position:absolute;overflow:visible}.rcpt-ring rect{fill:none;stroke:var(--accent);stroke-width:8}
+.full,.full-wrap{position:absolute;inset:0;width:1920px;height:1080px;object-fit:cover;background:#000}
+.credit{position:absolute;left:200px;bottom:120px;background:#12141a;color:var(--ink);border:2px solid var(--accent);border-radius:8px;padding:8px 22px;font:700 30px 'IBM Plex Sans';white-space:nowrap}
+.post{position:absolute;border-radius:16px;box-shadow:0 0 0 2px #2a2f3a,0 40px 90px #000c}
+.cut{position:absolute;filter:drop-shadow(0 18px 24px rgba(0,0,0,.45))}
+.stk{position:absolute;white-space:nowrap;background:var(--accent);color:#111;padding:12px 30px 8px;font-family:Anton,sans-serif;font-size:76px;line-height:1;letter-spacing:1px;border-radius:10px;box-shadow:0 18px 40px #000a}
+.tagrig{position:absolute;left:250px;top:770px;width:640px;height:300px}
+.tagrig .stick,.tagrig .string{display:none}
+.tagrig .tag{position:absolute;left:330px;top:40px;min-width:260px;padding:22px 30px;background:var(--ink);border-radius:14px 40px 14px 14px;font-family:Anton,sans-serif;font-size:58px;color:#111;text-align:center;white-space:nowrap}
+.ring{position:absolute;inset:-10px;border-radius:50%;border:8px solid var(--accent);box-shadow:0 0 0 6px #111}
+.film-cut{filter:drop-shadow(10px 10px 0 rgba(0,0,0,.4))}
+.film-slot{outline:6px solid var(--accent);box-shadow:0 0 0 12px #111}

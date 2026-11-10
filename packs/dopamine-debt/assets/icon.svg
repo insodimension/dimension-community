@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Dopamine Debt">
+  <rect width="24" height="24" rx="4" fill="#E8734A"/>
+  <path fill="#FFF" d="M5 10h14v8.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/>
+  <path fill="#FFF" d="m4.6 5.9 13.2-2.6.6 3.1-13.2 2.6z"/>
+  <path fill="#E8734A" d="m7.4 5.4 2.3.9-1.6.3-2.3-.9zm4.4-.9 2.3.9-1.6.3-2.3-.9z"/>
+</svg>

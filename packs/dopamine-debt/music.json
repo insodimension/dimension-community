@@ -1,0 +1,6 @@
+{
+ "about": "The empty music ledger the kit reads when a brand has none of its own. Your ledger is `music.json` in your brand's `productions/dopamine-debt/` folder, beside your productions, so an update of the kit keeps it. A film's bed passes the music-approved rule only when its file's sha256 is in `approved`: either after your own yes for that track (`yes`), or a bed the Filmmaker made for one film (`approved_by: \"made for this film\"` with `film`: the production id it counts for, and for no other film), which you judge by ear in the render. Every entry names its licence. `references` are beds you praised inside a film, kept as listening references; they are not approvals. `rejected` beds fail with what you said (`said`), even when they are also in `approved`.",
+ "approved": [],
+ "references": [],
+ "rejected": []
+}
