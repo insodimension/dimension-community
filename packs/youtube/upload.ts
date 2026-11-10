@@ -237,7 +237,7 @@ function megabytes(bytes: number): string {
 
 async function sendFile(
 	session: string,
-	accessToken: string,
+	bearer: () => Promise<string>,
 	path: string,
 	size: number,
 	signal: AbortSignal | undefined,
@@ -256,7 +256,7 @@ async function sendFile(
 			try {
 				if (probe) {
 					outcome = await outcomeOf(
-						await fetch(session, { method: "PUT", headers: { Authorization: `Bearer ${accessToken}`, "Content-Range": `bytes */${size}` }, signal }),
+						await fetch(session, { method: "PUT", headers: { Authorization: `Bearer ${await bearer()}`, "Content-Range": `bytes */${size}` }, signal }),
 					);
 				} else {
 					const length = Math.min(CHUNK_BYTES, size - offset);
@@ -265,7 +265,7 @@ async function sendFile(
 					outcome = await outcomeOf(
 						await fetch(session, {
 							method: "PUT",
-							headers: { Authorization: `Bearer ${accessToken}`, "Content-Range": `bytes ${offset}-${offset + length - 1}/${size}` },
+							headers: { Authorization: `Bearer ${await bearer()}`, "Content-Range": `bytes ${offset}-${offset + length - 1}/${size}` },
 							body: buffer.subarray(0, length),
 							signal,
 						}),
@@ -349,11 +349,10 @@ export function createUploadVideoTool(retryDelayMs: (failures: number) => number
 			const thumbnail = params.thumbnailPath === undefined ? undefined : await readThumbnail(params.thumbnailPath, NOTHING_UPLOADED);
 			const captions = params.captionsPath === undefined ? undefined : await captionFile(params.captionsPath);
 			const channel = await channelFor(params.channel);
-			const accessToken = await tokenOf(channel);
-			const session = await startSession(accessToken, params, file.size, file.mime);
+			const session = await startSession(await tokenOf(channel), params, file.size, file.mime);
 			const uploaded = await sendFile(
 				session,
-				accessToken,
+				() => tokenOf(channel),
 				params.filePath,
 				file.size,
 				signal,
