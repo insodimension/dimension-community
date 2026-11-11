@@ -527,6 +527,21 @@ describe("youtube_video_analytics", () => {
 
 		await expect(analytics({ videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" })).rejects.toThrow(MISSING_ANALYTICS_SCOPE);
 	});
+
+	test("a 403 about quota carries the quota hint and is not mistaken for the missing analytics scope", async () => {
+		const message = "The request cannot be completed because you have exceeded your quota.";
+		serve(() => Response.json({ error: { code: 403, message, errors: [{ message, domain: "youtube.quota", reason: "quotaExceeded" }] } }, { status: 403 }));
+
+		const failure = await analytics({ videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" }).then(
+			() => null,
+			(error: Error) => error,
+		);
+
+		expect(failure?.message).toContain(`YouTube Analytics reports.query failed: ${message}`);
+		expect(failure?.message).toContain("https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas");
+		expect(failure?.message).toContain("is 0 and never refills");
+		expect(failure?.message).not.toBe(MISSING_ANALYTICS_SCOPE);
+	});
 });
 
 describe("several channels connected", () => {

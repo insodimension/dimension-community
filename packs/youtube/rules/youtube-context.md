@@ -46,8 +46,8 @@ channel the user connected: `youtube_search`, `youtube_get_videos`,
   calls a day; most other calls share 10,000 units a day at 1 unit each.
   Search sparingly; to study a channel read its uploads playlist (`UC…` →
   `UU…`) with `youtube_list_playlist_items`, then up to 50 ids per
-  `youtube_get_videos` call. `quotaExceeded` means the project is out for
-  the day.
+  `youtube_get_videos` call. `quotaExceeded` means the project is out of quota:
+  spent for the day, or its daily limit is 0 and never refills.
 - **Numbers.** Public views count from the first frame since 2026-08-24. For any
   connected channel's own videos, `youtube_video_analytics` reads watch time,
   average view duration and percentage, traffic sources and retention, and

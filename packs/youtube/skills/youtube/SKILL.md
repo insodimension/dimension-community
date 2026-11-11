@@ -42,11 +42,13 @@ No new Cloud project is needed. If you don't have a client yet, follow the
 "Before you connect" steps in the connect modal (create project → enable the
 YouTube Data API v3 → Desktop-app OAuth client → copy creds).
 
-**Publish the OAuth consent screen.** In Google Auth Platform → Audience, press
-**Publish app**. A client left in "Testing" gets refresh tokens that expire
-after 7 days (Google's OAuth documentation), so the connection dies every week.
-For your own client no review is needed; an "unverified app" notice at sign-in
-is expected.
+**Publish the OAuth consent screen, or sign in as a test user.** In Google Auth
+Platform → Branding → App domain, give an app homepage URL and a privacy-policy
+URL (Google asks for both before it lets you publish), then in Audience press
+**Publish app**. For your own client no review is needed; an "unverified app"
+notice at sign-in is expected. A client left in "Testing" works for the account
+listed under Audience → Test users, but its refresh tokens expire after 7 days
+(Google's OAuth documentation), so the connection dies every week.
 
 If a call says no channel is connected, the user hasn't finished the OAuth flow
 — point them at **Plugins → YouTube → Connect**. On an auth error for one
@@ -197,7 +199,7 @@ couldn't download.
   `youtube_list_playlists`) rather than guessing an id.
 - The tools surface Google's own `error.message` verbatim — read it
   (`quotaExceeded`, `commentsDisabled`, `insufficientPermissions`) to decide the
-  fix.
+  fix. A quota refusal carries the plugin's own note on the two causes below.
 
 ## Quota
 
@@ -206,7 +208,9 @@ As of 2026-11-06 (YouTube Data API quota page and revision history): since
 calls a day; every other method shares the project's 10,000 units a day.
 `videos.list`, `channels.list` and `playlistItems.list` cost 1 unit; a comment
 insert costs 50. More quota needs YouTube's compliance audit. On
-`quotaExceeded` the project is out until midnight Pacific.
+`quotaExceeded` the project is either out until midnight Pacific or its
+"Queries per day" limit is 0, which never refills: read the limit at the quota
+page, and at 0 use a new Cloud project (default 10,000 a day) or the audit form.
 
 ## Deliberate exclusions (v1)
 
