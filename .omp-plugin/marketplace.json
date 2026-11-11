@@ -1878,6 +1878,77 @@
 			]
 		},
 		{
+			"name": "traction-space",
+			"pluginId": "traction-space",
+			"title": "Traction",
+			"icon": "packs/traction-space/assets/icon.svg",
+			"description": "A space for getting your product noticed: a marketing agent writes your positioning, picks the platforms worth testing and runs a team of agents for each one. Nothing is sent without your click. Enter the license key from your invite email to open it.",
+			"version": "0.1.6",
+			"author": {
+				"name": "Dimension"
+			},
+			"license": "UNLICENSED",
+			"category": "layout",
+			"tags": [
+				"layout",
+				"space",
+				"marketing",
+				"growth",
+				"traction"
+			],
+			"requires": {
+				"dimension": ">=0.11.27"
+			},
+			"source": {
+				"source": "release",
+				"url": "https://get.insodimension.ai/spaces/traction-space/traction-space-0.1.6.tgz",
+				"sha256": "b8e0f91864c724bbecd99afc57a259693ce47d25bd2c464a1771ce105c96aa99",
+				"size": 2051272
+			},
+			"spaces": [
+				{
+					"id": "traction",
+					"label": "Traction",
+					"icon": "chevronStack",
+					"accent": "#8e8e93",
+					"requires": [
+						"rooms-rail",
+						"brand-marks",
+						"browser",
+						"discord",
+						"youtube",
+						"hackernews",
+						"bluesky",
+						"newsletter",
+						"last30days",
+						"social-listening",
+						"marketing-skills",
+						"linkedin-skills",
+						"watch",
+						"swiss-knife",
+						"image",
+						"media-gen",
+						"motion",
+						"storyboard"
+					],
+					"showcase": {
+						"screenshots": [
+							"packs/traction-space/assets/showcase/cmo.webp",
+							"packs/traction-space/assets/showcase/campaign.webp",
+							"packs/traction-space/assets/showcase/channel.webp",
+							"packs/traction-space/assets/showcase/new-channel.webp"
+						],
+						"tagline": "A CMO agent and a team of media agents.",
+						"summary": "Traction is a marketing team of agents. Tell the CMO what you want; it plans the work and opens a campaign, a room for one goal, with one seat for each platform's agent. Channels are rooms for topics: invite an agent and name it to hand it the work. Every draft waits for your pick, and nothing is posted until you choose it. Traction is in private alpha: install it, then enter the license key from your invite.",
+						"video": {
+							"src": "packs/traction-space/assets/showcase/traction-tour.mp4",
+							"poster": "packs/traction-space/assets/showcase/cmo.webp"
+						}
+					}
+				}
+			]
+		},
+		{
 			"name": "triage-rail",
 			"source": "./packs/triage-rail",
 			"release": {
@@ -1940,6 +2011,129 @@
 				"tailwind",
 				"polish",
 				"skill"
+			]
+		},
+		{
+			"name": "unreal",
+			"pluginId": "unreal",
+			"title": "Unreal",
+			"icon": "packs/unreal/assets/icon.svg",
+			"description": "A space for Unreal game development: find your Unreal projects, browse all your assets in one place and start a new project. Enter the license key from your invite to open it.",
+			"version": "0.1.4",
+			"author": {
+				"name": "Dimension"
+			},
+			"license": "UNLICENSED",
+			"category": "layout",
+			"tags": [
+				"layout",
+				"space",
+				"unreal",
+				"game-dev",
+				"assets",
+				"license"
+			],
+			"requires": {
+				"dimension": ">=0.11.21"
+			},
+			"source": {
+				"source": "release",
+				"url": "https://get.insodimension.ai/spaces/unreal/unreal-0.1.4.tgz",
+				"sha256": "6f4abc3cb441296c38f7a77bcd3809cb491e75f80d8be34e778b9e7a8cb77f6e",
+				"size": 2111213
+			},
+			"spaces": [
+				{
+					"id": "unreal",
+					"label": "Unreal",
+					"icon": "worldgate",
+					"accent": "#b78cff",
+					"requires": [
+						"unreal-space-ui",
+						"rooms-rail"
+					],
+					"showcase": {
+						"tagline": "Your Unreal projects, with agents that know them.",
+						"summary": "Unreal is a space for game development over your own Unreal projects. Each project sits in the rail as a UProject with its splash image, its channels and its sessions. Unreal is the lead agent, with Animation and VFX beside it; message one directly, or name it in a channel to hand it the work. Assets lists your Megascans, Fab and project Content in one browser. Unreal is in private alpha: install it, then enter the license key from your invite.",
+						"screenshots": [
+							"packs/unreal/assets/showcase/agents.webp",
+							"packs/unreal/assets/showcase/uprojects.webp",
+							"packs/unreal/assets/showcase/sessions.webp",
+							"packs/unreal/assets/showcase/needs-you.webp"
+						],
+						"video": {
+							"src": "packs/unreal/assets/showcase/unreal-tour.mp4",
+							"poster": "packs/unreal/assets/showcase/agents.webp"
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "video-space",
+			"pluginId": "video-space",
+			"title": "Video",
+			"icon": "play",
+			"description": "Make films for your brands, from the first idea to the upload. A brand is a folder with its logo, intro, fonts, voice and music; each film is a production inside it, with its own room where the Video agent researches, plans, voices, builds the picture and cuts it. Enter the license key from your invite to open it.",
+			"version": "0.1.16",
+			"author": {
+				"name": "Dimension"
+			},
+			"license": "MIT",
+			"category": "media",
+			"tags": [
+				"space",
+				"video",
+				"film",
+				"storyboard",
+				"media"
+			],
+			"requires": {
+				"dimension": ">=0.12.0"
+			},
+			"source": {
+				"source": "release",
+				"url": "https://get.insodimension.ai/spaces/video-space/video-space-0.1.16.tgz",
+				"sha256": "3ad46522700cdfcd592e3550f2cd1ee5fb0ad6326a2afb5c1456bbf566f70a9f",
+				"size": 1701229
+			},
+			"spaces": [
+				{
+					"id": "video",
+					"label": "Video",
+					"icon": "play",
+					"accent": "#e8734a",
+					"requires": [
+						"storyboard",
+						"motion",
+						"media-gen",
+						"media-gen-local",
+						"sound",
+						"swiss-knife",
+						"watch",
+						"reference-breakdown",
+						"image",
+						"youtube",
+						"browser",
+						"rooms-rail",
+						"video-space-ui",
+						"dopamine-debt"
+					],
+					"showcase": {
+						"tagline": "One agent makes a film with you.",
+						"summary": "Video makes films for your brands with one agent beside you. A brand holds its logo, intro, fonts, voice and music; each film is a production in it. Say what you want in plain words: Video reads your framework and the brand's earlier films, asks for your take before it writes a word, researches from primary sources and checks the script at a gate. Nothing is voiced, generated or spent until you approve it. Productions lists every film by brand, and the Library holds the memes, clips and sounds every film shares. Video is in private alpha: install it, then enter the license key from your invite.",
+						"screenshots": [
+							"packs/video-space/assets/showcase/brand.webp",
+							"packs/video-space/assets/showcase/productions.webp",
+							"packs/video-space/assets/showcase/library.webp",
+							"packs/video-space/assets/showcase/take.webp"
+						],
+						"video": {
+							"src": "packs/video-space/assets/showcase/video-tour.mp4",
+							"poster": "packs/video-space/assets/showcase/brand.webp"
+						}
+					}
+				}
 			]
 		},
 		{
