@@ -11,9 +11,28 @@ This skill is **self-improving**. Every run ends with a gotcha review (see [Self
 
 > **This skill is a checklist, not a suggestion.** Tick every `[ ]` by writing its status and its Exit outcome in your notes for the film (`films/<f>/WORKLOG.md`) before you move on. Skipping a step without writing down why breaks the skill.
 
-Roots: `DD/` is the installed kit, the folder `inso dd root` prints (the engine `dd/`, `framework/` and its film kit, the shipped channel persona, `taste.json`, `tunables.json`). It is replaced on every update: never write into it. `BRAND/` is the brand's `productions/dopamine-debt/` (`dd.home.brand_dir(<production>)`), where everything you make for the framework lives: the films (`BRAND/films/<f>/<rev>/`), research, the brand's own personas (`BRAND/personas/channel/`, `BRAND/personas/topic/`), the music ledger (`BRAND/music.json`) and the review marks (`BRAND/calibration/marks.jsonl`). The house gate and the editor's `script_gate` both resolve a revision there from the production folder. `dd/home.py` resolves the engine home (media library, judge); `DD_ENGINE_HOME` and `DD_FILMS_ROOT` override them for a test home. A film's own production folder holds its build (`build/`, written by `inso dd new-film <production>`) and its media.
+Roots: `DD/` is the installed kit, the folder `inso dd root` prints (the engine `dd/`, `framework/` and its film kit, the shipped channel persona, `taste.json`, `tunables.json`). It is replaced on every update: never write into it. `BRAND/` is the brand's `productions/dopamine-debt/` (`dd.home.brand_dir(<production>)`), where everything you make for the framework lives: the films (`BRAND/films/<f>/<rev>/`), research, the brand's own personas (`BRAND/personas/channel/`, `BRAND/personas/topic/`), the music ledger (`BRAND/music.json`) and the review marks (`BRAND/calibration/marks.jsonl`). The house gate and the editor's `script_gate` both resolve a revision there from the production folder. `dd/home.py` resolves the engine home (media library, tools); `DD_ENGINE_HOME` and `DD_FILMS_ROOT` override them for a test home. A film's own production folder holds its build (`build/`, written by `inso dd new-film <production>`) and its media.
 
-The gate runs from a terminal or as the Video space's house gate, with no eval kernel: `inso dd gate <script|cut> <production folder> <report.json>`. It exits 0 (pass), 1 (fail, blockers in the report) or 2 (cannot run, `missing` in the report), and its judge is the person's `judge` role. A production names its revision in `dopamine-debt.json`: `{"revision": "<film>/<rev>", "audiences": {"<audience>": "personas/...md"}}`; a relative persona path is read from `BRAND/` when the file is there, else from `DD/`. The cut stage scores what is in the cut (edl.json speech clips, their transcripts and the memes placed), never script.md.
+The gate takes no model: it measures and never calls one. It runs from a terminal or as the Video space's house gate: `inso dd gate <script|cut> <production folder> <report.json>`. It exits 0 (pass), 1 (fail, blockers in the report) or 2 (cannot run, `missing` in the report), and the report's `answered_by` names every model that answered the reads. Exit 2 saying reads are unanswered means the reads were never made or the film changed since: run the [Review](#review-the-session-answers-the-reads), then the gate again. A production names its revision in `dopamine-debt.json`: `{"revision": "<film>/<rev>", "audiences": {"<audience>": "personas/...md"}}`; a relative persona path is read from `BRAND/` when the file is there, else from `DD/`. The cut stage scores what is in the cut (edl.json speech clips, their transcripts and the memes placed), never script.md.
+
+## Review: the session answers the reads
+
+The reads are answered by the session that owns the model profile, so the roles the person configured apply and no second program picks a model. From the eval kernel, with `DD` (the folder `inso dd root` prints) on `sys.path`:
+
+```python
+import dd.house
+await dd.house.review("script", PRODUCTION, judge_batch, completion, juror_model="provider/model", juror_role="default")
+```
+
+`"cut"` reviews the cut the same way. The kernel's `judge_batch` and `completion` are the session's own, so the active profile decides who answers:
+
+| Read | Who answers | Role |
+|---|---|---|
+| Readouts: one per unit, audience and card variant (hundreds per film) | the kernel's `judge_batch` | the person's `judge` role. Never a chat model: it cannot reproduce the judge's calibrated probabilities |
+| Bit jurors and the SEEN whole-cut watch (tens to hundreds, stateless, structured) | the kernel's `completion` at `juror_role` | `default`, `slow` or `smol`, resolved from the session's profile; pick a model family other than the judge's (FRAMEWORK §6, the second juror) |
+| The blind reader of the frames, a second reviewer of a script or cut | a fresh `task` subagent that never saw the script | the profile's `task` role |
+
+`juror_model` is the model `juror_role` resolves to in this session (`models op:profiles` shows the active profile). Juror answers are cached under it, so switching profile re-reads instead of reusing another model's answers, and the gate's report names it in `answered_by`. If a role fell back to another model during the run, say so in the report. Run the Review again after any edit to `lines.json`, `spine.yaml`, `intent.json`, a persona or the cut: the cache keys the content, so a stale read is a missing read and the gate exits 2.
 
 ---
 
@@ -22,7 +41,7 @@ The gate runs from a terminal or as the Video space's house gate, with no eval k
 - [ ] **PF-1. Read [references/gotchas.md](references/gotchas.md) and [references/craft.md](references/craft.md).** Exit: you can name the person's last three rejections (from the brand's marks ledger) and what each one taught.
 - [ ] **PF-2. Read `DD/FRAMEWORK.md` §3, §4, §7, §8, §10 and [references/framework-map.md](references/framework-map.md).** Exit: you can state the debt formula, θ, τ, the four moves and every hard gate in one line each.
 - [ ] **PF-3. Check the personas.** The channel persona (`BRAND/personas/channel/*.md`, else the shipped `DD/personas/channel/ai-news.md`) and the film's topic persona (`BRAND/personas/topic/<topic>.md`) are not past their `expires` date. `DD/taste.json` and `DD/tunables.json` load. Exit: the expiry dates are written down, or a persona is rebuilt by the §1.3 protocol into `BRAND/personas/`.
-- [ ] **PF-4. Check the tools.** Python 3.10 or newer with `DD/requirements.txt` installed. The brand's `productions/house-gates.json` exists (`inso dd setup <brand folder>` writes it). `inso dd gate script <production> <report>` runs and its report names the judge model that answered (exit 2 lists what is missing). `ffmpeg`, `faster-whisper` (through `DD/framework/quiet.py`) and a headless Chrome or Edge (`DD/framework/tools.browser`) all run. `npx hyperframes` responds. Exit: a smoke call to each.
+- [ ] **PF-4. Check the tools.** Python 3.10 or newer with `DD/requirements.txt` installed. The brand's `productions/house-gates.json` exists (`inso dd setup <brand folder>` writes it). `inso dd gate script <production> <report>` runs (exit 2 lists what is missing, and before the first Review it asks for one). `ffmpeg`, `faster-whisper` (through `DD/framework/quiet.py`) and a headless Chrome or Edge (`DD/framework/tools.browser`) all run. `npx hyperframes` responds. Exit: a smoke call to each.
 - [ ] **PF-5. Pick the mode.** Exit: Film, Notes or Calibrate is written down.
 
 ## Modes
@@ -48,8 +67,8 @@ Work in a fresh revision directory `films/<f>/<rev>/`. Never patch a rejected re
 ### Stage 2: Joke map and script (G2–G10)
 - [ ] **F-5. Joke map.** One row per bit: setup, punch (22 words or fewer, punch word last), mechanism, target, carries, `gag_id`, hold, plants/calls, build_id, opens/pays. **A meme is written as the punch of its bit**: the narration sets it up and the meme lands it, about the same fact. A meme never lands on a fact with no setup. Exit: every meme row names the line it punches.
 - [ ] **F-6. Script.** Deadpan. One joke aimed at the narrator in every act. Filing mechanics get a move (Bake in, Carry or Pay; §7.3) before they get a meme. Exit: `script/lines.json` and `script/script.md` are written, and every fact id resolves.
-- [ ] **F-7. Script read.** Build `framework/script/` with units timed at **2.7 words/s** (a measured narration pace, not `tunables.wps` 3.3: G2 and G7 are timing gates; measure your own voice's pace once and use it) and `root.json` `kind: "script"`, `previous: null` (`scriptstage.write_engine_dir` writes both).
-  - Run `await dd.read.read(...)` and `res = dd.gate.check(..., g11={})`.
+- [ ] **F-7. Script read.** Build `framework/script/` with units timed at **2.7 words/s** (a measured narration pace, not `tunables.wps` 3.3: G2 and G7 are timing gates; measure your own voice's pace once and use it) and `root.json` `kind: "script"`, `previous: null` (`scriptstage.write_engine_dir` writes both, and the `juror_model` and `juror_role` the Review states).
+  - Run `await dd.read.read(...)` (the Review) and `res = dd.gate.check(..., g11={})`.
   - Store the stage record with `dd.gate.write(film_dir, res)` (`gates.json` with every meme, `ledger.<aud>.json`: the next stage's G13 compares against it) and `page.html` with the revision's report driver.
   - Exit: `gates.json` and `page.html` are written, with 0 missing reads, and the cast of memes is in `gates.json` `memes`.
 - [ ] **F-8. Repair loop (at most 3 passes).** Each pass must cut the hard blockers or the debt integral. Log each pass in `repairs.md` with the edit size against the score change, and treat a large jump from a small edit as a red flag.
@@ -72,7 +91,7 @@ Work in a fresh revision directory `films/<f>/<rev>/`. Never patch a rejected re
   - Exit: every MEME row in `lines.json` has its measured in, out and full line, any `replaces`, and in `meme.why` the sentence "the viewer feels X because the line just said Y".
 
 ### Stage 4: Spend and voice
-- [ ] **F-12a. Script gate receipt.** Run the Video editor's `script_gate` on the production (its `dopamine-debt.json` names the revision; `inso dd setup <brand folder>` wrote the house gate it runs). Follow a running gate with `job_status`. Exit: it passed, and its `inputsHash` is written down.
+- [ ] **F-12a. Script gate receipt.** Run the Video editor's `script_gate` on the production (its `dopamine-debt.json` names the revision; `inso dd setup <brand folder>` wrote the house gate it runs). Follow a running gate with `job_status`. An exit 2 saying reads are unanswered is the cue to run the Review, then `script_gate` again. Exit: it passed, and its `inputsHash` is written down.
 - [ ] **F-12b. Price the spend.** Price the voice, music and effects with `generation_quote` and write the total in the film's notes. Exit: F-12a's script gate passed for the current files and the price is written down. Any later edit to `lines.json`, `spine.yaml` or `intent.json` makes the gate stale: F-12a again before the next spend.
 - [ ] **F-12. Voice.** `generation_submit` with model `elevenlabs/voice` and `options` `{production, voiceId, modelId}`: the brand's voice, the same pair on every job of the film. `kit.voice.brand_voice(FILM)` reads it from the brand kit's `<brand>/brand/voice.json` `{voiceId, modelId}`, else the Settings default voice (Media generation, which names no model: pick one modelId and keep it), else says where to declare it: then `ask` the person which voice is theirs and write it into the brand kit. Never change the voice model to fit time: another model makes a cloned voice sound like someone else; fix length in the script.
   - Record each job with `kit.voice.record_job(FILM, seg, job_id, text, options, dir)` (`voice/jobs.json`). G11 `brand-voice` fails a take off the brand's pair, naming it, and a cut that mixes pairs; it stays unchecked, so the cut blocks, while a played take has no recorded pair or there is no brand voice and no Settings default (`build/g11.json` `why` says which).
@@ -173,7 +192,8 @@ Use today's absolute date. Never a relative one.
 | `dd.gate` says `incomplete` | Missing reads, a missing whole-cut read, an unchecked G11 rule, a `root.json` with no `kind` or `previous`, a previous stage with no `dd.gate.write` record, or a SEEN meme with no `display` → run `dd.read`, write the link or record, implement the check; never pass it by default |
 | "Almost no memes and jokes" | Repairs removed laughs and nothing put them back → G13 (every cast meme reaches the cut or is replaced from the library) and G12 at the SEEN read; never cut a meme for an advisory G3m veto (F-8, F-10, kit-film K-9) |
 | The person hates the music | A bed shipped that nobody made for the film or listened to → G8: make the film's own bed, register it in the brand's music ledger as made for this film, and record their verdict by ear there (`rejected` with what they said) |
-| A judge row is labelled with a cached model | Host cache hit → disclose it in the report; the engine can't yet stamp the batch model (gotchas) |
+| The gate exits 2 saying reads are unanswered | The script, a persona or the cut changed since the last Review, or none ran: run the Review (the cache keys the content), then the gate |
+| A read is labelled with a model you did not choose | `answered_by` in the report lists every model that answered. A juror answer is cached under the `juror_model` the Review stated, a readout under `tunables.judge_model` |
 
 ---
 

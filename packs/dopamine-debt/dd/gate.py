@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from .derive import evaluate, memes
-from .read import DD, context
+from .read import DD, answered_by, context
 from .run import Cache, collect, jurors_needed, reads_needed, watch_needed
 
 JUDGE_RULES_READ_BY_DD_JURORS = {"deadpan"}
@@ -50,25 +50,28 @@ def check(film_dir, film, g11):
         raise ValueError(f"G11 results for rules taste.json does not hold as code gates: {unknown}")
     out = {"status": None, "missing_reads": [], "missing_jurors": [], "hard_fails": [], "advisory_fails": [], "unmeasured": [],
            "g11_fails": {k: v for k, v in g11.items() if v}, "g11_unchecked": [r for r in rules if r not in g11],
-           "per_audience": None, "film_gates": None, "score": None, "ledgers": None, "memes": None}
+           "per_audience": None, "film_gates": None, "score": None, "ledgers": None, "memes": None, "answered_by": None}
     readouts, out["missing_reads"] = collect(reads_needed(film, c["cards"], c["model"], c["window"]), Cache(c["cache"]))
     if out["missing_reads"]:
         out["status"] = "incomplete"
         return out
     jc = Cache(c["jury_cache"])
     jurors = []
-    for n in jurors_needed(film, c["cards"], readouts, c["window"], root["juror_model"], c["trigger"]):
+    jury_rows = []
+    for n in jurors_needed(film, c["cards"], readouts, c["window"], c["juror_model"], c["juror_role"], c["trigger"]):
         hit = jc.get(n["key"])
         if hit:
             jurors.append(hit)
+            jury_rows.append(hit)
         else:
             out["missing_jurors"].append({"unit": n["unit"], "aud": n["aud"]})
     watch = {a: [] for a in gated}
     if kind == "seen":
-        for n in watch_needed(film, c["cards"], root["juror_model"]):
+        for n in watch_needed(film, c["cards"], c["juror_model"], c["juror_role"]):
             hit = jc.get(n["key"])
             if hit:
                 watch[n["aud"]].append(hit["answers"])
+                jury_rows.append(hit)
             else:
                 out["missing_jurors"].append({"unit": n["unit"], "aud": n["aud"], "draw": n["draw"]})
     if out["missing_jurors"]:
@@ -84,7 +87,7 @@ def check(film_dir, film, g11):
         elif x["status"] != "pass":
             out["advisory_fails" if n in advisory else "hard_fails"].append({"gate": n, "for": who, "status": x["status"], "detail": x["detail"]})
     out.update({"per_audience": per, "film_gates": fg, "score": sc, "ledgers": ledgers, "memes": {a: memes(film, ledgers[a]) for a in gated},
-                "reads": len(readouts), "juror_reads": len(jurors)})
+                "reads": len(readouts), "juror_reads": len(jurors), "answered_by": {"readouts": answered_by(readouts), "jurors": answered_by(jury_rows)}})
     if out["hard_fails"] or out["g11_fails"]:
         out["status"] = "fail"
     elif out["g11_unchecked"] or out["unmeasured"]:
@@ -100,7 +103,7 @@ def write(film_dir, res):
         raise ValueError(f"no ledger to write: dd.gate status {res['status']}\n{blockers(res)}")
     for a, L in res["ledgers"].items():
         (film_dir / f"ledger.{a}.json").write_text(json.dumps(L, ensure_ascii=False, indent=1, default=list), encoding="utf8")
-    keep = ("status", "missing_reads", "missing_jurors", "hard_fails", "advisory_fails", "unmeasured", "g11_fails", "g11_unchecked", "film_gates", "per_audience", "score", "memes")
+    keep = ("status", "missing_reads", "missing_jurors", "hard_fails", "advisory_fails", "unmeasured", "g11_fails", "g11_unchecked", "film_gates", "per_audience", "score", "memes", "answered_by")
     record = {k: res[k] for k in keep} | {"blockers": blockers(res)}
     (film_dir / "gates.json").write_text(json.dumps(record, ensure_ascii=False, indent=1, default=list), encoding="utf8")
 

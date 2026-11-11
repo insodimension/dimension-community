@@ -17,7 +17,7 @@ Lines cut at the TTS timing boundaries put dozens of line ends on live speech. C
 Meme punches scored cringe 0.40–0.55 when the judge saw only "cutout: X says Y". The SEEN read at the cut stage decides memes; storyboard ablations are provisional. See [framework-map.md](framework-map.md) (Memes in the ledger).
 
 ### Judge rows answered from a cache
-The host's cache can answer retry batches, and `dd.run` can't see the batch model, so §6 "never mix judge versions" can't be verified. Disclose it in the report. See [framework-map.md](framework-map.md) (Readouts).
+A readout answered from the session's judge cache is labelled `tunables.judge_model`, and `dd.run` can't see which model the batch really used, so §6 "never mix judge versions" can't be verified. Disclose it in the report. See [framework-map.md](framework-map.md) (Readouts).
 
 ### A merged bit broke G7
 Merging an analogy and its number into one 21 s bit fixed G9 but opened a 21 s laugh gap. Put a laugh inside a long bit instead of trimming words. See SKILL F-8.

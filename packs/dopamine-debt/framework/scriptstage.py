@@ -38,13 +38,13 @@ def unspoken(texts, line):
     return [w for w in words if w and w not in spoken and not re.fullmatch(r"[$\d.,%×:]+[bmk]?", w)]
 
 
-def write_engine_dir(out, segs, intent, spine, audiences, stage_label, kind, previous, juror_model="default"):
+def write_engine_dir(out, segs, intent, spine, audiences, stage_label, kind, previous, juror_model, juror_role):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "segments.json").write_text(json.dumps(segs, ensure_ascii=False, indent=1), encoding="utf8")
     (out / "intent.json").write_text(json.dumps(intent, ensure_ascii=False, indent=1), encoding="utf8")
     (out / "spine.json").write_text(json.dumps(spine, ensure_ascii=False, indent=1), encoding="utf8")
     link = None if previous is None else Path(os.path.relpath(Path(previous).resolve(), out.resolve())).as_posix()
-    root = {"audiences": audiences, "juror_model": juror_model, "stage": stage_label, "kind": kind, "previous": link, "gated": list(audiences)}
+    root = {"audiences": audiences, "juror_model": juror_model, "juror_role": juror_role, "stage": stage_label, "kind": kind, "previous": link, "gated": list(audiences)}
     (out / "root.json").write_text(json.dumps(root, ensure_ascii=False, indent=1), encoding="utf8")
     return out

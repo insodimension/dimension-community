@@ -39,8 +39,8 @@ space requires it, so installing Video installs it. Its Filmmaker appears only w
   `inso dd gate` exits 2 and names what is missing.
 - `ffmpeg`, a headless Chrome or Edge, `npx hyperframes`, and the Motion pack's setup (it installs GSAP)
   for the picture and the render.
-- The `inso` command, which Dimension's installer puts on `PATH`. It hosts the gate's judge model and runs
-  the gate; there is nothing else to install.
+- The `inso` command, which Dimension's installer puts on `PATH`. It runs the gate, which calls no model;
+  there is nothing else to install.
 
 ## Limits and risks
 
@@ -49,13 +49,13 @@ space requires it, so installing Video installs it. Its Filmmaker appears only w
   lives (films, research, your personas, `music.json`, `calibration/marks.jsonl`); the shared media
   library; and a speech-recognition cache in `<engine home>/productions/dopamine-debt/`. It never writes
   into its own folder, which an update replaces.
-- **What it sends over the network:** the gate's script and transcript text to the model your `judge`
-  role names; `npx -y hyperframes@0.8.217` downloads HyperFrames from npm on the first render;
+- **What it sends over the network:** the script and transcript text of the film's reads, to the models
+  your session answers them with (your `judge` role, and the juror role you pick for the Review); `npx -y hyperframes@0.8.217` downloads HyperFrames from npm on the first render;
   faster-whisper downloads its `small.en` model from Hugging Face on first use; media fetches go to
   YouTube through `yt-dlp` (only for http(s) addresses you or the Filmmaker chose). Voice and music
   generation go through Dimension's media generation tools, priced and approved before each spend.
-- The gate judges with a model, so a gate run spends model tokens; its report names the model that
-  answered.
+- Reading a film spends model tokens in your session, on the roles of the active profile. The gate itself
+  spends none; its report's `answered_by` names every model that answered the reads.
 - It does not install its Python packages, ffmpeg or a browser for you.
 - The house rules come from one channel's films and one reviewer's taste; your brand gets the same bar
   until your own notes and marks move it.

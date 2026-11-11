@@ -157,7 +157,7 @@ async def read_film(film, cards, judge_batch, cache_path, model, window, stage):
     return readouts, judged
 
 
-def jurors_needed(film, cards, readouts, window, juror_model, trigger):
+def jurors_needed(film, cards, readouts, window, juror_model, juror_role, trigger):
     segs = film["segments"]
     plants, idx = _context(segs)
     probs = bit_probs(readouts)
@@ -170,11 +170,11 @@ def jurors_needed(film, cards, readouts, window, juror_model, trigger):
             before = before_text(segs, idx[b["segs"][0]["id"]], window, plants)
             pic, snd = _bit_media(b)
             prompt = juror_prompt(card["A"], before, b["text"], pic, snd)
-            needs.append({"key": _key(juror_model, JUROR_SCHEMA, prompt), "kind": "juror", "unit": b["id"], "aud": aud, "model": juror_model, "prompt": prompt, "schema": JUROR_SCHEMA})
+            needs.append({"key": _key(juror_model, JUROR_SCHEMA, prompt), "kind": "juror", "unit": b["id"], "aud": aud, "model": juror_model, "role": juror_role, "prompt": prompt, "schema": JUROR_SCHEMA})
     return needs
 
 
-def watch_needed(film, cards, juror_model):
+def watch_needed(film, cards, juror_model, juror_role):
     segs = film["segments"]
     transcript = cut_transcript(segs)
     needs = []
@@ -182,5 +182,5 @@ def watch_needed(film, cards, juror_model):
         prompt = watch_prompt(card["A"], transcript, segs[-1]["t1"])
         for draw in range(WATCH_DRAWS):
             needs.append({"key": _key(juror_model, [WATCH_SCHEMA, draw], prompt), "kind": "watch", "unit": "whole cut", "aud": aud, "draw": draw,
-                          "model": juror_model, "prompt": prompt, "schema": WATCH_SCHEMA})
+                          "model": juror_model, "role": juror_role, "prompt": prompt, "schema": WATCH_SCHEMA})
     return needs
