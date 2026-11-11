@@ -1745,15 +1745,15 @@
 			"source": "./packs/swiss-knife",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.4/swiss-knife-0.7.4.tgz",
-				"sha256": "43a1df87b5dbad3d688853c3abb743e51c491a94e5153510764a82d1d375025e",
-				"size": 2269447
+				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.5/swiss-knife-0.7.5.tgz",
+				"sha256": "555b5c592b5df7b4168cfa8427572d8f09ab6baf19b5ee00b8601765f6d1ce5f",
+				"size": 2273914
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
 			"icon": "packs/swiss-knife/assets/icon.webp",
 			"description": "A few small helpers in one switch: your agent can show you files as cards you can open and mark up, a library finds every file you have made, and it stops the agent adding code comments.",
-			"version": "0.7.4",
+			"version": "0.7.5",
 			"author": {
 				"name": "Dimension"
 			},

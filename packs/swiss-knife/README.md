@@ -71,9 +71,9 @@ a `present` card or an Open button, and the Viewer is not a tool the model calls
   The Viewer lends a copy only as the exact file a click lent, never because a folder in `VIEWER_ROOTS`
   covers the engine home. `omp gc` removes a copy once no session refers to it.
 - **The Viewer reads only what it is lent**: the vault, folders in `VIEWER_ROOTS`, and the one file a
-  person clicks Open on. Recordings play through fenced loopback HTTP ranges without a file-size cap or whole-file download before playback. An HTML page is never run; picking an
-  element runs a second frame under a CSP that admits one script. Pick is in hand from the first frame
-  for a page of 2 MiB or less; a larger page starts with Pick down, so its second copy is made only when asked for.
+  person clicks Open on. Recordings play through fenced loopback HTTP ranges without a file-size cap or whole-file download before playback. An HTML page runs its own scripts in a sealed
+  frame (no network, storage, nested frames or WebRTC), with Stop scripts to show it without them; Pick starts down and
+  picks from a still of the page in a second frame under a CSP that admits one script.
 - **A waveform exists for a WAV or a strict MP3, and nothing else.** Drawing one decodes the whole recording, and
   a container's header can lie about its length (a 110 KB FLAC with a patched header decoded to 200 MB), so the
   decoder is only handed a file whose size the bytes themselves prove: a WAV judged on its own header, or an MP3

@@ -1,7 +1,5 @@
-// The READING frame a page is drawn in (docs/design/88 section 2): `sandbox=""`, unchanged for every reader.
-// Picking adds a second frame; it never loosens this one. This file is the guard that no token is ever added to
-// it, and that the page's markup stays in the frame and never enters the View's own tree.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createPageFrame, setPageScripts } from "@dimension/mcp-app-kit/annotate";
 import html from "../app/view/renderers/html";
 import { installDom, stage, type TestDom } from "./dom";
 
@@ -28,32 +26,16 @@ async function mount(source = hostile) {
 	return { el, handle, frame };
 }
 
-describe("the sandbox", () => {
-	test("is the empty token list: the reading frame runs nothing, shares no origin, and can do nothing, for every reader", async () => {
+describe("the reading frame", () => {
+	test("runs the page's scripts and grants nothing else: the one sandbox token is allow-scripts", async () => {
 		const { frame } = await mount();
-		expect(frame.hasAttribute("sandbox")).toBe(true);
-		expect(frame.getAttribute("sandbox")).toBe("");
+		expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
 	});
 
-	test("never grows a token for the picker's sake: Pick mode adds a frame beside this one, it does not loosen it", async () => {
+	test("holds the page behind the run document, by `srcdoc` so it inherits the View's CSP, and not by `src`", async () => {
 		const { frame } = await mount();
-		const attribute = frame.getAttribute("sandbox") ?? "";
-		for (const token of ["allow-scripts", "allow-same-origin", "allow-forms", "allow-popups", "allow-top-navigation", "allow-modals", "allow-downloads"]) {
-			expect(attribute, token).not.toContain(token);
-		}
-	});
-});
-
-describe("the frame", () => {
-	test("is named for the picker to find: `viewer-html-frame`, an iframe", async () => {
-		const { frame } = await mount();
-		expect(frame.tagName.toLowerCase()).toBe("iframe");
-		expect(frame.dataset.slot).toBe("viewer-html-frame");
-	});
-
-	test("carries the page by `srcdoc`, byte for byte, so it inherits the View's CSP", async () => {
-		const { frame } = await mount();
-		expect(frame.srcdoc).toBe(hostile);
+		expect(frame.srcdoc).toBe(createPageFrame(hostile).srcdoc);
+		expect(frame.srcdoc).not.toBe(hostile);
 		expect(frame.hasAttribute("src")).toBe(false);
 	});
 
@@ -63,6 +45,12 @@ describe("the frame", () => {
 		expect(el.querySelectorAll("script, img, form, input, a, meta")).toHaveLength(0);
 	});
 
+	test("is named for the picker to find: `viewer-html-frame`, an iframe", async () => {
+		const { frame } = await mount();
+		expect(frame.tagName.toLowerCase()).toBe("iframe");
+		expect(frame.dataset.slot).toBe("viewer-html-frame");
+	});
+
 	test("sends no referrer and is titled by its file", async () => {
 		const { frame } = await mount();
 		expect(frame.referrerPolicy).toBe("no-referrer");
@@ -70,9 +58,52 @@ describe("the frame", () => {
 	});
 
 	test("decodes the file as UTF-8", async () => {
-		const { frame } = await mount("<p>naïve — 日本語</p>");
-		expect(frame.srcdoc).toBe("<p>naïve — 日本語</p>");
+		const text = "<p>naïve — 日本語</p>";
+		const { frame } = await mount(text);
+		setPageScripts(frame, false);
+		expect(frame.srcdoc).toBe(text);
 	});
+});
+
+describe("Stop scripts and Run scripts", () => {
+	test("Stop drops the same frame to no sandbox token at all and hands the browser the page's original bytes", async () => {
+		const { frame, el } = await mount();
+		setPageScripts(frame, false);
+		expect(frame.getAttribute("sandbox")).toBe("");
+		expect(frame.srcdoc).toBe(hostile);
+		expect(el.children).toHaveLength(1);
+		expect(el.querySelector("iframe")).toBe(frame);
+	});
+
+	test("Run puts the sandbox and the run document back, and any number of cycles neither wrap the page twice nor lose a byte", async () => {
+		const { frame } = await mount();
+		const running = createPageFrame(hostile).srcdoc;
+		for (let cycle = 0; cycle < 3; cycle += 1) {
+			setPageScripts(frame, false);
+			expect([frame.getAttribute("sandbox"), frame.srcdoc], `stopped, cycle ${cycle}`).toEqual(["", hostile]);
+			setPageScripts(frame, true);
+			expect([frame.getAttribute("sandbox"), frame.srcdoc], `running, cycle ${cycle}`).toEqual(["allow-scripts", running]);
+		}
+	});
+
+	const leads = [
+		{ name: "a no-break space before the doctype", page: "\u00a0<!doctype html><p>x</p>" },
+		{ name: "an abrupt comment ahead of a script", page: "<!--><script>parent.x()</script><!-- --><!doctype html><p>x</p>" },
+		{ name: "a banner, an xml instruction and a doctype", page: '  \n<!-- banner --><?xml version="1.0"?><!doctype html><p>x</p>' },
+		{ name: "no doctype at all", page: "<p>no doctype</p>" },
+		{ name: "an empty file", page: "" },
+	];
+	for (const { name, page } of leads) {
+		test(`a page with ${name}: Stop gives its bytes back exactly, and Run holds the same run document the page was first given`, async () => {
+			const { frame } = await mount(page);
+			const running = createPageFrame(page).srcdoc;
+			expect(frame.srcdoc).toBe(running);
+			setPageScripts(frame, false);
+			expect(frame.srcdoc).toBe(page);
+			setPageScripts(frame, true);
+			expect(frame.srcdoc).toBe(running);
+		});
+	}
 });
 
 describe("zoom and destroy", () => {
