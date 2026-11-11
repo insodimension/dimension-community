@@ -8,7 +8,7 @@ the frames, never the builder's intent), its measured `sound`, and for a meme th
     seen.frames(film, video, out)      frames per unit from the render where the eye rests (`shot_times`: first look,
                                        each picture's settled state) + index.json, for whoever writes the descriptions
                                        (a fresh reader who sees only the frames)
-    seen.write(film, descriptions, audiences, out=film.revision / "framework" / "seen")
+    seen.write(film, descriptions, audiences, juror_model, juror_role, out=film.revision / "framework" / "seen")
 
 `descriptions` is {row id: {"picture": str, "display"?: str}}; a row with none is an error, never a default.
 """
@@ -88,7 +88,7 @@ def segments(film: Film, descriptions: dict[str, dict]) -> tuple[list[dict], flo
     return out, dur
 
 
-def write(film: Film, descriptions: dict[str, dict], audiences: dict[str, str], out: Path | None = None) -> Path:
+def write(film: Film, descriptions: dict[str, dict], audiences: dict[str, str], juror_model: str, juror_role: str, out: Path | None = None) -> Path:
     from dd.units import validate
     segs, dur = segments(film, descriptions)
     errs = validate(segs, dur)
@@ -100,7 +100,7 @@ def write(film: Film, descriptions: dict[str, dict], audiences: dict[str, str], 
     intent = json.loads((rev / "intent.json").read_text(encoding="utf-8"))
     spine = yaml.safe_load(film.spine_file.read_text(encoding="utf-8"))
     out = out or rev / "framework" / "seen"
-    return write_engine_dir(out, segs, intent, spine, audiences, f"{rev.parent.name} {rev.name} seen", "seen", rev / "framework" / "script")
+    return write_engine_dir(out, segs, intent, spine, audiences, f"{rev.parent.name} {rev.name} seen", "seen", rev / "framework" / "script", juror_model, juror_role)
 
 
 PICTURE_KINDS = ("mg", "doc", "post", "clip", "meme", "broll")

@@ -1,4 +1,3 @@
-import asyncio
 import difflib
 import hashlib
 import json
@@ -316,77 +315,6 @@ def g11_receipt(production, rules):
     return {k: v for k, v in r.get("checked", {}).items() if k in rules}, None
 
 
-class Host:
-    def __init__(self, out):
-        self.out = out
-        self.next = 0
-        self.got = {}
-        self.lock = asyncio.Lock()
-
-    def send(self, msg):
-        self.next += 1
-        self.out.write(json.dumps({"id": self.next, **msg}) + "\n")
-        self.out.flush()
-        return self.next
-
-    async def recv(self, i):
-        while i not in self.got:
-            async with self.lock:
-                if i in self.got:
-                    break
-                line = await asyncio.to_thread(sys.stdin.readline)
-                if not line:
-                    raise RuntimeError("the gate host closed the judge bridge")
-                m = json.loads(line)
-                self.got[m["id"]] = m
-        return self.got.pop(i)
-
-    def judge_batch(self, items, questions, intent=""):
-        return Batch(self, items, questions, intent)
-
-    def completion(self, prompt, model="default", schema=None):
-        return Completion(self, prompt, model, schema)
-
-
-class Item:
-    def __init__(self, r):
-        self.answers = r.get("answers")
-        self.error = r.get("error")
-        self.model = r.get("model")
-
-
-class Batch:
-    def __init__(self, host, items, questions, intent):
-        self.host = host
-        self.total = len(items)
-        self.done = 0
-        self.id = host.send({"op": "judge", "items": items, "questions": questions, "intent": intent})
-
-    async def drain(self, timeout=None):
-        if self.done >= self.total:
-            return []
-        r = await self.host.recv(self.id)
-        if r.get("error"):
-            raise RuntimeError(f"judge: {r['error']}")
-        self.done = self.total
-        return [(k, Item(v)) for k, v in r["results"].items()]
-
-    def status(self):
-        return {"done": self.done, "total": self.total}
-
-
-class Completion:
-    def __init__(self, host, prompt, model, schema):
-        self.host = host
-        self.id = host.send({"op": "complete", "prompt": prompt, "model": model, "schema": schema})
-
-    async def wait(self):
-        r = await self.host.recv(self.id)
-        if r.get("error"):
-            raise RuntimeError(f"juror completion: {r['error']}")
-        return r["data"] if "data" in r else r["text"]
-
-
 def entry(gate, kind):
     return {"id": f"{gate['gate']} [{gate['for']}]", "message": f"{kind}{gate.get('status', '')}: {gate['detail']}"}
 
@@ -395,10 +323,6 @@ def verdict(stage, res, extra_blockers, notes):
     blockers = [entry(f, "") for f in res["hard_fails"]]
     blockers += [{"id": f"G11 {rule}", "message": "; ".join(map(str, vs))} for rule, vs in res["g11_fails"].items()]
     blockers += [entry(f | {"status": ""}, "not measured (unknown is not pass)") for f in res.get("unmeasured", [])]
-    if res["missing_reads"]:
-        blockers.append({"id": "G0 fresh ledger", "message": f"{len(res['missing_reads'])} readouts missing, e.g. {res['missing_reads'][:3]}"})
-    if res["missing_jurors"]:
-        blockers.append({"id": "G0 jurors", "message": f"{len(res['missing_jurors'])} juror reads missing, e.g. {res['missing_jurors'][:3]}"})
     advisories = [entry(f, "advisory ") for f in res["advisory_fails"]]
     if res["g11_unchecked"]:
         item = {"id": "G11 unchecked", "message": f"not checked (unknown is not pass): {', '.join(res['g11_unchecked'])}"}
@@ -424,11 +348,24 @@ def cannot_run(path, missing, extra=None):
     return 2
 
 
-async def run(stage, production, report_path, out):
+class Unrunnable(Exception):
+    def __init__(self, missing, context=None):
+        super().__init__("; ".join(missing))
+        self.missing = missing
+        self.context = context or {}
+
+
+def recorded_reviewer(engine_dir):
+    path = engine_dir / "root.json"
+    root = load_json(path) if path.is_file() else {}
+    return root.get("juror_model"), root.get("juror_role")
+
+
+def prepare(stage, production, juror_model=None, juror_role=None):
     import yaml
     missing = prerequisites(stage, production)
     if missing:
-        return cannot_run(report_path, missing)
+        raise Unrunnable(missing)
     lk, _ = resolve_link(production)
     rev = lk["revision"]
     engine_dir = rev / "framework" / stage
@@ -442,16 +379,31 @@ async def run(stage, production, report_path, out):
     errs = validate(segs, duration)
     context = {"stage": stage, "production": str(production), "revision": str(rev), "engineDir": str(engine_dir), stage: info}
     if errs:
-        return cannot_run(report_path, [f"a valid {stage} timeline ({e})" for e in errs], context)
+        raise Unrunnable([f"a valid {stage} timeline ({e})" for e in errs], context)
+    if juror_model is None or juror_role is None:
+        juror_model, juror_role = recorded_reviewer(engine_dir)
+    if not juror_model or not juror_role:
+        raise Unrunnable([f"a review of the {stage} reads: nothing in {engine_dir} records which model read the jurors (the session runs dd.house.review, dopamine-debt-film Review)"], context)
     spine = yaml.safe_load((rev / "spine.yaml").read_text(encoding="utf8"))
     intent = load_json(rev / "intent.json")
     previous = None if stage == "script" else rev / "framework" / "script"
-    write_engine_dir(engine_dir, segs, intent, spine, lk["audiences"], f"{rev.parent.name} {rev.name} {stage}", stage, previous)
-    host = Host(out)
+    write_engine_dir(engine_dir, segs, intent, spine, lk["audiences"], f"{rev.parent.name} {rev.name} {stage}", stage, previous, juror_model, juror_role)
+    return engine_dir, segs, context, extra_blockers, notes
+
+
+async def review(stage, production, judge_batch, completion, juror_model, juror_role):
     try:
-        await read(engine_dir, host.judge_batch, host.completion)
-    except RuntimeError as e:
-        return cannot_run(report_path, [f"judge answers for every read ({e})"], context)
+        engine_dir, *_ = prepare(stage, Path(production).resolve(), juror_model, juror_role)
+    except Unrunnable as e:
+        raise RuntimeError(f"cannot review the {stage}: missing {e}") from e
+    return await read(engine_dir, judge_batch, completion)
+
+
+def run(stage, production, report_path):
+    try:
+        engine_dir, segs, context, extra_blockers, notes = prepare(stage, production)
+    except Unrunnable as e:
+        return cannot_run(report_path, e.missing, e.context)
     g11 = {}
     if stage == "cut":
         rules = set(g11_rules())
@@ -459,9 +411,12 @@ async def run(stage, production, report_path, out):
         if stale:
             notes.append({"id": "G11 receipt", "message": stale})
     res = check(engine_dir, load_film(engine_dir, tunables()), g11)
+    unanswered = len(res["missing_reads"]) + len(res["missing_jurors"])
+    if unanswered:
+        return cannot_run(report_path, [f"{len(res['missing_reads'])} judge readouts and {len(res['missing_jurors'])} juror reads in {engine_dir} are unanswered: the session answers them with dd.house.review (dopamine-debt-film Review), then this gate runs again"], context)
     if res["ledgers"] is not None:
         write(engine_dir, res)
-    report = verdict(stage, res, extra_blockers, notes) | context | {"status": res["status"], "units": len(segs)}
+    report = verdict(stage, res, extra_blockers, notes) | context | {"status": res["status"], "units": len(segs), "answered_by": res["answered_by"]}
     write_report(report_path, report)
     return 0 if report["pass"] else 1
 
@@ -471,9 +426,7 @@ def main(argv):
     if op == "check":
         print(json.dumps({"missing": prerequisites(stage, production)}))
         return 0
-    out = sys.stdout
-    sys.stdout = sys.stderr
-    return asyncio.run(run(stage, production, Path(argv[3]).resolve(), out))
+    return run(stage, production, Path(argv[3]).resolve())
 
 
 if __name__ == "__main__":

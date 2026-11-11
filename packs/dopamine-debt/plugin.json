@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "dopamine-debt",
-	"version": "0.5.0",
+	"version": "0.6.0",
 	"description": "Makes deadpan, meme-led comedy explainer films about your channel's subject, and checks every stage against house rules before you spend on voice and music.",
 	"author": {
 		"name": "Dimension"

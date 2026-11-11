@@ -647,15 +647,15 @@
 			"source": "./packs/dopamine-debt",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.5.0/dopamine-debt-0.5.0.tgz",
-				"sha256": "1fe35522c1c3ba4259fd4a4fb8f16352e2304334cdc5bb15becad33062c7c85e",
-				"size": 213180
+				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.6.0/dopamine-debt-0.6.0.tgz",
+				"sha256": "4d1744eaeb151f134f4a07a1b12de396b249e49e2407587b054b51ae2532822c",
+				"size": 214583
 			},
 			"pluginId": "dopamine-debt",
 			"title": "Dopamine Debt",
 			"icon": "packs/dopamine-debt/assets/icon.svg",
 			"description": "Makes deadpan, meme-led comedy explainer films about your channel's subject, and checks every stage against house rules before you spend on voice and music.",
-			"version": "0.5.0",
+			"version": "0.6.0",
 			"author": {
 				"name": "Dimension"
 			},

@@ -16,12 +16,17 @@
 ```
 
 ## Engine directory (`framework/<stage>/`)
-- `root.json`: `{"audiences": {"<channel>": "<path to the channel persona>", "<topic>": "<path to the topic persona>"}, "juror_model": "default", "stage": "<film> <stage>", "kind": "script|storyboard|cut|seen", "previous": "<path to the previous stage dir, relative to this one>" | null, "gated": [...]}`. Give the persona paths absolute (`dd.home.audience_file(<path>, <production>)` resolves a relative one from `BRAND`, else `DD`). `scriptstage.write_engine_dir(out, segs, intent, spine, audiences, label, kind, previous)` writes it. `kind: "seen"` turns on G12 and the whole-cut juror read; `previous` feeds G13; an ablation or what-if copy is `kind: "cut"`, `previous: null`, so it is never gated as a stage.
+- `root.json`: `{"audiences": {"<channel>": "<path to the channel persona>", "<topic>": "<path to the topic persona>"}, "juror_model": "<provider/model the juror role resolved to>", "juror_role": "smol|default|slow", "stage": "<film> <stage>", "kind": "script|storyboard|cut|seen", "previous": "<path to the previous stage dir, relative to this one>" | null, "gated": [...]}`. Give the persona paths absolute (`dd.home.audience_file(<path>, <production>)` resolves a relative one from `BRAND`, else `DD`). `scriptstage.write_engine_dir(out, segs, intent, spine, audiences, label, kind, previous, juror_model, juror_role)` writes it; both juror fields are required, and a root without them is refused before any model is called. `juror_model` is part of every juror cache key, `juror_role` is the tier `completion()` is called with. `kind: "seen"` turns on G12 and the whole-cut juror read; `previous` feeds G13; an ablation or what-if copy is `kind: "cut"`, `previous: null`, so it is never gated as a stage.
 - `segments.json`, `intent.json`, `spine.json`: written by the revision's `script/build.py`.
 - After a read: `cache.jsonl`, `jury-cache.jsonl` (bit jurors, plus `kind: watch` whole-cut reads at kind `seen`), `readouts.jsonl`, `jury.jsonl`. `dd.gate.check` writes nothing; end every stage with `dd.gate.write(film_dir, res)`, which writes `gates.json` (status, blockers, gates, score and `memes`: one row per meme or clip with gag, library, mode, display, replaces, t, bit, laugh + ½ smile) and `ledger.<aud>.json`. The next stage's G13 reads exactly those two files. `page.html` and `report.md` come from the revision's own driver, and `repairs.md` is written by hand.
 
 ## Commands
-The house gate (no kernel): `inso dd gate <script|cut> <production> <report.json>`; exit 0/1/2 as SKILL.md says. Inside a driver of your own, in Python with `DD` on `sys.path`:
+The house gate (no kernel, no model): `inso dd gate <script|cut> <production> <report.json>`; exit 0/1/2 as SKILL.md says, and the report's `answered_by` lists the models that answered the reads. The reads are answered from the session with the Review, which builds the engine directory for a production and fills the caches:
+```python
+import dd.house
+await dd.house.review("script", production, judge_batch, completion, juror_model="provider/model", juror_role="default")
+```
+Inside a driver of your own, in Python with `DD` on `sys.path`:
 ```python
 import dd.read, dd.gate
 res = await dd.read.read(film_dir, judge_batch, completion)

@@ -1,9 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
-import type { JudgmentState } from "@oh-my-pi/pi-ai";
 import { writeFileAtomic } from "@oh-my-pi/pi-utils";
-import { type CellQuestion, type HostJudge, openHostJudge } from "./judge";
 
 const STAGES = ["script", "cut"] as const;
 type Stage = (typeof STAGES)[number];
@@ -22,16 +20,6 @@ interface Report {
 	[extra: string]: unknown;
 }
 
-interface BridgeRequest {
-	id: number;
-	op: "judge" | "complete";
-	items?: Record<string, JudgmentState>;
-	questions?: Record<string, CellQuestion>;
-	prompt?: string;
-	model?: string;
-	schema?: Record<string, unknown> | null;
-}
-
 function isStage(value: string | undefined): value is Stage {
 	return value !== undefined && (STAGES as readonly string[]).includes(value);
 }
@@ -41,8 +29,8 @@ async function writeReport(file: string, report: Report): Promise<void> {
 	await writeFileAtomic(file, `${JSON.stringify(report, null, 1)}\n`);
 }
 
-async function cannotRun(file: string | undefined, missing: string[], extra: Record<string, unknown> = {}): Promise<number> {
-	if (file) await writeReport(file, { pass: false, blockers: [], advisories: [], missing, ...extra });
+async function cannotRun(file: string | undefined, missing: string[]): Promise<number> {
+	if (file) await writeReport(file, { pass: false, blockers: [], advisories: [], missing });
 	process.stderr.write(`dd gate cannot run: missing ${missing.join("; ")}\n`);
 	return EXIT_CANNOT_RUN;
 }
@@ -107,68 +95,17 @@ async function pythonCheck(python: Python, stage: Stage, production: string): Pr
 	return [`a dd prerequisite check that answers {missing: [...]} (got ${out.trim().slice(0, 200)})`];
 }
 
-async function answer(judge: HostJudge, request: BridgeRequest): Promise<Record<string, unknown>> {
-	try {
-		if (request.op === "judge") {
-			return { id: request.id, results: await judge.judgeItems(request.items ?? {}, request.questions ?? {}) };
-		}
-		const result = await judge.complete(request.prompt ?? "", request.model ?? "default", request.schema ?? undefined);
-		return { id: request.id, ...result };
-	} catch (error) {
-		return { id: request.id, error: error instanceof Error ? error.message : String(error) };
-	}
-}
-
-async function pythonRun(
-	python: Python,
-	stage: Stage,
-	production: string,
-	report: string,
-	judge: HostJudge,
-): Promise<{ code: number; stderr: string }> {
+async function pythonRun(python: Python, stage: Stage, production: string, report: string): Promise<{ code: number; stderr: string }> {
 	const proc = Bun.spawn([python.exe, "-m", "dd.house", "run", stage, production, report], {
 		cwd: python.root,
 		env: python.env,
-		stdin: "pipe",
-		stdout: "pipe",
+		stdin: "ignore",
+		stdout: "ignore",
 		stderr: "pipe",
 		windowsHide: true,
 	});
-	const stderrText = new Response(proc.stderr).text();
-	const pending: Promise<void>[] = [];
-	const decoder = new TextDecoder();
-	let buffer = "";
-	for await (const chunk of proc.stdout) {
-		buffer += decoder.decode(chunk, { stream: true });
-		let newline = buffer.indexOf("\n");
-		while (newline >= 0) {
-			const line = buffer.slice(0, newline).trim();
-			buffer = buffer.slice(newline + 1);
-			newline = buffer.indexOf("\n");
-			if (!line) continue;
-			const request = JSON.parse(line) as BridgeRequest;
-			pending.push(
-				answer(judge, request).then(reply => {
-					proc.stdin.write(`${JSON.stringify(reply)}\n`);
-					proc.stdin.flush();
-				}),
-			);
-		}
-	}
-	await Promise.all(pending);
-	proc.stdin.end();
-	return { code: await proc.exited, stderr: await stderrText };
-}
-
-function judgeRecord(judge: HostJudge): Record<string, unknown> {
-	return {
-		role: "judge",
-		agentDir: judge.agentDir,
-		ownHome: judge.ownHome,
-		primary: judge.primary ?? null,
-		answered: Object.fromEntries(judge.answered),
-		jurors: Object.fromEntries(judge.jurors),
-	};
+	const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+	return { code, stderr };
 }
 
 export async function runGate(argv: string[], pluginRoot: string): Promise<number> {
@@ -188,47 +125,29 @@ async function gate(argv: string[], report: string | undefined, pluginRoot: stri
 	}
 	const production = path.resolve(productionArg);
 	const engineHome = path.resolve(process.env.DD_ENGINE_HOME || process.env.INSO_HOME?.trim() || path.join(homedir(), ".inso"));
-	const missing: string[] = [];
 	const exe = findPython();
-	const python = exe ? pythonFor(exe, pluginRoot, engineHome) : undefined;
-	if (!python) missing.push("a working Python 3.10 or newer on PATH or in DD_PYTHON (the dd engine is Python)");
-	else missing.push(...(await pythonCheck(python, stage, production)));
-	let judge: HostJudge | undefined;
-	try {
-		judge = await openHostJudge(engineHome, existsSync(production) ? production : pluginRoot);
-		if (!judge.primary) missing.push(`a judge model: the \`judge\` model role in ${judge.agentDir} resolves to no credentialed model`);
-	} catch (error) {
-		missing.push(`the judge role chain (${error instanceof Error ? error.message : String(error)})`);
+	if (!exe) return cannotRun(report, ["a working Python 3.10 or newer on PATH or in DD_PYTHON (the dd engine is Python)"]);
+	const python = pythonFor(exe, pluginRoot, engineHome);
+	const missing = await pythonCheck(python, stage, production);
+	if (missing.length > 0) return cannotRun(report, missing);
+	rmSync(report, { force: true });
+	const run = await pythonRun(python, stage, production, report);
+	if (!existsSync(report)) {
+		const last = run.stderr.trim().split("\n").at(-1) ?? "";
+		return cannotRun(report, [`a dd run that finishes (python exited ${run.code}: ${last})`]);
 	}
-	try {
-		if (missing.length > 0 || !python || !judge) {
-			return await cannotRun(report, missing, judge ? { judge: judgeRecord(judge) } : {});
-		}
-		rmSync(report, { force: true });
-		const run = await pythonRun(python, stage, production, report, judge);
-		if (!existsSync(report)) {
-			const last = run.stderr.trim().split("\n").at(-1) ?? "";
-			return await cannotRun(report, [`a dd run that finishes (python exited ${run.code}: ${last})`], {
-				judge: judgeRecord(judge),
-			});
-		}
-		const written = (await Bun.file(report).json()) as Report;
-		written.judge = judgeRecord(judge);
-		await writeReport(report, written);
-		if (written.missing?.length) {
-			process.stderr.write(`dd gate cannot run: missing ${written.missing.join("; ")}\n`);
-			return EXIT_CANNOT_RUN;
-		}
-		if (run.code === EXIT_PASS && written.pass === true) {
-			process.stderr.write(`dd gate ${stage}: pass, score ${written.score ?? "n/a"}\n`);
-			return EXIT_PASS;
-		}
-		if ((run.code === EXIT_FAIL || run.code === EXIT_PASS) && written.pass === false) {
-			process.stderr.write(`dd gate ${stage}: fail, ${written.blockers.length} blocker(s), score ${written.score ?? "n/a"}\n`);
-			return EXIT_FAIL;
-		}
-		return await cannotRun(report, [`a dd run whose exit code agrees with its report (python exited ${run.code}, report pass ${String(written.pass)})`], { judge: judgeRecord(judge) });
-	} finally {
-		judge?.close();
+	const written = (await Bun.file(report).json()) as Report;
+	if (written.missing?.length) {
+		process.stderr.write(`dd gate cannot run: missing ${written.missing.join("; ")}\n`);
+		return EXIT_CANNOT_RUN;
 	}
+	if (run.code === EXIT_PASS && written.pass === true) {
+		process.stderr.write(`dd gate ${stage}: pass, score ${written.score ?? "n/a"}\n`);
+		return EXIT_PASS;
+	}
+	if ((run.code === EXIT_FAIL || run.code === EXIT_PASS) && written.pass === false) {
+		process.stderr.write(`dd gate ${stage}: fail, ${written.blockers.length} blocker(s), score ${written.score ?? "n/a"}\n`);
+		return EXIT_FAIL;
+	}
+	return cannotRun(report, [`a dd run whose exit code agrees with its report (python exited ${run.code}, report pass ${String(written.pass)})`]);
 }
