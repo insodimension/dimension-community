@@ -1912,10 +1912,6 @@
 					"icon": "chevronStack",
 					"accent": "#8e8e93",
 					"requires": [
-						"traction",
-						"traction-ui",
-						"traction-vibrs",
-						"traction-assets",
 						"rooms-rail",
 						"brand-marks",
 						"browser",
@@ -2053,9 +2049,7 @@
 					"icon": "worldgate",
 					"accent": "#b78cff",
 					"requires": [
-						"unreal-space",
 						"unreal-space-ui",
-						"unreal-engine",
 						"rooms-rail"
 					],
 					"showcase": {
@@ -2110,7 +2104,6 @@
 					"icon": "play",
 					"accent": "#e8734a",
 					"requires": [
-						"video-editor",
 						"storyboard",
 						"motion",
 						"media-gen",
