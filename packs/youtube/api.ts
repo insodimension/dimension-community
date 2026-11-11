@@ -336,7 +336,7 @@ export const MISSING_ANALYTICS_SCOPE =
 const QUOTA_REASON = /^(quotaExceeded|dailyLimitExceeded|rateLimitExceeded)$/;
 
 const QUOTA_HINT =
-	"Two causes: today's 10,000 units are spent (they return at midnight Pacific), or the project's \"Queries per day\" limit for the YouTube Data API v3 is 0 and never refills, so connecting again cannot fix it. The limit is shown at https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas; at 0, use a new Google Cloud project (its default is 10,000 a day) or ask YouTube for more quota with its API compliance audit form.";
+	"The refusal is one of: a daily quota that is spent (the shared 10,000 units, or the separate 100 a day for search and for uploads; they return at midnight Pacific), a per-minute limit (it clears within a minute), or a project whose \"Queries per day\" limit for the YouTube Data API v3 is 0 and never refills, so connecting again cannot fix it. The limits are listed at https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas; at 0, use a new Google Cloud project (its default is 10,000 a day) or ask YouTube for more quota with its API compliance audit form";
 
 function errorBody(payload: unknown): object | undefined {
 	if (typeof payload !== "object" || payload === null) return undefined;
@@ -356,10 +356,15 @@ export function isQuotaRefusal(payload: unknown): boolean {
 	);
 }
 
-export function googleError(payload: unknown, fallback: string): string {
+function googleMessage(payload: unknown, fallback: string): string {
 	const error = errorBody(payload);
 	const message: unknown = error && Reflect.get(error, "message");
-	if (typeof message !== "string" || message.length === 0) return fallback;
+	return typeof message === "string" && message.length > 0 ? message : fallback;
+}
+
+export function googleError(payload: unknown, fallback: string): string {
+	const message = googleMessage(payload, "");
+	if (message.length === 0) return fallback;
 	return isQuotaRefusal(payload) ? `${message} ${QUOTA_HINT}` : message;
 }
 
@@ -370,7 +375,7 @@ export async function googleJson<T>(url: string, accessToken: string, label: str
 	});
 	const payload: unknown = await res.json().catch(() => null);
 	if (!res.ok || payload === null) {
-		const message = googleError(payload, res.statusText);
+		const message = googleMessage(payload, res.statusText);
 		if (res.status === 403 && /insufficient|scope/i.test(message)) throw new Error(MISSING_ANALYTICS_SCOPE);
 		throw new Error(`${label} failed: ${message}`);
 	}

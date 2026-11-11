@@ -556,6 +556,48 @@ describe("youtube_upload_video", () => {
 			expect(calls.length).toBe(1);
 		});
 
+		const QUOTA_MESSAGE = "The request cannot be completed because you have exceeded your quota.";
+		const QUOTA_BODY = { error: { code: 403, message: QUOTA_MESSAGE, errors: [{ message: QUOTA_MESSAGE, domain: "youtube.quota", reason: "quotaExceeded" }] } };
+
+		test("a quota refusal of the session start carries the hint and still ends with a single 'Nothing was uploaded.'", async () => {
+			google({ start: () => Response.json(QUOTA_BODY, { status: 403 }) });
+
+			const failure = await failureOf({});
+
+			expect(failure.startsWith(`YouTube refused to start the upload: ${QUOTA_MESSAGE} `)).toBe(true);
+			expect(failure).toContain("is 0 and never refills");
+			expect(failure).toContain("the separate 100 a day for search and for uploads");
+			expect(failure).toContain("https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas");
+			expect(failure).toMatch(/API compliance audit form\. Nothing was uploaded\.$/);
+			expect(failure).not.toContain("..");
+			expectNothingUploaded(failure);
+			expect(calls.length).toBe(1);
+		});
+
+		test("a quota refusal of a chunk carries the hint and reads with a single period before 'The file did not finish'", async () => {
+			const fake = google({ session: () => ({ status: 403, kept: 0, body: QUOTA_BODY }) });
+
+			const failure = await failureOf({});
+
+			expect(failure.startsWith(`YouTube refused the upload part way: ${QUOTA_MESSAGE} `)).toBe(true);
+			expect(failure).toContain("is 0 and never refills");
+			expect(failure).toMatch(/API compliance audit form\. The file did not finish, so YouTube has no video from it\.$/);
+			expect(failure).not.toContain("..");
+			expect(fake.puts.length).toBe(1);
+		});
+
+		test("a per-minute 429 that never clears ends with the video-may-exist warning, the hint inside the parentheses and a single period", async () => {
+			const body = { error: { code: 429, message: "Rate Limit Exceeded", errors: [{ message: "Rate Limit Exceeded", domain: "usageLimits", reason: "rateLimitExceeded" }] } };
+			google({ session: () => ({ status: 429, kept: 0, body }) });
+
+			const failure = await failureOf({});
+
+			expect(failure).toContain("(Rate Limit Exceeded ");
+			expect(failure).toContain("a per-minute limit");
+			expect(failure).toMatch(/API compliance audit form\)\. If the last part reached it the video may exist/);
+			expect(failure).not.toContain("..");
+		});
+
 		test("a session start with no Location is an error that says nothing was uploaded", async () => {
 			google({ start: () => new Response(null, { status: 200 }) });
 

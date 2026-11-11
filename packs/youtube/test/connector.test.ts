@@ -152,6 +152,24 @@ test("the daily cap counts only today's comments", () => {
 });
 
 const QUOTA_PAGE = "https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas";
+const QUOTA_HINT_PHRASES = [
+	"the shared 10,000 units",
+	"the separate 100 a day for search and for uploads",
+	"midnight Pacific",
+	"a per-minute limit",
+	"it clears within a minute",
+	'"Queries per day"',
+	"is 0 and never refills",
+	"connecting again cannot fix it",
+	QUOTA_PAGE,
+	"use a new Google Cloud project",
+	"its default is 10,000 a day",
+	"API compliance audit form",
+];
+
+function expectQuotaHint(text: string): void {
+	for (const phrase of QUOTA_HINT_PHRASES) expect(text).toContain(phrase);
+}
 
 function refusal(message: string, ...reasons: string[]): object {
 	return { error: { code: 403, message, errors: reasons.map(reason => ({ message, domain: "youtube.quota", reason })) } };
@@ -161,21 +179,27 @@ test.each([
 	["quotaExceeded", "Forbidden"],
 	["dailyLimitExceeded", "Daily Limit Exceeded"],
 	["rateLimitExceeded", "Rate Limit Exceeded"],
-])("a %s refusal keeps Google's message and adds both causes, the quota page and the ways out", (reason, message) => {
+])("a %s refusal keeps Google's message and adds every cause, the quota page and the ways out", (reason, message) => {
 	const payload = refusal(message, reason);
 
 	const text = googleError(payload, "fallback");
 
 	expect(isQuotaRefusal(payload)).toBe(true);
 	expect(text.startsWith(`${message} `)).toBe(true);
-	expect(text).toContain("10,000 units");
-	expect(text).toContain("midnight Pacific");
-	expect(text).toContain('"Queries per day"');
-	expect(text).toContain("is 0 and never refills");
-	expect(text).toContain("connecting again cannot fix it");
-	expect(text).toContain(QUOTA_PAGE);
-	expect(text).toContain("new Google Cloud project");
-	expect(text).toContain("API compliance audit form");
+	expectQuotaHint(text);
+});
+
+test.each([
+	["quotaExceeded", "The request cannot be completed because you have exceeded your quota."],
+	["dailyLimitExceeded", "Daily Limit Exceeded"],
+	["rateLimitExceeded", "Rate Limit Exceeded"],
+])("the hint after a %s refusal does not end with a period, so a sentence built around it keeps one period", (reason, message) => {
+	const text = googleError(refusal(message, reason), "fallback");
+
+	const hint = text.slice(message.length + 1);
+	expect(hint.length).toBeGreaterThan(0);
+	expect(hint.endsWith(".")).toBe(false);
+	expect(`${text}.`).not.toContain("..");
 });
 
 test.each([
@@ -189,7 +213,7 @@ test.each([
 
 	expect(isQuotaRefusal(payload)).toBe(true);
 	expect(text.startsWith(`${message} `)).toBe(true);
-	expect(text).toContain(QUOTA_PAGE);
+	expectQuotaHint(text);
 });
 
 test.each([
@@ -261,7 +285,7 @@ const READ_TOOLS: [tool: string, params: Record<string, unknown>, op: string][] 
 	["youtube_get_captions", { videoId: "dQw4w9WgXcQ" }, "captions.list"],
 ];
 
-test.each(READ_TOOLS)("%s: a quota refusal is YouTube's message followed by both causes and the quota page", async (name, params, op) => {
+test.each(READ_TOOLS)("%s: a quota refusal is YouTube's message followed by every cause and the quota page", async (name, params, op) => {
 	const message = "The request cannot be completed because you have exceeded your quota.";
 	refuse(403, refusal(message, "quotaExceeded"), "Forbidden");
 
@@ -269,8 +293,8 @@ test.each(READ_TOOLS)("%s: a quota refusal is YouTube's message followed by both
 
 	expect(requested).toHaveLength(1);
 	expect(failure.startsWith(`YouTube ${op} failed: ${message} `)).toBe(true);
-	expect(failure).toContain("is 0 and never refills");
-	expect(failure).toContain(QUOTA_PAGE);
+	expectQuotaHint(failure);
+	expect(failure.endsWith(".")).toBe(false);
 });
 
 test.each(READ_TOOLS)("%s: a refusal that is not about quota keeps Google's message exactly, with no hint", async (name, params, op) => {

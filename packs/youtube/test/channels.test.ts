@@ -320,6 +320,9 @@ describe("adopting the token the engine's Connect writes", () => {
 		expect(failure.message).toContain("exceeded your quota");
 		expect(failure.message).toContain(QUOTA_PAGE);
 		expect(failure.message).toContain("is 0 and never refills");
+		expect(failure.message).toContain("the separate 100 a day for search and for uploads");
+		expect(failure.message).toContain("a per-minute limit");
+		expect(failure.message.endsWith(".")).toBe(false);
 		expect(failure.message).not.toMatch(/no YouTube channel/);
 		expect(failure.message).not.toMatch(/Connect again/);
 		expect(await channelFiles()).toEqual([]);
@@ -336,6 +339,9 @@ describe("adopting the token the engine's Connect writes", () => {
 
 		expect(failure.message).toContain(message);
 		expect(failure.message).toContain(QUOTA_PAGE);
+		expect(failure.message).toContain("is 0 and never refills");
+		expect(failure.message).toContain("a per-minute limit");
+		expect(failure.message).toContain("connecting again cannot fix it");
 		expect(failure.message).not.toMatch(/no YouTube channel/);
 		expect(failure.message).not.toMatch(/Connect again/);
 	});
