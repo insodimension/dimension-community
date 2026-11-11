@@ -16,13 +16,6 @@ const CHUNK_BYTES = Math.min(2 * 1024 * 1024, MAX_CHUNK_BYTES);
 export const TEXT_LIMIT = 1024 * 1024;
 /** The View holds a document twice while parsing; refuse what would not fit comfortably. */
 export const DOCUMENT_LIMIT = 128 * 1024 * 1024;
-/**
- * An HTML page past this many bytes opens with Pick put down (docs/design/88 section 2). Picking builds a second copy
- * of the page for a second frame to parse and lay out (its string, its tree, its layout: about the cost of the
- * reading frame again), and `DOCUMENT_LIMIT` lets a page be far larger than anyone points at. Below this the cost is
- * small and Pick is in the hand from the first frame; above it the human picks Pick up when they want it.
- */
-export const PICK_FRAME_LIMIT = 2 * 1024 * 1024;
 
 const cache = new ByteCache(256 * 1024 * 1024, 6);
 

@@ -37,11 +37,11 @@ interface KindAnnotation {
  * A kind is listed only when its renderer puts what the human sees where a layer can reach it: a picture in a box
  * sized to its drawn pixels, or text in a `viewer-text-root` element (Word's is an open shadow root: the kit reads
  * it). A page is the exception that proves it, and it works through TWO frames (docs/design/88 section 2). The
- * reading frame is `sandbox=""`: it runs nothing and the View cannot read it. `elements` is offered because every
- * readable page also gets, by default, a second frame over it (Pick is armed from the first frame; only a page past
- * `PICK_FRAME_LIMIT` waits for the Pick tool), `sandbox="allow-scripts"` and nothing else, whose document opens with
- * a policy that admits only the hash of the picker script: that script reports layout and the View draws every
- * outline itself. A recording offers `timeline`. Every kind is named, so a new one cannot be added without deciding.
+ * reading frame runs the page's own scripts sealed (`sandbox="allow-scripts"`, the kit's `createPageFrame`), or none
+ * once the human stops them. `elements` is offered because Pick, when the human picks it up, lays a second frame over
+ * it holding a still of the page, `sandbox="allow-scripts"` and nothing else, whose document opens with a policy that
+ * admits only the hash of the picker script: that script reports layout and the View draws every outline itself. A
+ * recording offers `timeline`. Every kind is named, so a new one cannot be added without deciding.
  */
 const ANNOTATIONS: Readonly<Record<ViewerKind, KindAnnotation>> = {
 	image: { modes: ["marks"] },

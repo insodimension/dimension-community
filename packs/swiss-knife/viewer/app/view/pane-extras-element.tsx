@@ -1,4 +1,3 @@
-// The page picker and its notes live in the viewer document; the untrusted page only reports layout.
 import {
 	AnnotationNotice,
 	ElementPicker,
@@ -7,10 +6,9 @@ import {
 	useElementPicks,
 	useElementShortcuts,
 } from "@dimension/mcp-app-kit/annotate/react";
-import { MAX_NOTE_CHARS, type PickKeyIntent } from "@dimension/mcp-app-kit/annotate";
+import { MAX_NOTE_CHARS, type PickKeyIntent, pageScriptsRun, setPageScripts } from "@dimension/mcp-app-kit/annotate";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { PICK_FRAME_LIMIT } from "./document-bytes";
 import { Footer, type PaneExtrasProps, revisionOf, Strip, useSlot } from "./pane-shared";
 
 const HTML_FRAME = '[data-slot="viewer-html-frame"]';
@@ -20,16 +18,25 @@ export function ElementPicks({ app, tab, active, ready, frame, mode, store }: Pa
 	const slot = useSlot(frame, ready, HTML_FRAME);
 	const reading = slot instanceof HTMLIFrameElement ? slot : null;
 	const up = mode === "elements";
-	// A second copy of a large page is expensive; only arm it on explicit request.
-	const large = tab.size > PICK_FRAME_LIMIT;
-	const [armed, setArmed] = useState(!large);
+	const [armed, setArmed] = useState(false);
 	useEffect(() => {
-		if (up) setArmed(!large);
-	}, [up, large]);
+		if (up) setArmed(false);
+	}, [up]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: annotateRequests is the trigger.
 	useEffect(() => {
 		if (tab.annotateRequests > 0 && up) setArmed(true);
 	}, [tab.annotateRequests]);
+	const [running, setRunning] = useState(true);
+	useEffect(() => setRunning(reading === null || pageScriptsRun(reading)), [reading]);
+	const runScripts = useCallback(
+		(run: boolean) => {
+			if (reading === null) return;
+			setArmed(false);
+			setPageScripts(reading, run);
+			setRunning(run);
+		},
+		[reading],
+	);
 	const live = active && up && armed;
 	const [unreadable, setUnreadable] = useState(false);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: live and reading are the triggers.
@@ -146,11 +153,11 @@ export function ElementPicks({ app, tab, active, ready, frame, mode, store }: Pa
 					<ElementToolbar
 						onWholePage={session.pickWholePage}
 						armed={armed}
-						large={large}
 						onArm={setArmed}
 						unavailable={unreadable}
 						full={session.full}
 						placement="strip"
+						scripts={reading === null ? undefined : { running, onRun: runScripts }}
 					/>
 				</Strip>
 			) : null}

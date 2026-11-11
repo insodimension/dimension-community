@@ -1,1 +1,0 @@
-import{mountMedia as e}from"./media-core-CXJX5BAU.js";var t={mount:(t,n,r)=>e(t,r,`video`)};export{t as default};

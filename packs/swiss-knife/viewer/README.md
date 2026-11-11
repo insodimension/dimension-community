@@ -10,7 +10,7 @@ folder is the deep reference. The View is `app/view` (built to `app/dist`); the 
 
 | Tool | Who calls it | Does |
 |---|---|---|
-| `view_file { path, filename?, annotate? }` | the host on a click (the plugin declares no `modelSpaces`, so no agent is offered it) | Resolves `path` through the fence and mounts the View on it. `annotate: true` picks the annotation tool up as the file opens (the drawing tool last held on a picture or a video frame, Box if none; Pick on a page, which matters for a page too large to start with it in hand) and is ignored for a kind with nothing to annotate. The tools themselves are there either way: an annotatable kind shows its bar from the pane's first frame. |
+| `view_file { path, filename?, annotate? }` | the host on a click (the plugin declares no `modelSpaces`, so no agent is offered it) | Resolves `path` through the fence and mounts the View on it. `annotate: true` picks the annotation tool up as the file opens (the drawing tool last held on a picture or a video frame, Box if none; Pick on a page) and is ignored for a kind with nothing to annotate. The tools themselves are there either way: an annotatable kind shows its bar from the pane's first frame. |
 | `read_file_chunk { path, offset, length }` | the View only (`visibility: ["app"]`) | Streams a file's bytes to the View, at most 4 MiB a call. |
 | `open_media { path, size, mtimeMs, token }` | the View only (`visibility: ["app"]`) | Admits a recording for HTTP range playback through a fenced loopback capability. The View generates the 192-bit token before opening, so it can cancel pending admission. |
 | `close_media { token }` | the View only (`visibility: ["app"]`) | Revokes the capability, cancels pending admission and stops active streams. A token released before its open arrives is remembered and refused. Outer View teardown awaits revocation before acknowledging the host. |
@@ -86,7 +86,7 @@ person is browsing (scrolling, zooming, pinching, playing) again: a finger has n
 |---|---|---|
 | Image | **Pin, Box, Circle, Arrow, Draw** (keys `1`-`5`) · **Undo, Redo, Clear** | Box, so a drag draws at once |
 | Text, Markdown, PDF, Word, PowerPoint, Excel | **Comment** (`Ctrl+Alt+M`) | Comment (the one tool of a text) |
-| HTML page | **Pick**, **Whole page** | Pick, unless the page is over 2 MiB (below) |
+| HTML page | **Pick**, **Whole page** · **Stop scripts** / **Run scripts** | nothing: the page is live; Annotate picks Pick up |
 | Audio | **Moment** (`M`), **Stretch** (`I` then `O`) | nothing to arm: notes go on the waveform |
 | Video | **Moment**, **Stretch** · **Pin, Box, Circle, Arrow, Draw** · **Undo, Redo, Clear** | none: pick a tool to draw |
 
@@ -109,32 +109,30 @@ Pick lets a person point at part of a rendered HTML page; each pick joins the ne
 message as the element's selector, tag, text, a few attributes, four computed styles and its
 box, with the human's note. **Whole page** picks `<body>`.
 
-The page is **never run**. The reading frame is `sandbox=""`, as always. While Pick is in
-hand the View builds a second frame from the same bytes with `sandbox="allow-scripts"` only, whose
-document begins with a Content-Security-Policy that admits exactly one script, the
-viewer's own picker, by its SHA-256, and denies every other script, handler,
-`javascript:` URL, frame, object, base, form and connection. A canary script that the policy
-must refuse runs first; if it ever runs, the picker declines and the reading frame comes
-back with a plain sentence. The picker reports by `postMessage`; the View checks every
-message (sender, origin, a per-mount channel, a closed set of types, exact keys, bounds)
-and draws the outline, label and numbered badges itself. See doc 88 section 2 for why this
-is the design and why the obvious one (reading the page directly) cannot work inside the
-engine's sandbox.
+The page's own scripts **run, sealed**. The reading frame is the kit's `createPageFrame`: `sandbox="allow-scripts"`
+(an opaque origin: no storage, no cookies, no access to the View) and a document that opens with a
+Content-Security-Policy (`PAGE_RUN_POLICY`) denying every connection, frame, object, form and base, plus a runner
+script that withholds WebRTC, removes any nested browsing context the page makes (Trusted Types for HTML strings, a
+MutationObserver for elements, a tripwire that blanks the page if one ever exists) and answers the View's request for
+a still of the page. **Stop scripts** swaps the frame to `sandbox=""` with the page's exact bytes; **Run scripts**
+swaps it back. Both reload the page.
 
-**Pick is in hand from the first frame the page can be read**, so there is nothing to switch on, unless the page is
-larger than `PICK_FRAME_LIMIT` (2 MiB, `app/view/document-bytes.ts`; a page of exactly 2 MiB still starts with Pick in
-hand). The pick frame is a second copy of the page to parse and lay out, about the cost of the reading frame again,
-and the viewer opens pages up to 128 MiB, far larger than anyone points at. A larger page opens with Pick **down**: the
-bar says "Large page: press Pick to choose elements" (its tooltip says why), no second copy exists, and the pick frame
-is built only when the person presses Pick or the card's Annotate. Escape, or pressing Pick again, puts it down (the page
-is then only read and scrolled) and the second copy goes with it; Whole page is off while Pick is down.
+Pick starts **down** on every page, because a live page's own clicks matter. Pressing Pick (or the card's Annotate)
+asks the running page for a still of itself (`readPage`: the live DOM with form state, canvases as images, open and
+tracked shadow roots, adopted style sheets, and its scroll) and builds a second frame from that still with
+`sandbox="allow-scripts"` only, whose document begins with a Content-Security-Policy that admits exactly one script,
+the viewer's own picker, by its SHA-256, and denies every other script, handler, `javascript:` URL, frame, object,
+base, form and connection. A canary script that the policy must refuse runs first; if it ever runs, the picker
+declines and Pick is not offered. The picker reports by `postMessage`; the View checks every message (sender, origin,
+a per-mount channel, a closed set of types, exact keys, bounds) and draws the outline, label and numbered badges
+itself. See doc 88 section 2 for why this is the design. Escape, or pressing Pick again, puts it down and the still
+goes with it; Whole page is off while Pick is down.
 
-Known limits, stated so nobody is surprised: putting Pick down and picking it up again opens the pick frame at the
-page's top (the script-free reading frame's scroll cannot be read or set; a page that opens with Pick in hand has no
-swap to suffer); clicks inside a page's own `<iframe>` go to that frame and cannot be
-picked; shadow-root content picks its host element; an element inside `<head>` is not
-drawn and cannot be picked; a rotated element is outlined by its bounding box; a selector
-that cannot be made unique is flagged with how many elements it matches.
+Known limits, stated so nobody is surprised: picking works on the still, so anything the page animates afterwards is
+not seen until Pick is put down and picked up again; a page that does not answer within 8 s, or sends a still past
+16 MiB (or twice its own size), cannot be picked from; content inside a closed shadow root made before the runner
+could see it picks its host element; an element inside `<head>` is not drawn and cannot be picked; a rotated element
+is outlined by its bounding box; a selector that cannot be made unique is flagged with how many elements it matches.
 
 ## Recordings (doc 88)
 
@@ -354,7 +352,6 @@ deny-by-default for everything a human did not click.
 |---|---|---|
 | A recording the viewer plays | No file-size cap; 64 concurrent leases/admissions (a pane frees its lease when it closes and renews it every 30 s while it is open; when the table is full, a lease with no request or renewal for five minutes that is not streaming is reclaimed, and a table of 64 live recordings refuses a new one), 192 concurrent transfers (three a lease: the player, its frame-capture clone, and the tail range of a file whose index sits at its end), 64 KiB stream buffers | `media-server.ts` (`LEASE_TTL_MS`), `media-lifecycle.ts` (`RENEW_EVERY_MS`) |
 | Any other document | 128 MiB (text: the first 1 MiB) | `DOCUMENT_LIMIT`, `TEXT_LIMIT` (`document-bytes.ts`) |
-| An HTML page that starts with Pick in hand | 2 MiB; larger starts with Pick down | `PICK_FRAME_LIMIT` (`document-bytes.ts`) |
 | A waveform | WAV or strict MP3 only; file 32 MiB, decoded 96 MiB at 22.05 kHz, 8 channels, MP3 545 s; one decode at a time; everything else a flat track; a file is read whole only when its first bytes are a WAV, an ID3 tag or an MPEG frame | `WAVEFORM_*`, `loadPeaks` (the kit: `media/waveform.ts`, `media/peaks.ts`; the pane's `media-waveform.ts` reads the tab's bytes) |
 | A video filmstrip | 48 thumbnails, 160 px long edge; 4 files cached | `MAX_FILM_SLOTS`, `FilmstripCache` (the kit: `media/filmstrip.ts`) |
 | Notes on one file | 24 | `MAX_MARKS`, `MAX_COMMENTS`, `MAX_ELEMENT_PICKS`, `MAX_TIMELINE_MARKS` |
