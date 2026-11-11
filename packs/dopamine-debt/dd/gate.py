@@ -58,7 +58,7 @@ def check(film_dir, film, g11):
     jc = Cache(c["jury_cache"])
     jurors = []
     jury_rows = []
-    for n in jurors_needed(film, c["cards"], readouts, c["window"], root["juror_model"], root["juror_role"], c["trigger"]):
+    for n in jurors_needed(film, c["cards"], readouts, c["window"], c["juror_model"], c["juror_role"], c["trigger"]):
         hit = jc.get(n["key"])
         if hit:
             jurors.append(hit)
@@ -67,7 +67,7 @@ def check(film_dir, film, g11):
             out["missing_jurors"].append({"unit": n["unit"], "aud": n["aud"]})
     watch = {a: [] for a in gated}
     if kind == "seen":
-        for n in watch_needed(film, c["cards"], root["juror_model"], root["juror_role"]):
+        for n in watch_needed(film, c["cards"], c["juror_model"], c["juror_role"]):
             hit = jc.get(n["key"])
             if hit:
                 watch[n["aud"]].append(hit["answers"])

@@ -10,7 +10,7 @@ from framework.scriptstage import MODE_TEXT, write_engine_dir
 
 from .gate import check, g11_rules, write
 from .home import LIBRARY, audience_file, films_for
-from .read import DD, load_film, read, tunables
+from .read import DD, load_film, read, reviewed_by, tunables
 from .units import estimate_timing, validate
 
 STAGES = ("script", "cut")
@@ -358,10 +358,10 @@ class Unrunnable(Exception):
 def recorded_reviewer(engine_dir):
     path = engine_dir / "root.json"
     root = load_json(path) if path.is_file() else {}
-    return root.get("juror_model"), root.get("juror_role")
+    return {"juror_model": root.get("juror_model"), "juror_role": root.get("juror_role")}
 
 
-def prepare(stage, production, juror_model=None, juror_role=None):
+def prepare(stage, production, reviewer=None):
     import yaml
     missing = prerequisites(stage, production)
     if missing:
@@ -380,10 +380,10 @@ def prepare(stage, production, juror_model=None, juror_role=None):
     context = {"stage": stage, "production": str(production), "revision": str(rev), "engineDir": str(engine_dir), stage: info}
     if errs:
         raise Unrunnable([f"a valid {stage} timeline ({e})" for e in errs], context)
-    if juror_model is None or juror_role is None:
-        juror_model, juror_role = recorded_reviewer(engine_dir)
-    if not juror_model or not juror_role:
-        raise Unrunnable([f"a review of the {stage} reads: nothing in {engine_dir} records which model read the jurors (the session runs dd.house.review, dopamine-debt-film Review)"], context)
+    try:
+        juror_model, juror_role = reviewed_by(reviewer or recorded_reviewer(engine_dir), engine_dir)
+    except ValueError as e:
+        raise Unrunnable([f"a valid reviewer ({e})"], context) from e
     spine = yaml.safe_load((rev / "spine.yaml").read_text(encoding="utf8"))
     intent = load_json(rev / "intent.json")
     previous = None if stage == "script" else rev / "framework" / "script"
@@ -393,7 +393,7 @@ def prepare(stage, production, juror_model=None, juror_role=None):
 
 async def review(stage, production, judge_batch, completion, juror_model, juror_role):
     try:
-        engine_dir, *_ = prepare(stage, Path(production).resolve(), juror_model, juror_role)
+        engine_dir, *_ = prepare(stage, Path(production).resolve(), {"juror_model": juror_model, "juror_role": juror_role})
     except Unrunnable as e:
         raise RuntimeError(f"cannot review the {stage}: missing {e}") from e
     return await read(engine_dir, judge_batch, completion)

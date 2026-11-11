@@ -29,22 +29,24 @@ def tunables():
 def reviewed_by(root, film_dir):
     missing = [k for k in ("juror_model", "juror_role") if not root.get(k)]
     if missing:
-        raise ValueError(f"{Path(film_dir) / 'root.json'} names no {missing}: the review that wrote it must say which model read the jurors (dd.house.review)")
+        raise ValueError(f"{Path(film_dir) / 'root.json'} records no {missing}: the session's review writes them (dd.house.review; dopamine-debt-film, Review)")
     if root["juror_role"] not in JUROR_ROLES:
-        raise ValueError(f"root.json juror_role {root['juror_role']!r} is not one of {JUROR_ROLES}, the tiers completion() takes")
+        raise ValueError(f"juror_role {root['juror_role']!r} is not one of {JUROR_ROLES}, the tiers completion() takes")
+    if root["juror_model"] in JUROR_ROLES:
+        raise ValueError(f"juror_model {root['juror_model']!r} is a completion tier, not a model: state the provider/model that tier resolves to")
     return root["juror_model"], root["juror_role"]
 
 
 def context(film_dir):
     film_dir = Path(film_dir)
     root = json.loads((film_dir / "root.json").read_text(encoding="utf8"))
-    reviewed_by(root, film_dir)
+    juror_model, juror_role = reviewed_by(root, film_dir)
     tun = tunables()
     files = {aud: audience_file(p) for aud, p in root["audiences"].items()}
     cards = {aud: compile_card(f.read_text(encoding="utf8")) for aud, f in files.items()}
     floor_kinds = tun["values"]["laugh_floor_persona_kinds"]["v"]
     floored = [aud for aud, f in files.items() if persona_kind(f) in floor_kinds]
-    return {"dir": film_dir, "root": root, "tun": tun, "cards": cards, "floored": floored, "model": tun["judge_model"],
+    return {"dir": film_dir, "root": root, "tun": tun, "cards": cards, "floored": floored, "model": tun["judge_model"], "juror_model": juror_model, "juror_role": juror_role,
             "window": tun["values"]["before_window_s"]["v"], "trigger": tun["values"]["juror_trigger"]["v"],
             "cache": film_dir / "cache.jsonl", "jury_cache": film_dir / "jury-cache.jsonl"}
 
@@ -99,9 +101,8 @@ async def read(film_dir, judge_batch, completion):
     root = c["root"]
     film = load_film(c["dir"], c["tun"])
     readouts, judged = await read_film(film, c["cards"], judge_batch, c["cache"], c["model"], c["window"], root["stage"])
-    juror_model, juror_role = reviewed_by(root, c["dir"])
-    needs = jurors_needed(film, c["cards"], readouts, c["window"], juror_model, juror_role, c["trigger"])
-    watch = watch_needed(film, c["cards"], juror_model, juror_role) if root.get("kind") == "seen" else []
+    needs = jurors_needed(film, c["cards"], readouts, c["window"], c["juror_model"], c["juror_role"], c["trigger"])
+    watch = watch_needed(film, c["cards"], c["juror_model"], c["juror_role"]) if root.get("kind") == "seen" else []
     jcache = Cache(c["jury_cache"])
     todo = [n for n in needs + watch if not jcache.get(n["key"])]
     await _jury(completion, todo, jcache)

@@ -21,7 +21,7 @@ Fields: `packaging`, `premise`, `take`, `narrator{stance, flaw, never}`, `voice_
 ## Readouts (§6) → `dd/run.py`, `dd/read.py`
 - One judge request covers one unit, one audience and every question. The model that answers is the person's `judge` role; `tunables.judge_model` is the label the read cache keys on. K = 4 variants (2 cards × A/B).
 - Segment questions give P(lost/followed/clicked) and load (effortless to exhausting). Bit questions give P(laugh), P(smile), P(cringe) and whether the bit is anchored. Carries asks whether the unit states the fact. Take asks whether the take is falsifiable.
-- **Second juror:** a different model family reads every bit whose laugh + ½·smile ≥ 0.4 or whose cringe ≥ 0.15. A cringe reading of 0.4 or more is a veto (fitted: recall 0.92, false alarms 2%). The Review answers it through `completion` at `juror_role`; its cache key is `sha256(juror_model | schema | prompt)` with the `juror_model` the Review states, so another model never reuses its answers.
+- **Second juror:** a different model family reads every bit whose laugh + ½·smile ≥ 0.4 or whose cringe ≥ 0.15. A cringe reading of 0.4 or more is a veto (fitted: recall 0.92, false alarms 2%). The Review answers it through `completion` at `juror_role`; its cache key is `sha256(juror_model | qv | schema | prompt)` with the `juror_model` the Review states (a provider/model, never a tier name), so another model never reuses its answers.
 - `reads_needed(film, cards, model, window)` is the one pure function behind every state and cache key. `before` holds the verbatim previous 45 s plus any plant line. The cache key is `sha256(model | qv | questions | state)`, so a unit is re-read only when its state changes.
 
 ## Ledger (§7) → `dd/derive.py`

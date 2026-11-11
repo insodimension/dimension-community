@@ -4,7 +4,11 @@ import json
 import pytest
 import yaml
 
+import dd.read
 from dd import house
+from dd.gate import check, write
+from dd.read import load_film, tunables
+from framework.scriptstage import write_engine_dir
 
 JUDGE_LABEL = "typesafe/jev-1.14.0"
 
@@ -98,6 +102,7 @@ class Session:
     def __init__(self):
         self.judged = 0
         self.completions = []
+        self.watch_roles = []
 
     def judge_batch(self, items, questions, intent=""):
         self.judged += len(items)
@@ -105,6 +110,8 @@ class Session:
 
     def completion(self, prompt, model="default", system=None, schema=None):
         self.completions.append(model)
+        if "keep_watching" in schema["properties"]:
+            self.watch_roles.append(model)
         answer = {"cringe": 0.1, "laugh": 0.6, "reason": "fine"} if "cringe" in schema["properties"] else {"keep_watching": 0.8, "left_at_s": 0, "reason": "fine"}
         return type("Handle", (), {"wait": lambda self: answer})()
 
@@ -136,11 +143,13 @@ def test_a_reviewed_gate_runs_and_names_every_model_that_answered(production, tm
     assert set(session.completions) == {"default"}
 
 
-def test_the_gate_reads_the_reviewer_the_review_recorded(production, tmp_path):
-    review(production, Session(), juror_model="vendor/model-a", juror_role="slow")
+def test_the_gate_reads_the_reviewer_the_review_recorded_and_the_stated_tier_reaches_completion(production, tmp_path):
+    session = Session()
+    review(production, session, juror_model="vendor/model-a", juror_role="slow")
     gate(production, tmp_path)
     root = json.loads((engine_dir(production) / "root.json").read_text(encoding="utf8"))
     assert (root["juror_model"], root["juror_role"]) == ("vendor/model-a", "slow")
+    assert set(session.completions) == {"slow"}
 
 
 def test_a_juror_answer_is_reused_only_for_the_model_that_gave_it(production, tmp_path):
@@ -165,9 +174,44 @@ def test_editing_the_script_after_a_review_sends_the_gate_back_to_the_review(pro
     assert any("unanswered" in m for m in report["missing"])
 
 
-def test_an_unknown_juror_role_is_refused_before_any_model_is_called(production):
+def test_an_unknown_juror_role_is_refused_before_any_model_is_called_or_anything_recorded(production):
     session = Session()
-    with pytest.raises(ValueError, match="juror_role"):
+    with pytest.raises(RuntimeError, match="juror_role"):
         review(production, session, juror_role="gpt")
     assert session.judged == 0
     assert session.completions == []
+    assert not (engine_dir(production) / "root.json").exists()
+
+
+def test_a_tier_name_is_not_accepted_as_the_model_label(production):
+    session = Session()
+    with pytest.raises(RuntimeError, match="tier"):
+        review(production, session, juror_model="default", juror_role="default")
+    assert session.judged == 0
+    assert session.completions == []
+
+
+def test_a_recorded_root_with_an_unknown_tier_is_a_cannot_run_report_not_a_traceback(production, tmp_path):
+    review(production, Session())
+    root_file = engine_dir(production) / "root.json"
+    root = json.loads(root_file.read_text(encoding="utf8"))
+    root_file.write_text(json.dumps(root | {"juror_role": "opus"}), encoding="utf8")
+    code, report = gate(production, tmp_path)
+    assert code == 2
+    assert any("juror_role" in m for m in report["missing"])
+
+
+def test_the_seen_whole_cut_watch_is_read_by_the_stated_juror_and_named_in_the_report(production):
+    session = Session()
+    review(production, session, juror_model="vendor/model-a", juror_role="slow")
+    script_dir = engine_dir(production)
+    write(script_dir, check(script_dir, load_film(script_dir, tunables()), {}))
+    seen_dir = script_dir.parent / "seen"
+    film = {name: json.loads((script_dir / f"{name}.json").read_text(encoding="utf8")) for name in ("segments", "intent", "spine", "root")}
+    write_engine_dir(seen_dir, film["segments"], film["intent"], film["spine"], film["root"]["audiences"], "acme r1 seen", "seen", script_dir, "vendor/model-a", "slow")
+    counts = asyncio.run(dd.read.read(seen_dir, session.judge_batch, session.completion))
+    assert counts["watch_reads"] == dd.run.WATCH_DRAWS * len(film["root"]["audiences"])
+    assert session.watch_roles == ["slow"] * counts["watch_reads"]
+    result = check(seen_dir, load_film(seen_dir, tunables()), {})
+    assert result["missing_jurors"] == []
+    assert result["answered_by"]["jurors"] == {"vendor/model-a": counts["jurors"] + counts["watch_reads"]}
