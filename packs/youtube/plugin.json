@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "youtube",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, upload a video, change a posted video's title or thumbnail, and get a finished film ready to upload.",
 	"author": {
 		"name": "Dimension"
@@ -51,10 +51,10 @@
 						"urlLabel": "Open the Reporting API"
 					},
 					{
-						"title": "Publish the OAuth consent screen (In production)",
-						"detail": "Google Auth Platform → Audience → Publish app. A client left in \"Testing\" gets refresh tokens that expire after 7 days, so the connection silently dies every week. For your own account, publishing needs no Google review; you may see an \"unverified app\" warning at sign-in, which is expected for your own client.",
-						"url": "https://console.cloud.google.com/auth/audience",
-						"urlLabel": "Open the consent screen"
+						"title": "Publish the OAuth consent screen, or add yourself as a test user",
+						"detail": "Google Auth Platform → Branding → App domain: Google asks for an app homepage URL and a privacy-policy URL before it lets you publish. Then Audience → Publish app. For your own account no Google review is needed; you may see an \"unverified app\" warning at sign-in, which is expected for your own client. Not ready to publish? Leave it in Testing and add your Google account under Audience → Test users: the connection then works, but the sign-in lasts 7 days and you connect again every week.",
+						"url": "https://console.cloud.google.com/auth/branding",
+						"urlLabel": "Open the branding page"
 					},
 					{
 						"title": "Copy the Client ID and Client Secret into the form below",
@@ -97,8 +97,8 @@
 					"failures": [
 						{
 							"match": "quotaExceeded|dailyLimitExceeded|quota",
-							"title": "YouTube API quota exhausted for today",
-							"detail": "Your Google Cloud project has used today's YouTube Data API quota: 10,000 units shared by most calls, and since 2026-06-01 a separate 100 calls a day for search. It resets at midnight Pacific; a larger quota needs YouTube's compliance audit.",
+							"title": "YouTube API quota is spent, or its daily limit is 0",
+							"detail": "Either your Google Cloud project has used today's YouTube Data API quota (10,000 units shared by most calls, and since 2026-06-01 a separate 100 calls a day for search; it resets at midnight Pacific), or the project's \"Queries per day\" limit is 0 and never refills. Open the quota page: at 0, connecting again changes nothing; use a new Google Cloud project (its default is 10,000 a day) or ask YouTube for more quota with its API compliance audit form.",
 							"url": "https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas",
 							"urlLabel": "Open YouTube API quotas"
 						},
@@ -246,7 +246,7 @@
 				},
 				{
 					"name": "youtube_get_captions",
-					"description": "List the caption tracks on a video. Caption text downloads only for videos you own; for others, use the watch pack."
+					"description": "List the caption tracks on a video (metadata only, not the caption text); use the watch pack to read what is said."
 				},
 				{
 					"name": "youtube_channel_stats",

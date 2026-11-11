@@ -123,8 +123,11 @@ async function adoptConnectedToken(
 	const payload = (await res.json().catch(() => null)) as { items?: MineChannel[] } | null;
 	const mine = payload?.items?.[0];
 	if (!res.ok || !mine?.id || !CHANNEL_ID.test(mine.id)) {
+		const reason = googleError(payload, res.statusText);
 		throw new Error(
-			`The Google account that last connected has no YouTube channel YouTube would name (${googleError(payload, res.statusText)}). Connect again and pick the account or brand account that owns the channel.`,
+			isQuotaRefusal(payload)
+				? `YouTube would not name the channel for the Google account that last connected: ${reason}`
+				: `The Google account that last connected has no YouTube channel YouTube would name (${reason}). Connect again and pick the account or brand account that owns the channel.`,
 		);
 	}
 	const channel: ConnectedChannel = {
@@ -314,11 +317,11 @@ export async function youtubeFetch(path: string, accessToken: string, init?: Req
 
 export async function youtubeJson<T>(path: string, accessToken: string, op: string, init?: RequestInit): Promise<T> {
 	const res = await youtubeFetch(path, accessToken, init);
-	const payload = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
+	const payload: unknown = await res.json().catch(() => null);
 	if (!res.ok || !payload) {
-		throw new Error(`YouTube ${op} failed: ${payload?.error?.message ?? res.statusText}`);
+		throw new Error(`YouTube ${op} failed: ${googleError(payload, res.statusText)}`);
 	}
-	return payload;
+	return payload as T;
 }
 
 export function videoIdOf(input: string): string {
@@ -330,14 +333,39 @@ export function videoIdOf(input: string): string {
 export const MISSING_ANALYTICS_SCOPE =
 	"YouTube refused: this channel was connected before the plugin asked for YouTube Analytics access (yt-analytics.readonly). Connect it again (Plugins → YouTube → Connect, pick the same channel), with the YouTube Analytics API and the YouTube Reporting API enabled in the same Google Cloud project.";
 
-export function googleError(payload: unknown, fallback: string): string {
-	if (typeof payload !== "object" || payload === null) return fallback;
+const QUOTA_REASON = /^(quotaExceeded|dailyLimitExceeded|rateLimitExceeded)$/;
+
+const QUOTA_HINT =
+	"The refusal is one of: a daily quota that is spent (the shared 10,000 units, or the separate 100 a day for search and for uploads; they return at midnight Pacific), a per-minute limit (it clears within a minute), or a project whose \"Queries per day\" limit for the YouTube Data API v3 is 0 and never refills, so connecting again cannot fix it. The limits are listed at https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas; at 0, use a new Google Cloud project (its default is 10,000 a day) or ask YouTube for more quota with its API compliance audit form";
+
+function errorBody(payload: unknown): object | undefined {
+	if (typeof payload !== "object" || payload === null) return undefined;
 	const error: unknown = Reflect.get(payload, "error");
-	if (typeof error === "object" && error !== null) {
-		const message: unknown = Reflect.get(error, "message");
-		if (typeof message === "string" && message.length > 0) return message;
-	}
-	return fallback;
+	return typeof error === "object" && error !== null ? error : undefined;
+}
+
+export function isQuotaRefusal(payload: unknown): boolean {
+	const error = errorBody(payload);
+	if (!error) return false;
+	const message: unknown = Reflect.get(error, "message");
+	if (typeof message === "string" && /\bquota\b/i.test(message)) return true;
+	const entries: unknown = Reflect.get(error, "errors");
+	return (
+		Array.isArray(entries) &&
+		entries.some(entry => typeof entry === "object" && entry !== null && QUOTA_REASON.test(String(Reflect.get(entry, "reason"))))
+	);
+}
+
+function googleMessage(payload: unknown, fallback: string): string {
+	const error = errorBody(payload);
+	const message: unknown = error && Reflect.get(error, "message");
+	return typeof message === "string" && message.length > 0 ? message : fallback;
+}
+
+export function googleError(payload: unknown, fallback: string): string {
+	const message = googleMessage(payload, "");
+	if (message.length === 0) return fallback;
+	return isQuotaRefusal(payload) ? `${message} ${QUOTA_HINT}` : message;
 }
 
 export async function googleJson<T>(url: string, accessToken: string, label: string, init?: RequestInit): Promise<T> {
@@ -347,7 +375,7 @@ export async function googleJson<T>(url: string, accessToken: string, label: str
 	});
 	const payload: unknown = await res.json().catch(() => null);
 	if (!res.ok || payload === null) {
-		const message = googleError(payload, res.statusText);
+		const message = googleMessage(payload, res.statusText);
 		if (res.status === 403 && /insufficient|scope/i.test(message)) throw new Error(MISSING_ANALYTICS_SCOPE);
 		throw new Error(`${label} failed: ${message}`);
 	}

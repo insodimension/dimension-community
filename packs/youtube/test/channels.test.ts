@@ -14,6 +14,13 @@ const channelsDir = join(configDir, "channels");
 const tokenFile = join(configDir, "token.json");
 const GAMMA: ChannelSeed = { channelId: channelIdOf("gamma"), title: "Gamma Channel", handle: "gammahandle", access: "tok-gamma", refresh: "ref-gamma" };
 const VIDEO = "dQw4w9WgXcQ";
+const QUOTA_PAGE = "https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas";
+const QUOTA_MESSAGE = "The request cannot be completed because you have exceeded your quota.";
+const QUOTA_REFUSALS: [reason: string, status: number, message: string][] = [
+	["quotaExceeded", 403, QUOTA_MESSAGE],
+	["dailyLimitExceeded", 403, "Daily Limit Exceeded"],
+	["rateLimitExceeded", 429, "Rate Limit Exceeded"],
+];
 
 interface Tool {
 	name: string;
@@ -44,6 +51,7 @@ interface World {
 	mine?: Record<string, Account>;
 	owners?: Record<string, Owner>;
 	oauth?: (refreshToken: string) => Response | Promise<Response>;
+	mineRefusal?: () => Response;
 }
 
 const tools = new Map<string, Tool>();
@@ -86,6 +94,7 @@ function worldHandler(world: World = {}): (call: Call) => Response | Promise<Res
 			return world.oauth?.(new URLSearchParams(call.body).get("refresh_token") ?? "") ?? Response.json({ access_token: "refreshed-access", expires_in: 3600 });
 		}
 		if (isMine(call)) {
+			if (world.mineRefusal) return world.mineRefusal();
 			const account = world.mine?.[accessOf(call)];
 			if (!account) return Response.json({ items: [] });
 			return Response.json({ items: [{ id: account.id, snippet: { title: account.title, ...(account.customUrl ? { customUrl: account.customUrl } : {}) } }] });
@@ -151,6 +160,10 @@ async function channelFiles(): Promise<string[]> {
 
 function fileOf(seedValue: ChannelSeed): string {
 	return `${seedValue.channelId}.json`;
+}
+
+function refuseForQuota(reason = "quotaExceeded", status = 403, message = QUOTA_MESSAGE): () => Response {
+	return () => Response.json({ error: { code: status, message, errors: [{ message, domain: "youtube.quota", reason }] } }, { status });
 }
 
 async function failureOf(work: Promise<unknown>): Promise<Error> {
@@ -296,6 +309,55 @@ describe("adopting the token the engine's Connect writes", () => {
 
 		serveWorld({ mine: { "acc-1": accountOf(ALPHA) } });
 		expect((await connectedChannels()).map(channel => channel.channelId)).toEqual([ALPHA.channelId]);
+	});
+
+	test("a channel lookup refused for quota is reported as the quota problem, not as an account with no channel, and the next call tries again", async () => {
+		await connectAs("acc-1", "ref-1");
+		serveWorld({ mineRefusal: refuseForQuota() });
+
+		const failure = await failureOf(connectedChannels());
+
+		expect(failure.message).toContain("exceeded your quota");
+		expect(failure.message).toContain(QUOTA_PAGE);
+		expect(failure.message).toContain("is 0 and never refills");
+		expect(failure.message).toContain("the separate 100 a day for search and for uploads");
+		expect(failure.message).toContain("a per-minute limit");
+		expect(failure.message.endsWith(".")).toBe(false);
+		expect(failure.message).not.toMatch(/no YouTube channel/);
+		expect(failure.message).not.toMatch(/Connect again/);
+		expect(await channelFiles()).toEqual([]);
+
+		serveWorld({ mine: { "acc-1": accountOf(ALPHA) } });
+		expect((await connectedChannels()).map(channel => channel.channelId)).toEqual([ALPHA.channelId]);
+	});
+
+	test.each(QUOTA_REFUSALS)("a %s refusal of the channel lookup (HTTP %d, %s) is a quota problem whatever its message says", async (reason, status, message) => {
+		await connectAs("acc-1", "ref-1");
+		serveWorld({ mineRefusal: refuseForQuota(reason, status, message) });
+
+		const failure = await failureOf(connectedChannels());
+
+		expect(failure.message).toContain(message);
+		expect(failure.message).toContain(QUOTA_PAGE);
+		expect(failure.message).toContain("is 0 and never refills");
+		expect(failure.message).toContain("a per-minute limit");
+		expect(failure.message).toContain("connecting again cannot fix it");
+		expect(failure.message).not.toMatch(/no YouTube channel/);
+		expect(failure.message).not.toMatch(/Connect again/);
+	});
+
+	test("a refusal that is not about quota keeps the no-channel wording and carries no quota hint", async () => {
+		await connectAs("acc-1", "ref-1");
+		serveWorld({
+			mineRefusal: () => Response.json({ error: { code: 403, message: "Insufficient Permission", errors: [{ reason: "insufficientPermissions" }] } }, { status: 403 }),
+		});
+
+		const failure = await failureOf(connectedChannels());
+
+		expect(failure.message).toContain("no YouTube channel YouTube would name (Insufficient Permission)");
+		expect(failure.message).toContain("Connect again and pick the account");
+		expect(failure.message).not.toContain(QUOTA_PAGE);
+		expect(failure.message).not.toContain("Queries per day");
 	});
 
 	test("files in channels/ that are not a stored channel are ignored", async () => {
@@ -837,6 +899,24 @@ describe("a Connect that cannot be adopted", () => {
 		expect(await channelFiles()).toEqual([fileOf(ALPHA)]);
 	});
 
+	test("a quota refusal of the new Connect is reported by youtube_channels as quota, and the known channels keep working", async () => {
+		await seed(ALPHA);
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mineRefusal: refuseForQuota() });
+
+		const lines = ((await tool("youtube_channels").execute("t", {})).content[0]?.text ?? "").split("\n");
+
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toContain(ALPHA.channelId);
+		expect(lines[1]).toMatch(/^The last Connect was not added: .*exceeded your quota/);
+		expect(lines[1]).toContain(QUOTA_PAGE);
+		expect(lines[1]).toContain("is 0 and never refills");
+		expect(lines[1]).not.toMatch(/no YouTube channel/);
+		expect(lines[1]).not.toMatch(/Connect again/);
+		expect((await tool("youtube_list_playlists").execute("t", {})).content[0]?.text).toContain("tok-alpha");
+		expect(await channelFiles()).toEqual([fileOf(ALPHA)]);
+	});
+
 	test("a token.json that cannot be refreshed leaves the known channels in place with the refresh failure as the reason", async () => {
 		await seed(ALPHA);
 		await connectAs("acc-x", "ref-x", { expires: Date.now() - 1_000 });
@@ -870,6 +950,22 @@ describe("a Connect that cannot be adopted", () => {
 		await expect(connectedChannels()).rejects.toThrow(/no YouTube channel/);
 		await expect(tool("youtube_channels").execute("t", {})).rejects.toThrow(/no YouTube channel/);
 		await expect(tool("youtube_list_playlists").execute("t", {})).rejects.toThrow(/no YouTube channel/);
+		expect(await channelFiles()).toEqual([]);
+	});
+
+	test("with no channel connected yet a quota refusal is the error in every tool, never the no-channel error", async () => {
+		await connectAs("acc-x", "ref-x");
+		serveWorld({ mineRefusal: refuseForQuota() });
+		const attempts = [() => connectedChannels(), () => tool("youtube_channels").execute("t", {}), () => tool("youtube_list_playlists").execute("t", {})];
+
+		for (const attempt of attempts) {
+			const failure = await failureOf(attempt());
+
+			expect(failure.message).toContain(QUOTA_PAGE);
+			expect(failure.message).toContain("is 0 and never refills");
+			expect(failure.message).not.toMatch(/no YouTube channel/);
+			expect(failure.message).not.toMatch(/Connect again/);
+		}
 		expect(await channelFiles()).toEqual([]);
 	});
 

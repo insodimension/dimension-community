@@ -167,6 +167,38 @@ describe("youtube_update_video", () => {
 		expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(2);
 	});
 
+	test("a quota refusal on the PUT carries the hint and reads with a single period before 'Nothing was changed'", async () => {
+		const message = "The request cannot be completed because you have exceeded your quota.";
+		serveVideo(() => Response.json({ error: { code: 403, message, errors: [{ message, domain: "youtube.quota", reason: "quotaExceeded" }] } }, { status: 403 }));
+
+		const failure = await titleCall("New title").then(
+			() => "the call did not fail",
+			(error: Error) => error.message,
+		);
+
+		expect(failure.startsWith(`YouTube refused the title change: ${message} `)).toBe(true);
+		expect(failure).toContain("is 0 and never refills");
+		expect(failure).toContain("https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas");
+		expect(failure).toContain("a per-minute limit");
+		expect(failure).toMatch(/API compliance audit form\. Nothing was changed; fix the cause and call again\.$/);
+		expect(failure).not.toContain("..");
+		expect(summary().filter(line => line.startsWith("PUT"))).toHaveLength(1);
+	});
+
+	test("a per-minute 429 on the PUT carries the hint inside the may-be-live message, still a single period", async () => {
+		serveVideo(() => Response.json({ error: { code: 429, message: "Rate Limit Exceeded", errors: [{ message: "Rate Limit Exceeded", domain: "usageLimits", reason: "rateLimitExceeded" }] } }, { status: 429 }));
+
+		const failure = await titleCall("New title").then(
+			() => "the call did not fail",
+			(error: Error) => error.message,
+		);
+
+		expect(failure).toContain("YouTube gave no clear answer to the title change (Rate Limit Exceeded ");
+		expect(failure).toContain("a per-minute limit");
+		expect(failure).toContain("API compliance audit form), so it may be live");
+		expect(failure).not.toContain("..");
+	});
+
 	for (const status of [500, 429]) {
 		test(`an unclear ${status} on the PUT says the change may be live`, async () => {
 			serveVideo(() => Response.json({ error: { message: "Backend Error" } }, { status }));
@@ -454,6 +486,21 @@ describe("youtube_reach_report", () => {
 		expect(failure?.message).toMatch(/has not been used in project 123/);
 		expect(failure?.message).not.toBe(MISSING_ANALYTICS_SCOPE);
 	});
+
+	test("a 403 about quota on the Reporting API is Google's own message, with no Data API quota hint, and is not the missing-scope error", async () => {
+		const message = "The request cannot be completed because you have exceeded your quota.";
+		serve(() => Response.json({ error: { code: 403, message, errors: [{ message, domain: "youtube.quota", reason: "quotaExceeded" }] } }, { status: 403 }));
+
+		const failure = await reach().then(
+			() => null,
+			(error: Error) => error,
+		);
+
+		expect(failure?.message).toContain(`YouTube Reporting jobs.list failed: ${message}`);
+		expect(failure?.message).not.toContain("console.cloud.google.com");
+		expect(failure?.message).not.toContain("Queries per day");
+		expect(failure?.message).not.toBe(MISSING_ANALYTICS_SCOPE);
+	});
 });
 
 describe("youtube_video_analytics", () => {
@@ -526,6 +573,21 @@ describe("youtube_video_analytics", () => {
 		serve(() => Response.json({ error: { message: "Insufficient Permission: Request had insufficient authentication scopes." } }, { status: 403 }));
 
 		await expect(analytics({ videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" })).rejects.toThrow(MISSING_ANALYTICS_SCOPE);
+	});
+
+	test("a 403 about quota on the analytics query is Google's own message, with no Data API quota hint, and is not the missing-scope error", async () => {
+		const message = "The request cannot be completed because you have exceeded your quota.";
+		serve(() => Response.json({ error: { code: 403, message, errors: [{ message, domain: "youtube.quota", reason: "quotaExceeded" }] } }, { status: 403 }));
+
+		const failure = await analytics({ videoId: VIDEO, startDate: "2026-10-01", endDate: "2026-10-28" }).then(
+			() => null,
+			(error: Error) => error,
+		);
+
+		expect(failure?.message).toBe(`YouTube Analytics reports.query failed: ${message}`);
+		expect(failure?.message).not.toContain("console.cloud.google.com");
+		expect(failure?.message).not.toContain("Queries per day");
+		expect(failure?.message).not.toBe(MISSING_ANALYTICS_SCOPE);
 	});
 });
 

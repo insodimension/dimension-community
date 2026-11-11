@@ -614,7 +614,7 @@ function createGetCaptionsTool(): ToolDefinition<typeof getCaptionsSchema> {
 		name: "youtube_get_captions",
 		label: "YouTube: Get Captions",
 		description:
-			"List the caption TRACKS available for a video (language, name, kind, auto-synced flag). The Data API downloads caption text only for videos a connected channel owns (pass channel for one that is not the first); for another channel's video, fetch its captions with the watch pack instead of reporting a transcript as unavailable. Never invent one.",
+			"List the caption TRACKS available for a video (language, name, kind, auto-synced flag). It returns track metadata, not caption text; pass channel when the video belongs to a connected channel that is not the first. To read what is said in a video, fetch its captions with the watch pack instead of reporting a transcript as unavailable. Never invent one.",
 		parameters: getCaptionsSchema,
 		approval: "read" as const,
 		async execute(_toolCallId: string, params: typeof getCaptionsSchema.infer) {
@@ -642,7 +642,7 @@ function createGetCaptionsTool(): ToolDefinition<typeof getCaptionsSchema> {
 					return `[${c.id ?? "?"}] ${sn?.language ?? "?"}  ${sn?.name || "(default)"}${flags}`;
 				})
 				.join("\n");
-			const text = `${tracks}\n\nTrack metadata only: the Data API downloads caption text only for videos this account owns.`;
+			const text = `${tracks}\n\nTrack metadata only: this tool lists the tracks and does not return their text. Fetch what is said with the watch pack.`;
 			return { content: [{ type: "text" as const, text }] };
 		},
 	};
