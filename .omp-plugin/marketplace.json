@@ -559,31 +559,34 @@
 			]
 		},
 		{
-			"name": "clients",
+			"name": "clients-space",
+			"pluginId": "clients-space",
 			"title": "Clients",
 			"icon": "user",
-			"description": "Win and keep enterprise customers for any product: offerings, campaigns, prospects, warm paths, the pipeline, meetings and customers in one local database. Agents draft; nothing is sent or promised without your click.",
-			"version": "0.2.3",
+			"description": "A space for winning and keeping enterprise customers: offerings, campaigns, prospects, warm paths, the pipeline, meetings and customers in one local database. Agents draft; nothing is sent or promised without your click. Enter the license key from your invite email to open it.",
+			"version": "0.1.0",
 			"author": {
 				"name": "Dimension"
 			},
-			"license": "MIT",
+			"license": "UNLICENSED",
 			"category": "layout",
 			"tags": [
+				"layout",
+				"space",
 				"clients",
 				"sales",
 				"enterprise",
 				"pipeline",
-				"space"
+				"license"
 			],
 			"requires": {
 				"dimension": ">=0.11.27"
 			},
 			"source": {
 				"source": "release",
-				"url": "https://get.insodimension.ai/spaces/clients/clients-0.2.3.tgz",
-				"sha256": "19827f4dcc0416192ddac6a75b6f85c8cf56c90a47388ec48eea4e15094cec75",
-				"size": 13851654
+				"url": "https://get.insodimension.ai/spaces/clients-space/clients-space-0.1.0.tgz",
+				"sha256": "be6748ac0f7fc1ee2620c619bd5a0fbdf7bd909631fa11b53dd8b8029acc2adc",
+				"size": 1432481
 			},
 			"spaces": [
 				{
@@ -599,16 +602,16 @@
 					],
 					"showcase": {
 						"tagline": "A sales team of agents that waits for your click.",
-						"summary": "Clients is a space for winning and keeping enterprise customers. Head of Sales, the Researcher, the Solutions Engineer and the Account Manager find companies that fit an offering, record the dated reason to reach each one now, and draft every email and promise. Each one waits on Today until you approve it. Prospects, Pipeline, Results, Meetings and Customers read from one local database, and every fact links to its source.",
+						"summary": "Clients is a space for winning and keeping enterprise customers. Head of Sales, the Researcher, the Solutions Engineer and the Account Manager find companies that fit an offering, record the dated reason to reach each one now, and draft every email and promise. Each one waits on Today until you approve it. Prospects, Pipeline, Results, Meetings and Customers read from one local database, and every fact links to its source. Clients is in private alpha: install it, then enter the license key from your invite.",
 						"screenshots": [
-							"packs/clients/assets/showcase/today.webp",
-							"packs/clients/assets/showcase/prospects.webp",
-							"packs/clients/assets/showcase/pipeline.webp",
-							"packs/clients/assets/showcase/results.webp"
+							"packs/clients-space/assets/showcase/today.webp",
+							"packs/clients-space/assets/showcase/prospects.webp",
+							"packs/clients-space/assets/showcase/pipeline.webp",
+							"packs/clients-space/assets/showcase/results.webp"
 						],
 						"video": {
-							"src": "packs/clients/assets/showcase/clients-tour.mp4",
-							"poster": "packs/clients/assets/showcase/today.webp"
+							"src": "packs/clients-space/assets/showcase/clients-tour.mp4",
+							"poster": "packs/clients-space/assets/showcase/today.webp"
 						}
 					}
 				}
