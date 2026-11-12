@@ -200,6 +200,8 @@ Object.freeze({
 	showAdvancedPluginStats: false,
 	telemetry: {},
 	studioPersona: "",
+	profileName: "",
+	profileAvatar: "",
 	layout: void 0,
 	slashEntries: void 0,
 	composerSendWhileRunning: "steer",
