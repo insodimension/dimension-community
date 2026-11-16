@@ -96,8 +96,6 @@ const FRAME_SELECTOR = /^@(\d{1,3}(?:\.\d{1,3}){0,7})~([0-9a-f]{8})\s+([\s\S]+)$
 /** Anything that looks like a frame ref, well-formed or not (a stale or hand-written one is refused, never run as CSS). */
 const FRAME_REF_LIKE = /^@\d/;
 const ACTION_TIMEOUT_MS = 15_000;
-const COMBOBOX_LIST_WAIT_MS = 3_000;
-const COMBOBOX_VERIFY_MS = 1_500;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
 /** After a kill, how long the browser process gets to be seen exiting before the kill itself is called unconfirmed. */
@@ -1070,7 +1068,7 @@ class PuppeteerDriver implements EngineDriver {
 			} while (this.#pickerStale && !this.#closed);
 		};
 		const pending = read().finally(() => {
-			if (this.#pickerRead === pending) this.#pickerRead = undefined;
+			this.#pickerRead = undefined;
 		});
 		this.#pickerRead = pending;
 		return pending;
@@ -2650,8 +2648,7 @@ class PuppeteerDriver implements EngineDriver {
 			if ((await handle.evaluate(SELECT_TARGET_SCRIPT)) !== "combobox") return false;
 			await pickInCombobox(page, handle, wanted, {
 				signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
-				listWaitMs: COMBOBOX_LIST_WAIT_MS,
-				verifyMs: COMBOBOX_VERIFY_MS,
+				budgetMs: ACTION_TIMEOUT_MS,
 				beforeEffect: async () => {
 					if (guard !== undefined) {
 						const admission = guard();

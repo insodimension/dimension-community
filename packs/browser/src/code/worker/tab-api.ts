@@ -30,8 +30,6 @@ type WaitUntil = "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 type ActionabilityResult = { ok: true; x: number; y: number } | { ok: false; reason: string };
 
 const TEXT_CLICK_LOOP_SLACK_MS = 250;
-const COMBOBOX_LIST_WAIT_MS = 3_000;
-const COMBOBOX_VERIFY_MS = 1_500;
 
 /** How long the text click's own loop runs inside an op of `actionOpMs`: the ceiling less the slack, but never less than half of it, so a short cell budget still gets more than one attempt (at least 1 ms). */
 export function textClickLoopMs(actionOpMs: number): number {
@@ -342,8 +340,7 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
         if (values.length !== 1) throw new ToolError(`tab.select(${JSON.stringify(selector)}) on a combobox picks one option; got ${values.length}.`);
         const picked = await pickInCombobox(page, handle, values[0] as string, {
           signal: sig,
-          listWaitMs: Math.min(COMBOBOX_LIST_WAIT_MS, ms / 2),
-          verifyMs: Math.min(COMBOBOX_VERIFY_MS, ms / 4),
+          budgetMs: ms,
           beforeEffect: async () => {},
           describe: `tab.select(${JSON.stringify(selector)})`,
         });
@@ -357,7 +354,6 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
             selected: boolean;
           }
           interface SelectLike {
-            tagName: string;
             options: ArrayLike<SelectOption>;
             dispatchEvent: (event: unknown) => boolean;
           }

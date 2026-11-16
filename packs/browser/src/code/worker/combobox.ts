@@ -5,6 +5,8 @@ import { sleep, untilAborted } from "./abortable";
 export type SelectTarget = "native" | "combobox" | "other";
 
 const LIST_POLL_MS = 50;
+const LIST_WAIT_MS = 3_000;
+const VERIFY_MS = 1_500;
 const MAX_OFFERED_NAMES = 30;
 
 export const SELECT_TARGET_SCRIPT = (el: Element): SelectTarget => {
@@ -82,8 +84,7 @@ const SHOWN_CHOICE_SCRIPT = (combobox: Element, option: Element, label: string):
 
 export interface ComboboxPickOptions {
 	readonly signal: AbortSignal;
-	readonly listWaitMs: number;
-	readonly verifyMs: number;
+	readonly budgetMs: number;
 	readonly beforeEffect: () => Promise<void>;
 	readonly describe: string;
 }
@@ -98,7 +99,8 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 	const { signal, beforeEffect, describe } = options;
 	let opened = false;
 	let nudged = false;
-	const deadline = Date.now() + options.listWaitMs;
+	const listWaitMs = Math.min(LIST_WAIT_MS, options.budgetMs / 2);
+	const deadline = Date.now() + listWaitMs;
 	let { search, found } = await searchOptions(combobox, wanted, signal);
 	try {
 		while (found.state === "waiting") {
@@ -106,7 +108,7 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 				await beforeEffect();
 				opened = true;
 				await untilAborted(signal, () => combobox.click());
-			} else if (opened && !nudged && Date.now() >= deadline - options.listWaitMs / 2) {
+			} else if (opened && !nudged && Date.now() >= deadline - listWaitMs / 2) {
 				await beforeEffect();
 				nudged = true;
 				await untilAborted(signal, () => combobox.press("ArrowDown"));
@@ -119,12 +121,11 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 			({ search, found } = await searchOptions(combobox, wanted, signal));
 		}
 		if (found.state === "missing") {
-			const { offered } = found;
 			if (opened) {
 				await beforeEffect();
 				await untilAborted(signal, () => page.keyboard.press("Escape"));
 			}
-			throw new ToolError(`${describe} has no option named or valued ${JSON.stringify(wanted)}. It offers: ${offered.map((name) => JSON.stringify(name)).join(", ")}.`);
+			throw new ToolError(`${describe} has no option named or valued ${JSON.stringify(wanted)}. It offers: ${found.offered.map((name) => JSON.stringify(name)).join(", ")}.`);
 		}
 		const { label, disabled } = found;
 		if (disabled) throw new ToolError(`${describe}: the option ${JSON.stringify(label)} is disabled.`);
@@ -135,7 +136,7 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 		try {
 			await beforeEffect();
 			await untilAborted(signal, () => option.click());
-			const verifyBy = Date.now() + options.verifyMs;
+			const verifyBy = Date.now() + Math.min(VERIFY_MS, options.budgetMs / 4);
 			for (;;) {
 				const shown = await untilAborted(signal, () => combobox.evaluate(SHOWN_CHOICE_SCRIPT, option, label));
 				if (shown.shows) return label;

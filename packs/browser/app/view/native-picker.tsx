@@ -6,13 +6,15 @@ const TYPEAHEAD_RESET_MS = 1_000;
 
 export const PICKER_STEP_KEYS: Readonly<Record<string, true>> = { ArrowDown: true, ArrowUp: true, Home: true, End: true, PageDown: true, PageUp: true };
 
+const choosableOf = (picker: NativePicker) => picker.options.filter(option => !option.disabled);
+
 export function initialHighlight(picker: NativePicker): number {
-	const choosable = picker.options.filter(option => !option.disabled);
+	const choosable = choosableOf(picker);
 	return (choosable.find(option => option.index === picker.selected) ?? choosable[0])?.index ?? -1;
 }
 
 export function steppedHighlight(picker: NativePicker, from: number, key: string): number {
-	const choosable = picker.options.filter(option => !option.disabled);
+	const choosable = choosableOf(picker);
 	if (choosable.length === 0) return -1;
 	const at = choosable.findIndex(option => option.index === from);
 	const last = choosable.length - 1;
@@ -34,7 +36,7 @@ export interface Typeahead {
 
 export function typedHighlight(picker: NativePicker, from: number, typed: Typeahead, char: string, now: number): { highlight: number; typed: Typeahead } {
 	const text = (now - typed.at > TYPEAHEAD_RESET_MS ? char : typed.text + char).toLocaleLowerCase();
-	const choosable = picker.options.filter(option => !option.disabled);
+	const choosable = choosableOf(picker);
 	const at = choosable.findIndex(option => option.index === from);
 	const start = text.length === 1 ? at + 1 : Math.max(at, 0);
 	const ordered = [...choosable.slice(start), ...choosable.slice(0, start)];
@@ -71,6 +73,10 @@ export function NativePickerList({ picker, viewport, highlight, interactive, onH
 	}, [highlight, picker.id]);
 
 	const stop = (event: { stopPropagation(): void }) => event.stopPropagation();
+	const claim = (event: { stopPropagation(): void; preventDefault(): void }) => {
+		event.stopPropagation();
+		event.preventDefault();
+	};
 	let group: string | null = null;
 	return (
 		<div
@@ -80,19 +86,13 @@ export function NativePickerList({ picker, viewport, highlight, interactive, onH
 			aria-label="Options"
 			data-interactive={interactive || undefined}
 			style={style}
-			onPointerDown={event => {
-				event.stopPropagation();
-				event.preventDefault();
-			}}
+			onPointerDown={claim}
 			onPointerMove={stop}
 			onPointerUp={stop}
 			onMouseDown={stop}
 			onMouseUp={stop}
 			onClick={stop}
-			onContextMenu={event => {
-				event.stopPropagation();
-				event.preventDefault();
-			}}
+			onContextMenu={claim}
 		>
 			{picker.options.map(option => {
 				const header = option.group !== group && option.group !== null;
