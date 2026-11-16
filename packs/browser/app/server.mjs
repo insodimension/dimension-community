@@ -4615,6 +4615,7 @@ var KILL_CONFIRM_MS = 5e3;
 var KILL_TAB_CLOSE_MS = 1e3;
 var FAVICON_SCRIPT_TIMEOUT_MS = 2e3;
 var GEOMETRY_TIMEOUT_MS = 1e3;
+var STILL_CAPTURE_TIMEOUT_MS = 2e3;
 var FIRST_FRAME_WAIT_MS = 150;
 var SCREENCAST_QUALITY = 70;
 var INPUT_TIMEOUT_MS = 5e3;
@@ -5706,7 +5707,7 @@ var PuppeteerDriver = class {
     return tab.measuring;
   }
   async #stillOf(tab, cdp, quality, maxWidth) {
-    try {
+    const capture = async () => {
       const [{ viewport }, metrics] = await Promise.all([this.#geometry(tab), this.#read(() => cdp.send("Page.getLayoutMetrics"))]);
       const { pageX: x, pageY: y } = metrics.cssVisualViewport;
       const shot = await cdp.send("Page.captureScreenshot", {
@@ -5716,9 +5717,8 @@ var PuppeteerDriver = class {
         clip: { x, y, width: viewport.width, height: viewport.height, scale: Math.min(1, maxWidth / viewport.width) }
       });
       return Buffer.from(shot.data, "base64");
-    } catch {
-      return void 0;
-    }
+    };
+    return await withTimeout(capture(), STILL_CAPTURE_TIMEOUT_MS, "page still").catch(() => void 0);
   }
   /**
    * After input that can start a navigation: give one a moment to start (only

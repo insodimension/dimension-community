@@ -7317,10 +7317,13 @@ function createRunPageScope(page) {
   const off = page.off;
   const once = page.once;
   const removeAllListeners = page.removeAllListeners;
+  const setRequestInterception = page.setRequestInterception;
+  let interceptionEnabledByRun = false;
   const onDescriptor = Object.getOwnPropertyDescriptor(page, "on");
   const offDescriptor = Object.getOwnPropertyDescriptor(page, "off");
   const onceDescriptor = Object.getOwnPropertyDescriptor(page, "once");
   const removeAllDescriptor = Object.getOwnPropertyDescriptor(page, "removeAllListeners");
+  const setRequestInterceptionDescriptor = Object.getOwnPropertyDescriptor(page, "setRequestInterception");
   Object.defineProperties(page, {
     on: {
       configurable: true,
@@ -7369,6 +7372,13 @@ function createRunPageScope(page) {
         if (type === void 0 || type === "request") requestHandlers.length = 0;
         return page;
       }
+    },
+    setRequestInterception: {
+      configurable: true,
+      value: (enabled) => {
+        interceptionEnabledByRun ||= enabled;
+        return Reflect.apply(setRequestInterception, page, [enabled]);
+      }
     }
   });
   return {
@@ -7382,8 +7392,11 @@ function createRunPageScope(page) {
       else Reflect.deleteProperty(page, "once");
       if (removeAllDescriptor) Object.defineProperty(page, "removeAllListeners", removeAllDescriptor);
       else Reflect.deleteProperty(page, "removeAllListeners");
+      if (setRequestInterceptionDescriptor) Object.defineProperty(page, "setRequestInterception", setRequestInterceptionDescriptor);
+      else Reflect.deleteProperty(page, "setRequestInterception");
       for (const handler of requestHandlers) Reflect.apply(off, page, ["request", handler]);
       requestHandlers.length = 0;
+      if (!interceptionEnabledByRun) return;
       try {
         await withTimeout(
           page.setRequestInterception(false),
@@ -7612,7 +7625,7 @@ async function collectObservation(page, elements2, options) {
   const viewportOnly = options.viewportOnly ?? false;
   const snapshot = await untilAborted(
     options.signal,
-    () => page.accessibility.snapshot({ interestingOnly: !includeAll })
+    () => page.accessibility.snapshot({ interestingOnly: false })
   );
   if (!snapshot) throw new ToolError("Accessibility snapshot unavailable");
   const entries = [];
@@ -8107,7 +8120,7 @@ function createTabApi(c, output, screenshots) {
     page,
     signal,
     url: () => page.url(),
-    title: () => op("tab.title()", INF, (sig) => untilAborted(sig, () => page.title())),
+    title: () => op("tab.title()", quickOpMs, (sig) => untilAborted(sig, () => page.title())),
     goto: (url, opts) => op(`tab.goto(${JSON.stringify(url)})`, INF, async (sig) => {
       elements2.clear();
       try {
