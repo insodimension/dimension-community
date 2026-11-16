@@ -4,7 +4,8 @@
 // Changed for the Browser pack: the helpers are built over a TabSession (one adopted page) instead of WorkerCore; Bun.sleep is `sleep`; `uploadFile` paths are absolute or resolve against the cwd the host
 // gave the realm (MCP carries none: matrix D21); `type`, `fill` and `press` refuse a password input unless the host lifts the rule (matrix D18, ON by default: OMP has no such rule; password-guard.ts); the
 // text-selector click names its own loop's timeout instead of letting an AbortError through, and its loop ends a quarter second before the op's ceiling so that message (with the actionability reason) is the
-// one the model reads where OMP's two equal deadlines raced; the ARIA, readable and screenshot pieces live in their own modules.
+// one the model reads where OMP's two equal deadlines raced; `title()` has the quick-op deadline instead of none, so a frozen page fails it by name; the ARIA, readable and screenshot pieces live in their
+// own modules.
 
 import * as os from "node:os";
 import * as path from "node:path";
@@ -424,7 +425,7 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
     page,
     signal,
     url: () => page.url(),
-    title: () => op("tab.title()", INF, sig => untilAborted(sig, () => page.title())),
+    title: () => op("tab.title()", quickOpMs, sig => untilAborted(sig, () => page.title())),
     goto: (url, opts) =>
       op(`tab.goto(${JSON.stringify(url)})`, INF, async sig => {
         elements.clear();

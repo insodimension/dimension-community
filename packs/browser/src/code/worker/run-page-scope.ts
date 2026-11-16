@@ -1,6 +1,7 @@
 // Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/tab-worker.ts (RunPageScope, createRunPageScope) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
-// Changed for the Browser pack: none beyond imports; the error payload mapping is in run-error.ts.
+// Changed for the Browser pack: cleanup clears request interception only when the run turned it on (OMP clears it after every run, a CDP round trip that a busy renderer never answers); the error
+// payload mapping is in run-error.ts.
 
 import type { Page } from "puppeteer-core";
 import { withTimeout } from "./abortable";
@@ -25,10 +26,13 @@ export function createRunPageScope(page: Page): RunPageScope {
   const off = page.off;
   const once = page.once;
   const removeAllListeners = page.removeAllListeners;
+  const setRequestInterception = page.setRequestInterception;
+  let interceptionEnabledByRun = false;
   const onDescriptor = Object.getOwnPropertyDescriptor(page, "on");
   const offDescriptor = Object.getOwnPropertyDescriptor(page, "off");
   const onceDescriptor = Object.getOwnPropertyDescriptor(page, "once");
   const removeAllDescriptor = Object.getOwnPropertyDescriptor(page, "removeAllListeners");
+  const setRequestInterceptionDescriptor = Object.getOwnPropertyDescriptor(page, "setRequestInterception");
 
   Object.defineProperties(page, {
     on: {
@@ -79,6 +83,13 @@ export function createRunPageScope(page: Page): RunPageScope {
         return page;
       },
     },
+    setRequestInterception: {
+      configurable: true,
+      value: (enabled: boolean): Promise<void> => {
+        interceptionEnabledByRun ||= enabled;
+        return Reflect.apply(setRequestInterception, page, [enabled]);
+      },
+    },
   });
 
   return {
@@ -92,8 +103,11 @@ export function createRunPageScope(page: Page): RunPageScope {
       else Reflect.deleteProperty(page, "once");
       if (removeAllDescriptor) Object.defineProperty(page, "removeAllListeners", removeAllDescriptor);
       else Reflect.deleteProperty(page, "removeAllListeners");
+      if (setRequestInterceptionDescriptor) Object.defineProperty(page, "setRequestInterception", setRequestInterceptionDescriptor);
+      else Reflect.deleteProperty(page, "setRequestInterception");
       for (const handler of requestHandlers) Reflect.apply(off, page, ["request", handler]);
       requestHandlers.length = 0;
+      if (!interceptionEnabledByRun) return;
       try {
         await withTimeout(
           page.setRequestInterception(false),

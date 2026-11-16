@@ -2,7 +2,8 @@
 // and tab-protocol.ts (Observation, ObservationEntry) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
 // Changed for the Browser pack: (matrix D10) the observation lives with its element cache instead of WorkerCore; `viewport` is the page's real size (the worker adopts a page and never sets its
-// viewport, so puppeteer's `page.viewport()` is null and OMP would print its 1365x768 default whatever the page is).
+// viewport, so puppeteer's `page.viewport()` is null and OMP would print its 1365x768 default whatever the page is); the AX tree is always read with `interestingOnly: false`, so an option made of an
+// icon and text (Fluent, Radix, MUI listboxes), which puppeteer's pruning drops, is listed and INTERACTIVE_AX_ROLES alone decides what is shown.
 
 import type { ElementHandle, Page, SerializedAXNode } from "puppeteer-core";
 import { ToolError } from "../errors";
@@ -126,7 +127,7 @@ export async function collectObservation(
   const includeAll = options.includeAll ?? false;
   const viewportOnly = options.viewportOnly ?? false;
   const snapshot = (await untilAborted(options.signal, () =>
-    page.accessibility.snapshot({ interestingOnly: !includeAll }),
+    page.accessibility.snapshot({ interestingOnly: false }),
   )) as SerializedAXNode | null;
   if (!snapshot) throw new ToolError("Accessibility snapshot unavailable");
   const entries: ObservationEntry[] = [];
