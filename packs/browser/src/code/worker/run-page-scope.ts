@@ -1,6 +1,7 @@
 // Copied from OMP (https://github.com/can1357/oh-my-pi, MIT), packages/coding-agent/src/tools/browser/tab-worker.ts (RunPageScope, createRunPageScope) @ dc5f95d9e1 (Dimension omp fork).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük; (c) 2026 Stencil Labs, Inc. See ../../../third-party/omp/LICENSE.
-// Changed for the Browser pack: none beyond imports; the error payload mapping is in run-error.ts.
+// Changed for the Browser pack: cleanup clears request interception only when the run turned it on (OMP clears it after every run, a CDP round trip that a busy renderer never answers); the error
+// payload mapping is in run-error.ts.
 
 import type { Page } from "puppeteer-core";
 import { withTimeout } from "./abortable";
