@@ -29,12 +29,14 @@ const PICKER: NativePicker = {
 	truncated: false,
 };
 
+function view(picker: NativePicker | null, sent: PageInputEvent[], mode: "live" | "locked" = "live") {
+	return <PageView picture={{ viewport: VIEWPORT }} canvas={() => {}} viewport={VIEWPORT} mode={mode} onInput={(event) => sent.push(event)} onResize={() => {}} label="page" picker={picker} />;
+}
+
 async function page(picker: NativePicker | null, mode: "live" | "locked" = "live") {
 	const sent: PageInputEvent[] = [];
-	const dom = await mount(
-		<PageView picture={{ viewport: VIEWPORT }} canvas={() => {}} viewport={VIEWPORT} mode={mode} onInput={(event) => sent.push(event)} onResize={() => {}} label="page" picker={picker} />,
-	);
-	return { dom, sent };
+	const dom = await mount(view(picker, sent, mode));
+	return { dom, sent, show: (next: NativePicker | null) => dom.rerender(view(next, sent, mode)) };
 }
 
 const option = (dom: Dom, label: string): Element => {
@@ -85,6 +87,19 @@ describe("the View draws a page's open native list", () => {
 		await dom.key(surface, "e");
 		await dom.key(surface, "Enter");
 		expect(sent).toEqual([{ kind: "pick", picker: "abc12345.1", index: 4 }]);
+	});
+
+	test("the same select closed and opened again highlights the page's selected option, not where the person last moved to", async () => {
+		const { dom, sent, show } = await page(PICKER);
+		const surface = dom.find(".bx-page")[0] as Element;
+		await dom.key(surface, "ArrowDown");
+		expect(dom.find('[aria-selected="true"]').map((node) => node.textContent)).toEqual(["Delta"]);
+		await show(null);
+		expect(dom.find(".bx-picker")).toEqual([]);
+		await show(PICKER);
+		expect(dom.find('[aria-selected="true"]').map((node) => node.textContent)).toEqual(["Bravo"]);
+		await dom.key(surface, "Enter");
+		expect(sent).toEqual([{ kind: "pick", picker: "abc12345.1", index: 1 }]);
 	});
 
 	test("a press on the page outside the list closes the page's list with Escape and is not also a click on the page", async () => {

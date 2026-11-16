@@ -136,7 +136,10 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 	const heldKeysRef = useRef(new Set<string>());
 	const [highlight, setHighlight] = useState(-1);
 	const [highlightFor, setHighlightFor] = useState<string | null>(null);
-	if (picker !== null && highlightFor !== picker.id) {
+	// A <select> keeps its id across opens, so forget it on close: the next open highlights the selected option again.
+	if (picker === null) {
+		if (highlightFor !== null) setHighlightFor(null);
+	} else if (highlightFor !== picker.id) {
 		setHighlightFor(picker.id);
 		setHighlight(initialHighlight(picker));
 	}

@@ -4,8 +4,8 @@
 // Changed for the Browser pack: the helpers are built over a TabSession (one adopted page) instead of WorkerCore; Bun.sleep is `sleep`; `uploadFile` paths are absolute or resolve against the cwd the host
 // gave the realm (MCP carries none: matrix D21); `type`, `fill` and `press` refuse a password input unless the host lifts the rule (matrix D18, ON by default: OMP has no such rule; password-guard.ts); the
 // text-selector click names its own loop's timeout instead of letting an AbortError through, and its loop ends a quarter second before the op's ceiling so that message (with the actionability reason) is the
-// one the model reads where OMP's two equal deadlines raced; `title()` has the quick-op deadline instead of none, so a frozen page fails it by name; `select` also picks in an ARIA combobox (combobox.ts);
-// the ARIA, readable and screenshot pieces live in their own modules.
+// one the model reads where OMP's two equal deadlines raced; `title()` has the quick-op deadline instead of none, so a frozen page fails it by name; `select` also picks in an ARIA combobox (combobox.ts),
+// and on any other element names both kinds it takes; the ARIA, readable and screenshot pieces live in their own modules.
 
 import * as os from "node:os";
 import * as path from "node:path";
@@ -29,6 +29,7 @@ type DragTarget = string | { readonly x: number; readonly y: number };
 type WaitUntil = "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 type ActionabilityResult = { ok: true; x: number; y: number } | { ok: false; reason: string };
 
+/** The text-selector click's own loop gives up this long before the op's ceiling, so its message (the last actionability reason it saw) is the one thrown, not the op's generic one. */
 const TEXT_CLICK_LOOP_SLACK_MS = 250;
 
 /** How long the text click's own loop runs inside an op of `actionOpMs`: the ceiling less the slack, but never less than half of it, so a short cell budget still gets more than one attempt (at least 1 ms). */
