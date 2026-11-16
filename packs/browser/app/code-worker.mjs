@@ -839,7 +839,7 @@ function parseInto(html, document2, root, contextTag) {
     }
     closeOptionalElements(stack, parsed.name);
     parent = stack[stack.length - 1] ?? root;
-    const namespace = parent instanceof Element && parent.namespaceURI === "http://www.w3.org/2000/svg" ? "http://www.w3.org/2000/svg" : parsed.name === "svg" ? "http://www.w3.org/2000/svg" : "http://www.w3.org/1999/xhtml";
+    const namespace = parent instanceof Element2 && parent.namespaceURI === "http://www.w3.org/2000/svg" ? "http://www.w3.org/2000/svg" : parsed.name === "svg" ? "http://www.w3.org/2000/svg" : "http://www.w3.org/1999/xhtml";
     const element = document2.createElementNS(namespace, parsed.name);
     for (let attributeIndex = parsed.attributes.length - 1; attributeIndex >= 0; attributeIndex--) {
       const [name, value] = parsed.attributes[attributeIndex];
@@ -1214,7 +1214,7 @@ function matchPseudo(element, name, argument) {
     case "only-child":
       return element.parentElement?.children.length === 1;
     case "empty":
-      return element.childNodes.every((child) => child.nodeType === Node.COMMENT_NODE || child.textContent === "");
+      return element.childNodes.every((child) => child.nodeType === Node2.COMMENT_NODE || child.textContent === "");
     case "root":
       return element.ownerDocument?.documentElement === element;
     case "nth-child":
@@ -1304,7 +1304,7 @@ function matchesSelector(element, selector) {
 function querySelectorAllFrom(root, selector, includeRoot) {
   const result = [];
   const visit = (node) => {
-    if (node instanceof Element && matchesSelector(node, selector)) result.push(node);
+    if (node instanceof Element2 && matchesSelector(node, selector)) result.push(node);
     for (const child of node.childNodes) visit(child);
   };
   if (includeRoot) {
@@ -1332,7 +1332,7 @@ function serializeNode2(node) {
   if (node instanceof Comment) return `<!--${node.data}-->`;
   if (node instanceof Text) return node.serializeRaw ? node.data : escapeText(node.data);
   if (node instanceof Document || node instanceof DocumentFragment) return node.childNodes.map(serializeNode2).join("");
-  if (!(node instanceof Element)) return "";
+  if (!(node instanceof Element2)) return "";
   const attributes = node.attributes.map(
     (attr) => attr.value === "" && BOOLEAN_ATTRIBUTES[attr.name.toLowerCase()] ? ` ${attr.name}` : ` ${attr.name}="${escapeAttribute2(attr.value)}"`
   ).join("");
@@ -1347,7 +1347,7 @@ function serializeNode2(node) {
 function cssEscapeIdentifier(value) {
   return value.replace(/([^a-zA-Z0-9_-])/g, "\\$1");
 }
-var NodeType, Event, CustomEvent, EventTarget, Node, Text, Comment, Attr, NamedNodeMap, DOMTokenList, CSSStyleDeclaration, HTML_NAMESPACE, SVG_NAMESPACE, Element, HTMLElement, HTMLMetaElement, SVGElement, HTMLIFrameElement2, DocumentFragment, HTMLTemplateElement, Document, DOMWindow, VOID_ELEMENTS3, BOOLEAN_ATTRIBUTES;
+var NodeType, Event, CustomEvent, EventTarget, Node2, Text, Comment, Attr, NamedNodeMap, DOMTokenList, CSSStyleDeclaration, HTML_NAMESPACE, SVG_NAMESPACE, Element2, HTMLElement, HTMLMetaElement, SVGElement, HTMLIFrameElement2, DocumentFragment, HTMLTemplateElement, Document, DOMWindow, VOID_ELEMENTS3, BOOLEAN_ATTRIBUTES;
 var init_core = __esm({
   "src/code/extract/dom/core.ts"() {
     "use strict";
@@ -1427,13 +1427,13 @@ var init_core = __esm({
           else listener.handleEvent(event);
           if (event.propagationStopped) break;
         }
-        if (event.bubbles && !event.propagationStopped && this instanceof Node && this.parentNode) {
+        if (event.bubbles && !event.propagationStopped && this instanceof Node2 && this.parentNode) {
           this.parentNode.dispatchEvent(event);
         }
         return !event.defaultPrevented;
       }
     };
-    Node = class _Node extends EventTarget {
+    Node2 = class _Node extends EventTarget {
       static ELEMENT_NODE = 1 /* ELEMENT */;
       static ATTRIBUTE_NODE = 2 /* ATTRIBUTE */;
       static TEXT_NODE = 3 /* TEXT */;
@@ -1493,7 +1493,7 @@ var init_core = __esm({
       }
       /** Parent element, excluding document and fragments. */
       get parentElement() {
-        return this.parentNode instanceof Element ? this.parentNode : null;
+        return this.parentNode instanceof Element2 ? this.parentNode : null;
       }
       /** Append a node, moving it from its old parent. */
       appendChild(child) {
@@ -1610,7 +1610,7 @@ var init_core = __esm({
         return this.ownerDocument;
       }
     };
-    Text = class _Text extends Node {
+    Text = class _Text extends Node2 {
       data;
       serializeRaw;
       constructor(data, ownerDocument = null, serializeRaw = false) {
@@ -1655,7 +1655,7 @@ var init_core = __esm({
         return new _Comment(this.data, this.ownerDocument);
       }
     };
-    Attr = class _Attr extends Node {
+    Attr = class _Attr extends Node2 {
       name;
       value;
       namespaceURI;
@@ -1796,7 +1796,7 @@ var init_core = __esm({
     };
     HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
     SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-    Element = class _Element extends Node {
+    Element2 = class _Element extends Node2 {
       localName;
       tagName;
       namespaceURI;
@@ -1995,7 +1995,7 @@ var init_core = __esm({
         return clone;
       }
     };
-    HTMLElement = class extends Element {
+    HTMLElement = class extends Element2 {
       value = "";
       checked = false;
       selected = false;
@@ -2046,17 +2046,17 @@ var init_core = __esm({
         this.setAttribute("content", value);
       }
     };
-    SVGElement = class extends Element {
+    SVGElement = class extends Element2 {
     };
     HTMLIFrameElement2 = class extends HTMLElement {
     };
-    DocumentFragment = class _DocumentFragment extends Node {
+    DocumentFragment = class _DocumentFragment extends Node2 {
       constructor(ownerDocument = null) {
         super(11 /* DOCUMENT_FRAGMENT */, "#document-fragment", ownerDocument);
       }
       /** Element children. */
       get children() {
-        return this.childNodes.filter((child) => child instanceof Element);
+        return this.childNodes.filter((child) => child instanceof Element2);
       }
       /** First element child. */
       get firstElementChild() {
@@ -2124,7 +2124,7 @@ var init_core = __esm({
         return clone;
       }
     };
-    Document = class _Document extends Node {
+    Document = class _Document extends Node2 {
       defaultView = null;
       URL = "about:blank";
       activeElement = null;
@@ -2138,7 +2138,7 @@ var init_core = __esm({
       }
       /** Element children. */
       get children() {
-        return this.childNodes.filter((child) => child instanceof Element);
+        return this.childNodes.filter((child) => child instanceof Element2);
       }
       /** HTML body, or a detached empty body when absent like linkedom. */
       get body() {
@@ -2248,8 +2248,8 @@ var init_core = __esm({
     };
     DOMWindow = class extends EventTarget {
       document;
-      Node = Node;
-      Element = Element;
+      Node = Node2;
+      Element = Element2;
       HTMLElement = HTMLElement;
       HTMLIFrameElement = HTMLIFrameElement2;
       SVGElement = SVGElement;
@@ -2349,7 +2349,7 @@ __export(dom_exports, {
   DOMWindow: () => DOMWindow,
   Document: () => Document,
   DocumentFragment: () => DocumentFragment,
-  Element: () => Element,
+  Element: () => Element2,
   Event: () => Event,
   EventTarget: () => EventTarget,
   HTMLElement: () => HTMLElement,
@@ -2357,7 +2357,7 @@ __export(dom_exports, {
   HTMLMetaElement: () => HTMLMetaElement,
   HTMLTemplateElement: () => HTMLTemplateElement,
   NamedNodeMap: () => NamedNodeMap,
-  Node: () => Node,
+  Node: () => Node2,
   NodeType: () => NodeType,
   SVGElement: () => SVGElement,
   Text: () => Text,
@@ -7416,6 +7416,134 @@ function createRunPageScope(page) {
 import * as os4 from "node:os";
 import * as path4 from "node:path";
 
+// src/code/worker/combobox.ts
+var LIST_POLL_MS = 50;
+var LIST_WAIT_MS = 3e3;
+var VERIFY_MS = 1500;
+var MAX_OFFERED_NAMES = 30;
+var SELECT_TARGET_SCRIPT = (el) => {
+  if (el.localName === "select") return "native";
+  const role = el.getAttribute("role");
+  const popup = el.getAttribute("aria-haspopup");
+  return role === "combobox" || popup === "listbox" ? "combobox" : "other";
+};
+var FIND_OPTION_SCRIPT = (combobox, wanted, maxOffered, before) => {
+  const doc = combobox.ownerDocument;
+  const owners = [combobox, ...combobox.querySelectorAll('[role="combobox"]')];
+  const expanded = owners.some((owner) => owner.getAttribute("aria-expanded") === "true");
+  const shown = (node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden";
+  const named = [];
+  for (const owner of owners) {
+    for (const attribute of ["aria-controls", "aria-owns"]) {
+      for (const id of (owner.getAttribute(attribute) ?? "").split(/\s+/)) {
+        const list = id === "" ? null : doc.getElementById(id);
+        if (list !== null && shown(list)) named.push(list);
+      }
+    }
+  }
+  let lists = named;
+  if (lists.length === 0 && (expanded || before !== null)) lists = [...doc.querySelectorAll('[role="listbox"]')].filter((list) => shown(list) && !(before ?? []).includes(list));
+  const options = lists.flatMap((list) => list.getAttribute("role") === "option" ? [list] : [...list.querySelectorAll('[role="option"]')]).filter(shown);
+  if (options.length === 0) return { state: "waiting", expanded, offered: [], label: "", disabled: false, option: null };
+  const textOf = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+    if (!(node instanceof Element) || node.getAttribute("aria-hidden") === "true") return "";
+    const style = getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") return "";
+    const inner = [...node.childNodes].map(textOf).join("");
+    return style.display.startsWith("inline") ? inner : ` ${inner} `;
+  };
+  const nameOf = (option) => {
+    const labelledBy = (option.getAttribute("aria-labelledby") ?? "").split(/\s+/).flatMap((id) => {
+      const label = id === "" ? null : doc.getElementById(id);
+      return label === null ? [] : [textOf(label)];
+    });
+    const name = labelledBy.length > 0 ? labelledBy.join(" ") : option.getAttribute("aria-label") ?? textOf(option);
+    return name.replace(/\s+/g, " ").trim();
+  };
+  const valueOf = (option) => option.getAttribute("data-value") ?? option.getAttribute("value");
+  const loose = wanted.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  const match = options.find((option) => nameOf(option) === wanted || valueOf(option) === wanted) ?? options.find((option) => nameOf(option).toLocaleLowerCase() === loose);
+  if (match === void 0) return { state: "missing", expanded, offered: options.slice(0, maxOffered).map(nameOf), label: "", disabled: false, option: null };
+  return { state: "found", expanded, offered: [], label: nameOf(match), disabled: match.getAttribute("aria-disabled") === "true", option: match };
+};
+var SHOWN_CHOICE_SCRIPT = (combobox, option, label) => {
+  const fields = [combobox, ...combobox.querySelectorAll("input")].filter((node) => node instanceof HTMLInputElement);
+  const words = fields.map((field) => field.value);
+  const walker = combobox.ownerDocument.createTreeWalker(combobox, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const list = node.parentElement?.closest('[role="listbox"]');
+    if (list === null || list === void 0 || !combobox.contains(list)) words.push(node.textContent ?? "");
+  }
+  const text2 = words.join(" ").replace(/\s+/g, " ").trim();
+  const selectedInOpenList = option.isConnected && option.getAttribute("aria-selected") === "true";
+  return { shows: selectedInOpenList || text2.toLocaleLowerCase().includes(label.toLocaleLowerCase()), text: text2 };
+};
+var SHOWN_LISTS_SCRIPT = (combobox) => [...combobox.ownerDocument.querySelectorAll('[role="listbox"]')].filter((list) => list.getClientRects().length > 0 && getComputedStyle(list).visibility !== "hidden");
+async function searchOptions(combobox, wanted, before, signal) {
+  const search = await untilAborted(signal, () => combobox.evaluateHandle(FIND_OPTION_SCRIPT, wanted, MAX_OFFERED_NAMES, before));
+  const found = await search.evaluate(({ option: _option, ...summary }) => summary);
+  return { search, found };
+}
+async function pickInCombobox(page, combobox, wanted, options) {
+  const { signal, beforeEffect, describe } = options;
+  let before = null;
+  let opened = false;
+  let nudged = false;
+  const listWaitMs = Math.min(LIST_WAIT_MS, options.budgetMs / 2);
+  const deadline = Date.now() + listWaitMs;
+  let { search, found } = await searchOptions(combobox, wanted, before, signal);
+  try {
+    while (found.state === "waiting") {
+      if (!opened && !found.expanded) {
+        before = await untilAborted(signal, () => combobox.evaluateHandle(SHOWN_LISTS_SCRIPT));
+        await beforeEffect();
+        opened = true;
+        await untilAborted(signal, () => combobox.click());
+      } else if (opened && !nudged && Date.now() >= deadline - listWaitMs / 2) {
+        await beforeEffect();
+        nudged = true;
+        await untilAborted(signal, () => combobox.press("ArrowDown"));
+      } else if (Date.now() >= deadline) {
+        throw new ToolError(`${describe} opened no list of options: nothing with role="option" became visible. Look at the page (tab.observe()) and click the combobox's own options instead.`);
+      } else {
+        await untilAborted(signal, () => sleep(LIST_POLL_MS));
+      }
+      await search.dispose();
+      ({ search, found } = await searchOptions(combobox, wanted, before, signal));
+    }
+    if (found.state === "missing") {
+      if (opened) {
+        await beforeEffect();
+        await untilAborted(signal, () => page.keyboard.press("Escape"));
+      }
+      throw new ToolError(`${describe} has no option named or valued ${JSON.stringify(wanted)}. It offers: ${found.offered.map((name) => JSON.stringify(name)).join(", ")}.`);
+    }
+    const { label, disabled } = found;
+    if (disabled) throw new ToolError(`${describe}: the option ${JSON.stringify(label)} is disabled.`);
+    const option = await search.evaluateHandle((result) => {
+      if (result.option === null) throw new Error("the matched option is gone");
+      return result.option;
+    });
+    try {
+      await beforeEffect();
+      await untilAborted(signal, () => option.click());
+      const verifyBy = Date.now() + Math.min(VERIFY_MS, options.budgetMs / 4);
+      for (; ; ) {
+        const shown = await untilAborted(signal, () => combobox.evaluate(SHOWN_CHOICE_SCRIPT, option, label));
+        if (shown.shows) return label;
+        if (Date.now() >= verifyBy) throw new ToolError(`${describe} clicked the option ${JSON.stringify(label)}, but the combobox does not show it (it shows ${JSON.stringify(shown.text)}).`);
+        await untilAborted(signal, () => sleep(LIST_POLL_MS));
+      }
+    } finally {
+      await option.dispose().catch(() => void 0);
+    }
+  } finally {
+    await search.dispose().catch(() => void 0);
+    await before?.dispose().catch(() => void 0);
+  }
+}
+
 // src/code/worker/handles.ts
 var HANDLE_ACTION_INVALIDATION_TIMEOUT_MS = 500;
 var GUARDED_HANDLE_METHODS = [
@@ -8052,11 +8180,23 @@ function createTabApi(c, output, screenshots) {
   const select = async (selector, values, ms, sig) => {
     const handle = await resolveActionHandle(selector, ms, sig);
     try {
+      const target = await untilAborted(sig, () => handle.evaluate(SELECT_TARGET_SCRIPT));
+      if (target === "combobox") {
+        if (values.length !== 1) throw new ToolError(`tab.select(${JSON.stringify(selector)}) on a combobox picks one option; got ${values.length}.`);
+        const picked = await pickInCombobox(page, handle, values[0], {
+          signal: sig,
+          budgetMs: ms,
+          beforeEffect: async () => {
+          },
+          describe: `tab.select(${JSON.stringify(selector)})`
+        });
+        return [picked];
+      }
+      if (target !== "native") throw new ToolError(`tab.select(${JSON.stringify(selector)}) needs a <select>, or a combobox (role="combobox" or aria-haspopup="listbox"); this element is neither.`);
       return await untilAborted(
         sig,
         () => handle.evaluate((el, vals) => {
           const sel = el;
-          if (sel?.tagName !== "SELECT") throw new Error("tab.select() requires a <select> element");
           const EventCtor = globalThis.Event;
           const wanted = new Set(vals);
           for (let i = 0; i < sel.options.length; i++) {

@@ -191,15 +191,15 @@
 			"source": "./packs/browser",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.24/browser-0.9.24.tgz",
-				"sha256": "5dba261942959cd78a13db987e9cbc74945ef60e9858b79707dd217530749c2c",
-				"size": 1964862
+				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.25/browser-0.9.25.tgz",
+				"sha256": "ca201dcd8529e533a65aa03b8dc712ef51489e8a8b554609ee1abb4740586dcb",
+				"size": 1989433
 			},
 			"pluginId": "browser",
 			"title": "Browser",
 			"icon": "globe",
 			"description": "A real browser beside your chat that your agent drives while you watch. Tabs, persistent logged-in profiles, circle-to-annotate, and an optional fast task agent (jev).",
-			"version": "0.9.24",
+			"version": "0.9.25",
 			"author": {
 				"name": "Dimension"
 			},
