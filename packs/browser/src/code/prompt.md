@@ -16,14 +16,14 @@ Drive real Chromium tabs by running JavaScript with the global `browser` object;
   - Inspection: `observe`, `ariaSnapshot`, `screenshot`, `extract`.
   - Interaction: `click`, `type`, `fill`, `press`, `scroll`, `drag`, `scrollIntoView`, `select`, `uploadFile`.
   - Waiting: `waitFor`, `waitForSelector`, `waitForUrl`.
-  - Page execution: `evaluate`. `tab.evaluate(string)` evaluates the string as a page-global expression; top-level `return` is invalid. Pass a function or invoke an IIFE string to use `return`.
+  - Page execution: `evaluate`; pass it a function. A string is a page-global expression (no top-level `return`) whose backslashes a template literal resolves first.
 - `tab.id(n)` / `tab.ref("e5")` return `BrowserElement` handles supporting `click`, `type`, `fill`, `press`, `hover`, `focus`, `select`, `uploadFile`, `scrollIntoView`, `boundingBox`, `isVisible`, `isHidden`, and `evaluate`. A string passed to `BrowserElement.evaluate` is a function expression invoked with the element as its first argument.
 - `await tab.run(fnOrCode, { args?, timeout? })` runs a function or code string. Functions receive `{ tab, page, browser, wait, assert }`; cell closures are not captured. Plain data, functions, and `RegExp` values are supported in `args`.
 - Helpers and `tab.run` return real values. `display()`, `print` and `console.log` text goes to the result; screenshots come back as images.
 - Selectors accept CSS plus Puppeteer `aria/…`, `text/…`, `xpath/…`, and `pierce/…` query handlers.
 - Navigation and re-renders invalidate observed ids and refs. Re-observe, then act in the same cell.
-- `<select>` and custom dropdowns (role="combobox", aria-haspopup="listbox") need `tab.select(selector, nameOrValue)`, not `tab.fill` or clicks. Raw request interception lasts only for the current `tab.run`.
-- Unread page: `tab.ariaSnapshot()` first; never guess URLs. `goto` waits for load: do not sleep after it. Pass `tab.evaluate` a function: a template literal resolves backslashes in a string first.
+- `<select>` and custom dropdowns need `tab.select(selector, nameOrValue)`, not `tab.fill`. Raw request interception lasts only for the current `tab.run`.
+- Unread page: `tab.ariaSnapshot()` first; never guess URLs. `goto` waits for load: do not sleep after it.
 - Cell state persists: top-level `const`/`let` stay, the last expression is returned, top-level `await` works.
 - `timeout` is the cell's budget in seconds (default 30, max 300). One call returns after at most 25 s: a cell still running continues and the result says `running: <runId>` with its output so far. Call `browser_run({ resume: "<runId>" })` to wait up to 25 s more; start no new cell meanwhile.
 - Output over 50 KiB loses its middle; a footer names the file with all of it.

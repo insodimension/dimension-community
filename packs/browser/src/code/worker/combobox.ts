@@ -27,7 +27,9 @@ interface OptionSearch {
 
 type SearchSummary = Omit<OptionSearch, "option">;
 
-const FIND_OPTION_SCRIPT = (combobox: Element, wanted: string, maxOffered: number): OptionSearch => {
+// `before` is null until this call opens the combobox, then the listboxes already shown before that click: a list the combobox does not
+// name is looked for page-wide only once it is open, and never among lists that were there before (Outlook's message list is a listbox).
+const FIND_OPTION_SCRIPT = (combobox: Element, wanted: string, maxOffered: number, before: Element[] | null): OptionSearch => {
 	const doc = combobox.ownerDocument;
 	const owners = [combobox, ...combobox.querySelectorAll('[role="combobox"]')];
 	const expanded = owners.some((owner) => owner.getAttribute("aria-expanded") === "true");
@@ -41,7 +43,8 @@ const FIND_OPTION_SCRIPT = (combobox: Element, wanted: string, maxOffered: numbe
 			}
 		}
 	}
-	const lists = named.length > 0 ? named : [...doc.querySelectorAll('[role="listbox"]')].filter(shown);
+	let lists = named;
+	if (lists.length === 0 && (expanded || before !== null)) lists = [...doc.querySelectorAll('[role="listbox"]')].filter((list) => shown(list) && !(before ?? []).includes(list));
 	const options = lists.flatMap((list) => (list.getAttribute("role") === "option" ? [list] : [...list.querySelectorAll('[role="option"]')])).filter(shown);
 	if (options.length === 0) return { state: "waiting", expanded, offered: [], label: "", disabled: false, option: null };
 	// The name assistive tech reads: aria-labelledby, then aria-label, then the visible text with every aria-hidden or undisplayed
@@ -89,22 +92,27 @@ export interface ComboboxPickOptions {
 	readonly describe: string;
 }
 
-async function searchOptions(combobox: ElementHandle, wanted: string, signal: AbortSignal): Promise<{ search: JSHandle<OptionSearch>; found: SearchSummary }> {
-	const search: JSHandle<OptionSearch> = await untilAborted(signal, () => combobox.evaluateHandle(FIND_OPTION_SCRIPT, wanted, MAX_OFFERED_NAMES));
+const SHOWN_LISTS_SCRIPT = (combobox: Element): Element[] =>
+	[...combobox.ownerDocument.querySelectorAll('[role="listbox"]')].filter((list) => list.getClientRects().length > 0 && getComputedStyle(list).visibility !== "hidden");
+
+async function searchOptions(combobox: ElementHandle, wanted: string, before: JSHandle<Element[]> | null, signal: AbortSignal): Promise<{ search: JSHandle<OptionSearch>; found: SearchSummary }> {
+	const search: JSHandle<OptionSearch> = await untilAborted(signal, () => combobox.evaluateHandle(FIND_OPTION_SCRIPT, wanted, MAX_OFFERED_NAMES, before));
 	const found = await search.evaluate(({ option: _option, ...summary }) => summary);
 	return { search, found };
 }
 
 export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted: string, options: ComboboxPickOptions): Promise<string> {
 	const { signal, beforeEffect, describe } = options;
+	let before: JSHandle<Element[]> | null = null;
 	let opened = false;
 	let nudged = false;
 	const listWaitMs = Math.min(LIST_WAIT_MS, options.budgetMs / 2);
 	const deadline = Date.now() + listWaitMs;
-	let { search, found } = await searchOptions(combobox, wanted, signal);
+	let { search, found } = await searchOptions(combobox, wanted, before, signal);
 	try {
 		while (found.state === "waiting") {
 			if (!opened && !found.expanded) {
+				before = await untilAborted(signal, () => combobox.evaluateHandle(SHOWN_LISTS_SCRIPT));
 				await beforeEffect();
 				opened = true;
 				await untilAborted(signal, () => combobox.click());
@@ -118,7 +126,7 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 				await untilAborted(signal, () => sleep(LIST_POLL_MS));
 			}
 			await search.dispose();
-			({ search, found } = await searchOptions(combobox, wanted, signal));
+			({ search, found } = await searchOptions(combobox, wanted, before, signal));
 		}
 		if (found.state === "missing") {
 			if (opened) {
@@ -148,5 +156,6 @@ export async function pickInCombobox(page: Page, combobox: ElementHandle, wanted
 		}
 	} finally {
 		await search.dispose().catch(() => undefined);
+		await before?.dispose().catch(() => undefined);
 	}
 }

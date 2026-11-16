@@ -803,6 +803,8 @@ class PuppeteerDriver implements EngineDriver {
 	#shownPicker: { tab: Tab; picker: NativePicker } | null = null;
 	#pickerRead: Promise<void> | undefined;
 	#pickerStale = false;
+	/** One read in flight per tab: a renderer that cannot answer keeps its own, and is not asked again until it does. */
+	readonly #pickerProbes = new WeakMap<Tab, Promise<NativePicker | null>>();
 
 	constructor(parts: DriverParts) {
 		this.#browser = parts.browser;
@@ -1063,7 +1065,7 @@ class PuppeteerDriver implements EngineDriver {
 			do {
 				this.#pickerStale = false;
 				const tab = this.#active;
-				const picker = await this.#openPicker(tab).catch(() => null);
+				const picker = await this.#probePicker(tab);
 				this.#shownPicker = picker === null ? null : { tab, picker };
 			} while (this.#pickerStale && !this.#closed);
 		};
@@ -1072,6 +1074,18 @@ class PuppeteerDriver implements EngineDriver {
 		});
 		this.#pickerRead = pending;
 		return pending;
+	}
+
+	/** A busy tab answers "no list" after PICKER_READ_MS, so it never holds up the read of the tab the person switched to, nor their input. */
+	#probePicker(tab: Tab): Promise<NativePicker | null> {
+		let probe = this.#pickerProbes.get(tab);
+		if (probe === undefined) {
+			probe = this.#openPicker(tab)
+				.catch(() => null)
+				.finally(() => this.#pickerProbes.delete(tab));
+			this.#pickerProbes.set(tab, probe);
+		}
+		return withTimeout(probe, PICKER_READ_MS, "picker").catch(() => null);
 	}
 
 	async #openPicker(tab: Tab): Promise<NativePicker | null> {

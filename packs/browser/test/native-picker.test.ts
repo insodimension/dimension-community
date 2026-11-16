@@ -12,6 +12,8 @@ import type { BrowserRuntime } from "../src/runtime";
 import { BROWSER_TEST_TIMEOUT_MS, createRuntime, describeWithChrome, failureCode, teardown, waitUntil } from "./fixture";
 
 const VIEWPORT = { width: 800, height: 600 };
+const BUSY_FOR_MS = 20_000;
+const PICKER_SHOWN_WITHIN_MS = 5_000;
 
 const RECORDER = `window.log = [];
 for (const select of document.querySelectorAll("select")) {
@@ -39,27 +41,40 @@ const INNER = `<!doctype html><meta charset="utf-8"><style>body{margin:0} select
 <select id="inner">${OPTIONS}</select><script>${RECORDER}
 requestAnimationFrame(() => requestAnimationFrame(() => parent.postMessage("painted", "*")));</script>`;
 
+const BUSY_PAGE = `<!doctype html><meta charset="utf-8"><title>busy</title>
+<style>body{margin:0} button{position:absolute;left:10px;top:10px;width:120px;height:40px}</style>
+<button id="go">go</button>
+<script>
+addEventListener("message", () => { fetch("/busy-started"); const end = Date.now() + ${BUSY_FOR_MS}; while (Date.now() < end) {} }, { once: true });
+document.getElementById("go").addEventListener("click", () => postMessage("busy", "*"));
+</script>`;
+
 const servers: Array<{ stop(force?: boolean): unknown }> = [];
 afterEach(async () => {
 	for (const server of servers.splice(0)) await server.stop(true);
 	await teardown();
 }, BROWSER_TEST_TIMEOUT_MS);
 
-async function openPage(): Promise<{ runtime: BrowserRuntime; browserId: string }> {
+async function openPage(): Promise<{ runtime: BrowserRuntime; browserId: string; origin: string; hits: string[] }> {
+	const hits: string[] = [];
 	const server = Bun.serve({
 		hostname: "127.0.0.1",
 		port: 0,
 		fetch: (request: Request): Response => {
 			const url = new URL(request.url);
+			hits.push(url.pathname);
+			if (url.pathname === "/busy-started") return new Response(null, { status: 204 });
+			if (url.pathname === "/busy") return new Response(BUSY_PAGE, { headers: { "content-type": "text/html; charset=utf-8" } });
 			return new Response(url.pathname === "/inner" ? INNER : MAIN(Number(url.port)), { headers: { "content-type": "text/html; charset=utf-8" } });
 		},
 	});
 	servers.push(server);
+	const origin = `http://127.0.0.1:${server.port}`;
 	const { runtime } = await createRuntime();
 	const { browserId } = await runtime.open({ viewport: VIEWPORT });
-	expect((await runtime.act(browserId, { kind: "navigate", url: `http://127.0.0.1:${server.port}/` })).status).toBe("completed");
+	expect((await runtime.act(browserId, { kind: "navigate", url: `${origin}/` })).status).toBe("completed");
 	await waitUntil("the cross-origin frame to paint", () => pageValue<boolean>(runtime, browserId, "window.framePainted === true"), (painted) => painted);
-	return { runtime, browserId };
+	return { runtime, browserId, origin, hits };
 }
 
 async function pageValue<T>(runtime: BrowserRuntime, browserId: string, expression: string): Promise<T> {
@@ -168,6 +183,30 @@ describeWithChrome("a native list opened in the Browser View", () => {
 				expect(await failureCode(() => runtime.input(browserId, [{ kind: "pick", picker: picker.id, index: 1 }]))).toBe("picker_closed");
 				expect(await pageValue<string>(runtime, browserId, "document.getElementById('top').value")).toBe("a");
 				expect(await pageValue<string[]>(runtime, browserId, "window.log")).toEqual([]);
+			} finally {
+				stop();
+			}
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a tab that cannot answer the list read does not hold up the list of the tab the person switched to",
+		async () => {
+			const { runtime, browserId, origin, hits } = await openPage();
+			const calmTab = (await runtime.state(browserId)).activeTabId;
+			const stop = watched(runtime, browserId);
+			try {
+				await runtime.tab(browserId, { op: "new", url: `${origin.replace("127.0.0.1", "localhost")}/busy` });
+				await runtime.input(browserId, click(60, 30));
+				await waitUntil("the busy tab's loop to start", () => hits, (seen) => seen.includes("/busy-started"));
+				expect((await runtime.liveState(browserId)).picker).toBeUndefined();
+
+				await runtime.tab(browserId, { op: "activate", tabId: calmTab });
+				await runtime.input(browserId, click(140, 55));
+				const picker = await waitUntil("the calm tab's list in the live state", async () => (await runtime.liveState(browserId)).picker, (shown) => shown !== undefined, PICKER_SHOWN_WITHIN_MS);
+				expect(picker?.options.map((option) => option.label)).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"]);
+				expect(picker?.box).toEqual({ x: 40, y: 40, width: 200, height: 30 });
 			} finally {
 				stop();
 			}

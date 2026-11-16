@@ -6,8 +6,9 @@
  *  The View's page mounted on a linkedom document (`dom-harness.ts`), its input recorded instead of sent.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import type { NativePicker } from "../src/contracts";
+import { MAX_PICKER_OPTIONS, type NativePicker } from "../src/contracts";
 import type { PageInputEvent } from "../src/input";
+import { stateFromStream } from "../app/view/browser-client";
 import { PageView } from "../app/view/page-view";
 import { type Dom, mount, unmountAll } from "./dom-harness";
 
@@ -121,4 +122,46 @@ describe("the View draws a page's open native list", () => {
 		await dom.click(option(dom, "Alpha"));
 		expect(sent).toEqual([]);
 	});
+});
+
+const STREAMED = { browserId: "b1", engine: "chromium", viewport: { width: 800, height: 600 }, url: "https://example.com/", title: "Example" };
+
+describe("the live stream's state carries the page's open native list to the View", () => {
+	test("a valid list comes out with its id, box, options (real indexes, groups, disabled), selected and truncated", () => {
+		const state = stateFromStream({ ...STREAMED, picker: PICKER });
+		expect(state.picker).toEqual(PICKER);
+		expect(state.title).toBe("Example");
+	});
+
+	test("a list cut at the option cap reads as truncated with exactly the cap's options", () => {
+		const options = Array.from({ length: MAX_PICKER_OPTIONS + 5 }, (_, index) => ({ index, label: `Option ${index}`, disabled: false, group: null }));
+		const picker = stateFromStream({ ...STREAMED, picker: { ...PICKER, options, truncated: false } }).picker;
+		expect(picker?.options).toHaveLength(MAX_PICKER_OPTIONS);
+		expect(picker?.truncated).toBe(true);
+	});
+
+	test("an option that is not a pickable index is dropped, the others keep their indexes", () => {
+		const options = [{ index: 4, label: "Echo" }, { index: -1, label: "Nowhere" }, { index: 1.5, label: "Between" }, { label: "Nameless index" }, "Alpha"];
+		const picker = stateFromStream({ ...STREAMED, picker: { ...PICKER, options } }).picker;
+		expect(picker?.options).toEqual([{ index: 4, label: "Echo", disabled: false, group: null }]);
+	});
+
+	const MALFORMED: ReadonlyArray<readonly [string, unknown]> = [
+		["no id", { ...PICKER, id: undefined }],
+		["an empty id", { ...PICKER, id: "" }],
+		["a box coordinate that is not a number", { ...PICKER, box: { ...PICKER.box, width: "200" } }],
+		["no box", { ...PICKER, box: undefined }],
+		["options that are not a list", { ...PICKER, options: "Alpha" }],
+		["no selected index", { ...PICKER, selected: undefined }],
+		["not an object at all", "open"],
+	];
+
+	for (const [name, picker] of MALFORMED) {
+		test(`a list with ${name} is no list, and the rest of the state still reads`, () => {
+			const state = stateFromStream({ ...STREAMED, picker });
+			expect(state.picker).toBeUndefined();
+			expect(state.browserId).toBe("b1");
+			expect(state.viewport).toEqual({ width: 800, height: 600 });
+		});
+	}
 });

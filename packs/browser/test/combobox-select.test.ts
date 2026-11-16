@@ -63,6 +63,22 @@ function close(trigger, list) {
   trigger.setAttribute("aria-expanded", "false");
   trigger.removeAttribute("aria-controls");
 }
+window.showInbox = () => {
+  const list = document.createElement("ul");
+  list.setAttribute("role", "listbox");
+  list.id = "inbox";
+  list.style.top = "40px";
+  list.style.left = "400px";
+  list.style.width = "220px";
+  for (const subject of ["March", "Tower360"]) {
+    const option = document.createElement("li");
+    option.setAttribute("role", "option");
+    option.textContent = subject;
+    option.addEventListener("click", () => window.log.push("inbox:" + subject));
+    list.append(option);
+  }
+  document.body.append(list);
+};
 
 const fluent = document.getElementById("birth-month");
 let fluentList = null;
@@ -204,6 +220,40 @@ JSON.stringify({ message, expanded: await tab.evaluate(() => document.getElement
 			expect(result.message).toBe(`tab.select("#birth-month") has no option named or valued "Smarch". It offers: "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December".`);
 			expect(result.expanded).toBe("false");
 			expect(result.shown).toBe("Month");
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"a closed combobox that names no list is answered from its own list, not from an unrelated listbox already on the page that has an option of the same name",
+		async () => {
+			const run = await connect();
+			const url = servePage();
+			const outcome = await run(`const tab = await browser.open({ name: "form", url: ${JSON.stringify(url)} });
+await tab.evaluate(() => { window.showInbox(); return true; });
+let message = "no error";
+let picked = null;
+try { picked = await tab.select("#mui", "March"); } catch (error) { message = error.message; }
+JSON.stringify({ message, picked, shown: await tab.evaluate(() => document.getElementById("mui").textContent.trim()), log: await tab.evaluate(() => window.log) })`);
+			const result = JSON.parse(outcome.text.slice(outcome.text.indexOf("{"), outcome.text.lastIndexOf("}") + 1));
+			expect(result).toEqual({ message: "no error", picked: ["March"], shown: "March", log: ["mui:3"] });
+		},
+		BROWSER_TEST_TIMEOUT_MS,
+	);
+
+	test(
+		"an opened combobox that names no list is answered from the list its click opened, not from a listbox shown before the click",
+		async () => {
+			const run = await connect();
+			const url = servePage();
+			const outcome = await run(`const tab = await browser.open({ name: "form", url: ${JSON.stringify(url)} });
+await tab.evaluate(() => { window.showInbox(); return true; });
+let message = "no error";
+let picked = null;
+try { picked = await tab.select("#workspace", "Tower360"); } catch (error) { message = error.message; }
+JSON.stringify({ message, picked, shown: await tab.evaluate(() => document.getElementById("workspace").textContent.trim()), log: await tab.evaluate(() => window.log) })`);
+			const result = JSON.parse(outcome.text.slice(outcome.text.indexOf("{"), outcome.text.lastIndexOf("}") + 1));
+			expect(result).toEqual({ message: "no error", picked: ["Tower360"], shown: "Tower360", log: ["workspace:T0123"] });
 		},
 		BROWSER_TEST_TIMEOUT_MS,
 	);
