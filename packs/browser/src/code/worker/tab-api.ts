@@ -424,7 +424,7 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
     page,
     signal,
     url: () => page.url(),
-    title: () => op("tab.title()", INF, sig => untilAborted(sig, () => page.title())),
+    title: () => op("tab.title()", quickOpMs, sig => untilAborted(sig, () => page.title())),
     goto: (url, opts) =>
       op(`tab.goto(${JSON.stringify(url)})`, INF, async sig => {
         elements.clear();
