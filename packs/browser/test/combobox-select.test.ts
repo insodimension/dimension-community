@@ -4,8 +4,9 @@
  *  leaves the list open and says nothing useful.
  *
  *  Real Chrome. Four dropdowns built the ways those libraries build them, each answering only trusted input: a Fluent-style
- *  button that opens on click and portals its listbox (aria-controls), a Radix-style trigger that opens on pointerdown and
- *  picks on pointerup, an MUI-style div that opens on mousedown, and Slack's own Workspace picker (aria-haspopup, no role).
+ *  button that opens on click and portals its listbox (aria-controls), each option an icon-font glyph hidden from assistive
+ *  tech before its label, a Radix-style trigger that opens on pointerdown and picks on pointerup, an MUI-style div that opens
+ *  on mousedown, and Slack's own Workspace picker (aria-haspopup, no role).
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -47,7 +48,9 @@ function portal(trigger, items, id) {
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", "false");
     if (value !== undefined) option.setAttribute("data-value", value);
-    option.textContent = label;
+    // Fluent UI v8 draws an option's icon as an icon-font glyph in an aria-hidden element: it is text, but not the option's name.
+    if (id === "fluent") option.innerHTML = '<i data-icon-name="Calendar" aria-hidden="true">&#xE787;</i><span></span>', option.lastElementChild.textContent = label;
+    else option.textContent = label;
     list.append(option);
   }
   document.body.append(list);
@@ -70,8 +73,8 @@ fluent.addEventListener("click", (event) => {
   fluentList.addEventListener("click", (pick) => {
     const option = pick.target.closest("[role=option]");
     if (!pick.isTrusted || !option) return;
-    fluent.textContent = option.textContent;
-    window.log.push("fluent:" + option.textContent);
+    fluent.textContent = option.lastElementChild.textContent;
+    window.log.push("fluent:" + option.lastElementChild.textContent);
     close(fluent, fluentList); fluentList = null;
   });
 });

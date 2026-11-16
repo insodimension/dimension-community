@@ -42,7 +42,24 @@ const FIND_OPTION_SCRIPT = (combobox: Element, wanted: string, maxOffered: numbe
 	const lists = named.length > 0 ? named : [...doc.querySelectorAll('[role="listbox"]')].filter(shown);
 	const options = lists.flatMap((list) => (list.getAttribute("role") === "option" ? [list] : [...list.querySelectorAll('[role="option"]')])).filter(shown);
 	if (options.length === 0) return { state: "waiting", expanded, offered: [], label: "", disabled: false, option: null };
-	const nameOf = (option: Element): string => (option.getAttribute("aria-label") ?? option.textContent ?? "").replace(/\s+/g, " ").trim();
+	// The name assistive tech reads: aria-labelledby, then aria-label, then the visible text with every aria-hidden or undisplayed
+	// subtree left out (an icon-font glyph is text, but not part of the name) and a space at each non-inline element's edges.
+	const textOf = (node: Node): string => {
+		if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+		if (!(node instanceof Element) || node.getAttribute("aria-hidden") === "true") return "";
+		const style = getComputedStyle(node);
+		if (style.display === "none" || style.visibility === "hidden") return "";
+		const inner = [...node.childNodes].map(textOf).join("");
+		return style.display.startsWith("inline") ? inner : ` ${inner} `;
+	};
+	const nameOf = (option: Element): string => {
+		const labelledBy = (option.getAttribute("aria-labelledby") ?? "").split(/\s+/).flatMap((id) => {
+			const label = id === "" ? null : doc.getElementById(id);
+			return label === null ? [] : [textOf(label)];
+		});
+		const name = labelledBy.length > 0 ? labelledBy.join(" ") : (option.getAttribute("aria-label") ?? textOf(option));
+		return name.replace(/\s+/g, " ").trim();
+	};
 	const valueOf = (option: Element): string | null => option.getAttribute("data-value") ?? option.getAttribute("value");
 	const loose = wanted.replace(/\s+/g, " ").trim().toLocaleLowerCase();
 	const match = options.find((option) => nameOf(option) === wanted || valueOf(option) === wanted) ?? options.find((option) => nameOf(option).toLocaleLowerCase() === loose);
