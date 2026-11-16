@@ -61,7 +61,7 @@ const MAX_BODY_BYTES = 256 * 1024;
 const MAX_DRAIN_BYTES = 8 * 1024 * 1024;
 /** The runtime's codes for a browser that no longer exists. */
 const GONE_CODES: ReadonlySet<string> = new Set(["unknown_browser", "browser_closed"]);
-const STATUS_BY_CODE: Record<string, number> = { task_running: 409, publish_pending: 409, bad_input: 400, bad_json: 400, unknown_browser: 410, browser_closed: 410 };
+const STATUS_BY_CODE: Record<string, number> = { task_running: 409, publish_pending: 409, picker_closed: 409, bad_input: 400, bad_json: 400, unknown_browser: 410, browser_closed: 410 };
 /** No body, no secret: only what lets an opaque-origin View read an answer. */
 const CORS = { "access-control-allow-origin": "*" } as const;
 

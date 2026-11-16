@@ -19,9 +19,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { Viewport } from "../../src/contracts";
+import type { NativePicker, Viewport } from "../../src/contracts";
 import type { PageInputEvent } from "../../src/input";
 import { type Point, toViewportPoint } from "./geometry";
+import { initialHighlight, NativePickerList, PICKER_STEP_KEYS, steppedHighlight, type Typeahead, typedHighlight } from "./native-picker";
 import type { Picture } from "./use-browser-stream";
 
 /** Keys the runtime presses by name; everything printable is inserted. */
@@ -87,6 +88,7 @@ export interface PageViewProps {
 	 * they could land on and press the site's own submit.
 	 */
 	readonly confirming?: boolean;
+	readonly picker?: NativePicker | null;
 	/** The page area's size in CSS px, whenever it changes (and once on mount). */
 	readonly onResize: (width: number, height: number) => void;
 	/** Floating layers over the page (annotation strip, agent pill, toasts).
@@ -94,7 +96,7 @@ export interface PageViewProps {
 	readonly children?: ReactNode;
 }
 
-export function PageView({ picture, canvas, viewport, mode, onInput, onResize, label, confirming = false, children }: PageViewProps) {
+export function PageView({ picture, canvas, viewport, mode, onInput, onResize, label, confirming = false, picker = null, children }: PageViewProps) {
 	const pageRef = useRef<HTMLDivElement | null>(null);
 	const stageRef = useRef<HTMLDivElement | null>(null);
 	const onResizeRef = useRef(onResize);
@@ -132,6 +134,21 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 	};
 	useEffect(() => () => window.cancelAnimationFrame(moveFrameRef.current), []);
 	const heldKeysRef = useRef(new Set<string>());
+	const [highlight, setHighlight] = useState(-1);
+	const [highlightFor, setHighlightFor] = useState<string | null>(null);
+	// A <select> keeps its id across opens, so forget it on close: the next open highlights the selected option again.
+	if (picker === null) {
+		if (highlightFor !== null) setHighlightFor(null);
+	} else if (highlightFor !== picker.id) {
+		setHighlightFor(picker.id);
+		setHighlight(initialHighlight(picker));
+	}
+	const typedRef = useRef<Typeahead>({ text: "", at: 0 });
+	const swallowUpRef = useRef(false);
+	const listOpen = live && picker !== null;
+	const pick = (index: number) => {
+		if (picker !== null) onInput({ kind: "pick", picker: picker.id, index });
+	};
 
 	const pointAt = (clientX: number, clientY: number): Point | null => {
 		const page = pageRef.current;
@@ -151,9 +168,18 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 	const mouse = (event: ReactMouseEvent, type: "down" | "up") => {
 		const button = BUTTONS[event.button];
 		if (!live || button === undefined) return;
+		if (type === "up" && swallowUpRef.current) {
+			swallowUpRef.current = false;
+			return;
+		}
+		if (type === "down" && listOpen) {
+			swallowUpRef.current = true;
+			onInput({ kind: "key", type: "down", key: "Escape", code: "Escape", keyCode: 27 });
+			onInput({ kind: "key", type: "up", key: "Escape", code: "Escape", keyCode: 27 });
+			return;
+		}
 		const point = pointAt(event.clientX, event.clientY);
 		if (point === null) return;
-		// Whatever was moving goes first: the press lands where the pointer is.
 		flushMove();
 		if (type === "down") ripple(event, button);
 		onInput({ kind: "mouse", type, x: point.x, y: point.y, button, buttons: event.buttons, clickCount: Math.min(3, Math.max(1, event.detail)) as 1 | 2 | 3, modifiers: modifiersOf(event) });
@@ -165,7 +191,7 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 		if (!page) return;
 		const onWheel = (event: WheelEvent) => {
 			// Wheel over a floating layer (agent steps, a toast) scrolls that layer.
-			if (!liveRef.current || (event.target instanceof Element && event.target.closest(".bx-floats") !== null)) return;
+			if (!liveRef.current || (event.target instanceof Element && event.target.closest(".bx-floats, .bx-picker") !== null)) return;
 			event.preventDefault();
 			const box = page.getBoundingClientRect();
 			const current = viewportRef.current;
@@ -212,11 +238,32 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 
 	const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (!live) return;
+		if (listOpen && pickerKey(event)) {
+			event.preventDefault();
+			return;
+		}
 		const key = keyOf(event, "down");
 		if (key === null) return;
 		event.preventDefault();
 		heldKeysRef.current.add(event.code);
 		onInput(key);
+	};
+
+	const pickerKey = (event: ReactKeyboardEvent<HTMLDivElement>): boolean => {
+		if (picker === null || event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing) return false;
+		if (PICKER_STEP_KEYS[event.key]) {
+			setHighlight(steppedHighlight(picker, highlight, event.key));
+			return true;
+		}
+		if (event.key === "Enter") {
+			if (highlight !== -1) pick(highlight);
+			return true;
+		}
+		if ([...event.key].length !== 1) return false;
+		const typed = typedHighlight(picker, highlight, typedRef.current, event.key, performance.now());
+		typedRef.current = typed.typed;
+		setHighlight(typed.highlight);
+		return true;
 	};
 
 	// A key is released only if its press was sent: a shortcut the View took (Ctrl+L) never sends half a key.
@@ -269,6 +316,9 @@ export function PageView({ picture, canvas, viewport, mode, onInput, onResize, l
 			>
 				<canvas ref={canvas} className="bx-frame" aria-hidden="true" />
 				{picture === null && <div className="bx-page-skeleton" aria-hidden="true" />}
+				{picker !== null && mode !== "frozen" && (
+					<NativePickerList picker={picker} viewport={viewport} highlight={highlight} interactive={live} onHover={setHighlight} onPick={pick} />
+				)}
 				{ripples.map(entry => (
 					<span key={entry.id} className="bx-ripple" data-kind={entry.kind} style={{ left: entry.x, top: entry.y }} aria-hidden="true" />
 				))}

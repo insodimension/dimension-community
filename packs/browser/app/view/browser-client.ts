@@ -4,7 +4,7 @@
 // the shapes and engine identifiers come from the pack's own contracts module.
 import type { App } from "@modelcontextprotocol/ext-apps";
 import type { CallToolResult, ContentBlock } from "@modelcontextprotocol/sdk/types.js";
-import { BROWSER_APPS, BROWSER_ENGINES, DIALOG_TYPES, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, PUBLISH_STATUSES } from "../../src/contracts";
+import { BROWSER_APPS, BROWSER_ENGINES, DIALOG_TYPES, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_PICKER_LABEL_CHARS, MAX_PICKER_OPTIONS, PUBLISH_STATUSES } from "../../src/contracts";
 import type {
 	BrowserAction,
 	BrowserAnnotationContext,
@@ -19,6 +19,8 @@ import type {
 	TabOp,
 	TaskRun,
 	TaskStatus,
+	NativePicker,
+	NativePickerOption,
 	PageElement,
 	ControlMode,
 	NewProfileRequest,
@@ -234,6 +236,24 @@ function readOpenBrowser(value: unknown): OpenBrowserListing[] {
 	return [{ browserId, kind: value.kind, hold }];
 }
 
+/** The page's open native list; anything that is not one is no list, so the View never draws options it could not pick. */
+function readPicker(value: unknown): NativePicker | undefined {
+	if (!isRecord(value) || !isRecord(value.box) || !Array.isArray(value.options)) return undefined;
+	const id = readString(value, "id");
+	const selected = readNumber(value, "selected");
+	const box = { x: readNumber(value.box, "x"), y: readNumber(value.box, "y"), width: readNumber(value.box, "width"), height: readNumber(value.box, "height") };
+	if (id === undefined || id.length === 0 || selected === undefined || box.x === undefined || box.y === undefined || box.width === undefined || box.height === undefined) return undefined;
+	const options: NativePickerOption[] = [];
+	for (const entry of value.options.slice(0, MAX_PICKER_OPTIONS)) {
+		if (!isRecord(entry)) continue;
+		const index = readNumber(entry, "index");
+		if (index === undefined || !Number.isInteger(index) || index < 0) continue;
+		const group = readString(entry, "group");
+		options.push({ index, label: (readString(entry, "label") ?? "").slice(0, MAX_PICKER_LABEL_CHARS), disabled: entry.disabled === true, group: group === undefined ? null : group.slice(0, MAX_PICKER_LABEL_CHARS) });
+	}
+	return { id, box: { x: box.x, y: box.y, width: box.width, height: box.height }, options, selected, truncated: value.truncated === true || value.options.length > MAX_PICKER_OPTIONS };
+}
+
 function readState(tool: string, value: unknown): BrowserState {
 	if (!isRecord(value)) throw new BrowserToolError(tool, "no browser state in the result");
 	const browserId = readString(value, "browserId");
@@ -249,6 +269,7 @@ function readState(tool: string, value: unknown): BrowserState {
 	const profile = readString(value, "profile") ?? null;
 	const face = value.look;
 	const drawn = isRecord(face) ? readString(face, "colour") : undefined;
+	const picker = readPicker(value.picker);
 	return {
 		browserId,
 		profile,
@@ -270,6 +291,7 @@ function readState(tool: string, value: unknown): BrowserState {
 		takenOver: value.takenOver === true,
 		agentActionAt: readNumber(value, "agentActionAt") ?? null,
 		signedInTo: Array.isArray(value.signedInTo) ? value.signedInTo.filter((site): site is string => typeof site === "string") : [],
+		...(picker === undefined ? {} : { picker }),
 	};
 }
 

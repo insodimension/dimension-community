@@ -319,6 +319,22 @@ export interface BrowserState {
   signedInTo: string[];
   /** Set by `open` alone, when something a person should know about the profile just opened: the browser build under its logins changed. */
   notice?: string;
+  picker?: NativePicker;
+}
+export const MAX_PICKER_OPTIONS = 1_000;
+export const MAX_PICKER_LABEL_CHARS = 200;
+export interface NativePickerOption {
+  index: number;
+  label: string;
+  disabled: boolean;
+  group: string | null;
+}
+export interface NativePicker {
+  id: string;
+  box: BrowserRegion;
+  options: NativePickerOption[];
+  selected: number;
+  truncated: boolean;
 }
 /** A fresh full-quality capture, retained so it can be annotated (`browser_frame`). Live pictures do not come this way: they ride the direct channel (stream.ts). */
 export interface BrowserFrame {

@@ -1,4 +1,4 @@
-import type { BrowserRegion, ElementInspection, PageElement, PageElements, PageScroll } from "../contracts.js";
+import type { BrowserRegion, ElementInspection, NativePickerOption, PageElement, PageElements, PageScroll } from "../contracts.js";
 import type { ReportedIdentity } from "./launch.js";
 import type { FieldRead, PageRead } from "./types.js";
 /**
@@ -300,6 +300,57 @@ const FRAME_INSET_SCRIPT = (el: Element): { x: number; y: number } => {
 	const style = getComputedStyle(el);
 	return { x: el.clientLeft + (parseFloat(style.paddingLeft) || 0), y: el.clientTop + (parseFloat(style.paddingTop) || 0) };
 };
+
+type OpenPickerRead =
+	| null
+	| { kind: "frame"; x: number; y: number }
+	| { kind: "select"; id: number; box: BrowserRegion; options: NativePickerOption[]; selected: number; truncated: boolean };
+
+const OPEN_PICKER_SCRIPT = (maxOptions: number, maxLabel: number): OpenPickerRead => {
+	let focused: Element | null = document.activeElement;
+	while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	if (focused === null) return null;
+	if (focused.localName === "iframe" || focused.localName === "frame") {
+		const rect = focused.getBoundingClientRect();
+		const style = getComputedStyle(focused);
+		return { kind: "frame", x: rect.left + focused.clientLeft + (parseFloat(style.paddingLeft) || 0), y: rect.top + focused.clientTop + (parseFloat(style.paddingTop) || 0) };
+	}
+	if (focused.localName !== "select") return null;
+	const select = focused as HTMLSelectElement;
+	try {
+		if (!select.matches(":open")) return null;
+	} catch {
+		return null;
+	}
+	const world = globalThis as unknown as { __dimensionPickerIds?: { next: number; ids: WeakMap<Element, number> } };
+	const registry = (world.__dimensionPickerIds ??= { next: 0, ids: new WeakMap() });
+	let id = registry.ids.get(select);
+	if (id === undefined) {
+		registry.next += 1;
+		id = registry.next;
+		registry.ids.set(select, id);
+	}
+	const options: NativePickerOption[] = [];
+	let truncated = false;
+	for (let index = 0; index < select.options.length; index += 1) {
+		const option = select.options[index] as HTMLOptionElement;
+		if (option.hidden) continue;
+		if (options.length >= maxOptions) {
+			truncated = true;
+			break;
+		}
+		const group = option.parentElement?.localName === "optgroup" ? (option.parentElement as HTMLOptGroupElement) : null;
+		options.push({ index, label: option.label.slice(0, maxLabel), disabled: option.disabled || group?.disabled === true, group: group === null ? null : group.label.slice(0, maxLabel) });
+	}
+	const rect = select.getBoundingClientRect();
+	return { kind: "select", id, box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }, options, selected: select.selectedIndex, truncated };
+};
+
+const FOCUSED_FRAME_SCRIPT = (): Element | null => {
+	let focused: Element | null = document.activeElement;
+	while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+	return focused !== null && (focused.localName === "iframe" || focused.localName === "frame") ? focused : null;
+};
 /**
  * An input/textarea's `.value`, or a contenteditable's text minus one trailing
  * newline. An editor that keeps one `<p>` per line (ProseMirror, Quill,
@@ -482,6 +533,8 @@ export {
 	INSERT_PASSWORD_SCRIPT,
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
+	OPEN_PICKER_SCRIPT,
+	FOCUSED_FRAME_SCRIPT,
 	READ_FIELD_SCRIPT,
 	ELEMENT_TEXT_SCRIPT,
 	ELEMENT_LABEL_SCRIPT,
