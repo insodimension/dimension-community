@@ -717,7 +717,7 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       await run("await tab.evaluate(() => { window.events = []; for (const type of ['input', 'change']) document.getElementById('color').addEventListener(type, () => window.events.push(type)); })");
       expect(await value('await tab.select("#color", "green")')).toEqual(["green"]);
       expect(await value("await tab.evaluate(() => [document.getElementById('color').value, window.events])")).toEqual(["green", ["input", "change"]]);
-      expect((await failure('await tab.select("#submit", "x")')).message).toBe("tab.select() requires a <select> element");
+      expect((await failure('await tab.select("#submit", "x")')).message).toBe('tab.select("#submit") needs a <select>, or a combobox (role="combobox" or aria-haspopup="listbox"); this element is neither.');
     }, 20_000);
 
     test("uploadFile attaches the file to an input, wants an absolute path, and refuses an element that is not a file input", async () => {
