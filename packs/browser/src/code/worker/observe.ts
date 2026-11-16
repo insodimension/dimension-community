@@ -126,7 +126,7 @@ export async function collectObservation(
   const includeAll = options.includeAll ?? false;
   const viewportOnly = options.viewportOnly ?? false;
   const snapshot = (await untilAborted(options.signal, () =>
-    page.accessibility.snapshot({ interestingOnly: !includeAll }),
+    page.accessibility.snapshot({ interestingOnly: false }),
   )) as SerializedAXNode | null;
   if (!snapshot) throw new ToolError("Accessibility snapshot unavailable");
   const entries: ObservationEntry[] = [];

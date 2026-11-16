@@ -101,6 +101,7 @@ const KILL_CONFIRM_MS = 5_000;
 const KILL_TAB_CLOSE_MS = 1_000;
 const FAVICON_SCRIPT_TIMEOUT_MS = 2_000;
 const GEOMETRY_TIMEOUT_MS = 1_000;
+const STILL_CAPTURE_TIMEOUT_MS = 2_000;
 /** How long a freshly started screencast gets to deliver its first picture before one is captured: Chrome sends nothing for a page that is not changing. */
 const FIRST_FRAME_WAIT_MS = 150;
 const SCREENCAST_QUALITY = 70;
@@ -1531,7 +1532,7 @@ class PuppeteerDriver implements EngineDriver {
 	}
 
 	async #stillOf(tab: Tab, cdp: CDPSession, quality: number, maxWidth: number): Promise<Buffer | undefined> {
-		try {
+		const capture = async (): Promise<Buffer> => {
 			const [{ viewport }, metrics] = await Promise.all([this.#geometry(tab), this.#read(() => cdp.send("Page.getLayoutMetrics"))]);
 			const { pageX: x, pageY: y } = metrics.cssVisualViewport;
 			const shot = await cdp.send("Page.captureScreenshot", {
@@ -1541,9 +1542,8 @@ class PuppeteerDriver implements EngineDriver {
 				clip: { x, y, width: viewport.width, height: viewport.height, scale: Math.min(1, maxWidth / viewport.width) },
 			});
 			return Buffer.from(shot.data, "base64");
-		} catch {
-			return undefined;
-		}
+		};
+		return await withTimeout(capture(), STILL_CAPTURE_TIMEOUT_MS, "page still").catch(() => undefined);
 	}
 
 	/**

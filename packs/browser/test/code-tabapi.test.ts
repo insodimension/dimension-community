@@ -369,6 +369,15 @@ describeWithChrome("the tab realm drives a page it adopted", () => {
       expect(seen.elements.find(e => e.name === "Go on")).toMatchObject({ role: "link" });
     }, 20_000);
 
+    test("an open custom listbox lists its options, each option made of an icon and text, and a listbox hidden from assistive tech lists none", async () => {
+      const option = (label: string): string => `<div role="option" aria-selected="false"><span aria-hidden="true">✓</span><span>${label}</span></div>`;
+      const page = `<button role="combobox" aria-expanded="true" aria-controls="months">Month</button><div role="listbox" id="months">${option("January")}${option("February")}</div><div role="listbox" aria-hidden="true">${option("Hidden")}</div>`;
+      await chromePage("main").bringToFront();
+      await run(`await tab.goto(${JSON.stringify(`data:text/html,${encodeURIComponent(page)}`)})`);
+      const seen = await observe();
+      expect(seen.elements.filter(e => e.role === "option").map(e => e.name)).toEqual(["January", "February"]);
+    }, 20_000);
+
     test("each observe renumbers from one, and an id clicks the element it was given for", async () => {
       await goto("/form");
       const first = await observe();
