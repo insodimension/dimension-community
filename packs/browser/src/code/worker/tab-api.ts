@@ -4,7 +4,7 @@
 // Changed for the Browser pack: the helpers are built over a TabSession (one adopted page) instead of WorkerCore; Bun.sleep is `sleep`; `uploadFile` paths are absolute or resolve against the cwd the host
 // gave the realm (MCP carries none: matrix D21); `type`, `fill` and `press` refuse a password input unless the host lifts the rule (matrix D18, ON by default: OMP has no such rule; password-guard.ts); the
 // text-selector click names its own loop's timeout instead of letting an AbortError through, and its loop ends a quarter second before the op's ceiling so that message (with the actionability reason) is the
-// one the model reads where OMP's two equal deadlines raced; the ARIA, readable and screenshot pieces live in their own modules.
+// one the model reads where OMP's two equal deadlines raced; `select` also picks in an ARIA combobox (combobox.ts); the ARIA, readable and screenshot pieces live in their own modules.
 
 import * as os from "node:os";
 import * as path from "node:path";
@@ -13,6 +13,7 @@ import { ToolError, throwIfAborted } from "../errors";
 import { type AriaSnapshotOptions, captureAriaSnapshot, resolveAriaRefHandle } from "../extract/aria-snapshot";
 import { extractReadableFromHtml, type ReadableFormat } from "../extract/readable";
 import { sleep, untilAborted } from "./abortable";
+import { pickInCombobox, SELECT_TARGET_SCRIPT } from "./combobox";
 import { type ActionableHandle, fillViaHandle, toActionableHandle } from "./handles";
 import { collectObservation, type Observation } from "./observe";
 import { createPasswordGuard } from "./password-guard";
@@ -27,8 +28,9 @@ type DragTarget = string | { readonly x: number; readonly y: number };
 type WaitUntil = "load" | "domcontentloaded" | "networkidle0" | "networkidle2";
 type ActionabilityResult = { ok: true; x: number; y: number } | { ok: false; reason: string };
 
-/** The text-selector click's own loop gives up this long before the op's ceiling, so its message (the last actionability reason it saw) is the one thrown, not the op's generic one. */
 const TEXT_CLICK_LOOP_SLACK_MS = 250;
+const COMBOBOX_LIST_WAIT_MS = 3_000;
+const COMBOBOX_VERIFY_MS = 1_500;
 
 /** How long the text click's own loop runs inside an op of `actionOpMs`: the ceiling less the slack, but never less than half of it, so a short cell budget still gets more than one attempt (at least 1 ms). */
 export function textClickLoopMs(actionOpMs: number): number {
@@ -334,6 +336,19 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
   const select = async (selector: string, values: string[], ms: number, sig: AbortSignal): Promise<string[]> => {
     const handle = await resolveActionHandle(selector, ms, sig);
     try {
+      const target = await untilAborted(sig, () => handle.evaluate(SELECT_TARGET_SCRIPT));
+      if (target === "combobox") {
+        if (values.length !== 1) throw new ToolError(`tab.select(${JSON.stringify(selector)}) on a combobox picks one option; got ${values.length}.`);
+        const picked = await pickInCombobox(page, handle, values[0] as string, {
+          signal: sig,
+          listWaitMs: Math.min(COMBOBOX_LIST_WAIT_MS, ms / 2),
+          verifyMs: Math.min(COMBOBOX_VERIFY_MS, ms / 4),
+          beforeEffect: async () => {},
+          describe: `tab.select(${JSON.stringify(selector)})`,
+        });
+        return [picked];
+      }
+      if (target !== "native") throw new ToolError(`tab.select(${JSON.stringify(selector)}) needs a <select>, or a combobox (role="combobox" or aria-haspopup="listbox"); this element is neither.`);
       return (await untilAborted(sig, () =>
         handle.evaluate((el, vals) => {
           interface SelectOption {
@@ -346,7 +361,6 @@ export function createTabApi(c: TabApiContext, output: RunOutput, screenshots: P
             dispatchEvent: (event: unknown) => boolean;
           }
           const sel = el as unknown as SelectLike;
-          if (sel?.tagName !== "SELECT") throw new Error("tab.select() requires a <select> element");
           const EventCtor = (globalThis as unknown as { Event: new (type: string, init?: { bubbles: boolean }) => unknown }).Event;
           const wanted = new Set(vals as string[]);
           // Assign the full selection first, then read back: on a single <select>, un-selecting the current option mid-loop leaves the browser reporting it

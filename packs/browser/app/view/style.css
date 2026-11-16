@@ -1478,6 +1478,53 @@ kbd {
 	border-color: var(--fr-blue);
 }
 
+.bx-picker {
+	position: absolute;
+	z-index: 3;
+	box-sizing: border-box;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 2px 0;
+	background: #fff;
+	color: #111;
+	border: 1px solid #767676;
+	box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.35);
+	font: 13px/1.35 system-ui, sans-serif;
+	pointer-events: none;
+}
+
+.bx-picker[data-interactive] {
+	pointer-events: auto;
+	cursor: default;
+}
+
+.bx-picker-group {
+	padding: 3px 8px 1px;
+	font-weight: 600;
+	color: #444;
+	white-space: nowrap;
+}
+
+.bx-picker-option {
+	padding: 3px 8px;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.bx-picker-option[data-grouped] {
+	padding-left: 20px;
+}
+
+.bx-picker-option[aria-selected="true"] {
+	background: #1a73e8;
+	color: #fff;
+}
+
+.bx-picker-option[aria-disabled] {
+	color: #8a8a8a;
+}
+
 /* The agent is driving: a breathing accent edge on the page. */
 .bx-drive {
 	position: absolute;

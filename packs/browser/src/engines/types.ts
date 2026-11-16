@@ -1,6 +1,6 @@
 import type { AdmittedInput } from "../input.js";
 import type { AttachTarget } from "./attach.js";
-import type { BrowserAction, BrowserApp, BrowserRegion, EffectGuard, ElementInspection, HandledDialog, LogEntry, ModelShot, PageElements, PageScroll, ShotRequest, TabInfo, UploadRequest, Viewport } from "../contracts.js";
+import type { BrowserAction, BrowserApp, BrowserRegion, EffectGuard, ElementInspection, HandledDialog, LogEntry, ModelShot, NativePicker, PageElements, PageScroll, ShotRequest, TabInfo, UploadRequest, Viewport } from "../contracts.js";
 import type { TabRef, WaitUntil } from "../code/contracts.js";
 
 /** Everything below describes the ACTIVE tab unless it says otherwise. */
@@ -135,6 +135,7 @@ export interface EngineDriver {
   previewStill(): Promise<Uint8Array | undefined>;
   /** The human's input on the active tab, in order (already admitted). Throws `ActionNotDispatched` when provably nothing reached the page. */
   input(events: readonly AdmittedInput[]): Promise<void>;
+  picker(): NativePicker | null;
   snapshot(limit: number): Promise<string>;
   /**
    * What is on the active tab under each of `regions` (viewport px), one read for all of them: the elements under each

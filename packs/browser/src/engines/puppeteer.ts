@@ -37,7 +37,7 @@ import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
 import type { Browser, BrowserContext, CDPSession, ElementHandle, Frame, HTTPRequest, HTTPResponse, JSHandle, KeyInput, Page, Protocol, Target } from "puppeteer-core";
-import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type EffectGuard, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, type ModelShot, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type UploadRequest, type Viewport } from "../contracts.js";
+import { type BrowserAction, type BrowserApp, type BrowserRegion, type DialogType, type EffectGuard, type ElementInspection, type HandledDialog, type LogEntry, MAX_ELEMENT_ID_CHARS, MAX_ELEMENT_LABEL_CHARS, MAX_ELEMENT_TAG_CHARS, MAX_ELEMENTS_PER_REGION, MAX_LOG_ENTRIES, MAX_PICKER_LABEL_CHARS, MAX_PICKER_OPTIONS, type ModelShot, type NativePicker, type PageElements, type PageScroll, type ShotRequest, type TabInfo, type UploadRequest, type Viewport } from "../contracts.js";
 import { originOf } from "../address.js";
 import { FaviconCache } from "../favicon.js";
 import { MAX_FRAME_BYTES } from "../image.js";
@@ -49,8 +49,10 @@ import {
 	SCROLL_SCRIPT,
 	GEOMETRY_SCRIPT,
 	FAVICON_HREF_SCRIPT,
+	FOCUSED_FRAME_SCRIPT,
 	FOCUSED_LEAF_SCRIPT,
 	FRAME_INSET_SCRIPT,
+	OPEN_PICKER_SCRIPT,
 	GRAPHICS_SCRIPT,
 	INSPECT_SCRIPT,
 	IS_PASSWORD_SCRIPT,
@@ -68,7 +70,8 @@ import {
 } from "./page-scripts.js";
 import { LOOPBACK_EXCEPTIONS, watchPageLog } from "./page-log.js";
 import { ToolError } from "../code/errors.js";
-import { type AdmittedInput, inputCall } from "../input.js";
+import { pickInCombobox, SELECT_TARGET_SCRIPT } from "../code/worker/combobox.js";
+import { type AdmittedInput, inputCall, type PickInput } from "../input.js";
 import { AGENT_IGNORED_DEFAULT_ARGS, type AgentShape, fitScreen, fitTargetEarly, maskedGraphics, READER_PRESENTS_AS_CHROME, type ScreenFit, shapeTargetEarly } from "./agent-browser.js";
 import { agentPuppeteer } from "./agent-puppeteer.js";
 import { type AttachTarget, BROWSER_PROTOCOL_TIMEOUT_MS, connectAttached, pickAttachedPage, relayTarget } from "./attach.js";
@@ -93,6 +96,8 @@ const FRAME_SELECTOR = /^@(\d{1,3}(?:\.\d{1,3}){0,7})~([0-9a-f]{8})\s+([\s\S]+)$
 /** Anything that looks like a frame ref, well-formed or not (a stale or hand-written one is refused, never run as CSS). */
 const FRAME_REF_LIKE = /^@\d/;
 const ACTION_TIMEOUT_MS = 15_000;
+const COMBOBOX_LIST_WAIT_MS = 3_000;
+const COMBOBOX_VERIFY_MS = 1_500;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const CLOSE_TIMEOUT_MS = 15_000;
 /** After a kill, how long the browser process gets to be seen exiting before the kill itself is called unconfirmed. */
@@ -107,6 +112,10 @@ const FIRST_FRAME_WAIT_MS = 150;
 const SCREENCAST_QUALITY = 70;
 /** A batch of the human's input gets this long: a renderer stuck in a navigation never acknowledges, and the View must hear that. */
 const INPUT_TIMEOUT_MS = 5_000;
+const PICKER_READ_MS = 500;
+const MAX_PICKER_FRAME_DEPTH = 8;
+const PICKER_KEYS = { Home: 36, End: 35, ArrowUp: 38, ArrowDown: 40, Enter: 13 } as const;
+type PickerKey = keyof typeof PICKER_KEYS;
 /** A model's picture: the browser's own webp at this quality, its longest edge at most this many CSS px. */
 const MODEL_SHOT_QUALITY = 70;
 const MODEL_SHOT_EDGE = 1_024;
@@ -793,6 +802,9 @@ class PuppeteerDriver implements EngineDriver {
 	readonly #unregisteredOwnedTargets = new Set<string>();
 	/** Retained tabs whose initial viewport/focus setup was interrupted. */
 	readonly #pendingNativeTabSetup = new Set<Tab>();
+	#shownPicker: { tab: Tab; picker: NativePicker } | null = null;
+	#pickerRead: Promise<void> | undefined;
+	#pickerStale = false;
 
 	constructor(parts: DriverParts) {
 		this.#browser = parts.browser;
@@ -1017,14 +1029,100 @@ class PuppeteerDriver implements EngineDriver {
 		const tab = this.#activeTab();
 		await withTimeout(
 			(async () => {
+				let sent = false;
 				for (const event of events) {
-					const { method, params } = inputCall(event);
-					await tab.cdp.send(method, params as never);
+					if (event.kind === "pick") {
+						await this.#pick(tab, event).catch((error: unknown) => {
+							throw sent && error instanceof ActionNotDispatched ? new Error(error.message) : error;
+						});
+					} else {
+						const { method, params } = inputCall(event);
+						await tab.cdp.send(method, params as never);
+					}
+					sent = true;
 				}
 			})(),
 			INPUT_TIMEOUT_MS,
 			"input",
 		);
+		const canOpenOrClose = events.some((event) => event.kind !== "wheel" && !(event.kind === "mouse" && event.type === "move"));
+		if (canOpenOrClose && this.#watchers.size > 0) await withTimeout(this.#readPicker(true), PICKER_READ_MS, "picker").catch(() => undefined);
+	}
+
+	picker(): NativePicker | null {
+		if (this.#watchers.size === 0) return null;
+		void this.#readPicker(false);
+		const shown = this.#shownPicker;
+		return shown !== null && shown.tab === this.#active ? shown.picker : null;
+	}
+
+	#readPicker(fresh: boolean): Promise<void> {
+		if (this.#pickerRead !== undefined) {
+			if (fresh) this.#pickerStale = true;
+			return this.#pickerRead;
+		}
+		const read = async (): Promise<void> => {
+			do {
+				this.#pickerStale = false;
+				const tab = this.#active;
+				const picker = await this.#openPicker(tab).catch(() => null);
+				this.#shownPicker = picker === null ? null : { tab, picker };
+			} while (this.#pickerStale && !this.#closed);
+		};
+		const pending = read().finally(() => {
+			if (this.#pickerRead === pending) this.#pickerRead = undefined;
+		});
+		this.#pickerRead = pending;
+		return pending;
+	}
+
+	async #openPicker(tab: Tab): Promise<NativePicker | null> {
+		let frame = tab.page.mainFrame();
+		let x = 0;
+		let y = 0;
+		for (let depth = 0; depth <= MAX_PICKER_FRAME_DEPTH; depth += 1) {
+			const world = utilityWorld(frame);
+			const read = await world.evaluate(OPEN_PICKER_SCRIPT, MAX_PICKER_OPTIONS, MAX_PICKER_LABEL_CHARS);
+			if (read === null) return null;
+			if (read.kind === "select") {
+				const { box } = read;
+				return {
+					id: `${frameTag(frame)}.${read.id}`,
+					box: { x: Math.round(box.x + x), y: Math.round(box.y + y), width: Math.round(box.width), height: Math.round(box.height) },
+					options: read.options,
+					selected: read.selected,
+					truncated: read.truncated,
+				};
+			}
+			const handle = await world.evaluateHandle(FOCUSED_FRAME_SCRIPT);
+			try {
+				const child = await handle.asElement()?.contentFrame();
+				if (!child) return null;
+				frame = child;
+			} finally {
+				await handle.dispose().catch(() => undefined);
+			}
+			x += read.x;
+			y += read.y;
+		}
+		return null;
+	}
+
+	async #pick(tab: Tab, event: PickInput): Promise<void> {
+		const picker = await this.#openPicker(tab);
+		if (picker === null || picker.id !== event.picker) throw new ActionNotDispatched("picker_closed", "The list closed before the choice reached it: open it again.");
+		const choosable = picker.options.filter((option) => !option.disabled);
+		const rank = choosable.findIndex((option) => option.index === event.index);
+		if (rank === -1) throw new ActionNotDispatched("bad_input", `option ${event.index} is not one the open list offers`);
+		const fromEnd = choosable.length - 1 - rank;
+		const walk: PickerKey[] = !picker.truncated && fromEnd < rank ? ["End", ...Array<PickerKey>(fromEnd).fill("ArrowUp")] : ["Home", ...Array<PickerKey>(rank).fill("ArrowDown")];
+		for (const key of [...walk, "Enter" as const]) {
+			for (const type of ["down", "up"] as const) {
+				const text = type === "down" && key === "Enter" ? { text: "\r" } : {};
+				const { method, params } = inputCall({ kind: "key", type, key, code: key, keyCode: PICKER_KEYS[key], modifiers: 0, repeat: false, location: 0, ...text });
+				await tab.cdp.send(method, params as never);
+			}
+		}
 	}
 
 	/**
@@ -1359,6 +1457,7 @@ class PuppeteerDriver implements EngineDriver {
 					const wanted = requireField(action.value, "select.value", true);
 					const selector = requireField(action.selector, "select.selector");
 					delegated = true;
+					if (await this.#selectInCombobox(page, selector, wanted, guard)) return NONE;
 					if (guard !== undefined) {
 						await this.#guardedSelect(selector, wanted, guard);
 						return NONE;
@@ -2540,6 +2639,34 @@ class PuppeteerDriver implements EngineDriver {
 			throw error;
 		} finally {
 			await field?.dispose().catch(() => undefined);
+			await handle.dispose().catch(() => undefined);
+		}
+	}
+
+	async #selectInCombobox(page: Page, selector: string, wanted: string, guard?: EffectGuard): Promise<boolean> {
+		const { handle } = await this.#resolve(page, selector);
+		let effectsStarted = false;
+		try {
+			if ((await handle.evaluate(SELECT_TARGET_SCRIPT)) !== "combobox") return false;
+			await pickInCombobox(page, handle, wanted, {
+				signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
+				listWaitMs: COMBOBOX_LIST_WAIT_MS,
+				verifyMs: COMBOBOX_VERIFY_MS,
+				beforeEffect: async () => {
+					if (guard !== undefined) {
+						const admission = guard();
+						if (admission !== undefined) await admission;
+						guard.assertCurrent();
+					}
+					effectsStarted = true;
+				},
+				describe: `select ${JSON.stringify(selector)}`,
+			});
+			return true;
+		} catch (error) {
+			if (effectsStarted) throw error instanceof ActionNotDispatched ? new Error(`select may have changed the page: ${describe(error)}`) : error;
+			throw error instanceof ActionNotDispatched ? error : new ActionNotDispatched("no_option", describe(error));
+		} finally {
 			await handle.dispose().catch(() => undefined);
 		}
 	}

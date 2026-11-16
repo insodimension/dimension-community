@@ -8,6 +8,8 @@ import { fail } from "./store.js";
 
 /** The largest wheel delta one event may carry, as the `scroll` action's. */
 const MAX_DELTA = 5_000;
+const MAX_PICKER_ID_CHARS = 64;
+const MAX_SELECT_OPTION_INDEX = 100_000;
 const modifiers = z.number().int().min(0).max(15).default(0);
 
 const eventSchema = z.discriminatedUnion("kind", [
@@ -34,6 +36,7 @@ const eventSchema = z.discriminatedUnion("kind", [
 		location: z.number().int().min(0).max(3).default(0),
 	}),
 	z.object({ kind: z.literal("text"), text: z.string().min(1).max(MAX_INPUT_TEXT) }),
+	z.object({ kind: z.literal("pick"), picker: z.string().min(1).max(MAX_PICKER_ID_CHARS), index: z.number().int().min(0).max(MAX_SELECT_OPTION_INDEX) }),
 ]);
 const batchSchema = z.array(eventSchema).min(1).max(MAX_INPUT_BATCH);
 
@@ -74,8 +77,10 @@ export interface InputCall {
 	params: Record<string, unknown>;
 }
 
+export type PickInput = Extract<AdmittedInput, { kind: "pick" }>;
+
 /** What one admitted event is, as the browser's input call. A key that types a character is a `keyDown` carrying its text (the page then sees keypress and input); any other key is a `rawKeyDown`. */
-export function inputCall(event: AdmittedInput): InputCall {
+export function inputCall(event: Exclude<AdmittedInput, PickInput>): InputCall {
 	switch (event.kind) {
 		case "mouse":
 			return {

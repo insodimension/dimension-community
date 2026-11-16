@@ -1151,7 +1151,9 @@ export class BrowserRuntime implements BrowserRuntimePort {
 	/** `state`, but NOT queued behind page work: the live view keeps reading it while a navigation or action is in flight. */
 	async liveState(browserId: string): Promise<BrowserState> {
 		const entry = this.require(browserId);
-		return this.redact(entry, await this.buildState(entry));
+		const state = await this.buildState(entry);
+		const picker = entry.driver.picker();
+		return this.redact(entry, picker === null ? state : { ...state, picker });
 	}
 
 	/**

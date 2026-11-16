@@ -22,7 +22,7 @@ Drive real Chromium tabs by running JavaScript with the global `browser` object;
 - Helpers and `tab.run` return real values. `display()`, `print` and `console.log` text goes to the result; screenshots come back as images.
 - Selectors accept CSS plus Puppeteer `aria/…`, `text/…`, `xpath/…`, and `pierce/…` query handlers.
 - Navigation and re-renders invalidate observed ids and refs. Re-observe, then act in the same cell.
-- `<select>` needs `tab.select`, not `tab.fill`. Raw request interception lasts only for the current `tab.run`.
+- `<select>` needs `tab.select`, not `tab.fill`. `tab.select(selector, "May")` also picks in a custom dropdown (role="combobox" or aria-haspopup="listbox"): it opens it, clicks the option whose name or value matches, and fails naming the options when none does. Raw request interception lasts only for the current `tab.run`.
 - Unread page: `tab.ariaSnapshot()` first; never guess URLs. `goto` waits for load: do not sleep after it. Pass `tab.evaluate` a function: a template literal resolves backslashes in a string first.
 - Cell state persists: top-level `const`/`let` stay, the last expression is returned, top-level `await` works.
 - `timeout` is the cell's budget in seconds (default 30, max 300). One call returns after at most 25 s: a cell still running continues and the result says `running: <runId>` with its output so far. Call `browser_run({ resume: "<runId>" })` to wait up to 25 s more; start no new cell meanwhile.
