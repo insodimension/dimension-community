@@ -9,11 +9,11 @@ A read-only Reddit connector for your agent: a subreddit's posts and rules, a th
 - **Five native tools**: `reddit_subreddit_posts`, `reddit_subreddit_rules`, `reddit_read_post`, `reddit_search`, `reddit_my_profile`.
 - **Skill `reddit`**: the tools, Reddit's search operators, the state of the Reddit API, and where to read the rest in the Browser.
 - **Rule `reddit-context`**: always-on guidance: what the connector can and cannot do, subreddit rules before drafting, and reading Reddit without an app.
-- **Rule `reddit-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first Reddit tool call.
+- **Rule `reddit-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first Reddit tool call. An older Dimension lists it in the rulebook, where the agent reads it before using the tools.
 
 ## Who can use it
 
-Anyone on Dimension 0.12.8 or later (`requires.dimension` `>=0.12.8`). Off by default; turn it on in Plugins. It needs the client id and secret of a Reddit app you created before Reddit closed self-service app creation on 2025-11-11, and your username. It never asks for your password: it reads with an app-only token.
+Off by default; turn it on in Plugins. It needs the client id and secret of a Reddit app you created before Reddit closed self-service app creation on 2025-11-11, and your username. It never asks for your password: it reads with an app-only token.
 
 ## Limits and risks
 

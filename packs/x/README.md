@@ -9,11 +9,11 @@ An X (Twitter) connector for your agent over the official X API v2: it reads you
 - **Sixteen native tools.** Reads: `x_me`, `x_mentions`, `x_my_posts`, `x_home_timeline`, `x_search`, `x_posts_envelope` (X's share of a last30days run), `x_get_post`, `x_read_thread`, `x_user_lookup`, `x_bookmarks`, `x_usage`. Writes: `x_post`, `x_thread`, `x_delete`, `x_bookmark`, `x_dm`.
 - **Skill `x`**: the tools, the cost of each call, the search operators, and how to read what the API does not give (older posts, analytics) in the Browser on your own signed-in profile.
 - **Rule `x-context`**: always-on guidance: cost, cookies, what is public, the reply policy and the 7-day window.
-- **Rule `x-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first X tool call.
+- **Rule `x-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first X tool call. An older Dimension lists it in the rulebook, where the agent reads it before using the tools.
 
 ## Who can use it
 
-Anyone on Dimension 0.12.8 or later (`requires.dimension` `>=0.12.8`). Off by default; turn it on in Plugins. It needs your own X developer app (OAuth 2.0, Native App, callback `http://localhost:53682/callback`) with purchased API credits: every read and write is billed by X.
+Off by default; turn it on in Plugins. It needs your own X developer app (OAuth 2.0, Native App, callback `http://localhost:53682/callback`) with purchased API credits: every read and write is billed by X.
 
 ## Limits and risks
 
