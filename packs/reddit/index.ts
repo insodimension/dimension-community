@@ -10,7 +10,7 @@ import { type } from "arktype";
 const CONFIG_TARGET = join(homedir(), ".config", "dimension-reddit", "token.json");
 const OAUTH_API = "https://oauth.reddit.com";
 const TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
-const PLUGIN_VERSION = "v0.2.0";
+const PLUGIN_VERSION = "v0.2.1";
 const APP_ONLY_SCOPE = "read";
 const TOKEN_SKEW_MS = 60_000;
 const DEFAULT_TOKEN_SECONDS = 3600;

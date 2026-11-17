@@ -622,15 +622,15 @@
 			"source": "./packs/discord",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.1/discord-0.2.1.tgz",
-				"sha256": "fd210bafcd9c58e3ce9091a97a1d5d7a4fee9e43eb2f171c139cd123bb8591fe",
-				"size": 26378
+				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.2/discord-0.2.2.tgz",
+				"sha256": "c2958efe79dd4cf9626faba1126e288fb2d8efd849a772b016b2a6ba6e2f8325",
+				"size": 26687
 			},
 			"pluginId": "discord",
 			"title": "Discord",
 			"icon": "packs/discord/assets/icon.svg",
 			"description": "Let your agent read, answer and run your own Discord server through a bot you create: messages, forum posts, search, invites, events and announcements.",
-			"version": "0.2.1",
+			"version": "0.2.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -643,7 +643,10 @@
 				"bot",
 				"messaging",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "dopamine-debt",
@@ -1045,15 +1048,15 @@
 			"source": "./packs/google-calendar",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/google-calendar-v0.1.7/google-calendar-0.1.7.tgz",
-				"sha256": "9637be5749805d91589ec41eedc8c3fb6ac9bee16a410e65d669de52ccf881e4",
-				"size": 42804
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-calendar-v0.1.8/google-calendar-0.1.8.tgz",
+				"sha256": "340cc18baf71b9b74cbe7f3f716c68232960891a8ee1b0a5ea5c41614e1af0a3",
+				"size": 42933
 			},
 			"pluginId": "google-calendar",
 			"title": "Google Calendar",
 			"icon": "packs/google-calendar/assets/icon.png",
 			"description": "Let your agent manage your Google Calendar events and schedule.",
-			"version": "0.1.7",
+			"version": "0.1.8",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1067,7 +1070,10 @@
 				"daily-brief",
 				"scheduling",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "google-drive",
@@ -1102,15 +1108,15 @@
 			"source": "./packs/google-meet",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/google-meet-v0.1.6/google-meet-0.1.6.tgz",
-				"sha256": "bcbf1c257a48d16d1d30811f6f1adca2a14ac453c3883c2f12acf2906a404fe5",
-				"size": 26741
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-meet-v0.1.7/google-meet-0.1.7.tgz",
+				"sha256": "f2a628984a9480265552daf1cca7fe8e9d72b0cd9ecd1b2435d23325919edf23",
+				"size": 26914
 			},
 			"pluginId": "google-meet",
 			"title": "Google Meet",
 			"icon": "packs/google-meet/assets/icon.svg",
 			"description": "Create Google Meet meetings, read their recordings and transcripts, and transcribe a call as it happens.",
-			"version": "0.1.6",
+			"version": "0.1.7",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1125,22 +1131,25 @@
 				"conference-records",
 				"recordings",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "google-workspace",
 			"source": "./packs/google-workspace",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/google-workspace-v0.1.4/google-workspace-0.1.4.tgz",
-				"sha256": "6f43a891f2eaa644876f444aaada31340683b7980d99c1f3ead6761d9927fc81",
-				"size": 12510
+				"url": "https://github.com/insodimension/dimension-community/releases/download/google-workspace-v0.1.5/google-workspace-0.1.5.tgz",
+				"sha256": "802a4c2ece38cd562fbb70ee3640311e69b1c01bc7e147c9b588fcce1d1cc148",
+				"size": 12672
 			},
 			"pluginId": "google-workspace",
 			"title": "Google Workspace",
 			"icon": "packs/google-workspace/assets/icon.svg",
 			"description": "Let your agent read and edit your Google Sheets, Docs and Slides.",
-			"version": "0.1.4",
+			"version": "0.1.5",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1156,7 +1165,10 @@
 				"oauth",
 				"connector",
 				"productivity"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "hackernews",
@@ -1525,15 +1537,15 @@
 			"source": "./packs/reddit",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/reddit-v0.2.0/reddit-0.2.0.tgz",
-				"sha256": "6d2dd4ec0d2eda32b23346f91c0c6c0377c977171b9bb9aabe0cfffe3cfcef8b",
-				"size": 13946
+				"url": "https://github.com/insodimension/dimension-community/releases/download/reddit-v0.2.1/reddit-0.2.1.tgz",
+				"sha256": "72da7e176fed9c6c6bc39ba3ceedd6cbc21a762001965b25a8956a9cd5ddf875",
+				"size": 14211
 			},
 			"pluginId": "reddit",
 			"title": "Reddit",
 			"icon": "packs/reddit/assets/icon.svg",
 			"description": "Let your agent read Reddit: a subreddit's posts and rules, a thread's comments, search and your public profile. Read-only.",
-			"version": "0.2.0",
+			"version": "0.2.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1546,7 +1558,10 @@
 				"forum",
 				"news",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "rooms-rail",
@@ -1828,15 +1843,15 @@
 			"source": "./packs/teams",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/teams-v0.1.7/teams-0.1.7.tgz",
-				"sha256": "fe0904d86757c0ecc0992cb6ca524f9579596582885aff2e60a661490f3c0966",
-				"size": 13524
+				"url": "https://github.com/insodimension/dimension-community/releases/download/teams-v0.1.8/teams-0.1.8.tgz",
+				"sha256": "4d0905aefa4d8b968e5b09d65c1446559f18bb07bbf4df275bf84676c692b70f",
+				"size": 13645
 			},
 			"pluginId": "teams",
 			"title": "Microsoft Teams",
 			"icon": "packs/teams/assets/icon.svg",
 			"description": "Let your agent list your Microsoft Teams teams and channels and post messages to a channel.",
-			"version": "0.1.7",
+			"version": "0.1.8",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1850,22 +1865,25 @@
 				"azure",
 				"channel",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "telegram",
 			"source": "./packs/telegram",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/telegram-v0.1.7/telegram-0.1.7.tgz",
-				"sha256": "204286fca711b81f91d2c666c01f9d48f5b592a32527b78a2637de07c1826e79",
-				"size": 9893
+				"url": "https://github.com/insodimension/dimension-community/releases/download/telegram-v0.1.8/telegram-0.1.8.tgz",
+				"sha256": "ae486e10933a4294a3ec2487c15781b49a3011d26e6b444f590e9ce91f66475c",
+				"size": 10032
 			},
 			"pluginId": "telegram",
 			"title": "Telegram",
 			"icon": "packs/telegram/assets/icon.svg",
 			"description": "Let your agent send Telegram messages, read new ones and look at chats, using a bot you create.",
-			"version": "0.1.7",
+			"version": "0.1.8",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1878,7 +1896,10 @@
 				"messaging",
 				"chat",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "traction-space",
@@ -2144,15 +2165,15 @@
 			"source": "./packs/watch",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/watch-v0.3.4/watch-0.3.4.tgz",
-				"sha256": "29bdfd6000940d500548fbb868bc895735c45e9231489b53a26270e5c7d4efa2",
-				"size": 71638
+				"url": "https://github.com/insodimension/dimension-community/releases/download/watch-v0.3.5/watch-0.3.5.tgz",
+				"sha256": "5278c4f49abafce16cb6d5299feb23ca3fd7737dae168dc9fc01f1da73580cf8",
+				"size": 71791
 			},
 			"pluginId": "watch",
 			"title": "Watch",
 			"icon": "packs/watch/assets/icon.svg",
 			"description": "Let your agent watch a video from a link or a file: it samples frames and reads a transcript with timestamps.",
-			"version": "0.3.4",
+			"version": "0.3.5",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2167,22 +2188,25 @@
 				"ffmpeg",
 				"yt-dlp",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "whatsapp",
 			"source": "./packs/whatsapp",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/whatsapp-v0.1.6/whatsapp-0.1.6.tgz",
-				"sha256": "ed0a70f350f996642db39ccb9fbaf5bbc3674eeeb850616b37257e9024aa74ed",
-				"size": 8509
+				"url": "https://github.com/insodimension/dimension-community/releases/download/whatsapp-v0.1.7/whatsapp-0.1.7.tgz",
+				"sha256": "0e6befdea79e585aa998672ddffa6d337cbb9d30f9d78abb80ac6bb2f26439f7",
+				"size": 8675
 			},
 			"pluginId": "whatsapp",
 			"title": "WhatsApp",
 			"icon": "packs/whatsapp/assets/icon.svg",
 			"description": "Let your agent send WhatsApp text messages and message templates through your WhatsApp Business account.",
-			"version": "0.1.6",
+			"version": "0.1.7",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2195,22 +2219,25 @@
 				"messaging",
 				"cloud-api",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "x",
 			"source": "./packs/x",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/x-v0.3.1/x-0.3.1.tgz",
-				"sha256": "f3f3a463cc8bc085a9868f24a2690cf43f1ef497a4b647c1f82dc88220ae4801",
-				"size": 35225
+				"url": "https://github.com/insodimension/dimension-community/releases/download/x-v0.3.2/x-0.3.2.tgz",
+				"sha256": "411db9988fc95c3994a46e214725a33766fc69a2f0c60e10ef01e1c82ca4068d",
+				"size": 35502
 			},
 			"pluginId": "x",
 			"title": "X",
 			"icon": "packs/x/assets/icon.svg",
 			"description": "Let your agent read your X (Twitter) mentions and timelines, search, and post.",
-			"version": "0.3.1",
+			"version": "0.3.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2224,22 +2251,25 @@
 				"posts",
 				"mentions",
 				"connector"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		},
 		{
 			"name": "youtube",
 			"source": "./packs/youtube",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.6.1/youtube-0.6.1.tgz",
-				"sha256": "31da3c8abe74ab267448ef455b416a16a180e46a06d8455e4de2895b1385576b",
-				"size": 127547
+				"url": "https://github.com/insodimension/dimension-community/releases/download/youtube-v0.6.2/youtube-0.6.2.tgz",
+				"sha256": "c0ff459e77f3bc0a9153eddfa1f49ef09d2812988f6e2173021b38b01f924653",
+				"size": 127836
 			},
 			"pluginId": "youtube",
 			"title": "YouTube",
 			"icon": "packs/youtube/assets/icon.svg",
 			"description": "Let your agent search YouTube, look at videos and channels, manage playlists, read or post comments, read analytics and reach for every channel you connect, upload a video, change a posted video's title or thumbnail, and get a finished film ready to upload.",
-			"version": "0.6.1",
+			"version": "0.6.2",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2253,7 +2283,10 @@
 				"playlist",
 				"comments",
 				"media"
-			]
+			],
+			"requires": {
+				"dimension": ">=0.12.8"
+			}
 		}
 	]
 }
