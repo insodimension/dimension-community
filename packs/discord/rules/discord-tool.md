@@ -12,8 +12,6 @@ Reads: `discord_list_guilds`,
 `discord_create_channel`, `discord_create_invite`, `discord_publish_message`,
 `discord_create_event`, `discord_create_automod_rule`.
 
-- Mentions never ping unless the person named the users (`mentionUserIds`); a
-  reply notifies only the author it answers.
 - Resolve ids first: `discord_list_guilds` → `discord_list_channels` → act.
   Quote the channel id and the permalink you acted on.
 - A forum post is `discord_create_thread` on a forum channel with `content`
