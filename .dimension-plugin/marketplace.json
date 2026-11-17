@@ -623,8 +623,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/discord-v0.2.2/discord-0.2.2.tgz",
-				"sha256": "9c8140e2eeb722705087c679a3a75ab43910d8b51159ab15b9e49822af1c6018",
-				"size": 26691
+				"sha256": "c2958efe79dd4cf9626faba1126e288fb2d8efd849a772b016b2a6ba6e2f8325",
+				"size": 26687
 			},
 			"pluginId": "discord",
 			"title": "Discord",
