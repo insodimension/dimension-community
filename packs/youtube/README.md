@@ -12,11 +12,11 @@ A YouTube connector for your agent, plus three skills that take a finished film 
 - **Skill `youtube-thumbnail`**: one 1280×720 thumbnail, or three for an A/B test, as HyperFrames compositions, rendered with the Motion plugin, checked against the zones where YouTube draws over a thumbnail and at phone size with `scripts/thumbnail-pack.mjs` (needs `ffmpeg`).
 - **Skill `youtube-studio-upload`**: uploads a checked package with one `youtube_upload_video` call when the channel is connected, otherwise drives Studio with the Browser plugin's `browser_run`; it records the video id and what was read back in `receipts/publish.json` (through the API: title, visibility, audience, schedule, thumbnail, playlist and captions; in Studio: every field).
 - **Rule `youtube-context`**: always-on guidance for the connector tools: which channel, what is public, upload visibility, transcripts and where numbers come from.
-- **Rule `youtube-tool`**: the operating detail for the connector tools. Dimension 0.12.8 and later show it on the first YouTube tool call.
+- **Rule `youtube-tool`**: the operating detail for the connector tools. Dimension 0.12.8 and later show it on the first YouTube tool call. An older Dimension lists it in the rulebook, where the agent reads it before using the tools.
 
 ## Who can use it
 
-Anyone on Dimension 0.12.8 or later (`requires.dimension` `>=0.12.8`). Off by default; turn it on in Plugins. The connector needs a Google sign-in through your own OAuth client with the YouTube Data API v3 enabled and its OAuth consent screen either published (In production, which Google asks a homepage and a privacy-policy URL for) or left in Testing with your account as a test user: a client left in Testing gets refresh tokens that expire after 7 days, so you connect again every week. The three film skills also need the Motion plugin (thumbnails), a production made in the Video space, and the Browser plugin for the Studio upload when the channel is not connected; the package and thumbnail skills run anywhere a production folder exists.
+Off by default; turn it on in Plugins. The connector needs a Google sign-in through your own OAuth client with the YouTube Data API v3 enabled and its OAuth consent screen either published (In production, which Google asks a homepage and a privacy-policy URL for) or left in Testing with your account as a test user: a client left in Testing gets refresh tokens that expire after 7 days, so you connect again every week. The three film skills also need the Motion plugin (thumbnails), a production made in the Video space, and the Browser plugin for the Studio upload when the channel is not connected; the package and thumbnail skills run anywhere a production folder exists.
 
 ## Limits and risks
 

@@ -9,11 +9,11 @@ A Discord connector for your own server, through a bot you create: your agent re
 - **Twenty-one native tools** over the Discord REST API v10. Reads: `discord_list_guilds`, `discord_list_channels`, `discord_read_messages`, `discord_list_threads`, `discord_search_messages`, `discord_guild_snapshot`, `discord_list_automod_rules`. Writes: `discord_send_message`, `discord_reply_message`, `discord_create_thread`, `discord_edit_message`, `discord_add_reaction`, `discord_pin_message`, `discord_set_thread_tags`, `discord_create_channel`, `discord_create_invite`, `discord_publish_message`, `discord_create_event`, `discord_create_automod_rule`. Moderation: `discord_delete_message`, `discord_timeout_member`.
 - **Skill `discord`**: setup and bot permissions, every tool, the mention policy, formatting and safety.
 - **Rule `discord-context`**: always-on guidance: what the connector is, what to post, moderation and the browser.
-- **Rule `discord-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first Discord tool call.
+- **Rule `discord-tool`**: the operating detail for the tools. Dimension 0.12.8 and later show it on the first Discord tool call. An older Dimension lists it in the rulebook, where the agent reads it before using the tools.
 
 ## Who can use it
 
-Anyone on Dimension 0.12.8 or later (`requires.dimension` `>=0.12.8`). Off by default; turn it on in Plugins. You create a bot in the Discord Developer Portal, turn on the Message Content intent, paste its token, and invite it to your server with the permissions the setup lists.
+Off by default; turn it on in Plugins. You create a bot in the Discord Developer Portal, turn on the Message Content intent, paste its token, and invite it to your server with the permissions the setup lists.
 
 ## Limits and risks
 

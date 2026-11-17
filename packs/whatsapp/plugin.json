@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "whatsapp",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"description": "Let your agent send WhatsApp text messages and message templates through your WhatsApp Business account.",
 	"author": {
 		"name": "Dimension"
@@ -17,7 +17,6 @@
 	"extensions": {
 		"ai.insodimension.dimension": {
 			"contractVersion": 1,
-			"requires": { "dimension": ">=0.12.8" },
 			"title": "WhatsApp",
 			"icon": "assets/icon.svg",
 			"category": "connector",

@@ -1,7 +1,7 @@
 {
 	"name": "@inso/reddit",
 	"author": "Dimension",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Reddit connector, read-only — subreddit posts and rules, comment trees, search and your public profile, over the Reddit API with an app-only token (no password)",
 	"type": "module",
 	"main": "index.ts",
