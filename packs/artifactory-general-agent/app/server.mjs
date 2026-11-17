@@ -7137,6 +7137,9 @@ function buildScope(aliases, options) {
   return scopeValue.current;
 }
 
+// ../../../omp/packages/coding-agent/src/config/agent-baseline.ts
+var SPACE_PLUGINS_TOKEN = "@space";
+
 // ../../../omp/packages/coding-agent/src/config/agent-manifest.ts
 var REACH_WORDS = { none: true, all: true, space: true };
 var CONTROL_LANE_NAMES = [
@@ -7398,6 +7401,9 @@ function narrowOptIn(raw, filePath) {
         `capabilities.optIn: ${JSON.stringify(entry2)} is not a plugin name \u2014 list the opt-in plugins this agent carries`
       );
     }
+    if (name === SPACE_PLUGINS_TOKEN) {
+      throw new AgentManifestError(filePath, `"@space" is not an opt-in plugin; remove it from capabilities.optIn.`);
+    }
     if (!names2.includes(name)) names2.push(name);
   }
   return names2;
@@ -7520,6 +7526,22 @@ function parseAgentManifest(frontmatter, filePath) {
       autoloadSkills: starOrList(sections.capabilities.autoloadSkills),
       slashCommands: starOrList(sections.capabilities.slashCommands)
     };
+    for (const field of ["tools", "mcp", "skills", "autoloadSkills", "slashCommands"]) {
+      const list2 = manifest.capabilities[field];
+      if (Array.isArray(list2) && list2.includes(SPACE_PLUGINS_TOKEN)) {
+        throw new AgentManifestError(
+          filePath,
+          `"@space" only has a meaning in capabilities.plugins; remove it from capabilities.${field}.`
+        );
+      }
+    }
+    const plugins = manifest.capabilities.plugins;
+    if (Array.isArray(plugins) && plugins.includes(SPACE_PLUGINS_TOKEN) && plugins.includes("*")) {
+      throw new AgentManifestError(
+        filePath,
+        `capabilities.plugins lists "@space" beside "*", which already admits every plugin; remove "@space".`
+      );
+    }
     if (sections.capabilities.optIn !== void 0) {
       manifest.capabilities.optIn = narrowOptIn(sections.capabilities.optIn, filePath);
     }
@@ -7531,6 +7553,13 @@ function parseAgentManifest(frontmatter, filePath) {
         plugins: toStringList("plugins" in rawIgnore ? rawIgnore.plugins : void 0),
         slashCommands: toStringList("slashCommands" in rawIgnore ? rawIgnore.slashCommands : void 0)
       };
+      for (const [field, list2] of Object.entries(manifest.capabilities.ignore)) {
+        if (!list2?.includes(SPACE_PLUGINS_TOKEN)) continue;
+        throw new AgentManifestError(
+          filePath,
+          field === "plugins" ? `"@space" admits plugins and cannot be denied; remove it from capabilities.ignore.plugins.` : `"@space" only has a meaning in capabilities.plugins; remove it from capabilities.ignore.${field}.`
+        );
+      }
     }
     if (sections.capabilities.control !== void 0) {
       manifest.capabilities.control = narrowControlCapability(sections.capabilities.control, filePath);
