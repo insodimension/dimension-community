@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "reddit",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Let your agent read Reddit: a subreddit's posts and rules, a thread's comments, search and your public profile. Read-only.",
 	"author": {
 		"name": "Dimension"
@@ -17,6 +17,7 @@
 	"extensions": {
 		"ai.insodimension.dimension": {
 			"contractVersion": 1,
+			"requires": { "dimension": ">=0.12.8" },
 			"title": "Reddit",
 			"icon": "assets/icon.svg",
 			"category": "connector",

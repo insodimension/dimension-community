@@ -26,10 +26,6 @@ and pass the flags it returns.
   Otherwise **draft the reply and let the user send it** — that is always
   allowed and is the default for anything unsolicited. Never auto-reply at
   volume, never mass-DM, never astroturf.
-- `x_search` takes the API's operators (`min_likes:`, `min_reposts:`,
-  `is:reply`, `has:links`); web spellings (`min_faves:`, `filter:replies`,
-  `since:`) are translated and the output names the query sent. Prefer a
-  narrow `x_search` over `x_home_timeline` for research.
 - **A post containing a URL costs $0.20 instead of $0.015** — 13x. Worth
   mentioning once when the user is posting a link.
 - **Like, follow, and quote-post do not exist here** — X removed them from all
@@ -37,12 +33,3 @@ and pass the flags it returns.
 - `x_search` and `x_read_thread` only reach the **last 7 days**. Older posts
   are read in the Browser (x.com advanced search); never report "nothing
   found" for a window the API cannot reach.
-- Post ids: pass the numeric id or a full `https://x.com/…/status/…` URL —
-  both work. Quote ids exactly from tool output; never invent one.
-- `x_thread` is **not atomic**. If it fails mid-thread the earlier posts are
-  LIVE; the error names how many went out and the last id — resolve that state
-  with the user rather than retrying the whole thread.
-- On **403**, name the likely cause (no purchased API credits / app permissions
-  too low / missing OAuth scope) and point to **Plugins → X → Reconnect** after
-  the fix. On **401**, the token is stale — reconnect. On **429**, the rate
-  limit is separate from billing; wait rather than retry.
