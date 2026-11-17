@@ -650,15 +650,15 @@
 			"source": "./packs/dopamine-debt",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.6.0/dopamine-debt-0.6.0.tgz",
-				"sha256": "93825be8e2a02b39792340b6aa32866f9f6e0330f6b002fa8fb2391464980ba2",
-				"size": 215158
+				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.6.1/dopamine-debt-0.6.1.tgz",
+				"sha256": "608d887733be3ae4a4f972a76f6015ad292a4c878b57b72dfa0c2564f8c2ac9b",
+				"size": 215207
 			},
 			"pluginId": "dopamine-debt",
 			"title": "Dopamine Debt",
 			"icon": "packs/dopamine-debt/assets/icon.svg",
 			"description": "Makes deadpan, meme-led comedy explainer films about your channel's subject, and checks every stage against house rules before you spend on voice and music.",
-			"version": "0.6.0",
+			"version": "0.6.1",
 			"author": {
 				"name": "Dimension"
 			},
@@ -1748,15 +1748,15 @@
 			"source": "./packs/swiss-knife",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.5/swiss-knife-0.7.5.tgz",
-				"sha256": "555b5c592b5df7b4168cfa8427572d8f09ab6baf19b5ee00b8601765f6d1ce5f",
-				"size": 2273914
+				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.6/swiss-knife-0.7.6.tgz",
+				"sha256": "5a4fdc71043fca72b02b53ccb9340e886ac599cb55e532eae9ec72d493f5d62d",
+				"size": 2273907
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
 			"icon": "packs/swiss-knife/assets/icon.webp",
 			"description": "A few small helpers in one switch: your agent can show you files as cards you can open and mark up, a library finds every file you have made, and it stops the agent adding code comments.",
-			"version": "0.7.5",
+			"version": "0.7.6",
 			"author": {
 				"name": "Dimension"
 			},

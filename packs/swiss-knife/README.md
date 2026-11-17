@@ -41,8 +41,8 @@ No skills or prompts (a test keeps those out).
 ## Who can use it
 
 Anyone on either release ring, stable or canary.
-It is on once installed, in every space (`modelSpaces` is empty and it declares no `spaces`, so it has no
-audience to narrow it), and needs Dimension 0.10.24 or later, the first release whose engine honours the
+It is on once installed, in every space: its audience is `everywhere`, so an agent that carries only its
+space's packs still has it. It needs Dimension 0.10.24 or later, the first release whose engine honours the
 rules' `except:` field. The Library's dock entry is a launcher, which Dimension shows from 0.11.13; on
 an older release the agent's `artifacts` tool still works, but the Library tab has no way in.
 No sign-in, CLI or key.

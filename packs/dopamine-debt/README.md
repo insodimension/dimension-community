@@ -31,8 +31,8 @@ it from this store.
 ## Who can use it
 
 Anyone with Dimension 0.12.0 or newer. It installs from the Community store like any pack, and the Video
-space requires it, so installing Video installs it. Its Filmmaker appears only where a space lists it
-(Video does). It needs:
+space requires it, so installing Video installs it. Its skills and its Filmmaker load only in Video, Code
+and Unreal sessions. Its Filmmaker appears only where a space lists it (Video does). It needs:
 
 - Python 3.10 or newer on `PATH`, or `DD_PYTHON` set to one, with the packages in `requirements.txt`
   (`python -m pip install -r <folder>/requirements.txt`, where `inso dd root` prints the folder).
