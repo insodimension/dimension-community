@@ -1192,15 +1192,15 @@
 			"source": "./packs/image",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/image-v0.1.2/image-0.1.2.tgz",
-				"sha256": "95643d2f33eb7a2cf237c1fae1afa9a6328d58e4ec0c1c9a105ba389ca54ec5d",
-				"size": 3459
+				"url": "https://github.com/insodimension/dimension-community/releases/download/image-v0.1.1/image-0.1.1.tgz",
+				"sha256": "97203daa910025a3847ac41cd80d770b486d16e3a2dfcc4054d152d9e72e8821",
+				"size": 3443
 			},
 			"pluginId": "image",
 			"title": "Image",
 			"icon": "packs/image/assets/icon.svg",
 			"description": "Make and edit images, and cut out transparent backgrounds on your computer. Pick any model for a single picture.",
-			"version": "0.1.2",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},
