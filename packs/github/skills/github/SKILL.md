@@ -1,8 +1,7 @@
 ---
 name: github
 description: Manage GitHub from the terminal — list/create/comment on issues and pull requests, review PRs, cut releases, inspect repos, and search — using the gh CLI. Use when the user asks to open a PR, triage issues, review changes, check CI, or query anything on GitHub.
-prerequisites:
-  commands: [gh]
+compatibility: Requires the gh CLI.
 ---
 
 # GitHub (via the gh CLI)

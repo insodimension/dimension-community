@@ -1,7 +1,6 @@
 ---
 name: google-workspace
 description: Read and write Google Sheets, Docs, and Slides in the connected Google account — read cell ranges, list tabs, append/overwrite rows, read docs as text, append to docs, list slides, and add slides. Native sheets_*/docs_*/slides_* tools (no CLI, no MCP server). Use when the user asks to read from, edit, append to, or build a spreadsheet, document, or presentation.
-prerequisites: none
 ---
 
 # Google Workspace

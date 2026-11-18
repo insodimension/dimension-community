@@ -1,8 +1,7 @@
 ---
 name: gmail
 description: Read and search Gmail (or any IMAP/SMTP mailbox) with the gmail_list_messages and gmail_read_message tools, send email with the gmail_send_email tool, and organize mail with the himalaya CLI. Use when the user asks to check, find, summarize, draft, reply to, send or tidy email.
-prerequisites:
-  commands: [himalaya]
+compatibility: Requires the himalaya CLI to organize mail.
 ---
 
 # Gmail (IMAP/SMTP via himalaya)

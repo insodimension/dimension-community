@@ -7,9 +7,9 @@
 // a pack says, and they did: a rule that reads the wrong file does not fail, it
 // goes SILENTLY INERT (the `opens` + `defaultEnabled` gate below is exactly
 // that shape of bug). One reader, imported by both, makes that disagreement
-// impossible. Plain ESM JavaScript on purpose: `build-index.ts` runs under bun
-// as TypeScript and the validator runs on bare node, and `.mjs` is the one form
-// both can import with no build step and no dependency.
+// impossible. Plain ESM JavaScript on purpose: `build-index.ts` is TypeScript
+// and the validator is a plain `.mjs` script, both run under bun, and `.mjs` is
+// the one form either can import with no build step and no dependency.
 //
 // WHAT A PACK DECLARES, since Agent Plugins specification 1.0.0:
 //   `plugin.json`  — portable top-level metadata (`name`, `version`,

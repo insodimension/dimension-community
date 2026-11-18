@@ -5,8 +5,9 @@ description: >
   tags, Twitter cards, favicons, JSON-LD structured data, and robots directives. Use when adding
   SEO metadata, fixing social share previews, reviewing Open Graph tags, setting up canonical URLs,
   or shipping new pages that need correct meta tags.
-version: 1.0.1
 license: MIT
+metadata:
+  version: "1.0.1"
 ---
 
 ## Workflow

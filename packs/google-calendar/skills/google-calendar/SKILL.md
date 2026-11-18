@@ -1,7 +1,6 @@
 ---
 name: google-calendar
 description: Manage scheduling and conflicts in the connected Google Calendar — inspect calendars, compare availability, review conflicts, read event notes and attendees, place holds, and draft or apply exact create/update/reschedule/cancel changes with timezone-aware details. Native google_calendar_* tools (no CLI, no MCP server). Use when the user asks about their agenda, availability, meetings, or events.
-prerequisites: none
 ---
 
 # Google Calendar
