@@ -1,5 +1,5 @@
 ---
-name: image
+name: image-tools
 description: "Generate, edit, mask and cut out images with the image tools. Triggers: 'draw', 'generate an image', 'make a picture', 'illustration', 'logo', 'icon', 'mockup', 'edit this image', 'change the background', 'remove the background', 'transparent background', 'cut out', 'mask', 'inpaint', 'use Nano Banana', 'use Sunburst', 'use Seedream', 'which image model'."
 ---
 

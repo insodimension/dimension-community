@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { conformSkillFrontmatter } from "./frontmatter";
 
 const REPO = "pbakaus/impeccable";
 const ASSET_NAME = "universal.zip";
@@ -92,6 +93,7 @@ function readZipEntries(zip: Buffer): Map<string, Buffer> {
 /** `.pi/skills/impeccable/…` -> `<SKILL_DIR>/…` in markdown, + the path note in SKILL.md. */
 function portMarkdown(name: string, text: string): string {
 	let out = text.replaceAll(PROVIDER_PREFIX, "<SKILL_DIR>/");
+	if (name === "SKILL.md") out = conformSkillFrontmatter(out);
 	if (name === "SKILL.md" && !out.includes("Path note (Dimension port)")) {
 		const close = out.indexOf("\n---", out.indexOf("---") + 3);
 		if (close >= 0) {
@@ -179,10 +181,11 @@ writeFileSync(
 
 // Track the upstream skill version directly; bundled plugins re-provision on
 // any version change, so the sync itself is the bump.
-const packageFile = join(PLUGIN_ROOT, "package.json");
-const packageJson = JSON.parse(readFileSync(packageFile, "utf8")) as { version: string };
-packageJson.version = version;
-writeFileSync(packageFile, `${JSON.stringify(packageJson, null, "\t")}\n`);
+for (const file of ["package.json", "plugin.json"]) {
+	const manifest = JSON.parse(readFileSync(join(PLUGIN_ROOT, file), "utf8")) as { version: string };
+	manifest.version = version;
+	writeFileSync(join(PLUGIN_ROOT, file), `${JSON.stringify(manifest, null, "\t")}\n`);
+}
 
 console.log(
 	`impeccable: ${skillEntries.length} files at ${release.tag_name} (sha256 ${sha256.slice(0, 12)}…), ${ported} markdown files path-ported, plugin version -> ${version}`,

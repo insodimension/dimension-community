@@ -1193,8 +1193,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/image-v0.1.2/image-0.1.2.tgz",
-				"sha256": "c2b65663e24e4f9c8c013808a4151a550b4fb481a93924d821836f588b7417df",
-				"size": 3449
+				"sha256": "6a7abc8b7bd327ac9586d64864bb5dd02b56b1b517fdc9f905a27ec6c0132ad6",
+				"size": 3457
 			},
 			"pluginId": "image",
 			"title": "Image",
@@ -1228,8 +1228,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/impeccable-v3.9.4/impeccable-3.9.4.tgz",
-				"sha256": "234c3aa0f813f95a3d0b4137656b083ea9e332c54e4be8adf35b9aadf0f0ce96",
-				"size": 625688
+				"sha256": "8ccf6bf5d55a1fa696375ed25f5aff63a445cb4667174ca81b96e0ec8c73f763",
+				"size": 627577
 			},
 			"pluginId": "impeccable",
 			"title": "Impeccable",
