@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packDirectories } from "./shelf-release.mjs";
-import { packSkillProblems } from "./pack-skills.mjs";
+import { shelfSkillProblems } from "./pack-skills.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
 import { isReleaseSource, isShelfPackEntry, releaseSourceProblems, spaceListingProblems } from "./space-showcase.mjs";
 
@@ -348,7 +348,7 @@ for (const dir of shelfPacks) {
 	if (!listed.has(`./packs/${dir}`)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
 }
 
-for (const dir of shelfPacks) errors.push(...packSkillProblems(root, dir));
+errors.push(...shelfSkillProblems(root, [...shelfPacks]));
 
 if (errors.length > 0) {
 	console.error(`marketplace.json: ${errors.length} problem(s)`);

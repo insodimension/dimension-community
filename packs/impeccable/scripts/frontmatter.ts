@@ -1,13 +1,15 @@
 import { YAML } from "bun";
+import { SKILL_FIELDS } from "../../../scripts/pack-skills.mjs";
 
-const SKILL_FIELDS: Record<string, true> = {
-	name: true,
-	description: true,
-	license: true,
-	"allowed-tools": true,
-	metadata: true,
-	compatibility: true,
-};
+function metadataText(value: unknown, lines: string[], key: string): string {
+	if (typeof value === "string") return value;
+	if (value !== null && typeof value === "object") return JSON.stringify(value);
+	const line = lines.find(candidate => candidate.trimStart().startsWith(`${key}:`)) ?? "";
+	return line
+		.slice(line.indexOf(":") + 1)
+		.replace(/\s+#.*$/, "")
+		.trim();
+}
 
 export function conformSkillFrontmatter(markdown: string): string {
 	const text = markdown.replace(/\r\n?/g, "\n");
@@ -31,7 +33,7 @@ export function conformSkillFrontmatter(markdown: string): string {
 		if (entries.length !== 1 || key === undefined) {
 			kept.push(source);
 		} else if (key === "metadata" && value !== null && typeof value === "object" && !Array.isArray(value)) {
-			for (const [field, inner] of Object.entries(value)) metadata.set(field, typeof inner === "string" ? inner : JSON.stringify(inner));
+			for (const [field, inner] of Object.entries(value)) metadata.set(field, metadataText(inner, block.slice(1), field));
 		} else if (key === "allowed-tools" && Array.isArray(value)) {
 			const tools = value.map(String).join(" ");
 			let plain = false;
@@ -39,10 +41,10 @@ export function conformSkillFrontmatter(markdown: string): string {
 				plain = (YAML.parse(`allowed-tools: ${tools}`) as Record<string, unknown>)["allowed-tools"] === tools;
 			} catch {}
 			kept.push(`allowed-tools: ${plain ? tools : JSON.stringify(tools)}`);
-		} else if (SKILL_FIELDS[key]) {
+		} else if (SKILL_FIELDS.includes(key)) {
 			kept.push(source);
 		} else {
-			metadata.set(key, typeof value === "string" ? value : JSON.stringify(value));
+			metadata.set(key, metadataText(value, block, key));
 		}
 	}
 	if (metadata.size > 0) {

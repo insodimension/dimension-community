@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { YAML } from "bun";
+import { SKILL_FIELDS } from "../../../scripts/pack-skills.mjs";
 import { conformSkillFrontmatter } from "../scripts/frontmatter";
-
-const SKILL_FIELDS = ["name", "description", "license", "allowed-tools", "metadata", "compatibility"];
 
 const BODY = "\n\n> **Path note (Dimension port):** see below.\n\nversion: 9.9.9 in the body stays\n- Bash(not a key)\n";
 
@@ -79,6 +78,17 @@ describe("conformSkillFrontmatter: an upstream SKILL.md comes out in the closed 
 			"user-invocable": "true",
 		});
 		expect(conformSkillFrontmatter(input + BODY).endsWith(`\n---${BODY}`)).toBe(true);
+	});
+
+	test("a scalar moved into metadata keeps its source spelling", () => {
+		const moved = frontmatterOf(
+			conformSkillFrontmatter(["---", "name: impeccable", "description: d.", "version: 3.10", "---"].join("\n") + BODY),
+		);
+		expect(moved.metadata).toStrictEqual({ version: "3.10" });
+		const merged = frontmatterOf(
+			conformSkillFrontmatter(["---", "name: impeccable", "description: d.", "metadata:", "  version: 1.0", "---"].join("\n") + BODY),
+		);
+		expect(merged.metadata).toStrictEqual({ version: "1.0" });
 	});
 
 	test("a file without front matter is returned unchanged", () => {

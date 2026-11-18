@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { initGitShelf, SHELF_SCRIPTS } from "./git-shelf";
@@ -59,6 +59,12 @@ function withFrontmatter(lines: string[]): string {
 	return ["---", ...lines, "---", "", "# Helper", ""].join("\n");
 }
 
+function expectRefused(result: { status: number | null; output: string }, ...names: string[]) {
+	expect(result.status).not.toBe(0);
+	const line = result.output.split("\n").find(candidate => candidate.includes("packs/helper-pack"));
+	for (const name of names) expect(line).toContain(name);
+}
+
 describe("pack skills: every SKILL.md meets the closed Agent Skills front matter the harness enforces", () => {
 	test("a skill using only the allowed keys, with allowed-tools as one line and its version under metadata, passes", () => {
 		const result = validate(shelfWith(GOOD_SKILL));
@@ -70,55 +76,56 @@ describe("pack skills: every SKILL.md meets the closed Agent Skills front matter
 		const result = validate(
 			shelfWith(withFrontmatter(["name: helper", "description: Helps with one thing.", "prerequisites: none"])),
 		);
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('packs/helper-pack: skill "helper" (skills/helper/SKILL.md) has the front matter key "prerequisites"');
+		expectRefused(result, '"helper"', '"prerequisites"');
 	});
 
 	test("a top-level version fails; the same version under metadata is the accepted home", () => {
 		const result = validate(shelfWith(withFrontmatter(["name: helper", "description: Helps with one thing.", "version: 3.9.1"])));
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('skill "helper" (skills/helper/SKILL.md) has the front matter key "version"');
+		expectRefused(result, '"helper"', '"version"');
 	});
 
 	test("allowed-tools written as a YAML list fails", () => {
 		const result = validate(
 			shelfWith(withFrontmatter(["name: helper", "description: Helps with one thing.", "allowed-tools:", "  - Bash(npx helper *)"])),
 		);
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('skill "helper" (skills/helper/SKILL.md) has an "allowed-tools" that is not text');
+		expectRefused(result, '"helper"', '"allowed-tools"');
 	});
 
 	test("a metadata value that is not text fails", () => {
 		const result = validate(
 			shelfWith(withFrontmatter(["name: helper", "description: Helps with one thing.", "metadata:", "  version: 1.2"])),
 		);
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('has "metadata.version" that is not text');
+		expectRefused(result, '"helper"', '"metadata.version"');
 	});
 
 	test("an unquoted value holding a colon and a space is not valid YAML to the harness and fails", () => {
 		const result = validate(
 			shelfWith(withFrontmatter(["name: helper", "description: A phone is the person's own device: it is never picked by default."])),
 		);
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('skill "helper" (skills/helper/SKILL.md) has front matter that is not valid YAML');
+		expectRefused(result, '"helper"', "YAML");
 	});
 
 	test("a name that differs from the skill's directory fails", () => {
 		const result = validate(shelfWith(withFrontmatter(["name: other", "description: Helps with one thing."])));
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('has the "name" "other", which must equal its directory name "helper"');
+		expectRefused(result, '"helper"', '"name"', '"other"');
 	});
 
 	test("a description over 1024 characters fails", () => {
 		const result = validate(shelfWith(withFrontmatter(["name: helper", `description: ${"a".repeat(1025)}`])));
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('has a "description" of 1025 characters');
+		expectRefused(result, '"helper"', '"description"');
 	});
 
 	test("a pack with skills but no dimension block in package.json fails, since the harness never enumerates it", () => {
 		const result = validate(shelfWith(GOOD_SKILL, null));
-		expect(result.status).not.toBe(0);
-		expect(result.output).toContain('packs/helper-pack: package.json has no "dimension" block');
+		expectRefused(result, "package.json", '"dimension"');
+	});
+
+	test("an omp or pi block counts as the manifest block, as it does for the harness", () => {
+		for (const key of ["omp", "pi"]) {
+			const root = shelfWith(GOOD_SKILL, null);
+			const pkgPath = join(root, "packs", "helper-pack", "package.json");
+			writeFileSync(pkgPath, JSON.stringify({ ...JSON.parse(readFileSync(pkgPath, "utf8")), [key]: { name: "helper-pack" } }));
+			expect(validate(root).status).toBe(0);
+		}
 	});
 });

@@ -1228,8 +1228,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/impeccable-v3.9.4/impeccable-3.9.4.tgz",
-				"sha256": "8ccf6bf5d55a1fa696375ed25f5aff63a445cb4667174ca81b96e0ec8c73f763",
-				"size": 627577
+				"sha256": "2a50b72eafbf642025fd2e67227d4d459fd6b7edc5b29eb25544a0d48164674d",
+				"size": 627786
 			},
 			"pluginId": "impeccable",
 			"title": "Impeccable",

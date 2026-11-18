@@ -1,7 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const SKILL_FIELDS = ["name", "description", "license", "allowed-tools", "metadata", "compatibility"];
+export const SKILL_FIELDS = ["name", "description", "license", "allowed-tools", "metadata", "compatibility"];
+
+const MANIFEST_KEYS = ["dimension", "omp", "pi"];
 
 const SKILL_NAME_CHARS = /^[\p{L}\p{N}-]+$/u;
 
@@ -64,16 +66,13 @@ function readSkillFrontmatter(content) {
 	return { frontmatter: isRecord(loaded) ? loaded : {} };
 }
 
-export function packSkillProblems(root, pack) {
+function packSkillProblems(root, pack) {
 	const skillsDir = join(root, "packs", pack, "skills");
 	if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) return [];
 	const skills = readdirSync(skillsDir)
 		.filter(dir => statSync(join(skillsDir, dir)).isDirectory() && existsSync(join(skillsDir, dir, "SKILL.md")))
 		.sort();
 	if (skills.length === 0) return [];
-	if (!globalThis.Bun?.YAML) {
-		return [`packs/${pack}: its skills can only be checked under bun, which parses SKILL.md front matter the way the harness does (run bun scripts/validate-marketplace.mjs)`];
-	}
 	const problems = [];
 	let pkg;
 	try {
@@ -81,7 +80,7 @@ export function packSkillProblems(root, pack) {
 	} catch {
 		pkg = undefined;
 	}
-	if (pkg !== undefined && !isRecord(pkg?.dimension) && !isRecord(pkg?.omp)) {
+	if (pkg !== undefined && !MANIFEST_KEYS.some(key => isRecord(pkg?.[key]))) {
 		problems.push(
 			`packs/${pack}: package.json has no "dimension" block, so the harness skips the whole pack and its skills (${skills.join(", ")}) never reach a session; add "dimension": { "name": "${pack}" }`,
 		);
@@ -92,4 +91,11 @@ export function packSkillProblems(root, pack) {
 		if (problem) problems.push(`packs/${pack}: skill "${skill}" (skills/${skill}/SKILL.md) ${problem}, so the harness drops it`);
 	}
 	return problems;
+}
+
+export function shelfSkillProblems(root, packs) {
+	if (!globalThis.Bun?.YAML) {
+		return ["pack skills can only be checked under bun, which parses SKILL.md front matter the way the harness does (run bun scripts/validate-marketplace.mjs)"];
+	}
+	return packs.flatMap(pack => packSkillProblems(root, pack));
 }
