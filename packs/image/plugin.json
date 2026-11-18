@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "image",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Make and edit images, and cut out transparent backgrounds on your computer. Pick any model for a single picture.",
 	"author": {
 		"name": "Dimension"

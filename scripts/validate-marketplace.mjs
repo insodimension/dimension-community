@@ -1,9 +1,9 @@
-// Standalone catalog validator - no dependencies, runs on bare node/bun.
+// Standalone catalog validator - no dependencies, runs on bun.
 // The monorepo runs each pack's tests; THIS repo's CI can only see itself,
 // so it validates what is checkable standalone: the catalog and pack layout.
 //
 // `--check` additionally runs the index generator's drift gate, which is a
-// TypeScript file — that mode needs bun (plain node runs every other check).
+// TypeScript file — that mode needs bun, as does the SKILL.md check.
 //
 // What a pack declares is read through `scripts/pack-manifest.mjs` — the SAME
 // reader the index generator uses, so this gate and that projection can never
@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packDirectories } from "./shelf-release.mjs";
+import { packSkillProblems } from "./pack-skills.mjs";
 import { projectCatalogProviders, readPackBlock, readPackManifestResult } from "./pack-manifest.mjs";
 import { isReleaseSource, isShelfPackEntry, releaseSourceProblems, spaceListingProblems } from "./space-showcase.mjs";
 
@@ -346,6 +347,8 @@ const listed = new Set((catalog.plugins ?? []).map(plugin => plugin.source));
 for (const dir of shelfPacks) {
 	if (!listed.has(`./packs/${dir}`)) errors.push(`packs/${dir} exists but has no catalog entry (CONTRIBUTING.md step 5)`);
 }
+
+for (const dir of shelfPacks) errors.push(...packSkillProblems(root, dir));
 
 if (errors.length > 0) {
 	console.error(`marketplace.json: ${errors.length} problem(s)`);

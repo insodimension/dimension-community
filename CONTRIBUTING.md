@@ -271,6 +271,15 @@ Users enable and disable General Agents in **Capabilities → General Agents**.
 - Honest states: empty, loading and failure are part of the component.
 - `prefers-reduced-motion` is not optional.
 - No second copy of anything the platform already renders.
+- A skill (`skills/<name>/SKILL.md`) uses only the Agent Skills front matter
+  keys: `name` (equal to its directory), `description` (at most 1024
+  characters), `license`, `compatibility` (at most 500 characters),
+  `allowed-tools` (one space-separated line, not a list) and `metadata` (a map
+  of keys to text; a skill's `version` goes here, quoted). The front matter
+  must be strict YAML: quote a value that holds `: `. Dimension drops a skill
+  that breaks any of these, and a pack whose `package.json` has no `dimension`
+  block is never loaded at all, so `validate-marketplace.mjs` refuses both and
+  names the pack, the skill and the key.
 - State a pack keeps across restarts is written crash-safe. Every pack the
   shelf's esbuild builds (a pack that runs as its own Node process, and
   swiss-knife's engine extension bundle `dist/index.mjs`) imports

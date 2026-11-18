@@ -1,11 +1,10 @@
 ---
 name: impeccable
 description: Use when the user wants to design, redesign, shape, critique, audit, polish, clarify, distill, harden, optimize, adapt, animate, colorize, extract, or otherwise improve a frontend interface. Covers websites, landing pages, dashboards, product UI, app shells, components, forms, settings, onboarding, and empty states. Handles UX review, visual hierarchy, information architecture, cognitive load, accessibility, performance, responsive behavior, theming, anti-patterns, typography, fonts, spacing, layout, alignment, color, motion, micro-interactions, UX copy, error states, edge cases, i18n, and reusable design systems or tokens. Also use for bland designs that need to become bolder or more delightful, loud designs that should become quieter, live browser iteration on UI elements, or ambitious visual effects that should feel technically extraordinary. Not for backend-only or non-UI tasks.
-version: 3.9.1
 license: Apache 2.0
-allowed-tools:
-  - Bash(npx impeccable *)
-  - Bash(node <SKILL_DIR>/scripts/*)
+allowed-tools: Bash(npx impeccable *) Bash(node <SKILL_DIR>/scripts/*)
+metadata:
+  version: "3.9.1"
 ---
 
 > **Path note (Dimension port):** `<SKILL_DIR>` = the directory of THIS SKILL.md — you see its resolved path when the skill loads; `scripts/` and `reference/` ship beside it. Substitute that absolute path when running commands.

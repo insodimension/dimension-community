@@ -6,6 +6,7 @@ export const SHELF_SCRIPTS = [
 	"build-index.ts",
 	"pack-archive.mjs",
 	"pack-manifest.mjs",
+	"pack-skills.mjs",
 	"publish-pack-releases.mjs",
 	"shelf-release.mjs",
 	"space-showcase.mjs",

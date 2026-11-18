@@ -1,7 +1,6 @@
 ---
 name: google-meet
 description: Work with Google Meet — create meetings and share join links, read post-call conference records, participants, recordings, and transcripts, and join a live call to transcribe it (listen-only). Native google_meet_* tools (no CLI, no MCP server). Use when the user asks to start a meeting, sit in on / take notes on a call, or summarize what was said in a past meeting.
-prerequisites: none
 ---
 
 # Google Meet
