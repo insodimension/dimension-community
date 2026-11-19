@@ -7140,6 +7140,31 @@ function buildScope(aliases, options) {
 // ../../../omp/packages/coding-agent/src/config/agent-baseline.ts
 var SPACE_PLUGINS_TOKEN = "@space";
 
+// ../../../omp/packages/tui/src/model-role-ids.ts
+var CHAT_MODEL_ROLE_IDS = [
+  "default",
+  "smol",
+  "slow",
+  "vision",
+  "plan",
+  "commit",
+  "tiny",
+  "memory",
+  "task",
+  "advisor"
+];
+var KIND_ROLE_IDS = ["image", "web", "speech", "dictation", "judge"];
+
+// ../../../omp/packages/coding-agent/src/config/model-role-ids.ts
+var CHAT_MODEL_ROLE_IDS2 = CHAT_MODEL_ROLE_IDS.flatMap(
+  (role) => role === "plan" ? [role, "designer"] : [role]
+);
+var KIND_ROLE_IDS2 = [...KIND_ROLE_IDS, "live"];
+var MODEL_ROLE_IDS = [...CHAT_MODEL_ROLE_IDS2, ...KIND_ROLE_IDS2];
+var SEAT_MODEL_ROLE_IDS = CHAT_MODEL_ROLE_IDS2.filter(
+  (role) => role !== "tiny" && role !== "memory"
+);
+
 // ../../../omp/packages/coding-agent/src/config/agent-manifest.ts
 var REACH_WORDS = { none: true, all: true, space: true };
 var CONTROL_LANE_NAMES = [
@@ -7613,15 +7638,17 @@ function splitFrontmatter(content) {
   return { frontmatter, body };
 }
 
-// ../../../packages/sdk/src/general-agent/index.ts
-var GENERAL_AGENTS_DIR = "general-agents";
-var GENERAL_AGENT_FILE = "agent.md";
+// ../../../packages/sdk/src/general-agent/home.ts
 function agentHomeWorkspaceId(agent) {
   return `home-${agent}`;
 }
 function derivesAgentHome(agent, workspaceId) {
   return workspaceId === void 0 || workspaceId === agentHomeWorkspaceId(agent);
 }
+
+// ../../../packages/sdk/src/general-agent/index.ts
+var GENERAL_AGENTS_DIR = "general-agents";
+var GENERAL_AGENT_FILE = "agent.md";
 var VOICE_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 function parseVoice(value, errors) {
   if (value === void 0) return void 0;
