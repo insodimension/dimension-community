@@ -142,7 +142,7 @@ kit's `WaveLane` for a sound and `FilmLane` for a video (`mcp-app-kit/README.md`
 and the place the notes sit. The annotation toolbar's **Moment** (`M`) puts a note at the playhead and **Stretch**
 (`I` sets where it starts, `O` where it ends, Escape takes a half-set one back) puts one on a span; a span can also be
 dragged out on the lane (Shift-drag on a waveform). A moment within a quarter second of a note that is there focuses that one instead of stacking.
-Up to 24 notes. The request lists them in time order, and for video carries up to four pictures (below).
+Up to 24 notes. The request lists them in time order, and for video carries up to 16 pictures (below).
 
 * Recordings play through HTTP byte ranges; playback does not download and base64-decode the whole
   file before opening, and has no recording-size cap. The player preloads metadata and requests
@@ -188,7 +188,7 @@ Up to 24 notes. The request lists them in time order, and for video carries up t
   over the picture the video actually draws (letterbox bars excluded). The Notes row reads `0:05.2 · box`; **Go to** on a drawing pauses on its frame. Escape takes back a half-set stretch first and
   then puts the tool down.
 * **What a send carries for video.** Pictures are taken at send time from the silent element (long edge 768 px, JPEG
-  0.82) inside the host's image caps (4 images; 2 MiB each, 4 MiB together). **Frames you drew on come first**, one
+  0.82) inside the host's image caps (16 images; 2 MiB each, 6 MiB together). **Frames you drew on come first**, one
   picture per frame however many drawings are on it, with the shapes burned in and numbered by the same number the
   note has in the Notes list and the text; the slots left over go to plain moments in time order. A drawn frame with no
   room, no host image door or a frame that could not be taken goes as boxes and a time in the text, and the human is
