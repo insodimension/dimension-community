@@ -192,8 +192,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/browser-v0.9.26/browser-0.9.26.tgz",
-				"sha256": "305fab9f2fbbffcfefac97464558e5d3a0903ef92cb224630f6b34a618af5482",
-				"size": 1989429
+				"sha256": "4371b55c14343b8d8b889a9077826ec85b4bac61ab3e892cc5b51dea78c6f11f",
+				"size": 1989427
 			},
 			"pluginId": "browser",
 			"title": "Browser",
@@ -1611,8 +1611,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/simulator-v0.1.9/simulator-0.1.9.tgz",
-				"sha256": "410b2cfe01fe6ffa1f448874280a36db69583c6821c2599696f849b3dd89d293",
-				"size": 443607
+				"sha256": "ec69e8f12ef686e1269f77327c13883f5ab82b704f1b24378986cfb929a9c7b9",
+				"size": 443602
 			},
 			"pluginId": "simulator",
 			"title": "Simulator",
@@ -1749,8 +1749,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/swiss-knife-v0.7.7/swiss-knife-0.7.7.tgz",
-				"sha256": "ab6dee19c45ea72d10899299b35eda0ebb060125a26d216805adae7830719671",
-				"size": 2274678
+				"sha256": "ca437d3630db07f8adc8775435ecc9bec3a2af48b9208602d96a926ab729b84c",
+				"size": 2274014
 			},
 			"pluginId": "swiss-knife",
 			"title": "Swiss Knife",
