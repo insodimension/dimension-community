@@ -9,7 +9,7 @@ identity:
   personality: none
 capabilities:
   autoloadSkills: [filmmaker-core]
-  optIn: [autonomy]
+  optIn: [autonomy, watch]
   control: []
   ignore:
     plugins: [unreal, unreal-space-ui, model-intel, code-health, machinist-workshop, slack, bluesky, hackernews, newsletter, simulator, pr-viewer, scm-github, scm-gitlab, github, discord, telegram, whatsapp, teams, gmail, google-workspace, google-drive, google-meet, google-calendar, calendar, board, dcg, harness-claude-code, harness-pi, analytics, traction-space, social-listening, impeccable, ui-skills, studio-design-systems, agents-best-practices, product-psychology, gen-tripo, gen-local-3d, code-space-ui, session-view, motion, storyboard, sound, media-gen-local]
