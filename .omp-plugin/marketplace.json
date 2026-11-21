@@ -2022,7 +2022,7 @@
 			"title": "Unreal",
 			"icon": "packs/unreal/assets/icon.svg",
 			"description": "A space for Unreal game development: find your Unreal projects, browse all your assets in one place and start a new project. Enter the license key from your invite to open it.",
-			"version": "0.1.4",
+			"version": "0.1.5",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2041,9 +2041,9 @@
 			},
 			"source": {
 				"source": "release",
-				"url": "https://get.insodimension.ai/spaces/unreal/unreal-0.1.4.tgz",
-				"sha256": "6f4abc3cb441296c38f7a77bcd3809cb491e75f80d8be34e778b9e7a8cb77f6e",
-				"size": 2111213
+				"url": "https://get.insodimension.ai/spaces/unreal/unreal-0.1.5.tgz",
+				"sha256": "1bc36e500aa1c814260c4e34e33b94e18f570d402b7fb308ce5d87ced4becd03",
+				"size": 2111251
 			},
 			"spaces": [
 				{
@@ -2057,7 +2057,7 @@
 					],
 					"showcase": {
 						"tagline": "Your Unreal projects, with agents that know them.",
-						"summary": "Unreal is a space for game development over your own Unreal projects. Each project sits in the rail as a UProject with its splash image, its channels and its sessions. Unreal is the lead agent, with Animation and VFX beside it; message one directly, or name it in a channel to hand it the work. Assets lists your Megascans, Fab and project Content in one browser. Unreal is in private alpha: install it, then enter the license key from your invite.",
+						"summary": "Unreal is a space for game development over your own Unreal projects. Each project sits in the rail as a UProject with its splash image, its channels and its sessions. Unreal is the lead agent, with Animation, VFX, Modeling, Cinematics and Performance beside it; message one directly, or name it in a channel to hand it the work. Assets lists your Megascans, Fab and project Content in one browser. Unreal is in private alpha: install it, then enter the license key from your invite.",
 						"screenshots": [
 							"packs/unreal/assets/showcase/agents.webp",
 							"packs/unreal/assets/showcase/uprojects.webp",
