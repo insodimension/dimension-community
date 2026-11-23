@@ -1744,6 +1744,49 @@
 			}
 		},
 		{
+			"name": "speech-voice-clone",
+			"source": "./packs/speech-voice-clone",
+			"release": {
+				"source": "release",
+				"url": "https://github.com/insodimension/dimension-community/releases/download/speech-voice-clone-v0.1.0/speech-voice-clone-0.1.0.tgz",
+				"sha256": "cbf20912241b5718fb8c81d4a461486ae58ec2b3c281a336226b25f9443e0538",
+				"size": 22503
+			},
+			"pluginId": "speech-voice-clone",
+			"title": "Local voice cloning",
+			"icon": "packs/speech-voice-clone/assets/icon.svg",
+			"description": "Speaks your agent's replies in your own cloned voice, on this machine's NVIDIA GPU, with an open-weight model: Qwen3-TTS, Breeze TTS 2, VoxCPM2, Fish Audio S2 Pro or Chatterbox. No account, no key and no cost per character.",
+			"version": "0.1.0",
+			"author": {
+				"name": "Dimension"
+			},
+			"repository": "https://github.com/insodimension/dimension-community",
+			"license": "MIT",
+			"category": "connector",
+			"tags": [
+				"speech",
+				"voice",
+				"tts",
+				"voice-cloning",
+				"local",
+				"provider"
+			],
+			"requires": {
+				"dimension": ">=0.11.4"
+			},
+			"channel": "canary",
+			"providers": {
+				"speech": [
+					{
+						"id": "voice-clone",
+						"speak": true,
+						"listen": false,
+						"onDevice": true
+					}
+				]
+			}
+		},
+		{
 			"name": "swiss-knife",
 			"source": "./packs/swiss-knife",
 			"release": {
