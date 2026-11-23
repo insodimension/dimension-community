@@ -1748,15 +1748,15 @@
 			"source": "./packs/speech-voice-clone",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/speech-voice-clone-v0.1.0/speech-voice-clone-0.1.0.tgz",
-				"sha256": "cbf20912241b5718fb8c81d4a461486ae58ec2b3c281a336226b25f9443e0538",
-				"size": 22503
+				"url": "https://github.com/insodimension/dimension-community/releases/download/speech-voice-clone-v0.1.1/speech-voice-clone-0.1.1.tgz",
+				"sha256": "4f953892bcfd03ac8b053a24bb25963645f7d8dd114db356d0f366b9841ac62d",
+				"size": 65669
 			},
 			"pluginId": "speech-voice-clone",
 			"title": "Local voice cloning",
 			"icon": "packs/speech-voice-clone/assets/icon.svg",
 			"description": "Speaks your agent's replies in your own cloned voice, on this machine's NVIDIA GPU, with an open-weight model: Qwen3-TTS, Breeze TTS 2, VoxCPM2, Fish Audio S2 Pro or Chatterbox. No account, no key and no cost per character.",
-			"version": "0.1.0",
+			"version": "0.1.1",
 			"author": {
 				"name": "Dimension"
 			},

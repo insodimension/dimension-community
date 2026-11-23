@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/community-speech-voice-clone",
 	"author": "Dimension",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Local voice cloning speech provider: your agent's replies in your own cloned voice, on this machine's NVIDIA GPU, with Qwen3-TTS, Breeze TTS 2, VoxCPM2, Fish Audio S2 Pro or Chatterbox",
 	"type": "module",
 	"main": "src/index.ts",
