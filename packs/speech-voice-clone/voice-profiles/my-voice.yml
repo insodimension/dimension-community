@@ -1,0 +1,7 @@
+description: Replies spoken in your own cloned voice by Qwen3-TTS on this machine, with on-device Kokoro as the fallback; listens with on-device Parakeet (English)
+speak:
+  - { provider: voice-clone, model: qwen3-tts, voice: me }
+  - { provider: local, model: kokoro, voice: af_heart }
+listen:
+  - { provider: local, model: parakeet, language: en }
+turn: { endSilenceMs: 700, bargeIn: true }

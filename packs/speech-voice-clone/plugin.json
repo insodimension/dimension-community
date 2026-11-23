@@ -1,0 +1,62 @@
+{
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+	"name": "speech-voice-clone",
+	"version": "0.1.0",
+	"description": "Speaks your agent's replies in your own cloned voice, on this machine's NVIDIA GPU, with an open-weight model: Qwen3-TTS, Breeze TTS 2, VoxCPM2, Fish Audio S2 Pro or Chatterbox. No account, no key and no cost per character.",
+	"author": {
+		"name": "Dimension"
+	},
+	"license": "MIT",
+	"keywords": ["speech", "voice", "tts", "voice-cloning", "local", "provider"],
+	"extensions": {
+		"ai.insodimension.dimension": {
+			"contractVersion": 1,
+			"requires": {
+				"dimension": ">=0.11.4"
+			},
+			"title": "Local voice cloning",
+			"icon": "assets/icon.svg",
+			"category": "connector",
+			"channel": "canary",
+			"defaultEnabled": false,
+			"entry": "src/index.ts",
+			"providers": {
+				"speech": [
+					{
+						"id": "voice-clone",
+						"speak": true,
+						"listen": false,
+						"onDevice": true
+					}
+				]
+			},
+			"connect": {
+				"kind": ["cli"],
+				"requires": {
+					"commands": ["uv"],
+					"install": {
+						"uv": {
+							"win32": ["winget install --id astral-sh.uv -e"],
+							"darwin": ["brew install uv"],
+							"linux": ["pipx install uv"]
+						}
+					}
+				},
+				"setup": [
+					{
+						"title": "Check the GPU",
+						"detail": "The models run on an NVIDIA GPU with CUDA, on Windows or Linux. Qwen3-TTS peaked at 4.4 GB of video memory and VoxCPM2 at 6.1 GB in testing; Fish Audio S2 Pro needs a card with at least 12 GB."
+					},
+					{
+						"title": "Add your voice",
+						"detail": "Record 10 to 30 seconds of the voice speaking naturally, with no music or noise. Save it as <name>.wav in the voices folder, and its exact words as <name>.txt beside it; <name> becomes the voice id. The voices folder is <engine home>/speech/voice-clone/voices, or voices/ under DIMENSION_VOICE_CLONE_HOME when that is set. Clone only a voice you have the right to use."
+					},
+					{
+						"title": "Choose it in a voice profile",
+						"detail": "A voice profile picks it by naming provider voice-clone, a model (qwen3-tts, breeze-tts-2, voxcpm2, fish-s2-pro or chatterbox) and your voice id. The my-voice profile shipped with this pack speaks with Qwen3-TTS in a voice named me. Each model downloads when you press Download for it in the voice settings: its Python environment and weights, 8 to 19 GB depending on the model."
+					}
+				]
+			}
+		}
+	}
+}

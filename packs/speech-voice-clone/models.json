@@ -1,0 +1,112 @@
+{
+	"torchIndexes": {
+		"cu126": "https://download.pytorch.org/whl/cu126",
+		"cu128": "https://download.pytorch.org/whl/cu128"
+	},
+	"models": [
+		{
+			"id": "qwen3-tts",
+			"label": "Qwen3-TTS 1.7B",
+			"description": "A close match to the recording's voice that copies its delivery; no emotion control. Downloads 4.5 GB of weights; peaked at 4.4 GB of video memory in testing.",
+			"sizeHint": "about 9 GB",
+			"python": "3.12",
+			"torch": "cu128",
+			"sampleRate": 24000,
+			"weights": {
+				"repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+				"revision": "fd4b254389122332181a7c3db7f27e918eec64e3"
+			},
+			"tags": "none",
+			"licence": {
+				"id": "Apache-2.0",
+				"commercialUse": "yes",
+				"url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+			}
+		},
+		{
+			"id": "breeze-tts-2",
+			"label": "Breeze TTS 2",
+			"description": "A close match whose delivery you can direct: a profile's instruction option steers tone and pace in plain words, and [laughs], [sighs], [coughs] and [clears throat] are performed. Downloads 7.7 GB of weights.",
+			"sizeHint": "about 13 GB",
+			"python": "3.12",
+			"torch": "cu128",
+			"sampleRate": 24000,
+			"weights": {
+				"repo": "BreezeBlue/Breeze-TTS-2",
+				"revision": "3e28c5151381a722f1d8661b4118c298caa77aa4"
+			},
+			"source": {
+				"repo": "breezeblue-ai/breeze-tts",
+				"sha": "a43d19e718b322e1cb3b2aa66f6d37d7945f4b21"
+			},
+			"tags": "breeze",
+			"licence": {
+				"id": "BreezeBlue Research and Non-Commercial License",
+				"commercialUse": "no",
+				"url": "https://huggingface.co/BreezeBlue/Breeze-TTS-2/blob/main/LICENSE"
+			}
+		},
+		{
+			"id": "voxcpm2",
+			"label": "VoxCPM2",
+			"description": "A close match to the recording's voice that copies its delivery; no emotion control. Downloads 5 GB of weights; peaked at 6.1 GB of video memory in testing.",
+			"sizeHint": "about 10 GB",
+			"python": "3.12",
+			"torch": "cu128",
+			"sampleRate": 48000,
+			"weights": {
+				"repo": "openbmb/VoxCPM2",
+				"revision": "7936080b41163874f38610f46f438e2c0757f9fd"
+			},
+			"tags": "none",
+			"licence": {
+				"id": "Apache-2.0",
+				"commercialUse": "yes",
+				"url": "https://huggingface.co/openbmb/VoxCPM2"
+			}
+		},
+		{
+			"id": "fish-s2-pro",
+			"label": "Fish Audio S2 Pro",
+			"description": "The most expressive: any short direction in square brackets, such as [whisper], [excited] or [pause], is performed. The slowest of the five. Downloads 11 GB of weights and needs a GPU with at least 12 GB of video memory.",
+			"sizeHint": "about 19 GB",
+			"python": "3.12",
+			"torch": "cu128",
+			"sampleRate": 44100,
+			"weights": {
+				"repo": "fishaudio/s2-pro",
+				"revision": "1de9996b6be38b745688de084d87a5633f714e4e"
+			},
+			"source": {
+				"repo": "fishaudio/fish-speech",
+				"sha": "0f8a12e8a651062fdee9c33a894bdccd3a8513f1"
+			},
+			"tags": "brackets",
+			"licence": {
+				"id": "Fish Audio Research License",
+				"commercialUse": "no",
+				"url": "https://huggingface.co/fishaudio/s2-pro/blob/main/LICENSE.md"
+			}
+		},
+		{
+			"id": "chatterbox",
+			"label": "Chatterbox",
+			"description": "The weakest match of the five but the fastest, the only one that kept ahead of real time in testing. A profile's exaggeration option (0.25 to 2, default 0.5) makes delivery calmer or livelier. Its audio carries Resemble AI's inaudible Perth watermark. Downloads 3.2 GB of weights.",
+			"sizeHint": "about 8 GB",
+			"python": "3.11",
+			"torch": "cu126",
+			"sampleRate": 24000,
+			"weights": {
+				"repo": "ResembleAI/chatterbox",
+				"revision": "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18",
+				"files": ["ve.safetensors", "t3_cfg.safetensors", "s3gen.safetensors", "tokenizer.json", "conds.pt"]
+			},
+			"tags": "none",
+			"licence": {
+				"id": "MIT",
+				"commercialUse": "yes",
+				"url": "https://huggingface.co/ResembleAI/chatterbox"
+			}
+		}
+	]
+}
