@@ -73,7 +73,7 @@ Derived paths: `build`, `lines_file`, `timeline_file`, `layout_file`, `g11_file`
 | `seen` | `write(film, descriptions, audiences, out=None) -> Path` | The SEEN engine directory (`<revision>/framework/seen`) from a fresh reader's `{row id: {picture, display?}}`; a row with none, or a meme with no seen `display`, is an error. |
 | `description` | `write(film, intro, outro, extra=()) -> Path`, `sections(film)` | The YouTube description from the film's sources, pages, clips, posts and memes, with every credit. |
 | `instrument` | `main(video, out)`; `python -m framework.kit.instrument <video> <out>` | The render's own proof (`proof/film-X`): 0.5 s contact sheets, the Whisper transcript with word times (`words.json`, `transcript.txt`) and the audio level/speech table (`audio.txt`) G11's `no-dead-air` reads. |
-| `render` | `main(film, mix_only=False)` | `build/film` rendered with HyperFrames to `build/renders/picture.mp4`, mixed into `renders/<production>-1080p.mp4`, decoded end to end and checked for 1920x1080 and an A/V gap under 0.05 s, then `instrument.main` into `proof/film-X`. Every subprocess runs with `framework.tools.HIDDEN`. |
+| `render` | `main(film, mix_only=False, draft=False)` | `build/film` rendered with HyperFrames to `build/renders/picture.mp4`, mixed into `renders/<production>-1080p.mp4`, decoded end to end and checked for 1920x1080 and an A/V gap under 0.05 s, then `instrument.main` into `proof/film-X`. `draft` (or `--draft` on the command line) renders 15 fps at HyperFrames draft quality to `picture-draft.mp4` and `renders/<production>-draft.mp4` with the same mix and checks (the A/V gap under one draft frame) and no proof: a copy to watch. Every subprocess runs with `framework.tools.HIDDEN`. |
 
 ## Production layout the kit reads
 

@@ -1,5 +1,6 @@
 """A kit film's render and its proof: the HyperFrames picture, the delivery mix, the decode and A/V checks, and the
-render's instrument (`proof/film-X`). A film's `build/render.py` calls `main(FILM)`; `--mix-only` reuses the picture."""
+render's instrument (`proof/film-X`). A film's `build/render.py` calls `main(FILM)`; `--mix-only` reuses the picture and
+`--draft` makes a viewing copy (15 fps, HyperFrames draft quality, no proof) at `renders/<production>-draft.mp4`."""
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ HYPERFRAMES = "hyperframes@0.8.217"
 FRAME_SIZE = (1920, 1080)
 AV_GAP_MAX = 0.05
 RENDER_TIMEOUT_SECONDS = 90 * 60
+DRAFT_FPS = 15
 
 
 def probe(path) -> dict:
@@ -27,17 +29,22 @@ def probe(path) -> dict:
     return json.loads(out)
 
 
-def main(film: Film, mix_only: bool = False) -> None:
+def main(film: Film, mix_only: bool = False, draft: bool = False) -> None:
     """Render `build/film` to `build/renders/picture.mp4`, mix it into `renders/<production>-1080p.mp4`, check it decodes
-    end to end at 1920x1080 with A/V within AV_GAP_MAX, then write `proof/film-X`. Exits with the failed check."""
-    picture = film.build / "renders" / "picture.mp4"
-    final = film.root / "renders" / f"{film.root.name}-1080p.mp4"
+    end to end at 1920x1080 with A/V within AV_GAP_MAX, then write `proof/film-X`. Exits with the failed check.
+    `draft` (or `--draft` on the command line, so a film's older `build/render.py` takes it too) renders half the frames
+    at draft quality into `-draft` files and skips the proof: a copy to watch, not to ship."""
+    draft = draft or "--draft" in sys.argv
+    tag = "draft" if draft else "1080p"
+    picture = film.build / "renders" / ("picture-draft.mp4" if draft else "picture.mp4")
+    final = film.root / "renders" / f"{film.root.name}-{tag}.mp4"
     picture.parent.mkdir(parents=True, exist_ok=True)
     final.parent.mkdir(parents=True, exist_ok=True)
     if not mix_only:
         print("render: start", flush=True)
-        proc = subprocess.Popen([shutil.which("npx") or "npx", "-y", HYPERFRAMES, "render", "-o", os.path.relpath(picture, film.page_dir), "--fps", "30",
-                                 "--resolution", "1080p", "--crf", "18", "--quiet"], cwd=film.page_dir,
+        quality = ["--fps", str(DRAFT_FPS), "--quality", "draft"] if draft else ["--fps", "30", "--crf", "18"]
+        proc = subprocess.Popen([shutil.which("npx") or "npx", "-y", HYPERFRAMES, "render", "-o", os.path.relpath(picture, film.page_dir),
+                                 *quality, "--resolution", "1080p", "--quiet"], cwd=film.page_dir,
                                 creationflags=HIDDEN, start_new_session=os.name != "nt")
         try:
             code = proc.wait(timeout=RENDER_TIMEOUT_SECONDS)
@@ -61,7 +68,9 @@ def main(film: Film, mix_only: bool = False) -> None:
     a = next(s for s in info["streams"] if s["codec_type"] == "audio")
     gap = abs(float(v["duration"]) - float(a["duration"]))
     print(f"check: {v['width']}x{v['height']} {v['r_frame_rate']} frames {v['nb_read_frames']} A/V gap {gap:.3f}s", flush=True)
-    if (v["width"], v["height"]) != FRAME_SIZE or gap >= AV_GAP_MAX:
-        sys.exit(f"check failed: not {FRAME_SIZE[0]}x{FRAME_SIZE[1]} or A/V gap >= {AV_GAP_MAX} s")
-    instrument.main(final, film.root / "proof" / "film-X")
+    gap_max = 1 / DRAFT_FPS if draft else AV_GAP_MAX
+    if (v["width"], v["height"]) != FRAME_SIZE or gap >= gap_max:
+        sys.exit(f"check failed: not {FRAME_SIZE[0]}x{FRAME_SIZE[1]} or A/V gap >= {gap_max:.3g} s")
+    if not draft:
+        instrument.main(final, film.root / "proof" / "film-X")
     print("final:", final, flush=True)
