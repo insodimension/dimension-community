@@ -8,7 +8,7 @@ const PERSONA_KINDS = ["channel", "topic"];
 const EARLIER_MARKS = path.join("calibration", "inso-marks.jsonl");
 const MARKS = path.join("calibration", "marks.jsonl");
 const LEDGER_ABOUT =
-	"Music beds you have ruled on. A film's bed passes the music-approved rule only when its file's sha256 is in `approved`: either after your own yes for that track (`yes`), or a bed the Filmmaker made for one film (`approved_by: \"made for this film\"` with `film`: the production id it counts for, and for no other film), which you judge by ear in the render. Every entry names its licence. `references` are beds you praised inside a film, kept as listening references; they are not approvals. `rejected` beds fail with what you said (`said`), even when they are also in `approved`.";
+	"Music beds you have ruled on. A film's bed passes the music-approved rule only when its file's sha256 is in `approved`: either after your own yes for that track (`yes`), or a bed made for one film (`approved_by: \"made for this film\"` with `film`: the production id it counts for, and for no other film), which you judge by ear in the render. Every entry names its licence. `references` are beds you praised inside a film, kept as listening references; they are not approvals. `rejected` beds fail with what you said (`said`), even when they are also in `approved`.";
 
 type Row = Record<string, unknown>;
 

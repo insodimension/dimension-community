@@ -4,7 +4,7 @@ One implementation for every film. A film's builder fills a `Plan` from its own 
 (and, in the eval kernel, `await judge_checks(plan, judge_batch)`), then hands the merged result to `dd.gate.check` as
 its `g11`. A rule the plan cannot answer is left out, so dd.gate reports it unchecked: unknown is never a pass.
 
-Adding a rule (SKILL Notes mode N-2): write it in taste.json, then add its check here, keyed by the rule id, and the
+Adding a rule: write it in taste.json, then add its check here, keyed by the rule id, and the
 Plan field it needs. Every film that builds a Plan picks it up on its next gate run.
 """
 from __future__ import annotations
@@ -620,7 +620,7 @@ def calibrate(completion, marks: Path) -> dict:
     list for the person to look at and never a verdict, until this reaches recall >= 0.9 at <= 25% false alarms. The
     marks ledger is the brand's (`dd.home.marks_file(production)`); without it there is nothing to calibrate on."""
     if not marks.is_file():
-        return {"unavailable": f"calibration needs your marks ledger at {marks}: record each review note there (SKILL Notes mode) and run calibrate again"}
+        return {"unavailable": f"calibration needs your marks ledger at {marks}: record each review note there (FRAMEWORK.md §11) and run calibrate again"}
     rows = [json.loads(x) for x in marks.read_text(encoding="utf-8").splitlines() if x.strip() and json.loads(x).get("state")]
     states = {f"{r['rule']}|{i}": {**r["state"], "rule": r["rule"]} for i, r in enumerate(rows)}
     fails = {k.split(":")[0] for v in judge_checks(states, completion).values() for k in v}

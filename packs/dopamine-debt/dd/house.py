@@ -413,7 +413,7 @@ def run(stage, production, report_path):
     res = check(engine_dir, load_film(engine_dir, tunables()), g11)
     unanswered = len(res["missing_reads"]) + len(res["missing_jurors"])
     if unanswered:
-        return cannot_run(report_path, [f"{len(res['missing_reads'])} judge readouts and {len(res['missing_jurors'])} juror reads in {engine_dir} are unanswered: the session answers them with dd.house.review (dopamine-debt-film Review), then this gate runs again"], context)
+        return cannot_run(report_path, [f"{len(res['missing_reads'])} judge readouts and {len(res['missing_jurors'])} juror reads in {engine_dir} are unanswered: the session answers them with dd.house.review (FRAMEWORK.md §15), then this gate runs again"], context)
     if res["ledgers"] is not None:
         write(engine_dir, res)
     report = verdict(stage, res, extra_blockers, notes) | context | {"status": res["status"], "units": len(segs), "answered_by": res["answered_by"]}

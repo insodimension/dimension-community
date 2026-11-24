@@ -1,5 +1,7 @@
 # Dopamine Debt v2: the film psychology framework
 
+> **Optional deep reference.** This is the theory behind the style and the engine of the optional score (`inso dd gate`). Making a film needs none of it: the `dopamine-debt-film` skill is the style guide, and the person's notes on the render are the review. The gates below describe what the score measures; nothing waits on them.
+
 **The idea:** every second, a film borrows the viewer's attention. Explanation runs up the debt. Laughs, "aha" moments and answered questions pay it back. A film that lets the debt pile up loses the viewer; a film that pays it back on time keeps them wanting the next second. "Dopamine" here means *wanting to keep watching*, not pleasure.
 
 **v2** applies five parallel reviews of v1 (psychology, measurement, craft, systems, audience); the changes are listed in §14.
@@ -392,3 +394,14 @@ library: <engine home>/media-library/<id>/entry.json (the Video space's store), 
 | story_so_far from the author's intent | the verbatim previous 45 s, built in code | measurement, systems |
 | simulated retell as a score | a computable proxy (anchored, spaced re-encodings) plus a cue retell in calibration | systems, psychology |
 | HP and the ±3 charge | a diagnostic picture only | all five |
+
+## 15 · Running the optional score
+
+Run it only when a number helps; report what it says as advice. `inso dd gate <script|cut> <production folder> <report.json>` measures and calls no model: it exits 0 (pass), 1 (fail, findings in the report) or 2 (cannot run, `missing` in the report), and `script_gate` runs it as the brand's house gate once `inso dd setup <brand folder>` has written `house-gates.json`. Its reads are answered first from the session that owns the model profile, in the eval kernel with `DD` on `sys.path`:
+
+```python
+import dd.house
+await dd.house.review("script", PRODUCTION, judge_batch, completion, juror_model="provider/model", juror_role="default")
+```
+
+`"cut"` reviews the cut. Readouts go to the kernel's `judge_batch` (the person's `judge` role); bit jurors and the whole-cut watch go to `completion` at `juror_role` (`default`, `slow` or `smol`; pick a model family other than the judge's, §6). `juror_model` is the model that role resolves to in this session; juror answers are cached under it and the report's `answered_by` names every model that answered. A review is hundreds of model calls and several minutes.

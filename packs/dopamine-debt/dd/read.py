@@ -29,7 +29,7 @@ def tunables():
 def reviewed_by(root, film_dir):
     missing = [k for k in ("juror_model", "juror_role") if not root.get(k)]
     if missing:
-        raise ValueError(f"{Path(film_dir) / 'root.json'} records no {missing}: the session's review writes them (dd.house.review; dopamine-debt-film, Review)")
+        raise ValueError(f"{Path(film_dir) / 'root.json'} records no {missing}: the session's review writes them (dd.house.review; FRAMEWORK.md §15)")
     if root["juror_role"] not in JUROR_ROLES:
         raise ValueError(f"juror_role {root['juror_role']!r} is not one of {JUROR_ROLES}, the tiers completion() takes")
     if root["juror_model"] in JUROR_ROLES:
