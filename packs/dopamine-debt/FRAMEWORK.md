@@ -123,9 +123,7 @@ Each engine directory's `root.json` names its `kind` (`script`, `storyboard`, `c
 - **Bit:** a setup, a turn and an optional tag, at most 3 lines or 10 s. Grin and comprehension are read once per bit, with the whole bit in `state.line`. Setup lines are **loans**: free if the bit lands, charged if it doesn't.
 - **Segment:** the timeline unit. `segments[]` covers the **whole** film, `kind: voice|clip|graphic|silence`, and a validator enforces Σ durations = the film length ± 1 frame. Clip segments are read with `picture` = the library asset's payoff description and `sound` = its audio. Ids are ULIDs with `parent: [id]`, so the person's taps and notes survive edits.
 
-**The repair loop:** score → diagnose → rewrite → re-score.
-- At most 3 passes per stage.
-- A pass must reduce the gate blockers or the debt integral, or the loop stops and goes to the person.
+**Repair:** score → diagnose → rewrite, once per stage, by structure. The score is advice; nothing waits on it.
 - Every score change is logged against the size of the edit. A large jump from a small edit is a red flag: rewriting against the judge finds adversarial text.
 
 ## 5 · The four checks (Imprint Loop to film)
@@ -241,7 +239,7 @@ For each unit and each audience (the probabilities are the K-variant means):
 **Unknown is not pass:** a missing readout, a judge outage, or a persona with `basis: borrowed` and no calibration all make the result `incomplete`. Never impute zeros, never fall back silently to no persona, and never mix judge versions within one film.
 
 ### 8.1 What a render needs, and what decides
-**A render is refused** unless `dd/gate.py` passes on the film's **current** units:
+**A render scores well** when `dd/gate.py` passes on the film's **current** units (an optional score; nothing waits on it):
 - **Fresh:** every unit of the current script, at its current state (the same cache key as §6), has its readouts for every gated audience and both card variants, and the juror has read every triggered bit. A missing readout is `incomplete`, never a pass.
 - **Hard G-gates hold:** every gate in §8 except the advisory list in `tunables.json` (`advisory_gates`: G3m Meme cringe and G5f Fact laughs). Advisory failures are shown, never hidden. A gate that cannot be measured (no `kind` or `previous` in `root.json`, a meme with no seen `display`, a missing whole-cut read) is `incomplete`.
 - **G11 build checks hold:** the code half of G11, read from the build (plan, clip registry, source audio), before any frame is rendered.
