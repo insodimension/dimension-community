@@ -14,8 +14,8 @@ The kit lives in `DD/framework/kit` (`DD` is the folder `inso dd root` prints; a
 3. **Scenes are code, from real data.** Use the stage's templates first (`bars`, `counter`, `checklist`); a film's own goes in `build/scenes.py`, registered with `stage.scene(name, box=...)`, with word-cued reveals (`stage.cue`, `stage.later`) and a settled state that holds. Every number on screen comes from a sourced fact.
 4. **Memes.** A `speaker: "meme"` row punches the line before it, with its reason in `meme.why`. Find clean in and out points with `framework/quiet.py` (`speech`, `clip_edges`, `_frames`), not Whisper word starts.
 5. **Look.** `python timeline.py && python compose.py`, then snapshot the moments you changed (`npx -y hyperframes@0.8.217 snapshot build/film --at t1,t2 --no-end`) and look at them. `python g11.py` lists layout and pacing findings you can use as a checklist.
-6. **Render.** `python render.py`: 1080p30, the mix normalised for YouTube, and a `proof/` folder with contact sheets and a transcript. A full render takes about 18 minutes and one heavy render runs at a time, so batch your fixes and the person's notes into each render.
-7. **Deliver.** The render, the YouTube description (`python description.py`), and a line on what you did not check.
+6. **Render.** `python render.py --draft` while the person is watching cuts: half the frames at draft quality, the same mix and checks, `renders/<production>-draft.mp4`, no proof. `python render.py` once, for the master: 1080p30, the mix normalised for YouTube, and a `proof/` folder with contact sheets and a transcript. A master takes about 18 minutes and one heavy render runs at a time, so batch your fixes and the person's notes into each render.
+7. **Deliver.** The master, the YouTube description (`python description.py`), and a line on what you did not check.
 
 ## Things that bite
 
