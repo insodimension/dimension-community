@@ -36,7 +36,7 @@ def main(film: Film, mix_only: bool = False, draft: bool = False) -> None:
     at draft quality into `-draft` files and skips the proof: a copy to watch, not to ship."""
     draft = draft or "--draft" in sys.argv
     tag = "draft" if draft else "1080p"
-    picture = film.build / "renders" / f"picture{'-draft' if draft else ''}.mp4"
+    picture = film.build / "renders" / ("picture-draft.mp4" if draft else "picture.mp4")
     final = film.root / "renders" / f"{film.root.name}-{tag}.mp4"
     picture.parent.mkdir(parents=True, exist_ok=True)
     final.parent.mkdir(parents=True, exist_ok=True)
@@ -70,7 +70,7 @@ def main(film: Film, mix_only: bool = False, draft: bool = False) -> None:
     print(f"check: {v['width']}x{v['height']} {v['r_frame_rate']} frames {v['nb_read_frames']} A/V gap {gap:.3f}s", flush=True)
     gap_max = 1 / DRAFT_FPS if draft else AV_GAP_MAX
     if (v["width"], v["height"]) != FRAME_SIZE or gap >= gap_max:
-        sys.exit(f"check failed: not {FRAME_SIZE[0]}x{FRAME_SIZE[1]} or A/V gap >= {gap_max:.3f} s")
+        sys.exit(f"check failed: not {FRAME_SIZE[0]}x{FRAME_SIZE[1]} or A/V gap >= {gap_max:.3g} s")
     if not draft:
         instrument.main(final, film.root / "proof" / "film-X")
     print("final:", final, flush=True)
