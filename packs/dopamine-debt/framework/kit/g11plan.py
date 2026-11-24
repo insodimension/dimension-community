@@ -317,7 +317,7 @@ def judged(film: Film, completion, film_x: Path | None = None) -> dict:
 
 def seen_judged(film: Film, descriptions: dict[str, dict], completion) -> dict:
     """The rules that need the frames-only reader's `descriptions` (`analogy-stays-in-its-world`), judged and merged
-    into build/g11.json beside the code rules already there. Run at K-9, after the read of this render."""
+    into build/g11.json beside the code rules already there. Run with the optional score, after the read of this render."""
     prev = json.loads(film.g11_file.read_text(encoding="utf-8"))
     lines = json.loads(film.lines_file.read_text(encoding="utf-8"))
     found = g11.judge_checks(g11.analogy_states(lines, _spine(film), descriptions), completion)

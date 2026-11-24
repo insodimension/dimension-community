@@ -1,4 +1,4 @@
-"""The SEEN read's engine directory for a kit film (SKILL F-15): every lines.json row on the real cut clock.
+"""The SEEN read's engine directory for a kit film: every lines.json row on the real cut clock.
 
 Units come from build/timeline.json: a narrator row spans its voice item, a meme row its meme item(s), a creator clip
 row its clip item(s). Each unit holds the frame description a viewer reads (`picture`, written by whoever looked at

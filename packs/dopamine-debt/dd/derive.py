@@ -428,7 +428,7 @@ def entertainment(film, ledgers, watch, tun, gated):
     ms = [s for s in segs if s["kind"] == "clip" and s.get("library") in lib]
     unseen = [s["id"] for s in ms if s.get("display") not in DISPLAYS]
     if unseen:
-        return {"status": "incomplete", "detail": f"memes with no seen 'display' (full|cutout|ghost|inset from the F-15 frames): {unseen}"}
+        return {"status": "incomplete", "detail": f"memes with no seen 'display' (full|cutout|ghost|inset from the rendered frames): {unseen}"}
     mpm = len(ms) / (dur / 60)
     shown = sum(s["t1"] - s["t0"] for s in ms)
     large = sum(s["t1"] - s["t0"] for s in ms if s["display"] in LARGE) / shown if shown else 0.0
