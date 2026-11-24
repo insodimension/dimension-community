@@ -2121,7 +2121,7 @@
 			"title": "Video",
 			"icon": "play",
 			"description": "Make films for your brands, from the first idea to the upload. A brand is a folder with its logo, intro, fonts, voice and music; each film is a production inside it, with its own room where the Video agent researches, plans, voices, builds the picture and cuts it. Enter the license key from your invite to open it.",
-			"version": "0.1.17",
+			"version": "0.1.18",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2139,9 +2139,9 @@
 			},
 			"source": {
 				"source": "release",
-				"url": "https://get.insodimension.ai/spaces/video-space/video-space-0.1.17.tgz",
-				"sha256": "8c4af24f4b071ab8046285829f2722af36319f582d9d10412cc65862ce1a3d94",
-				"size": 1701274
+				"url": "https://get.insodimension.ai/spaces/video-space/video-space-0.1.18.tgz",
+				"sha256": "3ca361897247146dac0846280375ce9b8580a3b74cd0524c0cd22a16713f36a7",
+				"size": 1701305
 			},
 			"spaces": [
 				{
