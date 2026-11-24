@@ -89,7 +89,7 @@ Work in a fresh revision directory `films/<f>/<rev>/`. Reuse the **root** (perso
 
 ### Stage 5: Build, read, review
 - [ ] **F-13. Build, render and look with the kit.** Follow the `kit-film` skill: `inso dd new-film`, scenes as code, timeline (narration cut only in silence), compose, G11 as a checklist, render, one fresh read of the frames. The bed: stages.md §Delivery. Exit: a render that plays end to end.
-- [ ] **F-14. Self-check before the person sees it.** Transcribe each meme window in the render: the whole line must play. Look at a frame of each meme and of every picture change. Read every advisory G11 judge finding yourself. The bed is registered as G8 says. Exit: a table with time, meme, what plays, and its "viewer feels X because Y" sentence; any you could not write is cut before the person sees it.
+- [ ] **F-14. Self-check before the person sees it.** Transcribe each meme window in the render: the whole line must play. Look at a frame of each meme and of every picture change. The bed is registered as stages.md §Delivery says. For each meme, the sentence "the viewer feels X because the line just said Y"; cut one you cannot write.
 - [ ] **F-15. Show the person.** Show the render as soon as it plays end to end, then a few lines: what you chose, any score as advice ("the framework predicts"), the music licence, and what was not checked.
 - [ ] **F-16. Gotcha review.** Exit: entries appended (see the protocol).
 
@@ -169,7 +169,7 @@ Use today's absolute date. Never a relative one.
 | "This meme doesn't fit / not the right one" | F-10: the audience's feeling, the canonical clip, a named setup; label it in the marks ledger |
 | `dd.gate` says `incomplete` | Reads or records are missing → it is only a score: report it as not run and carry on, or run the Review once if you want the number |
 | "Almost no memes and jokes" | Repairs removed laughs and nothing put them back → G13 (every cast meme reaches the cut or is replaced from the library) and G12 at the SEEN read; never cut a meme for an advisory G3m veto (F-8, F-10, kit-film K-9) |
-| The person hates the music | A bed shipped that nobody made for the film or listened to → G8: make the film's own bed, register it in the brand's music ledger as made for this film, and record their verdict by ear there (`rejected` with what they said) |
+| The person hates the music | A bed shipped that nobody made for the film or listened to → stages.md §Delivery: make the film's own bed, register it in the brand's music ledger as made for this film, and record their verdict by ear there (`rejected` with what they said) |
 | The gate exits 2 saying reads are unanswered | The script or cut changed since the last Review → the score is stale; that is fine, the film does not wait for it |
 | A read is labelled with a model you did not choose | `answered_by` in the report lists every model that answered. A juror answer is cached under the `juror_model` the Review stated, a readout under `tunables.judge_model` |
 

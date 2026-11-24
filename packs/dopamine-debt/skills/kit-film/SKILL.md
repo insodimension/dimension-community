@@ -9,7 +9,7 @@ The `dopamine-debt-film` skill is guidance on WHAT the film says (research, spin
 
 ## A sensible order of work
 
-The steps are guidance: nothing here waits on a gate or a score. A full render takes about 18 minutes, so batch fixes and aim for two renders: the first, and the one after the person's notes.
+The steps are guidance: nothing here waits on a gate or a score. A full render takes about 18 minutes, so aim for two: the first, shown to the person as soon as it plays end to end, and one more carrying the frames read's fixes and the person's notes together.
 
 - [ ] **K-1. Start the build.** `inso dd new-film <production> [<film>/<rev>]` writes `<production>/build/` (`film.py`, `scenes.py`, `film.css`, `timeline.py`, `compose.py`, `g11.py`, `render.py`, `description.py`); `film.py` finds the kit each time it runs (`DD_ROOT` when set, else `inso dd root`), so an update of the kit never breaks it.
   - Set the `FILM` fields in `film.py`: `revision` (the script's revision folder), `spoken_forms` (how the voice must say acronyms), `music` beds, `persona`.
@@ -26,10 +26,10 @@ The steps are guidance: nothing here waits on a gate or a score. A full render t
   - Exit: every meme row has its reason in `meme.why`.
 - [ ] **K-5. Build and look.** `python timeline.py && python compose.py && python g11.py` in `build/`. G11 measures the built page in headless Chrome (text walls, the edge band, cut-off text, labels covering text, blank stage, pace, memes, music): treat its findings as a checklist and fix the ones you agree with at their cause. Snapshot the changed moments (`npx -y hyperframes@0.8.217 snapshot build/film --at t1,t2 --no-end`, at most 20) and LOOK at each.
 - [ ] **K-6. Render.** One heavy render at a time. `python render.py` (`kit/render.py`): 1080p30, the mix to −14 LUFS and under −1 dBTP, a decode check, A/V gap under 0.05 s, and `proof/film-X` (contact sheets, Whisper transcript, audio table).
-- [ ] **K-7. One frames-only read.** `seen.frames(FILM, <render>, proof/seen-frames-1)` cuts frames where the eye rests. Spawn ONE fresh subagent that reads only that folder (never the script) and lists frames that are blank, cramped, unreadable, cut off or covered. Look at the frames it names yourself and keep the items you agree with.
-- [ ] **K-8. Fix once.** Fix the real defects where they live, together with anything you saw yourself, and render once more. Do not spawn another reader or write new G11 rules during a film; a defect class worth a rule goes in the brand's notes as a suggestion.
+- [ ] **K-7. One frames-only read, while the person watches.** `seen.frames(FILM, <render>, proof/seen-frames-1)` cuts frames where the eye rests. Spawn ONE fresh subagent that reads only that folder (never the script) and lists frames that are blank, cramped, unreadable, cut off or covered. Look at the frames it names yourself and keep the items you agree with. The person gets the render meanwhile; do not hold it for the read.
+- [ ] **K-8. Fix once.** Fix the real defects where they live, together with the person's notes, and render once more. Do not spawn another reader or write new G11 rules during a film; a defect class worth a rule goes in the brand's notes as a suggestion.
 - [ ] **K-9. Optional score.** If a number helps, run the SEEN read and `dd.gate.check` once on the final cut (`g11plan.seen_judged`, `seen.write`, `dd.read.read`, `dd.gate.check`, as in `dopamine-debt-film`) and report it as advice. Never re-render to move it.
-- [ ] **K-10. Show the person the film first.** The render, the YouTube description (`python description.py`), and what you could not check, in a few lines. The video comes before any process report; their notes are the review.
+- [ ] **K-10. Deliver.** The final render, the YouTube description (`python description.py`), and what you could not check, in a few lines. The video comes before any process report; their notes are the review.
 
 ## Craft rules
 
@@ -49,13 +49,13 @@ The steps are guidance: nothing here waits on a gate or a score. A full render t
 - A receipt held more than about 4 s fails `show-dont-tell`. Split the line on its words: the receipt `until` a word, then the scene `from` it.
 - Show the real subject, never a drawn stand-in. A film about photographs shows real photographs: library thumbnails, store photos, captured renders, fetched by a subagent into `media/` with their source. One drawn stand-in reused across many scenes reads as filler; real pictures under every price tag carry the laughs.
 - A kept scene continues, it never rebuilds. When the next line stays on the same scene, the kit no longer re-enters it (`Cues.held` is true). The template must draw what was already up in its settled state and animate only what the new line adds. A scene that comes back later shows a new state the line names; a running gag (the price tag on the same object) is fine because the tag changes each time. G11 `no-scene-replay` reads the render and fails any scene that snaps back to a frame it already showed for 1 s or more: a viewer sees the same frame repeated.
-- An analogy's props live only in the world the analogy sets up. Reusing the analogy's props on lines the analogy never covered builds a world the script never set up, and it stops making sense. Off those lines, show the line's own fact in a scene the film already built (the chart, the report page, the cork board) in a new state. G11 `analogy-stays-in-its-world` gates it at K-9.
+- An analogy's props live only in the world the analogy sets up. Reusing the analogy's props on lines the analogy never covered builds a world the script never set up, and it stops making sense. Off those lines, show the line's own fact in a scene the film already built (the chart, the report page, the cork board) in a new state. G11 `analogy-stays-in-its-world` judges it at K-9 when you run the optional score.
 - A drawn object faces the way its scene moves. A side-view car on a road drawn toward a vanishing point drives across its own road; draw the road side-on too, or the car from behind.
 - A punch is a picture joke. On the punch word the picture changes: the tag flips, the stamp lands, the counter overshoots, the grid relabels. A punch voiced over a diagram that does not move is a radio joke and does not land.
 - Laugh inside the first 4 s (G11 `first-laugh-by-4s`). The cold open shows the thesis as a gag (a count-up wall, a price tag) and reaches its first meme or punch word before 4 s, and the punch is a picture joke (above), not a line over a held drawing.
 - Voice lines are spoken sentences. Headline fragments ("Second sentence:", "Today: what's free, who gets money back, and what they are buying") come out of a voice model as odd lists or rising questions. G11 `statement-not-asked` reads the render's transcript: a statement that Whisper ends with "?" was voiced rising, so rewrite it before you revoice.
 - A sticker placed over a card hides the card's own text: G11 `tag-clear-of-text` catches it. Give each card one free edge and put its sticker there.
-- The Filmmaker makes the film's music bed (or reuses an approved one) and registers it as `dopamine-debt-film` stages.md §Delivery says (G8).
+- The Filmmaker makes the film's music bed (or reuses an approved one) and registers it as `dopamine-debt-film` stages.md §Delivery says (G11 `music-from-library`, `music-approved`).
 
 ## Self-improvement
 

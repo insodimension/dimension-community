@@ -12,9 +12,9 @@ store.
 
 - **General Agent `filmmaker`**: makes a film end to end in a Video production's room. On by default; the
   Video space lists it in its agent picker.
-- **Skills** `filmmaker-core` (the order of work, loaded by the Filmmaker), `dopamine-debt-film` (the
-  framework, research to approved render, and turning review notes into rules) and `kit-film` (building
-  the picture with the film kit).
+- **Skills** `filmmaker-core` (a short guide, loaded by the Filmmaker), `dopamine-debt-film` (guidance from
+  research to render, and turning review notes into fixes) and `kit-film` (building the picture with the
+  film kit).
 - **CLI `inso dd`**:
   - `inso dd setup <brand folder>` writes the brand's `productions/house-gates.json`, whose gate runs
     `inso dd gate`, so an update of the kit never breaks it. An entry written by an earlier kit (one that

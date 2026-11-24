@@ -26,7 +26,7 @@ Ground truth is the person's reaction to the render. Gates are necessary, not su
 
 ## Rules (all in `DD/taste.json` as G11)
 `DD/taste.json` is the one list: every rule with its id, its text and whether code (`framework/g11.py`) or the judge checks it, and `filmmaker-core` restates the gates in one paragraph. The lessons above are where each rule came from. Two that are easy to forget because a gate cannot fully see them:
-- Music: the bed rule is in stages.md §Delivery and the G8 row of SKILL.md. The `no-hr-music` proxy has passed a bed a reviewer hated and failed beds a reviewer praised, so the person's ear, not the proxy, is the measure.
+- Music: the bed rule is in stages.md §Delivery. The `no-hr-music` proxy has passed a bed a reviewer hated and failed beds a reviewer praised, so the person's ear, not the proxy, is the measure.
 - A meme is the audience's reaction at that moment, uses the template's canonical clip, and lands a setup a viewer can name; a picture depicts its fact. These are judged and still advisory (the judge is uncalibrated), so before showing the person, write for every meme and every photo one sentence: "the viewer feels X because the line just said Y", and cut any you cannot write.
 
 ## Openings
@@ -39,7 +39,7 @@ Ground truth is the person's reaction to the render. Gates are necessary, not su
 - Mix the modes: `fullscreen`, `cutout`, `spotlight` (on the named thing), `slot` (in the new row or cell), `ghost` (for a menacing beat).
 
 ## Notes from the person
-Their notes are symptoms of a flow problem, not a to-do list. Never patch a note literally (for example, adding sound under a silent post). Find the cause in the stage that owns it, check every other instance, and redo from there.
+Their notes are the review: fix exactly what each one asks, in one render. When a note hints at a flow problem (for example, sound wanted under a silent post), fix it at its cause in that line, picture or meme; do not sweep other films during this one.
 
 ## Reporting to the person
 - Measured proof only, with its limits stated. Say "the framework predicts", never "it passes". No excuses.

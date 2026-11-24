@@ -5,7 +5,7 @@ description: "The short guide to a Dopamine Debt film: a sensible order of work 
 
 # Filmmaker core
 
-Dopamine Debt is a style and a kit, not a pipeline. The steps below are the order that usually works; skip or reorder what this film does not need. The gate (`inso dd gate`, `script_gate`) is an optional score: run it when a number helps you, report what it says as advice, and never stop, loop or wait on it. Voice, generation and render never wait for it.
+Dopamine Debt is a style and a kit, not a pipeline. The steps below are the order that usually works; skip or reorder what this film does not need. The gate (`inso dd gate`, `script_gate`) is an optional score: run it at most once on the script and once on the cut, when a number helps you; report what it says as advice, and never stop, loop or wait on it. Voice, generation and render never wait for it.
 
 `DD/` is the Dopamine Debt kit folder: `inso dd root` prints it (the engine `dd/`, `framework/` and its film kit `framework/kit/`, the shipped channel persona, `taste.json`, `tunables.json`). Never write into it: an update of the kit replaces it. `dd/home.py` names the folders: `brand_dir(<production>)` is the brand's `productions/dopamine-debt/` (research, your personas, `music.json`, `calibration/marks.jsonl`, and `films/<f>/<rev>/`), `LIBRARY` is the shared meme library. A film is one production with its own folder and room; its build lives in `<production>/build/`.
 
@@ -20,8 +20,8 @@ Read on demand, never from memory:
 2. **Script.** Deadpan lines in `lines.json`, every picture cued to its words, memes from the library as the punch of a line that set them up. Read it aloud at about 2.7 words/s for length. One pass of fixes by structure is usually enough.
 3. **Voice.** `generation_submit` model `elevenlabs/voice` with `options` `{production, voiceId, modelId}`: the brand's voice, one pair on every job of the film. `kit.voice.brand_voice(FILM)` reads it from `<brand>/brand/voice.json`, else the Settings default voice; with neither, `ask` the person once. Never change the voice model to fit time; fix length in the script. Record each job with `kit.voice.record_job(...)`. Re-voice only the lines that changed.
 4. **Build.** `inso dd new-film <production>` writes `build/`. `python timeline.py && python compose.py && python g11.py`, snapshot the moments that matter and look at them, then `python render.py`. G11's findings are a checklist to look at, not a wall.
-5. **Look once, fix once.** After the first full render, `kit.seen.frames(...)` and one fresh `task` reader on those frames only. Check what it names, fix what is real, render once more. Do not spawn reader after reader.
-6. **Show the person.** The render first, then a few lines: what you chose, any gate score as advice, the music licence, what you did not check. Their notes are the review: each note is one fix in one render.
+5. **Show the person the first render** as soon as it plays end to end, with a few lines: what you chose, any score as advice, the music licence, what you did not check.
+6. **Look once, fix once.** While they watch, `kit.seen.frames(...)` and one fresh `task` reader on those frames only. Check what it names; put the real defects and the person's notes into one more render. Do not spawn reader after reader.
 
 ## Asking and money
 

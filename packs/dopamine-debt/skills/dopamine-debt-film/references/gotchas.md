@@ -5,7 +5,7 @@ The traps real films met, one per entry, each with where its full fix now lives.
 ---
 
 ### Planning to a meme rate replaced the framework
-A film planned to "≥ 6 gags/min" never computed the debt curve and was rejected: placement must follow where the negative stretches start. The render needs `dd.gate`. See [framework-map.md](framework-map.md) (Ledger) and SKILL.md Delivery Gate.
+A film planned to "≥ 6 gags/min" never computed the debt curve and was rejected: placement must follow where the negative stretches start. `dd.gate` can score the placement as advice. See [framework-map.md](framework-map.md) (Ledger).
 
 ### A one-word `payoff.line` made a meme play only its last word
 The library entry's payoff line was the payoff word, so the cut started mid-sentence. Take the whole sentence with `quiet.speech` and the edges with `clip_edges`. See [stages.md#memes](stages.md#memes) and SKILL F-10.
@@ -26,7 +26,7 @@ Merging an analogy and its number into one 21 s bit fixed G9 but opened a 21 s l
 The cringe map was fitted on text lines with no memes (0.35 → 0.176, 0.40 → 0.818), and `state.before` drops what clips said, so the juror can veto memes a reviewer loved. Meme bits are advisory G3m. See [framework-map.md](framework-map.md) (G3).
 
 ### Juror readings of exactly 0.40 can end a script stage
-Two bits at the cliff of the fitted map can be the only blockers left after 3 passes, and a small edit moves them by ±0.05. Stop, restore the best pass, and take both to the person. See [stages.md#commands](stages.md#commands) and SKILL F-8.
+Two bits at the cliff of the fitted map move by ±0.05 on a small edit. Report them as advice; never spend a pass on them. See [stages.md#commands](stages.md#commands) and SKILL F-8.
 
 ### The G9 restatement reads as a machine-written list
 A final-20 s line restating all three retell facts reads as "a recap, not a punchline". At the script stage only the narration carries a fact; from the storyboard stage the picture can print the facts. See [stages.md#commands](stages.md#commands).
@@ -103,14 +103,11 @@ See kit-film, Craft rules.
 ### Asking the person to pick every bed
 Generate the film's beds yourself, register each as made for this film, ask once, then carry on with the default. See kit-film, Craft rules.
 
-### Spend refused until the Video editor's own script gate ran
-Set up the brand production once, in order (`inso dd setup`, `dopamine-debt.json`), then one session runs `script_gate`. See [stages.md#voice](stages.md#voice).
+### `script_gate` reports `missing` on a new brand
+If you want its score, set up once, in order (`inso dd setup`, then `dopamine-debt.json`). Voice and generation do not wait for it. See [stages.md#voice](stages.md#voice).
 
 ### Some pages cannot be captured live
 Hydrating pages drop the marks, and EDGAR filings render blank. Capture the page's own HTML rendered locally. See [stages.md#sources](stages.md#sources).
-
-### The repair loop overran its cap
-The cap of 3 passes stands; an overrun is reported to the person with the film.
 
 ### A receipt crop drops its context lines, so the ring is clipped
 `Captures.read_geometry` adds a context line only when the card scale does not drop at all. Give each DOC a `read` band (highlight ± one whole line). See [stages.md#sources](stages.md#sources).
