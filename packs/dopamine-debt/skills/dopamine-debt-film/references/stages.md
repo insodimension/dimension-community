@@ -78,10 +78,10 @@ Segment fields for memes: `library` and `gag_id` (both the media-library entry i
 - Record each job with `kit.voice.record_job(FILM, seg, job_id, text, options, dir)`: `voice/jobs.json` keeps `{jobId, text, options, dir}` per take. G11 `brand-voice` fails a take on another voice or model than the brand's, naming it, and a cut whose takes use more than one pair; it stays unchecked, so the cut blocks, when a played take has no recorded pair or there is no brand voice and no Settings default (`build/g11.json` `why` says which).
 - Never time-stretch the voice, and never change the voice model to fit time: another model makes a cloned voice sound like someone else. A take that runs long is trimmed by structure in a new revision. Say which licence the voice audio is under.
 - A cloned voice can read long sentences at 2.5 to 2.9 words/s but short lines built on commas and full stops at about 1.8 to 2.0, and may ignore `speed`. Time a short script for those pauses. A real voice slower than the script read's pace stretches the SEEN cut, and G13 compares laughs per minute, so the same laughs read lower: report it to the person, the pace is their calibration call.
-- Spend guard: every `generation_submit` into the production is refused until the Video editor's `script_gate` passes, read from that production's own `receipts/script-gate.json`.
-  - Once per brand: `inso dd setup <brand folder>` writes `<brand>/productions/house-gates.json` (the gate runs as `inso dd gate`, so an update of the kit keeps it working), keeping any production's `exclude`. Any change to that file makes the gate stale.
+- Nothing waits on the gate: voice and generation run whenever the script is ready. The score is optional.
+  - Once per brand, if you want the score in `script_gate`: `inso dd setup <brand folder>` writes `<brand>/productions/house-gates.json` (the gate runs as `inso dd gate`), keeping any production's `exclude`.
   - Once per production: `dopamine-debt.json` in its folder with `"revision": "<film>/<rev>"` (resolved under `<brand>/productions/dopamine-debt/films/`: the folder the editor's `script_gate` hashes, the house gate reads and `inso dd new-film`'s `film.py` builds from; `DD_FILMS_ROOT` overrides all three) and the `audiences`.
-  - Then SKILL F-12a (`script_gate`, follow it with `job_status`) and F-12b (`generation_quote`). Any later edit to lines.json, spine.yaml or intent.json makes the gate stale; run F-12a again before the next spend.
+  - Then SKILL F-12a (`generation_quote`).
 
 ## Render
 - One heavy render at a time. A full render takes about 18 minutes, and the hub flags it as stalled at 10 minutes, so keep waiting.

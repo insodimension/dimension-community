@@ -650,15 +650,15 @@
 			"source": "./packs/dopamine-debt",
 			"release": {
 				"source": "release",
-				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.6.3/dopamine-debt-0.6.3.tgz",
-				"sha256": "f6b85030f28ba10d07b2458bd3f36be4d554250a04ba0db56e933b8b5a4ee6d3",
-				"size": 215364
+				"url": "https://github.com/insodimension/dimension-community/releases/download/dopamine-debt-v0.6.4/dopamine-debt-0.6.4.tgz",
+				"sha256": "b59a47d79dd0592df7a4cb54a68f204dc844b0b87bf2dacd94d46e371b33c7a6",
+				"size": 212358
 			},
 			"pluginId": "dopamine-debt",
 			"title": "Dopamine Debt",
 			"icon": "packs/dopamine-debt/assets/icon.svg",
-			"description": "Makes deadpan, meme-led comedy explainer films about your channel's subject, and checks every stage against house rules before you spend on voice and music.",
-			"version": "0.6.3",
+			"description": "Makes deadpan, meme-led comedy explainer films about your channel's subject, with the house style as guidance and an optional score you can run on the script and the cut.",
+			"version": "0.6.4",
 			"author": {
 				"name": "Dimension"
 			},
@@ -677,7 +677,7 @@
 			"generalAgents": [
 				{
 					"name": "filmmaker",
-					"description": "Makes deadpan, meme-led comedy explainer films for your channel, from audience research to an approved render, with the Dopamine Debt framework and its film kit",
+					"description": "Makes deadpan, meme-led comedy explainer films for your channel, with the Dopamine Debt style and its film kit as guidance",
 					"defaultEnabled": true
 				}
 			]

@@ -3,10 +3,10 @@
 ## What it is
 
 The Dopamine Debt kit: a framework, a Filmmaker General Agent and a film kit for deadpan, meme-led comedy
-explainer films about your own channel's subject. It takes a film from audience research through spine,
-joke map, script, voice, picture and cut to a render, and holds every stage to the house gate
-(`inso dd gate`) before the next one starts. The Video space requires it, so installing Video installs
-it from this store.
+explainer films about your own channel's subject. Its skills are guidance for a film from audience research
+through spine, joke map, script, voice, picture and cut to a render. The house gate (`inso dd gate`) is an
+optional score: nothing waits on it. The Video space requires it, so installing Video installs it from this
+store.
 
 ## What it contains
 

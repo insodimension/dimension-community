@@ -1,8 +1,8 @@
 {
 	"name": "@dimension/community-dopamine-debt",
 	"author": "Dimension",
-	"version": "0.6.3",
-	"description": "Dopamine Debt — the comedy-explainer film framework the Video space requires: the Filmmaker General Agent, its film skills, the Python engine and film kit, the house gate (`inso dd gate`) and the CLI that sets a brand up for it.",
+	"version": "0.6.4",
+	"description": "Dopamine Debt — the comedy-explainer film style the Video space requires: the Filmmaker General Agent, its film skills as guidance, the Python engine and film kit, an optional house score (`inso dd gate`) and the CLI that sets a brand up for it.",
 	"type": "module",
 	"license": "MIT",
 	"scripts": {
