@@ -1,7 +1,7 @@
 {
 	"name": "@dimension/community-dopamine-debt",
 	"author": "Dimension",
-	"version": "0.7.1",
+	"version": "0.7.2",
 	"description": "Dopamine Debt — an optional pack for deadpan, meme-led comedy-explainer films: a short style guide, the Filmmaker General Agent, the Python engine and film kit, an optional house score (`inso dd gate`) and the CLI that sets a brand up for it.",
 	"type": "module",
 	"license": "MIT",

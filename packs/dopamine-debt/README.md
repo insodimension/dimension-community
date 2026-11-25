@@ -31,7 +31,7 @@ requires it.
 ## Who can use it
 
 Anyone with Dimension 0.12.0 or newer who installs it from the Community store; no space installs it for
-you. Its skills and its Filmmaker load only in Video, Code and Unreal sessions, and its Filmmaker appears
+you. Its skills and its Filmmaker load only in Video and Code sessions, and its Filmmaker appears
 only where a space lists it. It needs:
 
 - Python 3.10 or newer on `PATH`, or `DD_PYTHON` set to one, with the packages in `requirements.txt`
