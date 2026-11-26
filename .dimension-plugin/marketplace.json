@@ -2065,7 +2065,7 @@
 			"title": "Unreal",
 			"icon": "packs/unreal/assets/icon.svg",
 			"description": "A space for Unreal game development: find your Unreal projects, browse all your assets in one place and start a new project. Enter the license key from your invite to open it.",
-			"version": "0.1.5",
+			"version": "0.1.6",
 			"author": {
 				"name": "Dimension"
 			},
@@ -2084,8 +2084,8 @@
 			},
 			"source": {
 				"source": "release",
-				"url": "https://get.insodimension.ai/spaces/unreal/unreal-0.1.5.tgz",
-				"sha256": "1bc36e500aa1c814260c4e34e33b94e18f570d402b7fb308ce5d87ced4becd03",
+				"url": "https://get.insodimension.ai/spaces/unreal/unreal-0.1.6.tgz",
+				"sha256": "28e77ef597b8f61210cd3855f4fce5c7a1f4bc216ecd4390f1a2c0345c8fa0c5",
 				"size": 2111251
 			},
 			"spaces": [
