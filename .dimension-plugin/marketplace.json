@@ -1017,8 +1017,8 @@
 			"release": {
 				"source": "release",
 				"url": "https://github.com/insodimension/dimension-community/releases/download/gmail-v0.4.0/gmail-0.4.0.tgz",
-				"sha256": "6dbe4d87ba856770b0adeb541e45c6593e69e4bc7343b010b6ee8c440392e201",
-				"size": 51966
+				"sha256": "e447e2f557163f49d91dc6402b3d833e73f27869f90c3f08f0f182d4b78e07d7",
+				"size": 54044
 			},
 			"pluginId": "gmail",
 			"title": "Gmail",

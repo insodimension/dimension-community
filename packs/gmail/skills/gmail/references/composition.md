@@ -27,13 +27,15 @@ Rules it enforces, with an error in plain words when broken:
   64 characters, not starting with a dash. Anything else is refused before
   himalaya runs. A name himalaya does not know fails the sender lookup, and
   nothing is sent.
-- Each attachment is an absolute path to an existing file on this computer. A
-  relative path, a folder, a missing file, a network or device path
-  (`\\server\share`), a path containing `$` or `"`, a stream (`file.txt:x`)
-  and anything in a folder holding keys or the mailbox password (`~/.ssh`,
-  himalaya's config folder) are refused, and so are files that come to more
-  than Gmail's 25 MB once encoded; nothing is sent in any of those cases. A
-  shortcut or link is followed, and the card shows the file it leads to.
+- Each attachment is an absolute path to an existing file on this computer
+  (`C:/...` on Windows, `/...` elsewhere). A relative path, a folder, a missing
+  file, a network or device path (`\\server\share`, `\\?\`, `\??\`), a path
+  containing `$` or `"`, a Windows stream (`file.txt:x`) and anything that
+  holds keys or the mailbox password (`~/.ssh`, himalaya's config folders and
+  files, also when reached through a link) are refused, and so are files that
+  come to more than Gmail's 25 MB once encoded; nothing is sent in any of those
+  cases. A shortcut or link is followed, and the card shows the file it leads
+  to.
 
 Non-ASCII text (accents, dashes, other scripts, emoji) in the subject and body
 is sent as UTF-8 and arrives intact. The tool sets `From`, `Message-Id` and the

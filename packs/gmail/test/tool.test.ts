@@ -131,7 +131,9 @@ test("the card gives each refused path the same reason the send would stop with,
 		["report.pdf", "is not an absolute file path"],
 		["//server/share/report.pdf", "is a network or device path"],
 		[dollar, 'contains $, " or a backslash'],
-		[`${files}${sep}a:b.txt`, "names a stream inside a file"],
+		...(process.platform === "win32"
+			? ([[`${files}${sep}a:b.txt`, "names a stream inside a file"]] satisfies [string, string][])
+			: []),
 	];
 	const lines = refused.map(([asked, reason]) => {
 		const message = refusalOf(asked);
@@ -299,8 +301,8 @@ test("attachments that cannot be sent are refused in plain words before himalaya
 		[[relativeButThere], absoluteRefusal(relativeButThere)],
 		[["report.pdf"], absoluteRefusal("report.pdf")],
 		[["~/report.pdf"], absoluteRefusal("~/report.pdf")],
-		[[`${files}/line\nbreak.pdf`], "is not an absolute file path"],
-		[[`${report}\u0000`], "is not an absolute file path"],
+		[[`${files}/line\nbreak.pdf`], "contains a line break"],
+		[[`${report}\u0000`], "contains a line break"],
 		[[missing], `There is no file at "${missing}", so nothing was sent`],
 		[[files], `"${files}" is not a file, so nothing was sent`],
 		[[report, missing], `There is no file at "${missing}", so nothing was sent`],

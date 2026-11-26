@@ -1,6 +1,6 @@
 import { realpathSync, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { parseAccount } from "./account";
 
 export interface SendEmailParams {
@@ -75,35 +75,76 @@ function addressList(field: string, values: readonly string[] | undefined): read
 	});
 }
 
-const PROTECTED_FOLDERS: readonly string[] = [
-	join(homedir(), ".ssh"),
-	join(homedir(), ".config", "himalaya"),
-	...(process.env.APPDATA === undefined ? [] : [join(process.env.APPDATA, "himalaya")]),
-	...(process.env.HIMALAYA_CONFIG ?? "")
-		.split(process.platform === "win32" ? ";" : ":")
-		.filter(path => path.length > 0 && isAbsolute(path))
-		.map(path => dirname(path)),
-	...(process.platform === "win32" ? [] : ["/proc", "/sys", "/dev"]),
-];
+const IS_WINDOWS = process.platform === "win32";
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/][^:]*$/;
+
+interface ProtectedPlaces {
+	readonly folders: readonly string[];
+	readonly files: readonly string[];
+}
+
+function withRealPaths(paths: readonly string[]): readonly string[] {
+	return paths.flatMap(path => {
+		try {
+			return [path, realpathSync.native(path)];
+		} catch {
+			return [path];
+		}
+	});
+}
+
+function protectedPlaces(): ProtectedPlaces {
+	const home = homedir();
+	const { APPDATA, XDG_CONFIG_HOME, HIMALAYA_CONFIG } = process.env;
+	const folders = [
+		join(home, ".ssh"),
+		join(home, ".config", "himalaya"),
+		...(APPDATA === undefined ? [] : [join(APPDATA, "himalaya")]),
+		...(XDG_CONFIG_HOME === undefined || !isAbsolute(XDG_CONFIG_HOME) ? [] : [join(XDG_CONFIG_HOME, "himalaya")]),
+		...(process.platform === "darwin" ? [join(home, "Library", "Application Support", "himalaya")] : []),
+		...(IS_WINDOWS ? [] : ["/proc", "/sys", "/dev"]),
+	];
+	const files = [
+		join(home, ".himalayarc"),
+		...(HIMALAYA_CONFIG ?? "")
+			.split(IS_WINDOWS ? ";" : ":")
+			.filter(path => path.length > 0 && isAbsolute(path)),
+	];
+	return { folders: withRealPaths(folders), files: withRealPaths(files) };
+}
 
 function pathRefusal(path: string): string | null {
-	if (!isAbsolute(path) || breaksALine(path)) {
-		return "is not an absolute file path. Give the full path of a file on this computer, like C:/Users/Me/Downloads/report.pdf";
+	if (breaksALine(path)) return "contains a line break. Give the full path of one file";
+	if (IS_WINDOWS ? !WINDOWS_DRIVE_PATH.test(path) : !path.startsWith("/") || path.startsWith("//")) {
+		return IS_WINDOWS && /^[\\/]/.test(path)
+			? "is a network or device path. Copy the file to this computer and attach that copy"
+			: IS_WINDOWS && /^[A-Za-z]:[\\/]/.test(path)
+				? "names a stream inside a file. Attach the file itself"
+				: !IS_WINDOWS && path.startsWith("//")
+					? "is a network or device path. Copy the file to this computer and attach that copy"
+					: "is not an absolute file path on this computer. Give the full path of a file, like C:/Users/Me/Downloads/report.pdf";
 	}
-	if (/^[\\/]{2}/.test(path)) return "is a network or device path. Copy the file to this computer and attach that copy";
-	if (path.includes("$") || path.includes('"') || (process.platform !== "win32" && path.includes("\\"))) {
+	if (path.includes("$") || path.includes('"') || (!IS_WINDOWS && path.includes("\\"))) {
 		return 'contains $, " or a backslash, which the mail compiler would read as a different path. Rename or copy the file first';
-	}
-	if (path.indexOf(":", process.platform === "win32" ? 2 : 0) !== -1) {
-		return "names a stream inside a file. Attach the file itself";
 	}
 	return null;
 }
 
+function samePlace(a: string, b: string): boolean {
+	return IS_WINDOWS ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 function isInside(path: string, folder: string): boolean {
-	const fold = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
-	const child = relative(fold(folder), fold(path));
+	const child = IS_WINDOWS ? relative(folder.toLowerCase(), path.toLowerCase()) : relative(folder, path);
 	return child === "" || (!child.startsWith("..") && !isAbsolute(child));
+}
+
+function isProtected(paths: readonly string[]): boolean {
+	const places = protectedPlaces();
+	return paths.some(
+		path =>
+			places.folders.some(folder => isInside(path, folder)) || places.files.some(file => samePlace(path, file)),
+	);
 }
 
 export function resolveAttachment(raw: string): Attachment {
@@ -120,9 +161,9 @@ export function resolveAttachment(raw: string): Attachment {
 	}
 	const resolvedRefusal = pathRefusal(path);
 	if (resolvedRefusal !== null) throw new Error(`"${requested}" leads to "${path}", which ${resolvedRefusal}. Nothing was sent.`);
-	if (PROTECTED_FOLDERS.some(folder => isInside(path, folder))) {
+	if (isProtected([resolve(requested), path])) {
 		throw new Error(
-			`"${requested}" is in a folder that holds keys, mailbox passwords or system state, so it is never attached. Nothing was sent.`,
+			`"${requested}" is a file or folder that holds keys, mailbox passwords or system state, so it is never attached. Nothing was sent.`,
 		);
 	}
 	if (!stats.isFile()) throw new Error(`"${requested}" is not a file, so nothing was sent. Attach files one by one.`);

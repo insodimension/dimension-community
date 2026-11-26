@@ -55,7 +55,8 @@ const NOT_ABSOLUTE = "is not an absolute file path";
 const NETWORK = "is a network or device path";
 const SPECIAL = 'contains $, " or a backslash';
 const STREAM = "names a stream inside a file";
-const PROTECTED = "is in a folder that holds keys, mailbox passwords or system state";
+const LINE_BREAK = "contains a line break";
+const PROTECTED = "is a file or folder that holds keys, mailbox passwords or system state";
 
 function fileAt(path: string, text = "x"): string {
 	mkdirSync(dirname(path), { recursive: true });
@@ -96,9 +97,25 @@ const RESOLVER = [
 	"console.log(JSON.stringify(outcomes));",
 ].join("\n");
 
-async function resolveWithEnvironment(environment: Record<string, string>, paths: readonly string[]): Promise<Outcome[]> {
+function sandboxEnvironment(home: string, extra: Record<string, string> = {}): Record<string, string> {
+	return {
+		HOME: home,
+		USERPROFILE: home,
+		APPDATA: join(home, "AppData", "Roaming"),
+		XDG_CONFIG_HOME: "",
+		HIMALAYA_CONFIG: "",
+		...extra,
+	};
+}
+
+async function resolveWithEnvironment(
+	environment: Record<string, string>,
+	paths: readonly string[],
+	cwd?: string,
+): Promise<Outcome[]> {
 	const child = Bun.spawn([process.execPath, "-e", RESOLVER], {
 		env: { ...process.env, ...environment, GMAIL_TEST_PATHS: JSON.stringify(paths) },
+		cwd,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -347,7 +364,8 @@ test("a file is flagged by where it really is: a dot-leading or AppData folder, 
 
 test("a path is refused by its text alone, before any file is looked up, with the reason that fits it", () => {
 	fileAt(join(files, "refusals", "cost$5.txt"));
-	const backslashForm = process.platform === "win32" ? NETWORK : NOT_ABSOLUTE;
+	const onWindows = process.platform === "win32";
+	const backslashForm = onWindows ? NETWORK : NOT_ABSOLUTE;
 	const rows: [string, string][] = [
 		["", NOT_ABSOLUTE],
 		["   ", NOT_ABSOLUTE],
@@ -356,7 +374,7 @@ test("a path is refused by its text alone, before any file is looked up, with th
 		["~/report.pdf", NOT_ABSOLUTE],
 		...["\n", "\r", "\u0000", "\u007f", "\u0085", "\u2028", "\u2029"].map((breaker): [string, string] => [
 			`${files}${sep}line${breaker}break.txt`,
-			NOT_ABSOLUTE,
+			LINE_BREAK,
 		]),
 		["//server/share/report.pdf", NETWORK],
 		["//?/C:/report.pdf", NETWORK],
@@ -367,8 +385,19 @@ test("a path is refused by its text alone, before any file is looked up, with th
 		[`${files}${sep}refusals${sep}cost$5.txt`, SPECIAL],
 		[`${files}${sep}$HOME${sep}report.txt`, SPECIAL],
 		[`${files}${sep}the "draft".txt`, SPECIAL],
-		[`${files}${sep}report.txt:hidden`, STREAM],
-		[`${files}${sep}a:b.txt`, STREAM],
+		...(onWindows
+			? ([
+					["/report.pdf", NETWORK],
+					["\\report.pdf", NETWORK],
+					["\\\\?\\UNC\\example.invalid\\s\\a.pdf", NETWORK],
+					["C:report.pdf", NOT_ABSOLUTE],
+					["1:\\report.pdf", NOT_ABSOLUTE],
+					["CC:\\report.pdf", NOT_ABSOLUTE],
+					[`${files}${sep}report.txt:hidden`, STREAM],
+					[`${files}${sep}a:b.txt`, STREAM],
+					["C:\\report.txt::$DATA", STREAM],
+				] satisfies [string, string][])
+			: []),
 	];
 	for (const [raw, reason] of rows) expect(attachmentRefusal(raw)).toContain(reason);
 });
@@ -378,14 +407,31 @@ test.skipIf(process.platform === "win32")("on POSIX a backslash anywhere in the 
 	expect(attachmentRefusal(fileAt(join(files, "posix", "dir\\name", "a.txt")))).toContain(SPECIAL);
 });
 
-test.skipIf(process.platform !== "win32")("a Windows extended or device path to a real file is refused as one, by its text, before the file is looked up", () => {
+test.skipIf(process.platform === "win32")("on POSIX a colon is an ordinary character in a file or folder name", () => {
+	const stamped = fileAt(join(files, "posix-colon", "backup 2026-11-27T10:30.tar"), "tar");
+	const inFolder = fileAt(join(files, "posix-colon", "host:8080", "a:b.txt"), "txt");
+	expect(resolveAttachment(stamped)).toMatchObject({ path: stamped, name: "backup 2026-11-27T10:30.tar", bytes: 3 });
+	expect(resolveAttachment(inFolder)).toMatchObject({ path: inFolder, name: "a:b.txt", bytes: 3 });
+});
+
+test.skipIf(process.platform !== "win32")("a Windows extended, device or NT-namespace path to a real file is refused as one, by its text, before the file is looked up", () => {
 	const real = fileAt(join(files, "device", "report.txt"));
 	const extended = `\\\\?\\${real}`;
+	const ntNamespace = `\\??\\${real}`;
 	expect(statSync(extended).isFile()).toBe(true);
-	for (const asked of [extended, `\\\\.\\${real}`, `//?/${real.replaceAll("\\", "/")}`]) {
+	expect(statSync(ntNamespace).isFile()).toBe(true);
+	for (const asked of [extended, ntNamespace, `\\\\.\\${real}`, `//?/${real.replaceAll("\\", "/")}`]) {
 		const message = attachmentRefusal(asked);
 		expect(message).toContain(NETWORK);
 		expect(message).not.toContain("leads to");
+	}
+});
+
+test.skipIf(process.platform !== "win32")("an NT-namespace UNC or drive path is refused as a network or device path without any file or host being looked up", () => {
+	for (const asked of ["\\??\\UNC\\example.invalid\\s\\a.pdf", "\\??\\C:\\x.pdf"]) {
+		const message = attachmentRefusal(asked);
+		expect(message).toContain(`"${asked}" in \`attachments\` ${NETWORK}`);
+		expect(message).not.toContain("There is no file at");
 	}
 });
 
@@ -396,7 +442,7 @@ test("the same text rules apply to where a link leads: a clean-looking path that
 	expect(attachmentRefusal(asked)).toContain(`"${asked}" leads to "${target}", which ${SPECIAL}`);
 });
 
-test("keys, mailbox passwords and system state are never attached: the ssh and himalaya folders, every himalaya config folder, and links into them", async () => {
+test("keys, mailbox passwords and system state are never attached: the ssh and himalaya folders, every himalaya config file, and links into them", async () => {
 	const base = join(files, "protected");
 	const home = join(base, "home");
 	const appData = join(base, "Roaming");
@@ -408,7 +454,7 @@ test("keys, mailbox passwords and system state are never attached: the ssh and h
 		join(home, ".config", "himalaya", "config.toml"),
 		join(appData, "himalaya", "config.toml"),
 		join(configA, "config.toml"),
-		join(configB, "tokens", "refresh.json"),
+		join(configB, "config.toml"),
 	].map(path => fileAt(path));
 	const link = linkTo(join(home, ".ssh"), join(base, "innocent-looking"));
 	const throughLink = join(link, "id_ed25519");
@@ -418,14 +464,13 @@ test("keys, mailbox passwords and system state are never attached: the ssh and h
 		join(home, ".ssh-backup", "a.txt"),
 		join(`${configA}-extra`, "a.txt"),
 		join(appData, "himalaya-extra", "a.txt"),
+		join(configA, "notes.txt"),
 	].map(path => fileAt(path));
 	const outcomes = await resolveWithEnvironment(
-		{
-			HOME: home,
-			USERPROFILE: home,
+		sandboxEnvironment(home, {
 			APPDATA: appData,
 			HIMALAYA_CONFIG: [join(configA, "config.toml"), join(configB, "config.toml")].join(delimiter),
-		},
+		}),
 		[...secrets, throughLink, ...neighbours],
 	);
 	for (const outcome of outcomes.slice(0, secrets.length)) expect(outcome.error).toContain(PROTECTED);
@@ -433,9 +478,96 @@ test("keys, mailbox passwords and system state are never attached: the ssh and h
 	expect(outcomes.slice(secrets.length + 1)).toEqual(neighbours.map(path => ({ path })));
 });
 
-test.skipIf(process.platform !== "win32")("on Windows a protected folder is matched without regard to case, as the file system does", async () => {
-	const secret = fileAt(join(files, "protected-case", "Mail Config", "config.toml"));
-	const outcomes = await resolveWithEnvironment({ HIMALAYA_CONFIG: secret.toUpperCase() }, [
+test("a HIMALAYA_CONFIG file straight in the home folder is refused by itself: its neighbours in the home folder can still be attached", async () => {
+	const home = join(files, "config-in-home");
+	const config = fileAt(join(home, "mail.toml"));
+	const sibling = fileAt(join(home, "notes.txt"));
+	const outcomes = await resolveWithEnvironment(sandboxEnvironment(home, { HIMALAYA_CONFIG: config }), [
+		config,
+		sibling,
+	]);
+	expect(outcomes[0]?.error).toContain(`"${config}" ${PROTECTED}`);
+	expect(outcomes[1]).toEqual({ path: sibling });
+});
+
+test("the himalaya rc file in the home folder is refused, and only that exact name", async () => {
+	const home = join(files, "rc-file");
+	const rc = fileAt(join(home, ".himalayarc"));
+	const neighbours = [join(home, ".himalayarc.bak"), join(home, "notes.txt")].map(path => fileAt(path));
+	const outcomes = await resolveWithEnvironment(sandboxEnvironment(home), [rc, ...neighbours]);
+	expect(outcomes[0]?.error).toContain(`"${rc}" ${PROTECTED}`);
+	expect(outcomes.slice(1)).toEqual(neighbours.map(path => ({ path })));
+});
+
+test("the himalaya folder under an absolute XDG_CONFIG_HOME is refused; a relative XDG_CONFIG_HOME is ignored", async () => {
+	const base = join(files, "xdg");
+	const home = join(base, "home");
+	const xdg = join(base, "config-root");
+	const secret = fileAt(join(xdg, "himalaya", "config.toml"));
+	const neighbour = fileAt(join(xdg, "himalaya-notes", "a.txt"));
+	const absolute = await resolveWithEnvironment(sandboxEnvironment(home, { XDG_CONFIG_HOME: xdg }), [
+		secret,
+		neighbour,
+	]);
+	expect(absolute[0]?.error).toContain(`"${secret}" ${PROTECTED}`);
+	expect(absolute[1]).toEqual({ path: neighbour });
+	const workDir = join(base, "work");
+	const underRelative = fileAt(join(workDir, "relative-root", "himalaya", "config.toml"));
+	const relative = await resolveWithEnvironment(
+		sandboxEnvironment(home, { XDG_CONFIG_HOME: "relative-root" }),
+		[underRelative],
+		workDir,
+	);
+	expect(relative).toEqual([{ path: underRelative }]);
+});
+
+test("a HIMALAYA_CONFIG file reached through a link is refused by either name: the link's or the real one's, and a neighbour of the real file is not", async () => {
+	const base = join(files, "config-link");
+	const target = join(base, "dotfiles-himalaya");
+	const config = fileAt(join(target, "config.toml"));
+	const neighbour = fileAt(join(target, "notes.txt"));
+	const link = linkTo(target, join(base, "himalaya"));
+	const throughLink = join(link, "config.toml");
+	const outcomes = await resolveWithEnvironment(
+		sandboxEnvironment(join(base, "home"), { HIMALAYA_CONFIG: throughLink }),
+		[throughLink, config, neighbour],
+	);
+	expect(outcomes[0]?.error).toContain(`"${throughLink}" ${PROTECTED}`);
+	expect(outcomes[1]?.error).toContain(`"${config}" ${PROTECTED}`);
+	expect(outcomes[2]).toEqual({ path: neighbour });
+});
+
+test("a protected folder that is itself a link is refused by either name: through the link, or by the real folder it leads to", async () => {
+	const base = join(files, "folder-link");
+	const home = join(base, "home");
+	mkdirSync(home, { recursive: true });
+	const target = join(base, "dotfiles-ssh");
+	const key = fileAt(join(target, "id_ed25519"));
+	linkTo(target, join(home, ".ssh"));
+	const throughLink = join(home, ".ssh", "id_ed25519");
+	const neighbour = fileAt(join(base, "elsewhere", "a.txt"));
+	const outcomes = await resolveWithEnvironment(sandboxEnvironment(home), [key, throughLink, neighbour]);
+	expect(outcomes[0]?.error).toContain(`"${key}" ${PROTECTED}`);
+	expect(outcomes[1]?.error).toContain(`"${throughLink}" ${PROTECTED}`);
+	expect(outcomes[2]).toEqual({ path: neighbour });
+});
+
+test("a link kept inside a protected folder is refused as asked, even when it leads somewhere harmless", async () => {
+	const base = join(files, "outward-link");
+	const home = join(base, "home");
+	const harmless = fileAt(join(base, "shared-docs", "a.txt"));
+	fileAt(join(home, ".ssh", "id_ed25519"));
+	const link = linkTo(join(base, "shared-docs"), join(home, ".ssh", "shared"));
+	const throughLink = join(link, "a.txt");
+	const outcomes = await resolveWithEnvironment(sandboxEnvironment(home), [throughLink, harmless]);
+	expect(outcomes[0]?.error).toContain(`"${throughLink}" ${PROTECTED}`);
+	expect(outcomes[1]).toEqual({ path: harmless });
+});
+
+test.skipIf(process.platform !== "win32")("on Windows HIMALAYA_CONFIG written in other casing still protects the file, however the file is asked for", async () => {
+	const home = join(files, "protected-case");
+	const secret = fileAt(join(home, "Mail Config", "config.toml"));
+	const outcomes = await resolveWithEnvironment(sandboxEnvironment(home, { HIMALAYA_CONFIG: secret.toUpperCase() }), [
 		secret,
 		secret.toLowerCase(),
 	]);
