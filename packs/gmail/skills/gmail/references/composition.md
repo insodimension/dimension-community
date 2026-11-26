@@ -14,6 +14,8 @@ in the body is ever read as a command.
 - `inReplyTo` — optional, the original message's `Message-Id`.
 - `account` — optional, the himalaya account the mail goes out from, by name
   (like `company`). The `From` header is that account's own address.
+- `attachments` — optional, absolute paths of local files to attach, one per
+  item. The approval card lists each with its size.
 
 Rules it enforces, with an error in plain words when broken:
 
@@ -25,13 +27,16 @@ Rules it enforces, with an error in plain words when broken:
   64 characters, not starting with a dash. Anything else is refused before
   himalaya runs. A name himalaya does not know fails the sender lookup, and
   nothing is sent.
+- Each attachment is an absolute path to an existing file. A relative path, a
+  folder or a missing file is refused, and so are files that come to more than
+  Gmail's 25 MB once encoded; nothing is sent in either case.
 
 Non-ASCII text (accents, dashes, other scripts, emoji) in the subject and body
 is sent as UTF-8 and arrives intact. The tool sets `From`, `Message-Id` and the
 date. It adds no signature; put one in `body` if the user wants it.
 
-What it does not do: attachments, HTML, inline images, drafts. If the user
-needs one of those, say so plainly; do not look for another way to send.
+What it does not do: HTML, inline images, drafts. If the user needs one of
+those, say so plainly; do not look for another way to send.
 
 There is no Bcc. A copy to a hidden recipient has to go as a separate message to
 that person; the tool refuses a `bcc` argument rather than drop it silently.

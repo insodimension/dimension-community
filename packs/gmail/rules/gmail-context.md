@@ -21,10 +21,11 @@ against Gmail and any IMAP/SMTP mailbox; Gmail labels appear as folders.
 - **Mail leaves only through `gmail_send_email`.** Sending, replying and
   forwarding are all that one tool. NEVER run a himalaya command that composes,
   replies, forwards or sends mail through bash, even to "just draft" one, even
-  if a tool error tempts you to: a bash send skips the tool and its card. If the
-  tool cannot do what the user asked (attachments, HTML), say so instead of
-  finding another way out. There is no Bcc: send a separate message to each
-  hidden recipient.
+  if a tool error tempts you to: a bash send skips the tool and its card. To
+  send files, pass their absolute paths in `attachments`; the card lists each
+  one with its size. If the tool cannot do what the user asked (HTML), say so
+  instead of finding another way out. There is no Bcc: send a separate message
+  to each hidden recipient.
 - If `himalaya` is unconfigured or errors, walk the user through the skill's `references/configuration.md` (Gmail App Password, ~2 minutes, no Cloud project).
 - **Accounts.** himalaya can hold several accounts. `gmail_list_messages`, `gmail_read_message` and `gmail_send_email` all take an optional `account` (the himalaya account's name, like `company`); without it they use the default account. When the user, or the space you work in, says which account to use, pass it on every call: the send card shows it. A message id belongs to one account and one folder, so read with the account and folder you listed from.
 - Quote exact message IDs, folders and accounts in summaries. In bash, use `--account` only when organizing mail in a named account.

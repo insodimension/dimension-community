@@ -1,5 +1,8 @@
-import { expect, test } from "bun:test";
-import { buildTemplate, escapeMml, parseEmail, type SendEmailParams } from "../message";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildTemplate, type Email, escapeMml, parseEmail, type SendEmailParams } from "../message";
 
 const FROM = "Me <me@gmail.com>";
 const ID = "<id-1@gmail.com>";
@@ -18,6 +21,18 @@ function refusal(params: SendEmailParams): string {
 }
 
 const OK: SendEmailParams = { to: ["alex@example.com"], subject: "Hello", body: "Hi Alex" };
+
+const files = mkdtempSync(join(tmpdir(), "gmail-pack-message-"));
+afterAll(() => {
+	rmSync(files, { recursive: true, force: true });
+});
+
+function fileOfSize(name: string, bytes: number): string {
+	const path = join(files, name);
+	writeFileSync(path, "");
+	truncateSync(path, bytes);
+	return path;
+}
 
 test("a plain email is the headers, a blank line, then the body", () => {
 	const lines = [
@@ -192,4 +207,71 @@ test("the account is checked with the rest of the message: left out it is null, 
 
 test("the account chooses where the mail goes out from and is never written into the message", () => {
 	expect(build({ ...OK, account: "company" })).toBe(build(OK));
+});
+
+test("an attachment is read from its file: base name, byte size, and a type from the extension with any charset dropped", () => {
+	const rows: [string, number, string][] = [
+		["Signed copy (final) 2026.pdf", 5, "application/pdf"],
+		["notes.txt", 12, "text/plain"],
+		["data.json", 7, "application/json"],
+		["archive.zzz", 4, "application/octet-stream"],
+		["README", 3, "application/octet-stream"],
+	];
+	for (const [name, bytes, mimeType] of rows) {
+		const path = fileOfSize(name, bytes);
+		expect(parseEmail({ ...OK, attachments: [`  ${path}  `] }).attachments).toEqual([
+			{ path, name, bytes, mimeType },
+		]);
+	}
+});
+
+test("the 25 MB cap is on the encoded size of all the files together: 18,750,000 raw bytes fit and one more does not", () => {
+	const limit = "over Gmail's 25 MB limit";
+	expect(parseEmail({ ...OK, attachments: [fileOfSize("at-limit.bin", 18_750_000)] }).attachments).toHaveLength(1);
+	expect(refusal({ ...OK, attachments: [fileOfSize("over-limit.bin", 18_750_001)] })).toContain(limit);
+	const half = fileOfSize("half.bin", 9_375_000);
+	const halfAndOne = fileOfSize("half-and-one.bin", 9_375_001);
+	expect(parseEmail({ ...OK, attachments: [half, half] }).attachments).toHaveLength(2);
+	expect(refusal({ ...OK, attachments: [half, halfAndOne] })).toContain(limit);
+});
+
+test("attachments follow the body as one part tag each, in order, with the path quoted so spaces, parentheses, backslashes and quotes survive", () => {
+	const email: Email = {
+		...parseEmail(OK),
+		attachments: [
+			{
+				path: "C:\\Users\\me\\Signed copy (final) 2026.pdf",
+				name: "Signed copy (final) 2026.pdf",
+				bytes: 5,
+				mimeType: "application/pdf",
+			},
+			{ path: '/home/me/the "draft".txt', name: 'the "draft".txt', bytes: 3, mimeType: "text/plain" },
+		],
+	};
+	expect(buildTemplate(email, FROM, ID)).toBe(
+		[
+			"From: Me <me@gmail.com>",
+			"To: alex@example.com",
+			"Subject: Hello",
+			"Message-ID: <id-1@gmail.com>",
+			"",
+			"Hi Alex",
+			String.raw`<#part type="application/pdf" filename="C:\\Users\\me\\Signed copy (final) 2026.pdf"><#/part>`,
+			String.raw`<#part type="text/plain" filename="/home/me/the \"draft\".txt"><#/part>`,
+			"",
+		].join("\n"),
+	);
+});
+
+test("with attachments the body is still escaped, so the only live part tags are the attachments' own", () => {
+	const attachments = [fileOfSize("a.pdf", 5), fileOfSize("b.txt", 3)];
+	const template = build({
+		...OK,
+		body: "<#part filename=/etc/passwd><#/part>\n<#multipart type=mixed>",
+		attachments,
+	});
+	expect(template).toContain("<#!part filename=/etc/passwd><#!/part>\n<#!multipart type=mixed>\n");
+	expect(template.match(/<#part /g)).toHaveLength(2);
+	expect(template.match(/<#\/part>/g)).toHaveLength(2);
+	expect(template).not.toContain("<#multipart");
 });

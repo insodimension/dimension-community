@@ -205,7 +205,9 @@ export async function listMessages(request: ListRequest, run: RunHimalaya, signa
 		stdin: "",
 		options: { signal, timeoutMs: LIST_TIMEOUT_MS },
 		onFailure: why =>
-			`himalaya could not list the messages in ${place} (${why}). Open Plugins → Gmail to check that your mailbox is connected, and that the folder exists.`,
+			why.includes("search emails query")
+				? `himalaya could not read the query (${why}). Each filter takes one word; put a phrase in double quotes, like: subject "Virtual Office" and after 2026-11-01`
+				: `himalaya could not list the messages in ${place} (${why}). Open Plugins → Gmail to check that your mailbox is connected, and that the folder exists.`,
 		onMissing: MISSING,
 	});
 	const envelopes = parseEnvelopes(stdout).slice(0, request.limit);

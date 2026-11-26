@@ -161,6 +161,25 @@ test("a failed send reports himalaya's reason without its debug chatter, and war
 	expect(message).toContain("check the Sent folder before trying again");
 });
 
+test("a send himalaya reports as an Error on stderr while exiting 0 with nothing on stdout is a failure, never a sent mail", async () => {
+	for (const stdout of ["", "\n"]) {
+		const { run } = stubHimalaya(SENDER, { exitCode: 0, stdout, stderr: "Error: \n   0: smtp connection refused\n" });
+		const message = await refusal(sendEmail(EMAIL, run));
+		expect(message).toContain("could not send the email (smtp connection refused)");
+		expect(message).toContain("check the Sent folder before trying again");
+	}
+});
+
+test("a send that printed its confirmation is a success even when stderr also carries an Error line", async () => {
+	const confirmed: ProcessResult = {
+		exitCode: 0,
+		stdout: "Message successfully sent!\n",
+		stderr: "Error: \n   0: could not save a copy\n",
+	};
+	const { run } = stubHimalaya(SENDER, confirmed);
+	expect(await sendEmail(EMAIL, run)).toMatch(/^<[0-9a-f-]{36}@gmail\.com>$/);
+});
+
 test("a failed send with no stderr still names the exit code", async () => {
 	const { run } = stubHimalaya(SENDER, failed("", 7));
 	expect(await refusal(sendEmail(EMAIL, run))).toContain("himalaya exited with code 7");

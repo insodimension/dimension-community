@@ -1,7 +1,7 @@
 {
 	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "gmail",
-	"version": "0.3.2",
+	"version": "0.4.0",
 	"description": "Let your agent read and search your email, and send messages from your mailbox.",
 	"author": {
 		"name": "Dimension"

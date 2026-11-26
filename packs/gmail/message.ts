@@ -1,3 +1,5 @@
+import { type Stats, statSync } from "node:fs";
+import { basename, isAbsolute } from "node:path";
 import { parseAccount } from "./account";
 
 export interface SendEmailParams {
@@ -8,6 +10,14 @@ export interface SendEmailParams {
 	readonly body: string;
 	readonly inReplyTo?: string;
 	readonly account?: string;
+	readonly attachments?: readonly string[];
+}
+
+export interface Attachment {
+	readonly path: string;
+	readonly name: string;
+	readonly bytes: number;
+	readonly mimeType: string;
 }
 
 export interface Email {
@@ -17,7 +27,10 @@ export interface Email {
 	readonly body: string;
 	readonly inReplyTo: string | null;
 	readonly account: string | null;
+	readonly attachments: readonly Attachment[];
 }
+
+export const GMAIL_MESSAGE_LIMIT_BYTES = 25_000_000;
 
 const ADDRESS =
 	/^(?!\.)(?!.*\.\.)[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}(?<!\.)@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
@@ -27,6 +40,16 @@ const MML_TAG = /<#(part|multipart|\/part>|\/multipart>)/g;
 
 export function isAddress(value: string): boolean {
 	return value.length <= 254 && ADDRESS.test(value);
+}
+
+export function base64EncodedBytes(rawBytes: number): number {
+	return Math.ceil(rawBytes / 3) * 4;
+}
+
+export function formatBytes(bytes: number): string {
+	if (bytes < 1000) return `${bytes} B`;
+	if (bytes < 1_000_000) return `${(bytes / 1000).toFixed(1)} KB`;
+	return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
 function breaksALine(text: string): boolean {
@@ -47,6 +70,35 @@ function addressList(field: string, values: readonly string[] | undefined): read
 		}
 		return value;
 	});
+}
+
+function attachmentAt(raw: string): Attachment {
+	const path = raw.trim();
+	if (!isAbsolute(path) || breaksALine(path)) {
+		throw new Error(
+			`"${raw}" in \`attachments\` is not an absolute file path. Give the full path of a file on this computer, like C:/Users/Me/Downloads/report.pdf.`,
+		);
+	}
+	let stats: Stats;
+	try {
+		stats = statSync(path);
+	} catch {
+		throw new Error(`There is no file at "${path}", so nothing was sent. Check the path and try again.`);
+	}
+	if (!stats.isFile()) throw new Error(`"${path}" is not a file, so nothing was sent. Attach files one by one.`);
+	const mimeType = Bun.file(path).type.split(";")[0]?.trim() || "application/octet-stream";
+	return { path, name: basename(path), bytes: stats.size, mimeType };
+}
+
+function attachmentList(values: readonly string[] | undefined): readonly Attachment[] {
+	const attachments = (values ?? []).map(attachmentAt);
+	const encoded = base64EncodedBytes(attachments.reduce((sum, attachment) => sum + attachment.bytes, 0));
+	if (encoded > GMAIL_MESSAGE_LIMIT_BYTES) {
+		throw new Error(
+			`The attachments come to ${formatBytes(encoded)} once encoded, over Gmail's 25 MB limit, so nothing was sent. Send fewer or smaller files, or share a link instead.`,
+		);
+	}
+	return attachments;
 }
 
 export function parseEmail(params: SendEmailParams): Email {
@@ -75,11 +127,16 @@ export function parseEmail(params: SendEmailParams): Email {
 		subject,
 		body: params.body,
 		inReplyTo,
+		attachments: attachmentList(params.attachments),
 	};
 }
 
 export function escapeMml(text: string): string {
 	return text.replace(/\r\n?/g, "\n").replace(MML_TAG, "<#!$1");
+}
+
+function mmlQuoted(value: string): string {
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export function buildTemplate(email: Email, from: string, messageId: string): string {
@@ -91,5 +148,10 @@ export function buildTemplate(email: Email, from: string, messageId: string): st
 		`Message-ID: ${messageId}`,
 		...(email.inReplyTo === null ? [] : [`In-Reply-To: ${email.inReplyTo}`, `References: ${email.inReplyTo}`]),
 	];
-	return `${headers.join("\n")}\n\n${escapeMml(email.body)}`;
+	const body = escapeMml(email.body);
+	if (email.attachments.length === 0) return `${headers.join("\n")}\n\n${body}`;
+	const parts = email.attachments.map(
+		attachment => `<#part type=${mmlQuoted(attachment.mimeType)} filename=${mmlQuoted(attachment.path)}><#/part>`,
+	);
+	return `${headers.join("\n")}\n\n${body.endsWith("\n") ? body : `${body}\n`}${parts.join("\n")}\n`;
 }
