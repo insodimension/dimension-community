@@ -1,9 +1,10 @@
+import { resolve } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
 import { type RunHimalaya, runHimalaya, sendEmail } from "./himalaya";
 import { listMessages, parseListRequest, parseReadRequest, readMessage } from "./mailbox";
-import { parseEmail } from "./message";
+import { formatBytes, parseEmail, resolveAttachment } from "./message";
 
 const readAccount = type("string").describe(
 	'The himalaya account to read, by name, e.g. "company". The default account when left out. A message id belongs to one account and folder: pass the account you listed it from.',
@@ -17,12 +18,15 @@ const sendEmailSchema = type({
 	subject: type("string").describe(
 		'One line, no line breaks. For a reply, reuse the original subject exactly, behind "Re: ".',
 	),
-	body: type("string").describe("The email text, plain text only. No attachments and no HTML."),
+	body: type("string").describe("The email text, plain text only. No HTML."),
 	"inReplyTo?": type("string").describe(
 		"For a reply: the original message's Message-Id header (shown by gmail_read_message), so the reply stays in its thread.",
 	),
 	"account?": type("string").describe(
 		'The himalaya account the email is sent from, by name, e.g. "company". The default account when left out. It is shown on the approval card: name it whenever the user, or the space you work in, says which account mail goes from.',
+	),
+	"attachments?": type("string[]").describe(
+		"Files to attach: absolute paths of files on this computer, one per item, e.g. [\"C:/Users/Me/Downloads/report.pdf\"]. Each is shown on the approval card with its size. 25 MB in total at most, as Gmail allows.",
 	),
 });
 
@@ -31,7 +35,7 @@ const listMessagesSchema = type({
 		'The folder to list, INBOX when left out. Gmail labels are folders, e.g. "[Gmail]/Sent Mail" or "[Gmail]/All Mail".',
 	),
 	"query?": type("string").describe(
-		"Filter and sort words, one word per value, joined with and / or / not: from <text>, to <text>, subject <text>, body <text>, flag seen|answered|flagged, date|before|after <yyyy-mm-dd>, then optionally order by date desc. Examples: not flag seen; from acme.com and after 2026-11-01.",
+		'Filter and sort words, joined with and / or / not: from <text>, to <text>, subject <text>, body <text>, flag seen|answered|flagged, date|before|after <yyyy-mm-dd>, then optionally order by date desc. Each filter takes one word; put a phrase in double quotes. Examples: not flag seen; from acme.com and after 2026-11-01; subject "Virtual Office".',
 	),
 	"limit?": type("1 <= number.integer <= 50").describe("How many messages at most, from 1 to 50. 20 when left out."),
 	"account?": readAccount,
@@ -60,24 +64,48 @@ function approvalAddresses(args: unknown, key: string): string | null {
 	return Array.isArray(value) && value.length > 0 ? value.map(String).join(", ") : null;
 }
 
+function approvalAttachments(args: unknown): string | null {
+	const value = approvalField(args, "attachments");
+	if (!Array.isArray(value) || value.length === 0) return null;
+	return value
+		.map(item => {
+			const asked = String(item);
+			try {
+				const attachment = resolveAttachment(asked);
+				const sameFile =
+					process.platform === "win32"
+						? resolve(attachment.requested).toLowerCase() === attachment.path.toLowerCase()
+						: resolve(attachment.requested) === attachment.path;
+				const shown = sameFile ? attachment.path : `${attachment.requested} → ${attachment.path}`;
+				const note = attachment.hiddenLocation ? ", from a hidden or app-data folder" : "";
+				return `- ${shown} (${formatBytes(attachment.bytes)}${note})`;
+			} catch (error) {
+				return `- ${asked} (refused: ${(error as Error).message})`;
+			}
+		})
+		.join("\n");
+}
+
 export function createSendEmailTool(run: RunHimalaya): ToolDefinition<typeof sendEmailSchema> {
 	return {
 		name: "gmail_send_email",
 		label: "Gmail: Send Email",
 		description:
-			"Send one plain-text email from a himalaya account of the connected mailbox. IRREVERSIBLE. This is the ONLY way to send, reply to or forward email: never send mail with himalaya through bash. Recipients are plain addresses (alex@example.com), never display names. There is no Bcc: to reach a hidden recipient, send them a separate message. For a reply, pass the original's Message-Id as `inReplyTo` and reuse its exact subject behind `Re: ` so the reply stays in its thread. `account` (optional) is the himalaya account the mail goes out from, by name, e.g. `company`; the default account when left out. Text only: no attachments, no HTML. Returns the sent message id.",
+			"Send one plain-text email, optionally with attached files, from a himalaya account of the connected mailbox. IRREVERSIBLE. This is the ONLY way to send, reply to or forward email: never send mail with himalaya through bash. Recipients are plain addresses (alex@example.com), never display names. There is no Bcc: to reach a hidden recipient, send them a separate message. For a reply, pass the original's Message-Id as `inReplyTo` and reuse its exact subject behind `Re: ` so the reply stays in its thread. `attachments` (optional) are absolute paths of local files; each one is listed on the approval card with its size, and nothing is sent if one is missing or the total passes Gmail's 25 MB. `account` (optional) is the himalaya account the mail goes out from, by name, e.g. `company`; the default account when left out. No HTML. Returns the sent message id.",
 		parameters: sendEmailSchema,
 		approval: "write",
 		formatApprovalDetails(args: unknown) {
 			const account = approvalText(args, "account");
 			const cc = approvalAddresses(args, "cc");
 			const inReplyTo = approvalText(args, "inReplyTo");
+			const attachments = approvalAttachments(args);
 			return [
 				`From account: ${account?.trim() ?? "(default account)"}`,
 				`To: ${approvalAddresses(args, "to") ?? "(missing)"}`,
 				...(cc === null ? [] : [`Cc: ${cc}`]),
 				`Subject: ${approvalText(args, "subject") ?? "(missing)"}`,
 				...(inReplyTo === null ? [] : [`In reply to: ${inReplyTo}`]),
+				...(attachments === null ? [] : [`Attachments:\n${attachments}`]),
 				`Message:\n${approvalText(args, "body") ?? "(missing)"}`,
 			];
 		},
@@ -89,7 +117,13 @@ export function createSendEmailTool(run: RunHimalaya): ToolDefinition<typeof sen
 				...(email.cc.length > 0 ? [`cc ${email.cc.join(", ")}`] : []),
 			].join("; ");
 			const from = email.account === null ? "" : ` from account ${email.account}`;
-			return { content: [{ type: "text" as const, text: `Email sent to ${sentTo}${from} (id: ${messageId}).` }] };
+			const attached =
+				email.attachments.length === 0
+					? ""
+					: ` with ${email.attachments.map(attachment => `${attachment.name} (${formatBytes(attachment.bytes)})`).join(", ")} attached`;
+			return {
+				content: [{ type: "text" as const, text: `Email sent to ${sentTo}${from}${attached} (id: ${messageId}).` }],
+			};
 		},
 	};
 }
@@ -98,7 +132,7 @@ export function createListMessagesTool(run: RunHimalaya): ToolDefinition<typeof 
 	return {
 		name: "gmail_list_messages",
 		label: "Gmail: List Messages",
-		description: `List messages in the connected mailbox, one line each: id, read state, date, sender, recipient, subject. Read-only: nothing is marked read, moved, flagged or deleted. Newest first unless the query sorts. Defaults to INBOX, 20 messages (at most 50). \`query\` filters and sorts with himalaya's words (from, to, subject, body, flag, date, before, after, joined with and / or / not, then order by date desc), one word per value, e.g. \`not flag seen\` for unread. \`account\` (optional) picks the himalaya account to read, by name, e.g. \`company\`; the default account when left out. Message ids belong to an account and a folder: pass the same \`account\` and \`folder\` to gmail_read_message. ${UNTRUSTED_NOTE}`,
+		description: `List messages in the connected mailbox, one line each: id, read state, date, sender, recipient, subject. Read-only: nothing is marked read, moved, flagged or deleted. Newest first unless the query sorts. Defaults to INBOX, 20 messages (at most 50). \`query\` filters and sorts with himalaya's words (from, to, subject, body, flag, date, before, after, joined with and / or / not, then order by date desc); each filter takes one word, so put a phrase in double quotes, e.g. \`not flag seen\` for unread or \`subject "Virtual Office"\`. \`account\` (optional) picks the himalaya account to read, by name, e.g. \`company\`; the default account when left out. Message ids belong to an account and a folder: pass the same \`account\` and \`folder\` to gmail_read_message. ${UNTRUSTED_NOTE}`,
 		parameters: listMessagesSchema,
 		approval: "read",
 		async execute(_toolCallId: string, params: typeof listMessagesSchema.infer, signal: AbortSignal | undefined) {

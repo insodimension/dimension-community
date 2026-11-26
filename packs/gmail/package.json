@@ -1,7 +1,7 @@
 {
 	"name": "@inso/gmail",
 	"author": "Dimension",
-	"version": "0.3.2",
+	"version": "0.4.0",
 	"description": "Email connector — list and read a mailbox over IMAP/SMTP (Gmail) through two native read-only tools, and send mail through one native write tool; every tool takes an optional himalaya account name",
 	"type": "module",
 	"main": "index.ts",

@@ -75,11 +75,19 @@ export const runHimalaya: RunHimalaya = (args, stdin, options) => runProcess("hi
 const SEND_NOT_INSTALLED =
 	"himalaya is not installed, or is not on your PATH, so nothing was sent. Open Plugins → Gmail to install it and connect your mailbox.";
 const CAUSE_LINES = /^(?:Note|Location|Backtrace|Suggestion):|^Error:?$/;
+const DIAGRAM_CHARS = /[╭╮╰╯│─┬┴├┤┼]/g;
+const DIAGRAM_FRAME = /^\[\w+:\d+:\d+\]$|^\d+\s/;
+const REPORTED_ERROR = /^Error:/m;
 
 function reasonFrom(result: ProcessResult): string {
 	const lines = result.stderr
 		.split(/\r?\n/)
-		.map(line => line.trim().replace(/^\d+:\s*/, ""))
+		.flatMap(line => {
+			const text = line.replace(DIAGRAM_CHARS, "").trim();
+			const isDiagram = text !== line.trim();
+			if (isDiagram && DIAGRAM_FRAME.test(text)) return [];
+			return [isDiagram ? text : text.replace(/^\d+:\s*/, "")];
+		})
 		.filter(line => line.length > 0 && !CAUSE_LINES.test(line));
 	return lines.length > 0 ? lines.join(": ").slice(0, 400) : `himalaya exited with code ${result.exitCode}`;
 }
@@ -110,7 +118,8 @@ export async function runChecked(run: RunHimalaya, invocation: Invocation): Prom
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(onMissing);
 		throw new Error(onFailure((error as Error).message));
 	}
-	if (result.exitCode !== 0) throw new Error(onFailure(reasonFrom(result)));
+	const failedQuietly = result.exitCode === 0 && result.stdout.trim().length === 0 && REPORTED_ERROR.test(result.stderr);
+	if (result.exitCode !== 0 || failedQuietly) throw new Error(onFailure(reasonFrom(result)));
 	return result.stdout;
 }
 

@@ -311,6 +311,34 @@ test("a failed list reports himalaya's reason without its debug chatter; no inst
 	expect(await refusal(listMessages(parseListRequest({}), slow.run))).toContain("did not finish within 30 seconds");
 });
 
+const BAD_QUERY_STDERR = [
+	"Error: cannot parse search emails query `subject Virtual Office Onboarding`",
+	"   ╭─[query:1:17]",
+	"   │",
+	" 1 │ subject Virtual Office Onboarding",
+	"   │                 ┬  ",
+	"   │                 ╰── found 'O' expected space between filters, `and`, `or`, or end of input",
+	"───╯",
+	"",
+].join("\n");
+
+test("a query himalaya cannot parse is an error that says what to fix, not an empty list, and its drawn diagram is left out", async () => {
+	const { run } = stubHimalaya(failed(BAD_QUERY_STDERR, 0));
+	const message = await refusal(listMessages(parseListRequest({ query: "subject Virtual Office Onboarding" }), run));
+	expect(message).toContain("could not read the query");
+	expect(message).toContain("found 'O' expected space between filters");
+	expect(message).toContain("put a phrase in double quotes");
+	expect(message).not.toMatch(/[╭╮╰╯│─┬┴├┤┼]/);
+	expect(message).not.toContain("[query:1:17]");
+});
+
+test("a list that exits 0 with nothing on stdout and an Error on stderr fails with himalaya's reason, and blames the query only when the query was the cause", async () => {
+	const { run } = stubHimalaya(failed("Error: \n   0: cannot list envelopes\n   1: imap login refused\n", 0));
+	const message = await refusal(listMessages(parseListRequest({ query: "from alex" }), run));
+	expect(message).toContain("could not list the messages in INBOX (cannot list envelopes: imap login refused)");
+	expect(message).not.toContain("could not read the query");
+});
+
 test("the caller's abort signal reaches himalaya", async () => {
 	const controller = new AbortController();
 	const { run, calls } = stubHimalaya(answer([]));

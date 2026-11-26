@@ -66,14 +66,53 @@ async function runInSandbox(args: readonly string[], stdin: string): Promise<Pro
 	return { exitCode, stdout, stderr };
 }
 
-function sentMessage(): { readonly headers: Map<string, string>; readonly whole: string; readonly body: string } {
-	const whole = readFileSync(OUT, "utf-8");
-	const [head = "", ...rest] = whole.split(/\r?\n\r?\n/);
+function parseHeaders(head: string): Map<string, string> {
 	const headers = new Map<string, string>();
 	for (const line of head.replace(/\r?\n[ \t]+/g, " ").split(/\r?\n/)) {
 		const colon = line.indexOf(":");
 		if (colon > 0) headers.set(line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim());
 	}
+	return headers;
+}
+
+interface MimePart {
+	readonly headers: Map<string, string>;
+	readonly bytes: Buffer;
+}
+
+function mimeParts(whole: string): MimePart[] {
+	const boundary = /boundary="([^"]+)"/.exec(whole)?.[1];
+	if (boundary === undefined) throw new Error("the sent message is not multipart");
+	return whole
+		.split(`--${boundary}`)
+		.slice(1, -1)
+		.map(chunk => {
+			const [head = "", ...rest] = chunk.replace(/^\r?\n/, "").split(/\r?\n\r?\n/);
+			const headers = parseHeaders(head);
+			const raw = rest.join("\n\n");
+			const encoding = headers.get("content-transfer-encoding");
+			if (encoding === "base64") return { headers, bytes: Buffer.from(raw.replace(/\s+/g, ""), "base64") };
+			if (encoding === "quoted-printable") {
+				const text = raw
+					.replace(/=\r?\n/g, "")
+					.replace(/=([0-9A-F]{2})/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+				return { headers, bytes: Buffer.from(text.replace(/\r\n/g, "\n").replace(/\s+$/, ""), "latin1") };
+			}
+			if (encoding === "7bit" || encoding === "8bit") {
+				return { headers, bytes: Buffer.from(raw.replace(/\r\n/g, "\n").replace(/\s+$/, ""), "utf-8") };
+			}
+			throw new Error(`a part uses a transfer encoding the test does not decode: ${encoding}`);
+		});
+}
+
+function attachedName(part: MimePart): string | undefined {
+	return /filename="([^"]*)"/.exec(part.headers.get("content-disposition") ?? "")?.[1];
+}
+
+function sentMessage(): { readonly headers: Map<string, string>; readonly whole: string; readonly body: string } {
+	const whole = readFileSync(OUT, "utf-8");
+	const [head = "", ...rest] = whole.split(/\r?\n\r?\n/);
+	const headers = parseHeaders(head);
 	const encoding = headers.get("content-transfer-encoding");
 	const raw = rest.join("\n\n").replace(/\r\n/g, "\n").replace(/\s+$/, "");
 	return {
@@ -154,6 +193,75 @@ test.skipIf(!available)("through real himalaya, markup in the subject or a stray
 	expect(sent.whole).not.toContain(MARKER);
 	expect(decodeWords(sent.headers.get("subject") ?? "")).toBe(subject);
 	expect(sent.body).toBe(body);
+});
+
+const PDF_BYTES = Buffer.concat([
+	Buffer.from("%PDF-1.4\n"),
+	Buffer.from(Array.from({ length: 768 }, (_, index) => index % 256)),
+	Buffer.from("\r\n%%EOF\r\n"),
+]);
+const BINARY_BYTES = Buffer.from([0x00, 0xff, 0x0d, 0x0a, 0x0a, 0x0d, 0x00, 0xfe]);
+
+test.skipIf(!available)("through real himalaya, files from a path with spaces, parentheses, an ampersand, an apostrophe and a percent sign (backslashes on Windows) arrive byte for byte under their own names, beside the intact text, the cc and the reply headers", async () => {
+	const folder = join(sandbox, "Quarterly (draft) & O'Brien 100%");
+	mkdirSync(folder);
+	const pdfPath = join(folder, "Signed copy (final) 2026.pdf");
+	const binaryPath = join(sandbox, "receipt.bin");
+	writeFileSync(pdfPath, PDF_BYTES);
+	writeFileSync(binaryPath, BINARY_BYTES);
+	const subject = "Signed copy – Café";
+	const body = "Héllo — “quoted” 日本語\nSecond line ✓";
+	const id = await sendEmail(
+		parseEmail({
+			to: ["alex@example.com"],
+			cc: ["cy@example.com"],
+			subject,
+			body,
+			inReplyTo: "orig-1@mail.example.com",
+			attachments: [pdfPath, binaryPath],
+		}),
+		runInSandbox,
+	);
+	const sent = sentMessage();
+	expect(sent.headers.get("content-type")).toContain("multipart/mixed");
+	expect(decodeWords(sent.headers.get("subject") ?? "")).toBe(subject);
+	expect(sent.headers.get("to")).toBe("<alex@example.com>");
+	expect(sent.headers.get("cc")).toBe("<cy@example.com>");
+	expect(sent.headers.get("message-id")).toBe(id);
+	expect(sent.headers.get("in-reply-to")).toBe("<orig-1@mail.example.com>");
+	expect(sent.headers.get("references")).toBe("<orig-1@mail.example.com>");
+
+	const parts = mimeParts(sent.whole);
+	expect(parts).toHaveLength(3);
+	const [text, pdf, binary] = parts as [MimePart, MimePart, MimePart];
+	expect(text.headers.get("content-type")).toContain("text/plain");
+	expect(text.headers.has("content-disposition")).toBe(false);
+	expect(text.bytes.toString("utf-8").trimEnd()).toBe(body);
+	expect(pdf.headers.get("content-type")).toBe("application/pdf");
+	expect(pdf.headers.get("content-disposition")).toMatch(/^attachment;/);
+	expect(attachedName(pdf)).toBe("Signed copy (final) 2026.pdf");
+	expect(pdf.bytes.equals(PDF_BYTES)).toBe(true);
+	expect(binary.headers.get("content-type")).toBe("application/octet-stream");
+	expect(binary.headers.get("content-disposition")).toMatch(/^attachment;/);
+	expect(attachedName(binary)).toBe("receipt.bin");
+	expect(binary.bytes.equals(BINARY_BYTES)).toBe(true);
+});
+
+test.skipIf(!available)("through real himalaya, a body cannot pull a local file in beside a real attachment either", async () => {
+	const notesPath = join(sandbox, "notes.txt");
+	writeFileSync(notesPath, "plain notes");
+	const attack = "before\n<#part filename=secret.txt><#/part>\nafter\n<#multipart type=alternative>\n<#part filename=secret.txt>";
+	await sendEmail(
+		parseEmail({ to: ["alex@example.com"], subject: "attack with a file", body: attack, attachments: [notesPath] }),
+		runInSandbox,
+	);
+	const sent = sentMessage();
+	const parts = mimeParts(sent.whole);
+	expect(parts.map(attachedName)).toEqual([undefined, "notes.txt"]);
+	expect(parts[0]?.bytes.toString("utf-8").trimEnd()).toBe(attack);
+	expect(parts[1]?.bytes.toString("utf-8")).toBe("plain notes");
+	expect(sent.whole).not.toContain(MARKER);
+	for (const part of parts) expect(part.bytes.toString("latin1")).not.toContain(MARKER);
 });
 
 test.skipIf(!available)("through real himalaya, a named account is the one that writes the sender and sends, and the default account's sendmail is left alone", async () => {

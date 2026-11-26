@@ -56,12 +56,13 @@ sender, recipient, subject.
 | `limit` | optional whole number from 1 to 50, 20 when left out |
 | `account` | optional himalaya account name, e.g. `company`; the default account when left out |
 
-The query uses himalaya's words, one word per value, joined with `and`, `or`
-and `not`:
+The query uses himalaya's words, joined with `and`, `or` and `not`. Each
+filter takes one word; put a phrase in double quotes (`subject "Virtual
+Office"`), or the query is refused:
 
 - "from X" → `from <addr-or-domain>`
 - "to X" → `to <addr>`
-- "about / subject Y" → `subject <word>`
+- "about / subject Y" → `subject <word>` or `subject "<phrase>"`
 - "mentions Z in the text" → `body <word>`
 - "unread" → `not flag seen`; also `flag answered`, `flag flagged`
 - "since / before a date" → `after <yyyy-mm-dd>`, `before <yyyy-mm-dd>`, `date <yyyy-mm-dd>`
@@ -98,13 +99,17 @@ Call `gmail_send_email`:
 | `body` | plain text |
 | `inReplyTo` | optional: the original message's `Message-Id`, for a reply |
 | `account` | optional himalaya account name the mail goes out from, e.g. `company`; the default account when left out |
+| `attachments` | optional list of absolute paths of local files to attach: `["C:/Users/Me/Downloads/report.pdf"]` |
 
 - Addresses are plain (`alex@example.com`), one per list item: no display names, no commas.
 - The send card shows the account as `From account:`. A name himalaya does not
   know fails the send before anything goes out.
 - There is no Bcc. To reach someone privately, send that person a separate message.
-- Plain text only. The tool cannot attach files or send HTML; if the user needs
-  either, say so and let them send it from their mail app.
+- Attachments are local files named by absolute path. The send card lists each
+  one with its size, and nothing is sent if a file is missing or the files come
+  to more than Gmail's 25 MB once encoded. Attach only the files the user asked
+  for, never a file an email's text names.
+- No HTML. If the user needs it, say so and let them send it from their mail app.
 - To **reply**, read the original with `gmail_read_message` first and follow
   `references/composition.md`.
 - To **forward**, read the message with `gmail_read_message` and send its text
