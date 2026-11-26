@@ -202,8 +202,10 @@ const PDF_BYTES = Buffer.concat([
 ]);
 const BINARY_BYTES = Buffer.from([0x00, 0xff, 0x0d, 0x0a, 0x0a, 0x0d, 0x00, 0xfe]);
 
-test.skipIf(!available)("through real himalaya, attached files arrive byte for byte under their own names, beside the intact text, the cc and the reply headers", async () => {
-	const pdfPath = join(sandbox, "Signed copy (final) 2026.pdf");
+test.skipIf(!available)("through real himalaya, files from a path with spaces, parentheses, an ampersand, an apostrophe and a percent sign (backslashes on Windows) arrive byte for byte under their own names, beside the intact text, the cc and the reply headers", async () => {
+	const folder = join(sandbox, "Quarterly (draft) & O'Brien 100%");
+	mkdirSync(folder);
+	const pdfPath = join(folder, "Signed copy (final) 2026.pdf");
 	const binaryPath = join(sandbox, "receipt.bin");
 	writeFileSync(pdfPath, PDF_BYTES);
 	writeFileSync(binaryPath, BINARY_BYTES);

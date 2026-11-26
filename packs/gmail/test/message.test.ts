@@ -1,8 +1,25 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	truncateSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { buildTemplate, type Email, escapeMml, parseEmail, type SendEmailParams } from "../message";
+import { delimiter, dirname, join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+	buildTemplate,
+	type Email,
+	escapeMml,
+	parseEmail,
+	resolveAttachment,
+	type SendEmailParams,
+} from "../message";
 
 const FROM = "Me <me@gmail.com>";
 const ID = "<id-1@gmail.com>";
@@ -22,7 +39,7 @@ function refusal(params: SendEmailParams): string {
 
 const OK: SendEmailParams = { to: ["alex@example.com"], subject: "Hello", body: "Hi Alex" };
 
-const files = mkdtempSync(join(tmpdir(), "gmail-pack-message-"));
+const files = realpathSync.native(mkdtempSync(join(tmpdir(), "gmail-pack-message-")));
 afterAll(() => {
 	rmSync(files, { recursive: true, force: true });
 });
@@ -32,6 +49,66 @@ function fileOfSize(name: string, bytes: number): string {
 	writeFileSync(path, "");
 	truncateSync(path, bytes);
 	return path;
+}
+
+const NOT_ABSOLUTE = "is not an absolute file path";
+const NETWORK = "is a network or device path";
+const SPECIAL = 'contains $, " or a backslash';
+const STREAM = "names a stream inside a file";
+const PROTECTED = "is in a folder that holds keys, mailbox passwords or system state";
+
+function fileAt(path: string, text = "x"): string {
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, text);
+	return path;
+}
+
+function linkTo(target: string, link: string): string {
+	symlinkSync(target, link, "junction");
+	return link;
+}
+
+function attachmentRefusal(raw: string): string {
+	try {
+		resolveAttachment(raw);
+	} catch (error) {
+		return (error as Error).message;
+	}
+	throw new Error(`resolveAttachment accepted ${JSON.stringify(raw)}, which it should have refused`);
+}
+
+const sandboxHidden = files.split(/[\\/]/).some(segment => segment.startsWith(".") || segment === "AppData");
+
+interface Outcome {
+	readonly path?: string;
+	readonly error?: string;
+}
+
+const RESOLVER = [
+	`import { resolveAttachment } from ${JSON.stringify(pathToFileURL(join(import.meta.dir, "..", "message.ts")).href)};`,
+	"const outcomes = JSON.parse(process.env.GMAIL_TEST_PATHS ?? '[]').map(raw => {",
+	"\ttry {",
+	"\t\treturn { path: resolveAttachment(raw).path };",
+	"\t} catch (error) {",
+	"\t\treturn { error: error.message };",
+	"\t}",
+	"});",
+	"console.log(JSON.stringify(outcomes));",
+].join("\n");
+
+async function resolveWithEnvironment(environment: Record<string, string>, paths: readonly string[]): Promise<Outcome[]> {
+	const child = Bun.spawn([process.execPath, "-e", RESOLVER], {
+		env: { ...process.env, ...environment, GMAIL_TEST_PATHS: JSON.stringify(paths) },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr, exitCode] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	if (exitCode !== 0) throw new Error(`the resolver process failed: ${stderr}`);
+	return JSON.parse(stdout);
 }
 
 test("a plain email is the headers, a blank line, then the body", () => {
@@ -209,7 +286,7 @@ test("the account chooses where the mail goes out from and is never written into
 	expect(build({ ...OK, account: "company" })).toBe(build(OK));
 });
 
-test("an attachment is read from its file: base name, byte size, and a type from the extension with any charset dropped", () => {
+test("an attachment is read from its file: real path, the path as asked, base name, byte size, and a type from the extension with any charset dropped", () => {
 	const rows: [string, number, string][] = [
 		["Signed copy (final) 2026.pdf", 5, "application/pdf"],
 		["notes.txt", 12, "text/plain"],
@@ -220,9 +297,153 @@ test("an attachment is read from its file: base name, byte size, and a type from
 	for (const [name, bytes, mimeType] of rows) {
 		const path = fileOfSize(name, bytes);
 		expect(parseEmail({ ...OK, attachments: [`  ${path}  `] }).attachments).toEqual([
-			{ path, name, bytes, mimeType },
+			{ path, requested: path, hiddenLocation: sandboxHidden, name, bytes, mimeType },
 		]);
 	}
+});
+
+test("the attached path is the real one: a link is followed, and the path as asked for is kept beside it", () => {
+	const real = fileAt(join(files, "linked", "real", "Quarterly (draft)", "report.pdf"), "pdf");
+	const link = linkTo(join(files, "linked", "real"), join(files, "linked", "shortcut"));
+	const throughLink = join(link, "Quarterly (draft)", "report.pdf");
+	expect(resolveAttachment(`  ${throughLink}  `)).toMatchObject({
+		path: real,
+		requested: throughLink,
+		name: "report.pdf",
+		bytes: 3,
+	});
+	const withDots = `${join(files, "linked", "real")}${sep}Quarterly (draft)${sep}..${sep}Quarterly (draft)${sep}report.pdf`;
+	expect(resolveAttachment(withDots)).toMatchObject({ path: real, requested: withDots });
+});
+
+test.skipIf(process.platform !== "win32")("on Windows the real path has backslashes and the true casing, however the path was typed", () => {
+	const real = fileAt(join(files, "Typed Casing", "Mixed Case.TXT"));
+	for (const requested of [real.toUpperCase(), real.toLowerCase(), real.replaceAll("\\", "/")]) {
+		expect(resolveAttachment(requested)).toMatchObject({ path: real, requested, name: "Mixed Case.TXT" });
+	}
+});
+
+test("a file is flagged by where it really is: a dot-leading or AppData folder, or name, counts; look-alike names and the name of a link do not", () => {
+	const flagged = [
+		fileAt(join(files, "hidden-below", ".hidden", "a.txt")),
+		fileAt(join(files, "hidden-below", "visible", ".secret")),
+		fileAt(join(files, "hidden-below", "AppData", "Local", "a.txt")),
+		fileAt(join(files, "hidden-below", "x", ".config", "deep", "a.txt")),
+	];
+	for (const path of flagged) expect(resolveAttachment(path).hiddenLocation).toBe(true);
+	const lookAlikes = [
+		fileAt(join(files, "look-alike", "AppDataBackup", "a.txt")),
+		fileAt(join(files, "look-alike", "appdata-notes", "a.txt")),
+		fileAt(join(files, "look-alike", "v1.2", "report.final.txt")),
+	];
+	for (const path of lookAlikes) expect(resolveAttachment(path).hiddenLocation).toBe(sandboxHidden);
+	fileAt(join(files, "by-link", ".vault", "a.txt"));
+	fileAt(join(files, "by-link", "shown", "a.txt"));
+	const plainLookingLink = linkTo(join(files, "by-link", ".vault"), join(files, "by-link", "plain-looking"));
+	const dotNamedLink = linkTo(join(files, "by-link", "shown"), join(files, "by-link", ".dot-named"));
+	expect(resolveAttachment(join(plainLookingLink, "a.txt")).hiddenLocation).toBe(true);
+	expect(resolveAttachment(join(dotNamedLink, "a.txt")).hiddenLocation).toBe(sandboxHidden);
+});
+
+test("a path is refused by its text alone, before any file is looked up, with the reason that fits it", () => {
+	fileAt(join(files, "refusals", "cost$5.txt"));
+	const backslashForm = process.platform === "win32" ? NETWORK : NOT_ABSOLUTE;
+	const rows: [string, string][] = [
+		["", NOT_ABSOLUTE],
+		["   ", NOT_ABSOLUTE],
+		["report.pdf", NOT_ABSOLUTE],
+		["./report.pdf", NOT_ABSOLUTE],
+		["~/report.pdf", NOT_ABSOLUTE],
+		...["\n", "\r", "\u0000", "\u007f", "\u0085", "\u2028", "\u2029"].map((breaker): [string, string] => [
+			`${files}${sep}line${breaker}break.txt`,
+			NOT_ABSOLUTE,
+		]),
+		["//server/share/report.pdf", NETWORK],
+		["//?/C:/report.pdf", NETWORK],
+		["//./pipe/report", NETWORK],
+		["\\\\server\\share\\report.pdf", backslashForm],
+		["\\\\?\\C:\\report.pdf", backslashForm],
+		["\\\\.\\C:\\report.pdf", backslashForm],
+		[`${files}${sep}refusals${sep}cost$5.txt`, SPECIAL],
+		[`${files}${sep}$HOME${sep}report.txt`, SPECIAL],
+		[`${files}${sep}the "draft".txt`, SPECIAL],
+		[`${files}${sep}report.txt:hidden`, STREAM],
+		[`${files}${sep}a:b.txt`, STREAM],
+	];
+	for (const [raw, reason] of rows) expect(attachmentRefusal(raw)).toContain(reason);
+});
+
+test.skipIf(process.platform === "win32")("on POSIX a backslash anywhere in the path is refused, because the mail compiler would read it as an escape", () => {
+	expect(attachmentRefusal(fileAt(join(files, "posix", "back\\slash.txt")))).toContain(SPECIAL);
+	expect(attachmentRefusal(fileAt(join(files, "posix", "dir\\name", "a.txt")))).toContain(SPECIAL);
+});
+
+test.skipIf(process.platform !== "win32")("a Windows extended or device path to a real file is refused as one, by its text, before the file is looked up", () => {
+	const real = fileAt(join(files, "device", "report.txt"));
+	const extended = `\\\\?\\${real}`;
+	expect(statSync(extended).isFile()).toBe(true);
+	for (const asked of [extended, `\\\\.\\${real}`, `//?/${real.replaceAll("\\", "/")}`]) {
+		const message = attachmentRefusal(asked);
+		expect(message).toContain(NETWORK);
+		expect(message).not.toContain("leads to");
+	}
+});
+
+test("the same text rules apply to where a link leads: a clean-looking path that resolves to a refused name is refused", () => {
+	const target = fileAt(join(files, "relink", "cost$5", "report.txt"));
+	const link = linkTo(join(files, "relink", "cost$5"), join(files, "relink", "innocent"));
+	const asked = join(link, "report.txt");
+	expect(attachmentRefusal(asked)).toContain(`"${asked}" leads to "${target}", which ${SPECIAL}`);
+});
+
+test("keys, mailbox passwords and system state are never attached: the ssh and himalaya folders, every himalaya config folder, and links into them", async () => {
+	const base = join(files, "protected");
+	const home = join(base, "home");
+	const appData = join(base, "Roaming");
+	const configA = join(base, "config-a");
+	const configB = join(base, "config b (copy)");
+	const secrets = [
+		join(home, ".ssh", "id_ed25519"),
+		join(home, ".ssh", "keys", "deep", "id_rsa"),
+		join(home, ".config", "himalaya", "config.toml"),
+		join(appData, "himalaya", "config.toml"),
+		join(configA, "config.toml"),
+		join(configB, "tokens", "refresh.json"),
+	].map(path => fileAt(path));
+	const link = linkTo(join(home, ".ssh"), join(base, "innocent-looking"));
+	const throughLink = join(link, "id_ed25519");
+	const neighbours = [
+		join(home, ".config", "himalaya-notes", "a.txt"),
+		join(home, ".config", "other.txt"),
+		join(home, ".ssh-backup", "a.txt"),
+		join(`${configA}-extra`, "a.txt"),
+		join(appData, "himalaya-extra", "a.txt"),
+	].map(path => fileAt(path));
+	const outcomes = await resolveWithEnvironment(
+		{
+			HOME: home,
+			USERPROFILE: home,
+			APPDATA: appData,
+			HIMALAYA_CONFIG: [join(configA, "config.toml"), join(configB, "config.toml")].join(delimiter),
+		},
+		[...secrets, throughLink, ...neighbours],
+	);
+	for (const outcome of outcomes.slice(0, secrets.length)) expect(outcome.error).toContain(PROTECTED);
+	expect(outcomes[secrets.length]?.error).toContain(`"${throughLink}" ${PROTECTED}`);
+	expect(outcomes.slice(secrets.length + 1)).toEqual(neighbours.map(path => ({ path })));
+});
+
+test.skipIf(process.platform !== "win32")("on Windows a protected folder is matched without regard to case, as the file system does", async () => {
+	const secret = fileAt(join(files, "protected-case", "Mail Config", "config.toml"));
+	const outcomes = await resolveWithEnvironment({ HIMALAYA_CONFIG: secret.toUpperCase() }, [
+		secret,
+		secret.toLowerCase(),
+	]);
+	for (const outcome of outcomes) expect(outcome.error).toContain(PROTECTED);
+});
+
+test.skipIf(process.platform !== "linux")("on Linux /proc, /sys and /dev are system state, so even a readable file or the folder itself is refused", () => {
+	for (const path of ["/proc/self/status", "/sys", "/dev/null"]) expect(() => resolveAttachment(path)).toThrow(PROTECTED);
 });
 
 test("the 25 MB cap is on the encoded size of all the files together: 18,750,000 raw bytes fit and one more does not", () => {
@@ -235,17 +456,26 @@ test("the 25 MB cap is on the encoded size of all the files together: 18,750,000
 	expect(refusal({ ...OK, attachments: [half, halfAndOne] })).toContain(limit);
 });
 
-test("attachments follow the body as one part tag each, in order, with the path quoted so spaces, parentheses, backslashes and quotes survive", () => {
+test("attachments follow the body as one part tag each, in order, with the path raw except that Windows backslashes become forward slashes", () => {
 	const email: Email = {
 		...parseEmail(OK),
 		attachments: [
 			{
 				path: "C:\\Users\\me\\Signed copy (final) 2026.pdf",
+				requested: "C:/Users/me/Signed copy (final) 2026.pdf",
+				hiddenLocation: false,
 				name: "Signed copy (final) 2026.pdf",
 				bytes: 5,
 				mimeType: "application/pdf",
 			},
-			{ path: '/home/me/the "draft".txt', name: 'the "draft".txt', bytes: 3, mimeType: "text/plain" },
+			{
+				path: "/home/me/O'Brien & sons, 100% [v2].txt",
+				requested: "/home/me/O'Brien & sons, 100% [v2].txt",
+				hiddenLocation: false,
+				name: "O'Brien & sons, 100% [v2].txt",
+				bytes: 3,
+				mimeType: "text/plain",
+			},
 		],
 	};
 	expect(buildTemplate(email, FROM, ID)).toBe(
@@ -256,8 +486,8 @@ test("attachments follow the body as one part tag each, in order, with the path 
 			"Message-ID: <id-1@gmail.com>",
 			"",
 			"Hi Alex",
-			String.raw`<#part type="application/pdf" filename="C:\\Users\\me\\Signed copy (final) 2026.pdf"><#/part>`,
-			String.raw`<#part type="text/plain" filename="/home/me/the \"draft\".txt"><#/part>`,
+			'<#part type="application/pdf" filename="C:/Users/me/Signed copy (final) 2026.pdf"><#/part>',
+			'<#part type="text/plain" filename="/home/me/O\'Brien & sons, 100% [v2].txt"><#/part>',
 			"",
 		].join("\n"),
 	);

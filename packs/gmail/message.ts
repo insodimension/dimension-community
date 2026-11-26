@@ -1,5 +1,6 @@
-import { type Stats, statSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { realpathSync, type Stats, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { parseAccount } from "./account";
 
 export interface SendEmailParams {
@@ -15,6 +16,8 @@ export interface SendEmailParams {
 
 export interface Attachment {
 	readonly path: string;
+	readonly requested: string;
+	readonly hiddenLocation: boolean;
 	readonly name: string;
 	readonly bytes: number;
 	readonly mimeType: string;
@@ -72,26 +75,64 @@ function addressList(field: string, values: readonly string[] | undefined): read
 	});
 }
 
-function attachmentAt(raw: string): Attachment {
-	const path = raw.trim();
+const PROTECTED_FOLDERS: readonly string[] = [
+	join(homedir(), ".ssh"),
+	join(homedir(), ".config", "himalaya"),
+	...(process.env.APPDATA === undefined ? [] : [join(process.env.APPDATA, "himalaya")]),
+	...(process.env.HIMALAYA_CONFIG ?? "")
+		.split(process.platform === "win32" ? ";" : ":")
+		.filter(path => path.length > 0 && isAbsolute(path))
+		.map(path => dirname(path)),
+	...(process.platform === "win32" ? [] : ["/proc", "/sys", "/dev"]),
+];
+
+function pathRefusal(path: string): string | null {
 	if (!isAbsolute(path) || breaksALine(path)) {
-		throw new Error(
-			`"${raw}" in \`attachments\` is not an absolute file path. Give the full path of a file on this computer, like C:/Users/Me/Downloads/report.pdf.`,
-		);
+		return "is not an absolute file path. Give the full path of a file on this computer, like C:/Users/Me/Downloads/report.pdf";
 	}
+	if (/^[\\/]{2}/.test(path)) return "is a network or device path. Copy the file to this computer and attach that copy";
+	if (path.includes("$") || path.includes('"') || (process.platform !== "win32" && path.includes("\\"))) {
+		return 'contains $, " or a backslash, which the mail compiler would read as a different path. Rename or copy the file first';
+	}
+	if (path.indexOf(":", process.platform === "win32" ? 2 : 0) !== -1) {
+		return "names a stream inside a file. Attach the file itself";
+	}
+	return null;
+}
+
+function isInside(path: string, folder: string): boolean {
+	const fold = (value: string) => (process.platform === "win32" ? value.toLowerCase() : value);
+	const child = relative(fold(folder), fold(path));
+	return child === "" || (!child.startsWith("..") && !isAbsolute(child));
+}
+
+export function resolveAttachment(raw: string): Attachment {
+	const requested = raw.trim();
+	const refusal = pathRefusal(requested);
+	if (refusal !== null) throw new Error(`"${raw}" in \`attachments\` ${refusal}. Nothing was sent.`);
+	let path: string;
 	let stats: Stats;
 	try {
+		path = realpathSync.native(requested);
 		stats = statSync(path);
 	} catch {
-		throw new Error(`There is no file at "${path}", so nothing was sent. Check the path and try again.`);
+		throw new Error(`There is no file at "${requested}", so nothing was sent. Check the path and try again.`);
 	}
-	if (!stats.isFile()) throw new Error(`"${path}" is not a file, so nothing was sent. Attach files one by one.`);
+	const resolvedRefusal = pathRefusal(path);
+	if (resolvedRefusal !== null) throw new Error(`"${requested}" leads to "${path}", which ${resolvedRefusal}. Nothing was sent.`);
+	if (PROTECTED_FOLDERS.some(folder => isInside(path, folder))) {
+		throw new Error(
+			`"${requested}" is in a folder that holds keys, mailbox passwords or system state, so it is never attached. Nothing was sent.`,
+		);
+	}
+	if (!stats.isFile()) throw new Error(`"${requested}" is not a file, so nothing was sent. Attach files one by one.`);
 	const mimeType = Bun.file(path).type.split(";")[0]?.trim() || "application/octet-stream";
-	return { path, name: basename(path), bytes: stats.size, mimeType };
+	const hiddenLocation = path.split(/[\\/]/).some(segment => segment.startsWith(".") || segment === "AppData");
+	return { path, requested, name: basename(path), bytes: stats.size, mimeType, hiddenLocation };
 }
 
 function attachmentList(values: readonly string[] | undefined): readonly Attachment[] {
-	const attachments = (values ?? []).map(attachmentAt);
+	const attachments = (values ?? []).map(resolveAttachment);
 	const encoded = base64EncodedBytes(attachments.reduce((sum, attachment) => sum + attachment.bytes, 0));
 	if (encoded > GMAIL_MESSAGE_LIMIT_BYTES) {
 		throw new Error(
@@ -135,10 +176,6 @@ export function escapeMml(text: string): string {
 	return text.replace(/\r\n?/g, "\n").replace(MML_TAG, "<#!$1");
 }
 
-function mmlQuoted(value: string): string {
-	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 export function buildTemplate(email: Email, from: string, messageId: string): string {
 	const headers = [
 		`From: ${from}`,
@@ -151,7 +188,7 @@ export function buildTemplate(email: Email, from: string, messageId: string): st
 	const body = escapeMml(email.body);
 	if (email.attachments.length === 0) return `${headers.join("\n")}\n\n${body}`;
 	const parts = email.attachments.map(
-		attachment => `<#part type=${mmlQuoted(attachment.mimeType)} filename=${mmlQuoted(attachment.path)}><#/part>`,
+		attachment => `<#part type="${attachment.mimeType}" filename="${attachment.path.replaceAll("\\", "/")}"><#/part>`,
 	);
 	return `${headers.join("\n")}\n\n${body.endsWith("\n") ? body : `${body}\n`}${parts.join("\n")}\n`;
 }

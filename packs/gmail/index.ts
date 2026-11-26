@@ -1,10 +1,10 @@
-import { statSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import { type } from "arktype";
 import { type RunHimalaya, runHimalaya, sendEmail } from "./himalaya";
 import { listMessages, parseListRequest, parseReadRequest, readMessage } from "./mailbox";
-import { formatBytes, parseEmail } from "./message";
+import { formatBytes, parseEmail, resolveAttachment } from "./message";
 
 const readAccount = type("string").describe(
 	'The himalaya account to read, by name, e.g. "company". The default account when left out. A message id belongs to one account and folder: pass the account you listed it from.',
@@ -69,12 +69,18 @@ function approvalAttachments(args: unknown): string | null {
 	if (!Array.isArray(value) || value.length === 0) return null;
 	return value
 		.map(item => {
-			const path = String(item);
+			const asked = String(item);
 			try {
-				const stats = statSync(path.trim());
-				return stats.isFile() ? `- ${path} (${formatBytes(stats.size)})` : `- ${path} (not a file)`;
-			} catch {
-				return `- ${path} (no file there)`;
+				const attachment = resolveAttachment(asked);
+				const sameFile =
+					process.platform === "win32"
+						? resolve(attachment.requested).toLowerCase() === attachment.path.toLowerCase()
+						: resolve(attachment.requested) === attachment.path;
+				const shown = sameFile ? attachment.path : `${attachment.requested} → ${attachment.path}`;
+				const note = attachment.hiddenLocation ? ", from a hidden or app-data folder" : "";
+				return `- ${shown} (${formatBytes(attachment.bytes)}${note})`;
+			} catch (error) {
+				return `- ${asked} (refused: ${(error as Error).message})`;
 			}
 		})
 		.join("\n");
@@ -126,7 +132,7 @@ export function createListMessagesTool(run: RunHimalaya): ToolDefinition<typeof 
 	return {
 		name: "gmail_list_messages",
 		label: "Gmail: List Messages",
-		description: `List messages in the connected mailbox, one line each: id, read state, date, sender, recipient, subject. Read-only: nothing is marked read, moved, flagged or deleted. Newest first unless the query sorts. Defaults to INBOX, 20 messages (at most 50). \`query\` filters and sorts with himalaya's words (from, to, subject, body, flag, date, before, after, joined with and / or / not, then order by date desc), one word per value, e.g. \`not flag seen\` for unread. \`account\` (optional) picks the himalaya account to read, by name, e.g. \`company\`; the default account when left out. Message ids belong to an account and a folder: pass the same \`account\` and \`folder\` to gmail_read_message. ${UNTRUSTED_NOTE}`,
+		description: `List messages in the connected mailbox, one line each: id, read state, date, sender, recipient, subject. Read-only: nothing is marked read, moved, flagged or deleted. Newest first unless the query sorts. Defaults to INBOX, 20 messages (at most 50). \`query\` filters and sorts with himalaya's words (from, to, subject, body, flag, date, before, after, joined with and / or / not, then order by date desc); each filter takes one word, so put a phrase in double quotes, e.g. \`not flag seen\` for unread or \`subject "Virtual Office"\`. \`account\` (optional) picks the himalaya account to read, by name, e.g. \`company\`; the default account when left out. Message ids belong to an account and a folder: pass the same \`account\` and \`folder\` to gmail_read_message. ${UNTRUSTED_NOTE}`,
 		parameters: listMessagesSchema,
 		approval: "read",
 		async execute(_toolCallId: string, params: typeof listMessagesSchema.infer, signal: AbortSignal | undefined) {

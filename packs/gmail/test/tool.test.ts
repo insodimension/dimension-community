@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { type } from "arktype";
 import type { ProcessResult, RunHimalaya } from "../himalaya";
 import gmailExtension, { createSendEmailTool } from "../index";
+import { resolveAttachment } from "../message";
 
 function stubHimalaya(...answers: ProcessResult[]): { readonly run: RunHimalaya; readonly calls: string[][] } {
 	const calls: string[][] = [];
@@ -21,17 +22,32 @@ const SENDER: ProcessResult = { exitCode: 0, stdout: "From: Me <me@gmail.com>\n\
 const SENT: ProcessResult = { exitCode: 0, stdout: "Message successfully sent!\n", stderr: "" };
 const ARGS = { to: ["alex@example.com"], subject: "Hello", body: "Hi Alex" };
 
-const files = mkdtempSync(join(tmpdir(), "gmail-pack-attachments-"));
+const files = realpathSync.native(mkdtempSync(join(tmpdir(), "gmail-pack-attachments-")));
 afterAll(() => {
 	rmSync(files, { recursive: true, force: true });
 });
 
 function fileOfSize(name: string, bytes: number): string {
 	const path = join(files, name);
+	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, "");
 	truncateSync(path, bytes);
 	return path;
 }
+
+function refusalOf(raw: string): string {
+	try {
+		resolveAttachment(raw);
+	} catch (error) {
+		return (error as Error).message;
+	}
+	throw new Error(`resolveAttachment accepted ${JSON.stringify(raw)}, which it should have refused`);
+}
+
+const HIDDEN_NOTE = ", from a hidden or app-data folder";
+const sandboxNote = files.split(/[\\/]/).some(segment => segment.startsWith(".") || segment === "AppData")
+	? HIDDEN_NOTE
+	: "";
 
 const never = stubHimalaya().run;
 const tool = createSendEmailTool(never);
@@ -80,29 +96,90 @@ test("the card leaves out cc, the thread and the attachments when they are not u
 	expect(shown).not.toContain("Attachments:");
 });
 
-test("the card lists every attachment with its size, and says plainly when a file is missing or is not a file", () => {
+test("the card lists every attachment with its size, in the order given, and a padded path is the same file", () => {
 	const report = fileOfSize("Signed copy (final) 2026.pdf", 1500);
 	const note = fileOfSize("tiny.txt", 12);
 	const deck = fileOfSize("deck.pdf", 2_500_000);
-	const missing = join(files, "missing.pdf");
-	const shown = card({ ...ARGS, attachments: [report, note, deck, missing, files] });
-	const listing = [
-		"Attachments:",
-		`- ${report} (1.5 KB)`,
-		`- ${note} (12 B)`,
-		`- ${deck} (2.5 MB)`,
-		`- ${missing} (no file there)`,
-		`- ${files} (not a file)`,
-	].join("\n");
-	expect(shown).toContain(listing);
-	expect(card({ ...ARGS, attachments: [`  ${report}  `] })).toContain("(1.5 KB)");
+	const shown = card({ ...ARGS, attachments: [report, note, deck] });
+	expect(shown).toContain(
+		[
+			"Attachments:",
+			`- ${report} (1.5 KB${sandboxNote})`,
+			`- ${note} (12 B${sandboxNote})`,
+			`- ${deck} (2.5 MB${sandboxNote})`,
+		].join("\n"),
+	);
+	expect(card({ ...ARGS, attachments: [`  ${report}  `] })).toContain(`- ${report} (1.5 KB${sandboxNote})`);
+});
+
+test("the card warns when a file sits in a hidden or app-data folder, or is itself a dot file", () => {
+	const inDotFolder = fileOfSize(join(".config", "token.txt"), 12);
+	const inAppData = fileOfSize(join("AppData", "Local", "cache.bin"), 2000);
+	const dotFile = fileOfSize(".env", 7);
+	const shown = card({ ...ARGS, attachments: [inDotFolder, inAppData, dotFile] });
+	expect(shown).toContain(`- ${inDotFolder} (12 B${HIDDEN_NOTE})`);
+	expect(shown).toContain(`- ${inAppData} (2.0 KB${HIDDEN_NOTE})`);
+	expect(shown).toContain(`- ${dotFile} (7 B${HIDDEN_NOTE})`);
+});
+
+test("the card gives each refused path the same reason the send would stop with, and keeps the good files listed", () => {
+	const report = fileOfSize("kept.pdf", 1500);
+	const dollar = fileOfSize("cost$5.txt", 3);
+	const refused: [string, string][] = [
+		[join(files, "missing.pdf"), "There is no file at"],
+		[files, "is not a file"],
+		["report.pdf", "is not an absolute file path"],
+		["//server/share/report.pdf", "is a network or device path"],
+		[dollar, 'contains $, " or a backslash'],
+		[`${files}${sep}a:b.txt`, "names a stream inside a file"],
+	];
+	const lines = refused.map(([asked, reason]) => {
+		const message = refusalOf(asked);
+		expect(message).toContain(reason);
+		return `- ${asked} (refused: ${message})`;
+	});
+	const shown = card({ ...ARGS, attachments: [report, ...refused.map(([asked]) => asked)] });
+	expect(shown).toContain(["Attachments:", `- ${report} (1.5 KB${sandboxNote})`, ...lines].join("\n"));
 });
 
 test("attachments that are not a list of paths still draw a card instead of throwing", () => {
 	expect(card({ ...ARGS, attachments: "C:/Users/Me/report.pdf" })).not.toContain("Attachments:");
 	const shown = card({ ...ARGS, attachments: [42, null] });
-	expect(shown).toContain("- 42 (no file there)");
-	expect(shown).toContain("- null (no file there)");
+	expect(shown).toContain(`- 42 (refused: ${refusalOf("42")})`);
+	expect(shown).toContain(`- null (refused: ${refusalOf("null")})`);
+	expect(refusalOf("42")).toContain("is not an absolute file path");
+});
+
+test("the card shows where a link really leads, and nothing extra when a path only spells the same file differently", () => {
+	const real = fileOfSize(join("link-target", "doc.txt"), 12);
+	const link = join(files, "link-card");
+	symlinkSync(join(files, "link-target"), link, "junction");
+	const throughLink = join(link, "doc.txt");
+	expect(card({ ...ARGS, attachments: [throughLink] })).toContain(`- ${throughLink} → ${real} (12 B${sandboxNote})`);
+	const withDots = `${files}${sep}link-target${sep}..${sep}link-target${sep}doc.txt`;
+	const shown = card({ ...ARGS, attachments: [withDots] });
+	expect(shown).toContain(`- ${real} (12 B${sandboxNote})`);
+	expect(shown).not.toContain("→");
+});
+
+test.skipIf(process.platform !== "win32")("on Windows a path typed in other casing or with forward slashes is shown once, as the real path", () => {
+	const real = fileOfSize("Typed Casing.TXT", 12);
+	for (const asked of [real.toUpperCase(), real.toLowerCase(), real.replaceAll("\\", "/")]) {
+		const shown = card({ ...ARGS, attachments: [asked] });
+		expect(shown).toContain(`- ${real} (12 B${sandboxNote})`);
+		expect(shown).not.toContain("→");
+	}
+});
+
+test.skipIf(process.platform !== "win32")("a Windows device path to a real file draws a refusal, not a size: its text is refused before the file is looked up", () => {
+	const real = fileOfSize("device-card.txt", 12);
+	const asked = `\\\\?\\${real}`;
+	const message = refusalOf(asked);
+	expect(message).toContain("is a network or device path");
+	expect(message).not.toContain("leads to");
+	const shown = card({ ...ARGS, attachments: [asked] });
+	expect(shown).toContain(`- ${asked} (refused: ${message})`);
+	expect(shown).not.toContain("12 B");
 });
 
 test("the card names the account the mail goes out from, and says so plainly when it is the default one", () => {
